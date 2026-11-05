@@ -16,7 +16,7 @@ import (
 	"github.com/cplieger/access/ratelimit"
 )
 
-const wrongPassword = "wrong-horse-battery-8"
+const wrongPassword = "wrong-horse-battery-8" // gitleaks:allow (test fixture password)
 
 // fastParams is OWASP's cheapest row, so a test of hundreds of counted
 // attempts derives at the floor's cost.

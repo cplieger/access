@@ -24,7 +24,7 @@ import (
 const (
 	testOrigin   = "https://app.example.com"
 	testRPID     = "app.example.com"
-	testPassword = "correct-horse-battery-staple-9"
+	testPassword = "correct-horse-battery-staple-9" // gitleaks:allow (test fixture password)
 )
 
 // env is a Handler over a real Service on a MemStore, with what a test reads
