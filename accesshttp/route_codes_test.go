@@ -297,7 +297,7 @@ func publicScenarios() map[scenarioKey]scenario {
 
 		{"authLoginPassword", CodeInvalidCredentials}: {arrange: func(t *testing.T, e *env) *http.Request {
 			e.createUser(t, "alice", access.RoleUser)
-			return e.post(t, "authLoginPassword", jsonBody(t, LoginRequest{Username: "alice", Password: "wrong-horse-battery-staple-9"}))
+			return e.post(t, "authLoginPassword", jsonBody(t, LoginRequest{Username: "alice", Password: "wrong-horse-battery-staple-9"})) // gitleaks:allow (test fixture password)
 		}},
 		{"authLoginPassword", CodeRateLimited}: {opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
 			e.createUser(t, "alice", access.RoleUser)

@@ -18,7 +18,7 @@ import (
 	"github.com/cplieger/access/ratelimit"
 )
 
-const secretsPassword = "correct-horse-battery-staple-9"
+const secretsPassword = "correct-horse-battery-staple-9" // gitleaks:allow (test fixture password)
 
 // recordingAccount records, per operation, the Reveal of every Secret a
 // handler passes, and answers success; the guard still runs on the real
