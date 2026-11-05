@@ -1,0 +1,406 @@
+{
+  "CeremonyResponse": [
+    {
+      "name": "ceremony"
+    },
+    {
+      "name": "public_key"
+    }
+  ],
+  "InviteAcceptRequest": [
+    {
+      "name": "token"
+    },
+    {
+      "name": "username"
+    },
+    {
+      "name": "password"
+    }
+  ],
+  "InviteRequest": [
+    {
+      "name": "role"
+    },
+    {
+      "name": "hours",
+      "optional": true
+    }
+  ],
+  "KeyCreatedResponse": [
+    {
+      "name": "key"
+    },
+    {
+      "name": "details"
+    }
+  ],
+  "KeyView": [
+    {
+      "name": "created_at"
+    },
+    {
+      "name": "expires_at",
+      "optional": true
+    },
+    {
+      "name": "last_used_at",
+      "optional": true
+    },
+    {
+      "name": "owner",
+      "optional": true
+    },
+    {
+      "name": "label"
+    },
+    {
+      "name": "prefix"
+    },
+    {
+      "name": "suffix"
+    },
+    {
+      "name": "scopes"
+    },
+    {
+      "name": "id"
+    },
+    {
+      "name": "user_id"
+    },
+    {
+      "name": "parent_key_id",
+      "optional": true
+    }
+  ],
+  "LoginRequest": [
+    {
+      "name": "username"
+    },
+    {
+      "name": "password"
+    }
+  ],
+  "MeResponse": [
+    {
+      "name": "session"
+    },
+    {
+      "name": "methods"
+    },
+    {
+      "name": "user"
+    },
+    {
+      "name": "can_link_oidc"
+    }
+  ],
+  "NameRequest": [
+    {
+      "name": "name"
+    }
+  ],
+  "NewKeyRequest": [
+    {
+      "name": "label"
+    },
+    {
+      "name": "scopes"
+    },
+    {
+      "name": "expires_in_days",
+      "optional": true
+    }
+  ],
+  "NewUserRequest": [
+    {
+      "name": "username"
+    },
+    {
+      "name": "password",
+      "optional": true
+    },
+    {
+      "name": "role"
+    }
+  ],
+  "OIDCStartResponse": [
+    {
+      "name": "url"
+    }
+  ],
+  "PasskeyView": [
+    {
+      "name": "created_at"
+    },
+    {
+      "name": "last_used_at",
+      "optional": true
+    },
+    {
+      "name": "name"
+    },
+    {
+      "name": "rp_id"
+    },
+    {
+      "name": "id"
+    },
+    {
+      "name": "backup_eligible"
+    },
+    {
+      "name": "backed_up"
+    },
+    {
+      "name": "clone_warning",
+      "optional": true
+    }
+  ],
+  "PasswordChangeRequest": [
+    {
+      "name": "current_password",
+      "optional": true
+    },
+    {
+      "name": "password"
+    }
+  ],
+  "PasswordRemoveRequest": [
+    {
+      "name": "current_password"
+    }
+  ],
+  "PasswordRequest": [
+    {
+      "name": "password"
+    }
+  ],
+  "PendingLinkResponse": [
+    {
+      "name": "issuer"
+    },
+    {
+      "name": "username_hint",
+      "optional": true
+    },
+    {
+      "name": "email",
+      "optional": true
+    }
+  ],
+  "ProfileRequest": [
+    {
+      "name": "display_name"
+    }
+  ],
+  "RecoverPasswordRequest": [
+    {
+      "name": "password"
+    },
+    {
+      "name": "keep_sessions",
+      "optional": true
+    },
+    {
+      "name": "keep_keys",
+      "optional": true
+    }
+  ],
+  "RecoveryResponse": [
+    {
+      "name": "username"
+    },
+    {
+      "name": "methods"
+    }
+  ],
+  "RedirectRequest": [
+    {
+      "name": "redirect",
+      "optional": true
+    }
+  ],
+  "SessionView": [
+    {
+      "name": "created_at"
+    },
+    {
+      "name": "last_activity"
+    },
+    {
+      "name": "auth_time"
+    },
+    {
+      "name": "idle_deadline"
+    },
+    {
+      "name": "absolute_deadline"
+    },
+    {
+      "name": "id"
+    },
+    {
+      "name": "label",
+      "optional": true
+    },
+    {
+      "name": "user_agent",
+      "optional": true
+    },
+    {
+      "name": "last_ip",
+      "optional": true
+    },
+    {
+      "name": "method"
+    },
+    {
+      "name": "current"
+    }
+  ],
+  "SetupPasskeyBeginRequest": [
+    {
+      "name": "token",
+      "optional": true
+    },
+    {
+      "name": "username"
+    }
+  ],
+  "SetupPasswordRequest": [
+    {
+      "name": "token",
+      "optional": true
+    },
+    {
+      "name": "username"
+    },
+    {
+      "name": "password"
+    }
+  ],
+  "Signals": [
+    {
+      "name": "currentUserDetails"
+    },
+    {
+      "name": "allAcceptedCredentials"
+    }
+  ],
+  "SignedInResponse": [
+    {
+      "name": "session_id"
+    },
+    {
+      "name": "user"
+    },
+    {
+      "name": "clone_warning",
+      "optional": true
+    }
+  ],
+  "StateResponse": [
+    {
+      "name": "setup_required"
+    },
+    {
+      "name": "password_login"
+    },
+    {
+      "name": "passkeys"
+    },
+    {
+      "name": "oidc"
+    }
+  ],
+  "TTLRequest": [
+    {
+      "name": "hours",
+      "optional": true
+    }
+  ],
+  "TokenRequest": [
+    {
+      "name": "token"
+    }
+  ],
+  "TokenResponse": [
+    {
+      "name": "expires_at"
+    },
+    {
+      "name": "token"
+    }
+  ],
+  "TokenView": [
+    {
+      "name": "created_at"
+    },
+    {
+      "name": "expires_at"
+    },
+    {
+      "name": "purpose"
+    },
+    {
+      "name": "role",
+      "optional": true
+    },
+    {
+      "name": "issuer_lineage",
+      "optional": true
+    },
+    {
+      "name": "subject",
+      "optional": true
+    },
+    {
+      "name": "issued_by_key",
+      "optional": true
+    }
+  ],
+  "UserUpdateRequest": [
+    {
+      "name": "role",
+      "optional": true
+    },
+    {
+      "name": "enabled",
+      "optional": true
+    }
+  ],
+  "UserView": [
+    {
+      "name": "created_at"
+    },
+    {
+      "name": "methods",
+      "optional": true
+    },
+    {
+      "name": "username"
+    },
+    {
+      "name": "display_name",
+      "optional": true
+    },
+    {
+      "name": "role"
+    },
+    {
+      "name": "key_lineage",
+      "optional": true
+    },
+    {
+      "name": "id"
+    },
+    {
+      "name": "enabled"
+    },
+    {
+      "name": "oidc_linked"
+    }
+  ]
+}

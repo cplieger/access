@@ -1,0 +1,1 @@
+{"username":"alice","methods":{"locks":[{"method":"password","untrusted":true,"trusted":true}],"passkey_count":1,"password":true,"oidc_linked":true,"oidc_available":true,"passkeys_available":true,"password_login":true}}

@@ -1,0 +1,452 @@
+[
+  {
+    "request": null,
+    "response": "StateResponse",
+    "name": "authState",
+    "method": "GET",
+    "path": "{prefix}/state",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "SetupPasswordRequest",
+    "response": "SignedInResponse",
+    "name": "authSetupPassword",
+    "method": "POST",
+    "path": "{prefix}/setup/password",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "SetupPasskeyBeginRequest",
+    "response": "CeremonyResponse",
+    "name": "authSetupPasskeyBegin",
+    "method": "POST",
+    "path": "{prefix}/setup/passkey/begin",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "SignedInResponse",
+    "name": "authSetupPasskeyFinish",
+    "method": "POST",
+    "path": "{prefix}/setup/passkey/finish",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "LoginRequest",
+    "response": "SignedInResponse",
+    "name": "authLoginPassword",
+    "method": "POST",
+    "path": "{prefix}/login/password",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "CeremonyResponse",
+    "name": "authLoginPasskeyBegin",
+    "method": "POST",
+    "path": "{prefix}/login/passkey/begin",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "SignedInResponse",
+    "name": "authLoginPasskeyFinish",
+    "method": "POST",
+    "path": "{prefix}/login/passkey/finish",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": null,
+    "name": "authLogout",
+    "method": "POST",
+    "path": "{prefix}/logout",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": null,
+    "name": "authOIDCStartSignIn",
+    "method": "GET",
+    "path": "{oidcPrefix}/start/signin",
+    "kind": "redirect",
+    "array": false
+  },
+  {
+    "request": "RedirectRequest",
+    "response": "OIDCStartResponse",
+    "name": "authOIDCStartLink",
+    "method": "POST",
+    "path": "{oidcPrefix}/start/link",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "RedirectRequest",
+    "response": "OIDCStartResponse",
+    "name": "authOIDCStartStepUp",
+    "method": "POST",
+    "path": "{oidcPrefix}/start/stepup",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": null,
+    "name": "authOIDCCallback",
+    "method": "GET",
+    "path": "{oidcPrefix}/callback",
+    "kind": "redirect",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "PendingLinkResponse",
+    "name": "authOIDCPending",
+    "method": "GET",
+    "path": "{prefix}/oidc/pending",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "MeResponse",
+    "name": "authOIDCLinkPending",
+    "method": "POST",
+    "path": "{prefix}/oidc/link",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": null,
+    "name": "authOIDCUnlink",
+    "method": "DELETE",
+    "path": "{prefix}/oidc/link",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "TokenRequest",
+    "response": "RecoveryResponse",
+    "name": "authRecoveryStart",
+    "method": "POST",
+    "path": "{prefix}/recovery",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "RecoverPasswordRequest",
+    "response": null,
+    "name": "authRecoveryPassword",
+    "method": "POST",
+    "path": "{prefix}/recovery/password",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "CeremonyResponse",
+    "name": "authRecoveryPasskeyBegin",
+    "method": "POST",
+    "path": "{prefix}/recovery/passkey/begin",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": null,
+    "name": "authRecoveryPasskeyFinish",
+    "method": "POST",
+    "path": "{prefix}/recovery/passkey/finish",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "InviteAcceptRequest",
+    "response": "SignedInResponse",
+    "name": "authInviteAcceptPassword",
+    "method": "POST",
+    "path": "{prefix}/invite/password",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "MeResponse",
+    "name": "authMe",
+    "method": "GET",
+    "path": "{prefix}/me",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "ProfileRequest",
+    "response": "MeResponse",
+    "name": "authProfile",
+    "method": "PUT",
+    "path": "{prefix}/profile",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": null,
+    "name": "authMethodReenable",
+    "method": "POST",
+    "path": "{prefix}/methods/{method}/reenable",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "PasswordRequest",
+    "response": null,
+    "name": "authStepUpPassword",
+    "method": "POST",
+    "path": "{prefix}/stepup/password",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "CeremonyResponse",
+    "name": "authStepUpPasskeyBegin",
+    "method": "POST",
+    "path": "{prefix}/stepup/passkey/begin",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": null,
+    "name": "authStepUpPasskeyFinish",
+    "method": "POST",
+    "path": "{prefix}/stepup/passkey/finish",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "PasswordChangeRequest",
+    "response": null,
+    "name": "authPasswordSet",
+    "method": "PUT",
+    "path": "{prefix}/password",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "PasswordRemoveRequest",
+    "response": null,
+    "name": "authPasswordRemove",
+    "method": "DELETE",
+    "path": "{prefix}/password",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "PasskeyView",
+    "name": "authPasskeys",
+    "method": "GET",
+    "path": "{prefix}/passkeys",
+    "kind": "json",
+    "array": true
+  },
+  {
+    "request": null,
+    "response": "CeremonyResponse",
+    "name": "authPasskeyRegisterBegin",
+    "method": "POST",
+    "path": "{prefix}/passkeys/begin",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "PasskeyView",
+    "name": "authPasskeyRegisterFinish",
+    "method": "POST",
+    "path": "{prefix}/passkeys/finish",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "NameRequest",
+    "response": null,
+    "name": "authPasskeyRename",
+    "method": "PUT",
+    "path": "{prefix}/passkeys/{id}",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": null,
+    "name": "authPasskeyRemove",
+    "method": "DELETE",
+    "path": "{prefix}/passkeys/{id}",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "Signals",
+    "name": "authWebAuthnSignals",
+    "method": "GET",
+    "path": "{prefix}/webauthn/signals",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "SessionView",
+    "name": "authSessions",
+    "method": "GET",
+    "path": "{prefix}/sessions",
+    "kind": "json",
+    "array": true
+  },
+  {
+    "request": "NameRequest",
+    "response": null,
+    "name": "authSessionRename",
+    "method": "PUT",
+    "path": "{prefix}/sessions/{id}",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": null,
+    "name": "authSessionRevoke",
+    "method": "DELETE",
+    "path": "{prefix}/sessions/{id}",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": null,
+    "name": "authSessionsRevokeOthers",
+    "method": "POST",
+    "path": "{prefix}/sessions/revoke-others",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "KeyView",
+    "name": "authKeys",
+    "method": "GET",
+    "path": "{prefix}/apikeys",
+    "kind": "json",
+    "array": true
+  },
+  {
+    "request": "NewKeyRequest",
+    "response": "KeyCreatedResponse",
+    "name": "authKeyCreate",
+    "method": "POST",
+    "path": "{prefix}/apikeys",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": null,
+    "name": "authKeyRevoke",
+    "method": "DELETE",
+    "path": "{prefix}/apikeys/{id}",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "UserView",
+    "name": "authAdminUsers",
+    "method": "GET",
+    "path": "{prefix}/users",
+    "kind": "json",
+    "array": true
+  },
+  {
+    "request": "NewUserRequest",
+    "response": "UserView",
+    "name": "authAdminUserCreate",
+    "method": "POST",
+    "path": "{prefix}/users",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "UserUpdateRequest",
+    "response": "UserView",
+    "name": "authAdminUserUpdate",
+    "method": "PUT",
+    "path": "{prefix}/users/{id}",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": null,
+    "name": "authAdminUserDelete",
+    "method": "DELETE",
+    "path": "{prefix}/users/{id}",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "TTLRequest",
+    "response": "TokenResponse",
+    "name": "authAdminRecovery",
+    "method": "POST",
+    "path": "{prefix}/users/{id}/recovery",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "InviteRequest",
+    "response": "TokenResponse",
+    "name": "authAdminInvite",
+    "method": "POST",
+    "path": "{prefix}/invites",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "KeyView",
+    "name": "authAdminKeys",
+    "method": "GET",
+    "path": "{prefix}/admin/apikeys",
+    "kind": "json",
+    "array": true
+  },
+  {
+    "request": null,
+    "response": null,
+    "name": "authAdminKeyRevoke",
+    "method": "DELETE",
+    "path": "{prefix}/admin/apikeys/{id}",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "TokenView",
+    "name": "authAdminTokens",
+    "method": "GET",
+    "path": "{prefix}/tokens",
+    "kind": "json",
+    "array": true
+  }
+]

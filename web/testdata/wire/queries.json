@@ -1,0 +1,20 @@
+{
+  "authAdminUsers": [
+    "key"
+  ],
+  "authLoginPasskeyBegin": [
+    "mediation"
+  ],
+  "authOIDCCallback": [
+    "code",
+    "error",
+    "state"
+  ],
+  "authOIDCStartSignIn": [
+    "redirect"
+  ],
+  "authRecoveryPasskeyFinish": [
+    "keep_keys",
+    "keep_sessions"
+  ]
+}
