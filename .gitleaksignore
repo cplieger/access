@@ -1,0 +1,6 @@
+# Test fixture passwords in the import commit, before they carried
+# gitleaks:allow. They are not credentials.
+a5f8715548d885853a0ea0ff6a60256f7c7e2b80:accesshttp/helpers_test.go:generic-api-key:27
+a5f8715548d885853a0ea0ff6a60256f7c7e2b80:accesshttp/route_codes_test.go:generic-api-key:300
+a5f8715548d885853a0ea0ff6a60256f7c7e2b80:accesshttp/secrets_test.go:generic-api-key:21
+a5f8715548d885853a0ea0ff6a60256f7c7e2b80:account/password_login_helpers_test.go:generic-api-key:19
