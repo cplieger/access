@@ -209,7 +209,7 @@ func (s *Service) RecoverPasskeyFinish(ctx context.Context, p access.Principal, 
 		return err
 	}
 	return s.completeRecovery(ctx, p, opts, func(tx Tx, u *access.User) error {
-		_, addErr := s.addPasskey(ctx, tx, u.ID, cred)
+		_, addErr := s.addPasskey(ctx, tx, u.ID, cred, ErrDuplicateCredential)
 		return addErr
 	})
 }

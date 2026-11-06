@@ -188,11 +188,20 @@ func TestKeyNoAdminTarget(t *testing.T) {
 					return err
 				},
 			}
+			wantOp := map[string]account.Operation{
+				"CreateUser": account.OpCreateUser, "UpdateUser_promote": account.OpSetRole, "UpdateUser_demote": account.OpSetRole,
+				"UpdateUser_disable": account.OpSetEnabled, "UpdateUser_enable": account.OpSetEnabled,
+				"DeleteUser": account.OpDeleteUser, "CreateInvite": account.OpInvite, "IssueRecovery": account.OpIssueRecovery,
+			}
 			for name, op := range ops {
 				w.fs.resetRecord()
 				events := len(w.f.events.all())
-				if err := op(); reason(err) != "admin_target" {
+				err := op()
+				if reason(err) != "admin_target" {
 					t.Errorf("%s = %v, want admin_target", name, err)
+				}
+				if pe, ok := errors.AsType[*account.PolicyError](err); !ok || pe.Op != wantOp[name] {
+					t.Errorf("%s = %v, want a PolicyError naming %s", name, err, wantOp[name])
 				}
 				if ws := writesOf(w.fs); len(ws) != 0 {
 					t.Errorf("%s wrote %v", name, ws)

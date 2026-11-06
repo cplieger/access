@@ -85,7 +85,7 @@ func (s *Service) PasskeyLoginFinish(ctx context.Context, c Client, ceremonyID s
 				return ErrCeremonyInvalid
 			}
 			var verifyErr error
-			res, verifyErr = webauthn.CompleteLogin(ctx, rp, s.store, entry.ceremony, body)
+			res, verifyErr = webauthn.CompleteLogin(ctx, rp, ceremonyStore{s.store}, entry.ceremony, body)
 			return verifyErr
 		},
 		in: func(tx Tx) (*access.User, error) {
@@ -172,7 +172,7 @@ func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal,
 			return refuse(ErrSSOGoverned)
 		}
 		var addErr error
-		if pk, addErr = s.addPasskey(ctx, tx, u.ID, cred); addErr != nil {
+		if pk, addErr = s.addPasskey(ctx, tx, u.ID, cred, ErrDuplicateCredential); addErr != nil {
 			return addErr
 		}
 		var rotErr error
@@ -249,7 +249,7 @@ func (s *Service) StepUpPasskeyFinish(ctx context.Context, c Client, p access.Pr
 	if err != nil {
 		return Issued{}, err
 	}
-	if _, verifyErr := webauthn.CompleteReauthentication(ctx, rp, s.store, wu, entry.ceremony, body); verifyErr != nil {
+	if _, verifyErr := webauthn.CompleteReauthentication(ctx, rp, ceremonyStore{s.store}, wu, entry.ceremony, body); verifyErr != nil {
 		return Issued{}, verifyErr
 	}
 	var rot rotated
@@ -298,7 +298,7 @@ func (s *Service) RenamePasskey(ctx context.Context, p access.Principal, id int6
 		return err
 	}
 	if err := s.store.RenamePasskey(ctx, access.PasskeyRef{ID: id, UserID: p.User.ID}, name); err != nil {
-		return storeErr(err)
+		return answer(refusedBy(err, ErrNotFound))
 	}
 	return nil
 }
@@ -366,9 +366,40 @@ func currentRP(passkeys []access.PasskeyCredential, rp *webauthn.RelyingParty) [
 	return slices.DeleteFunc(passkeys, func(pk access.PasskeyCredential) bool { return pk.RPID != rp.ID() })
 }
 
+// ceremonyStore is the store a passkey sign-in reads and writes, each error
+// through withoutSentinel, since webauthn wraps it as access.ErrAuthBackend:
+// no store refusal is the ceremony's answer.
+type ceremonyStore struct{ store Store }
+
+var _ webauthn.Store = ceremonyStore{}
+
+func (c ceremonyStore) PasskeysByUserID(ctx context.Context, userID int64) ([]access.PasskeyCredential, error) {
+	pks, err := c.store.PasskeysByUserID(ctx, userID)
+	if err != nil {
+		return nil, withoutSentinel(err)
+	}
+	return pks, nil
+}
+
+func (c ceremonyStore) UpdatePasskeyAfterLogin(ctx context.Context, userID int64, credID []byte, upd access.PasskeyLoginUpdate) error {
+	if err := c.store.UpdatePasskeyAfterLogin(ctx, userID, credID, upd); err != nil {
+		return withoutSentinel(err)
+	}
+	return nil
+}
+
+func (c ceremonyStore) UserByWebAuthnHandle(ctx context.Context, handle []byte) (*access.User, bool, error) {
+	u, found, err := c.store.UserByWebAuthnHandle(ctx, handle)
+	if err != nil {
+		return nil, false, withoutSentinel(err)
+	}
+	return u, found, nil
+}
+
 // addPasskey stores the registered cred for userID inside tx, named by
 // webauthn.PasskeyFriendlyName against the passkeys the user holds there.
-func (s *Service) addPasskey(ctx context.Context, tx Tx, userID int64, cred *access.PasskeyCredential) (access.PasskeyCredential, error) {
+// refusals are the store refusals CreatePasskey answers (refusedBy).
+func (s *Service) addPasskey(ctx context.Context, tx Tx, userID int64, cred *access.PasskeyCredential, refusals ...error) (access.PasskeyCredential, error) {
 	held, err := tx.PasskeysByUserID(ctx, userID)
 	if err != nil {
 		return access.PasskeyCredential{}, err
@@ -381,7 +412,7 @@ func (s *Service) addPasskey(ctx context.Context, tx Tx, userID int64, cred *acc
 	pk.UserID, pk.CreatedAt = userID, s.now()
 	pk.Name = webauthn.PasskeyFriendlyName(pk.AAGUID, names)
 	if err := tx.CreatePasskey(ctx, &pk); err != nil {
-		return access.PasskeyCredential{}, err
+		return access.PasskeyCredential{}, refusedBy(err, refusals...)
 	}
 	return pk, nil
 }

@@ -7,7 +7,9 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/http/httptest"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -98,7 +100,7 @@ func TestFlowFrame(t *testing.T) {
 				},
 			}
 			if intent != IntentSignIn {
-				s.flow.SessionID = rapid.StringN(1, -1, -1).Draw(t, "sessionID")
+				s.flow.SessionID = rapid.StringN(1, -1, maxSessionIDBytes).Draw(t, "sessionID")
 				s.flow.UserID = rapid.Int64Range(1, math.MaxInt64).Draw(t, "userID")
 			}
 			got, ok := decodeFlowState(s.encode())
@@ -478,6 +480,71 @@ func TestProviderError(t *testing.T) {
 	for _, code := range []string{"login_required", "ACCESS_DENIED", "access_denied ", "x"} {
 		if got := providerError(code).Code; got != "other" {
 			t.Errorf("providerError(%q).Code = %q, want other", code, got)
+		}
+	}
+}
+
+// TestNewProviderRefusesAFlowThatCannotFit is NewProvider sizing the largest
+// flow before discovery: a client ID long enough that the flow payload
+// passes access.MaxSealPayload is ErrConfigInvalid matching
+// access.ErrSealTooLarge, the longest one that still seals is ErrConfigInvalid
+// for the cookie, whose name under the longest session cookie Name and
+// value pass 4096 bytes, and a short one reaches discovery.
+func TestNewProviderRefusesAFlowThatCannotFit(t *testing.T) {
+	t.Parallel()
+	newWith := func(clientID string) error {
+		_, err := NewProvider(t.Context(), Config{IssuerURL: "http://127.0.0.1:1", ClientID: clientID, RedirectURL: "http://127.0.0.1:1/cb"})
+		return err
+	}
+	if err := newWith("client"); !errors.Is(err, ErrDiscovery) {
+		t.Errorf("NewProvider with a short client ID = %v, want ErrDiscovery from the unreachable issuer", err)
+	}
+	if err := newWith(strings.Repeat("c", access.MaxSealPayload)); !errors.Is(err, ErrConfigInvalid) || !errors.Is(err, access.ErrSealTooLarge) {
+		t.Errorf("NewProvider with a %d-byte client ID = %v, want ErrConfigInvalid matching access.ErrSealTooLarge", access.MaxSealPayload, err)
+	}
+	longest := sort.Search(access.MaxSealPayload, func(n int) bool {
+		return errors.Is(newWith(strings.Repeat("c", n)), access.ErrSealTooLarge)
+	}) - 1
+	if err := newWith(strings.Repeat("c", longest)); !errors.Is(err, ErrConfigInvalid) || errors.Is(err, access.ErrSealTooLarge) {
+		t.Errorf("NewProvider with the longest client ID that seals (%d bytes) = %v, want ErrConfigInvalid for the cookie", longest, err)
+	}
+}
+
+// TestBeginFitsTheFlowNewProviderSized is Begin's largest flow, under the
+// longest client ID checkFlowFits accepts and the longest session cookie
+// Name, setting a flow cookie whose name and value fit 4096 bytes (RFC
+// 6265bis section 5.6).
+func TestBeginFitsTheFlowNewProviderSized(t *testing.T) {
+	t.Parallel()
+	configWith := func(clientID string) Config {
+		return Config{IssuerURL: "https://idp.example", ClientID: clientID, RedirectURL: "https://app.example/cb", FlowSealer: access.NewEphemeralSealer(), Now: time.Now}
+	}
+	longest := sort.Search(access.MaxSealPayload, func(n int) bool {
+		cfg := configWith(strings.Repeat("c", n))
+		return checkFlowFits(&cfg) != nil
+	}) - 1
+	p := &Provider{cfg: configWith(strings.Repeat("c", longest))}
+	session := access.CookieConfig{Name: strings.Repeat("n", access.MaxCookieNameBytes)}
+	req := BeginRequest{Intent: IntentStepUp, SessionID: strings.Repeat("f", maxSessionIDBytes), UserID: math.MaxInt64, Redirect: "/" + strings.Repeat("a", MaxRedirectBytes-1)}
+	rec := httptest.NewRecorder()
+	if _, err := p.Begin(rec, httptest.NewRequest(http.MethodPost, "https://app.example/auth/start", nil), session, req); err != nil {
+		t.Fatalf("Begin under a %d-byte client ID: %v", longest, err)
+	}
+	set := rec.Result().Cookies()
+	if len(set) != 1 {
+		t.Fatalf("Begin set %d cookies, want the flow cookie alone", len(set))
+	}
+	if n := len(set[0].Name) + len(set[0].Value); n > 4096 {
+		t.Errorf("Begin under a %d-byte client ID set a %d-byte flow cookie name and value, want at most 4096", longest, n)
+	}
+}
+
+func TestBeginRequestSessionIDBound(t *testing.T) {
+	t.Parallel()
+	for n, ok := range map[int]bool{64: true, 65: false} {
+		req := BeginRequest{Intent: IntentLink, SessionID: strings.Repeat("f", n), UserID: 1}
+		if err := req.check(); (err == nil) != ok || err != nil && !errors.Is(err, ErrFlowInvalid) {
+			t.Errorf("check() of a %d-byte session ID = %v, want ok %t, else ErrFlowInvalid", n, err, ok)
 		}
 	}
 }

@@ -123,16 +123,12 @@ func (r OriginRejection) clause() string {
 	}
 }
 
-// ParseOrigin parses a browser origin as a browser serializes it, typically the
-// value of an Origin request header. The error is a *[OriginError].
-//
-// The result is the value a ceremony's response is later compared against, so
-// the parser performs only the two normalizations that comparison also
-// performs, ASCII case folding and default-port elision, and refuses rather
-// than repairs everything else: a trailing dot, an empty label and a non-ASCII
-// host are all refused, and an IP literal is kept exactly as written. Repairing
-// any of those would move the failure from a clean refusal before the
-// authenticator prompt to a mismatch after it.
+// ParseOrigin parses a browser origin as a browser serializes it, typically an
+// Origin request header; the error is a *[OriginError]. It applies only the
+// normalizations the response comparison also applies (ASCII case folding,
+// default-port elision) and refuses a trailing dot, an empty label or a non-ASCII
+// host, keeping an IP literal as written. A repair would turn a refusal before
+// the authenticator prompt into a mismatch after it.
 func ParseOrigin(raw string) (Origin, error) {
 	o, err := parseOrigin(raw)
 	if err != nil {

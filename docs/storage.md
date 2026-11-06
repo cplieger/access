@@ -1,34 +1,106 @@
 # Implementing the store
 
-access stores nothing itself. This page lists the interfaces your storage layer implements and the rules each one must follow, for the developer writing that layer. Method signatures are on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access).
+access stores nothing itself. This page is for the developer writing the storage layer: the interfaces it implements, the transaction boundary, the 21 contract rules and what each costs. The [`account` package documentation](https://pkg.go.dev/github.com/cplieger/access/account) owns the rules' exact wording, and `accesstest.StoreContract` tests every one of them. Where this page and the package documentation differ, the package documentation is right. Method signatures are on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access).
 
 ## The interfaces
 
-A store implements `account.Store`: the roles `UserStore`, `SessionStore`, `PasskeyStore`, `KeyStore`, `TokenStore`, `AttributionStore` and `FailureStore`, grouped as `account.Tx` inside `Store.Update`, plus the `Sweeper` cleanups. The `account` package documentation states the contract rules every store keeps.
+A store implements `account.Store`: the roles `UserStore`, `SessionStore`, `PasskeyStore`, `KeyStore`, `TokenStore`, `AttributionStore` and `FailureStore`, grouped as `account.Tx` inside `Store.Update`, plus the `Sweeper` cleanups the background sweep calls.
 
-`access.New` takes an `AuthenticatorStore`, the read side it needs. That is session lookup and activity updates, user lookup by ID, API-key lookup by hash, and `TouchAPIKey`, which records a key's last use. An activity update or a touch for a session or key that does not exist writes nothing and returns nil, and so does one older than or equal to the stored time. `webauthn.CompleteLogin` takes a `webauthn.Store`, which an `account.Store` already satisfies.
+`access.New` takes an `AuthenticatorStore`, the read side it needs: session lookup and activity updates, user lookup by ID, API-key lookup by hash, and `TouchAPIKey`, which records a key's last use. `webauthn.CompleteLogin` takes a `webauthn.Store`. An `account.Store` satisfies both.
 
-## Rules every lookup follows
+## The transaction boundary
 
-A lookup by key returns `(value, found, err)`. Absence is `found == false` with a nil error, never a nil value with a nil error, and never an error. A list method is a search instead, and an empty slice with a nil error is its correct answer.
+Every `account` operation that changes more than one record runs wholly inside one `Store.Update`, so a backend error or a crash leaves the whole old state or the whole new state. The slow steps (Argon2, the breach check, the identity provider exchange, WebAuthn verification) run before `Update`, and the callback re-reads every record it decides on.
 
-A lookup returns a value the caller owns. Never hand back a pointer to state the store keeps changing. Never keep reading a pointer the caller passed to a write method after the method returns. The library reads a returned session after the lookup, while another request may update the same session. A shared pointer there is a data race that no lock inside the store can fix. A store that scans each query into a fresh value meets this rule already. An in-memory or caching store must copy.
+What your store must give that callback:
+
+- Two `Update`s never interleave, and a single-call write outside `Update` is ordered against them. A last-admin, last-method or user-count check inside one callback is then race-free with no lock in the app.
+- An `Update` commits every record it touches as one unit. A store that spreads records over several files publishes one `Update` with one atomic step: every file written into a new generation directory and published by one rename of a pointer, or every record kept in one file. Two renames in sequence break the rule, because a crash between them leaves half the writes durable.
+- The store may run a callback more than once, as bbolt's `db.Batch` does. `account` rebuilds its results and events on each run and emits nothing until `Update` returns nil, so only the last run's writes may remain.
+- The callback uses only its `tx`. Calling the store from inside it can deadlock on a single-writer backend such as bbolt, and `account` never does it. A `Tx` is not kept after the callback returns.
+
+### Your own rules inside the transaction
+
+`Rules.MethodUsable` receives the transaction the last-method count reads: the removal's own `Update` when the guard decides, the store itself for `RemovePassword`'s check before its `Update`, and the caller's `tx` in `Service.UsableMethods`. A store-backed app may type-assert that `tx` to its own transaction type and read its in-transaction view of its own settings. `MethodUsable` must not block, and must not call the store outside `tx`.
+
+`Config.OIDC()` and `Config.RP()` are read as published, not from the store. An app whose identity provider or relying party is a store record folds that record into `MethodUsable`. Before the app saves a settings change that could leave a user with no sign-in method (password sign-in off, the provider removed, the relying-party ID moved), it can call `Service.UsableMethods` inside its own `Update` with the new values in an `account.MethodState`, and refuse the change when a user would be left with nothing.
+
+## The contract rules
+
+Each rule below is one line of the package documentation's numbered list. `accesstest.StoreContract` runs a case per rule against your store.
+
+1. **Absence.** A lookup by key returns `(value, found, err)`. Absence is `found == false` with a nil error, never a nil value with a nil error and never an error. A list is a search, and an empty slice with a nil error is its correct empty answer.
+2. **Ownership.** A lookup returns values the caller owns, deep copies of every slice and pointer field included, and a write never keeps a pointer or slice it was given. The library reads a returned session while another request may update the same one, and a shared pointer there is a data race no lock inside the store can fix. A store that scans each query into a fresh value meets this already. An in-memory or caching store must copy.
+3. **Canonical usernames.** `account` passes `access.NormalizeUsername` output to `CreateUser`, `UpdateUser` and `UserByUsername`. The store indexes and compares those bytes exactly and never normalises again.
+4. **Uniqueness.** Usernames, OIDC identities, WebAuthn handles, credential IDs across all users, key hashes, session hashes and IDs, and token hashes are each unique, refused with the sentinel the package documentation names.
+5. **Atomicity.** `RotateSession`, `ConsumeOneTimeToken` and `CreateInitialUser` are linearisable, `CreatePasskey`'s uniqueness holds under concurrent inserts, and `DeleteUser`'s cascade is one transaction. Inside `Update`, an error or a panic leaves no write visible and a nil return makes every write visible at once and durably.
+6. **Scoping.** A user-scoped operation whose owner does not match affects nothing and reports `ErrNotFound`, as for an absent row, so there is no ownership oracle. A zero or partial ref matches nothing.
+7. **Expiry at consume.** `ConsumeOneTimeToken` refuses an expired token at the call, not only in a sweep, and `LiveOneTimeTokens` never lists one.
+8. **Flags.** `UpdatePasskeyAfterLogin` writes the flags octet, the derived booleans, the sign count, the clone warning and `LastUsedAt` together. A stored credential always carries `RawFlags` (see [passkey flags](#webauthn-handles-and-passkey-flags)).
+9. **Handle probing.** `UserByWebAuthnHandle` answers an unknown handle and a malformed one the same way.
+10. **Durability.** A write or an `Update` returns nil only once its new state is durable. On an error `account` treats the operation as not done, answers a backend error and fires no event. A medium that can publish before it confirms durability, such as a file store whose directory sync fails after its rename, returns an error there.
+11. **Time.** Stored `time.Time` values round-trip to at least millisecond precision.
+12. **Errors.** Caller faults use only the `account` sentinels. Everything else is a backend error, and `context.Canceled` and `context.DeadlineExceeded` pass through wrapped.
+13. **Concurrency.** The store is safe for concurrent use, and no goroutine outlives a call.
+14. **Cleanup.** See [Sessions](#sessions).
+15. **Failure records.** `PutAuthFailure` upserts, `DeleteAuthFailures` and `PruneAuthFailures` remove exactly what they name, `UnreportedLocks` returns exactly the records whose `Unreported` is set, and a record's `Name` is opaque. The store's prune and `account`'s admission together bound the records held. The bound starts at 2 × users records of user names plus 2 × 20,000 records of other names. It adds the records of users deleted since the last sweep. It also adds at most one trusted record per counted method for each user deleted within the 180-day device-cookie lifetime.
+16. **Reads never wait on a write's fsync or rename.** A read sees the last committed state. A file store publishes snapshots through an atomic pointer and holds its writer mutex only among writers. bbolt meets this, except while a commit grows the file past its memory mapping.
+17. **IDs and lineage.** See [IDs and key lineage](#ids-and-key-lineage).
+18. **Context.** Every store call receives the context of the caller it serves, unchanged except for added values, so a store may read a value the app put on a request's context. The background sweep serves no caller and runs on the service context.
+19. **Writes to an absent row.** `UpdateSessionActivity`, `TouchAPIKey` and `UpdatePasskeyAfterLogin` never create a row. The first two write nothing and return nil, and the third returns `ErrNotFound`. A verification that read a session just before it was revoked or rotated can therefore never bring it back.
+20. **Fidelity.** Every exported field of every record reads back as it was written, apart from what the store assigns, and a persistent store keeps that across a close and a reopen. `accesstest.ContractConfig.Reopen` lets the contract check the reopen.
+21. **Activity never moves backwards.** `UpdateSessionActivity` stores `LastActivity` and `LastIP` only when the new time is after the stored one, and `TouchAPIKey` does the same for `LastUsedAt`. `RotateSession` keeps the stored `LastActivity` and `LastIP` when the stored `LastActivity` is after `Next`'s, in the same conditional write, so no write path lowers either. Two requests can reach the store in the reverse order of their clocks, and a late, older write would otherwise move a session's idle deadline back. Implement it as one conditional update (`UPDATE … WHERE last_activity < ?`, or a compare inside the write transaction or writer mutex), never as a read followed by a separate write.
+
+## Hashes
+
+Every hash the store keeps or looks up by is an `access.Hash`: password hashes, session, key and token hashes, and the expected hash of a session rotation. Persist and index `h.Reveal()` on disk, rebuild the value with `access.NewHash(stored)` when you read it, and treat two hashes as the same key exactly when their texts are equal. An index held in memory keys on `h.Key()`, the comparable `access.HashKey`, so no map key holds a hash text. `Hash` has no decoder, its JSON encoding is only the redacted rendering, and the record fields carry `json:"-"`, so map each field by hand rather than encoding a record with `encoding/json`.
 
 ## Usernames
 
-`account` passes `NormalizeUsername` output to `CreateUser`, `UpdateUser` and `UserByUsername`. The store indexes and compares those bytes exactly and never normalises again. A store that called `NormalizeUsername` itself drops the call.
+`account` passes `NormalizeUsername` output to the store (rule 3). A store that called `NormalizeUsername` itself drops the call.
 
 ## WebAuthn handles and passkey flags
 
-`User.WebAuthnHandle` is the value an authenticator stores to identify the account. Set it with `GenerateWebAuthnHandle`, 64 random bytes, when you create the account, and never change it, because every registered passkey is bound to it. Persist it and index it, because a discoverable login arrives carrying only the handle.
+`User.WebAuthnHandle` is the value an authenticator stores to identify the account. Set it with `GenerateWebAuthnHandle` when you create the account and never change it, because every registered passkey is bound to it. Persist and index it, because a discoverable login arrives carrying only the handle. `UserByWebAuthnHandle` answers an unknown and a malformed handle alike (rule 9), so someone who is not signed in cannot probe which handles exist.
 
-`UserByWebAuthnHandle` must answer the same way for an unknown handle and a malformed one. A different answer would let someone who is not signed in probe which handles exist.
-
-`PasskeyCredential.RawFlags` is required, and it is the only flag field the library reads. The four booleans beside it are a decoded view for display. A store that drops the octet restores each passkey with every flag false. Every login with a synced passkey then fails, because the stored backup-eligible flag no longer matches what the authenticator reports. A store that kept only the booleans can rebuild the octet. User presence is bit 0, user verification bit 2, backup eligibility bit 3 and backup state bit 4.
+`PasskeyCredential.RawFlags` is required, and it is the only flag field the library reads. The four booleans beside it are a decoded view for display. A store that drops the octet restores each passkey with every flag false, and every login with a synced passkey then fails, because the stored backup-eligible flag no longer matches what the authenticator reports. A store that kept only the booleans can rebuild the octet: user presence is bit 0, user verification bit 2, backup eligibility bit 3 and backup state bit 4.
 
 ## Sessions
 
-`CleanupExpiredSessions` deletes at most `limit` of the sessions `ValidateSession` refuses and returns the ref of each one it deleted. `account` never passes a zero `SessionTimeouts` or a `limit` below 1, and a store may refuse either.
+`CleanupExpiredSessions` deletes at most `limit` of the sessions `access.ValidateSession` refuses at `now`, in one atomic step, and returns exactly the `access.SessionRef` of each session it deleted, none twice. `account` groups each call's refs into one `EventSessionsExpired` per user, in ascending `UserID`, each event's session IDs sorted. A ref the store did not delete, or a deleted session it does not return, reaches the app's listeners as a wrong event. Call `access.ValidateSession` or `access.SessionDeadlines` instead of restating the timeout rule. A store whose commit may re-run its batch builds the result afresh on each run and returns only the last run's. A call that returns fewer than `limit` refs has left no session `access.ValidateSession` refuses at `now`, because the sweep stops calling at that answer. A call that returns an error is treated as having deleted nothing, and `account` emits nothing for it. `account` never passes a zero `SessionTimeouts` or a `limit` below 1, and a store may refuse either.
+
+## IDs and key lineage
+
+A store assigns `User.ID`, `Key.ID`, `PasskeyCredential.ID` and `KeyAttribution.ID` as positive integers no larger than 2^53 − 1, so every ID survives a JSON number in a browser.
+
+A user or key ID, once assigned, is never assigned again for the life of the store, after its row's deletion and across restarts included. Key lineage paths, attribution records and the issuer fields of sessions and tokens outlive the keys they name, so a reused ID would let a later key stand in for a revoked one. Keep a counter that a delete never lowers and that commits with the row. bbolt's per-bucket `NextSequence` does this, because the sequence commits with the row and only `SetSequence` lowers it. An allocator that takes the highest live ID plus one, or the lowest free ID, fails the contract: delete the newest key, and its ID goes to the next one.
+
+`CreateAPIKey` appends the ID it assigns to the `Key.LineageIDs` it was given, so a stored key's path ends with its own ID. Key attributions are append-only: each new `KeyAttribution.ID` is larger than every one before it, so ascending ID is append order whatever the clock says. A store never updates an attribution and deletes one only in `DeleteUser`'s cascade. An attribution path names a key that may since have been deleted, for the life of the store, which is what lets `Service.Users` with `UserFilter.AttributedToKey` (accesshttp's `GET /users?key=`) find the accounts a revoked key created.
+
+## Write cost
+
+Every password attempt commits its failure count before the password is verified, so each attempt costs one durable `Update`. Two consequences follow for a store author.
+
+- A hash permit is held, idle, through that count's commit. On bbolt under `db.Batch` the commit waits up to the 10 ms default batch delay (`go.etcd.io/bbolt@v1.5.0/db.go:198`), plus the fsync.
+- A store that rewrites one whole file on every commit pays for its size. A JSON file store holding rule 15's bound of failure records is about 2.8 MB, so attempts spaced just past one publish each cost one publish, about 100 MB/s of rewrites. A whole-file store must group concurrent `Update`s into shared commits.
+
+The library half, measured on `accesstest.MemStore` and on a fault store that groups concurrent `Update`s behind a 10 ms window:
+
+```sh
+go test -run '^$' -bench 'BenchmarkCountCommit|BenchmarkPruneAtBound' -benchtime 20x ./account/
+```
+
+Measured on an Intel Core i5-13500 limited to 4 of its 20 logical CPUs (`GOMAXPROCS=4`), Linux 6.12, go1.27.2, on a shared host, with the hasher at OWASP's cheapest Argon2id row (m = 7168 KiB, t = 5, p = 1) and a budget of four derivations:
+
+| Benchmark | Time per op | Time in `Update` | Commits per attempt |
+| --- | --- | --- | --- |
+| `CountCommit`, ungrouped, 1 caller | 17.6 ms | 0.08 % | 1.00 |
+| `CountCommit`, ungrouped, 16 callers | 11.4 ms | 0.09 % | 1.00 |
+| `CountCommit`, grouped, 1 caller | 38.8 ms | 27 % | 1.00 |
+| `CountCommit`, grouped, 16 callers | 21.0 ms | 4.7 % | 0.65 |
+| `PruneAtBound`, 1,000 users | 54.7 ms per sweep | | |
+
+In memory the count commit is under 0.1 % of an attempt, which the derivation dominates. Behind a 10 ms batch window a lone caller waits out the whole window, and concurrent callers share commits. `PruneAtBound` is one failure-sweep `Update` over rule 15's bound for 1,000 users. Your store's own figures depend on its medium, so measure them with your store in place of `MemStore`.
 
 ## The test store
 
@@ -38,3 +110,5 @@ A lookup returns a value the caller owns. Never hand back a pointer to state the
 store := accesstest.NewMemStore()
 err := store.CreateUser(ctx, &access.User{Username: "test", Role: access.RoleUser, Enabled: true})
 ```
+
+Run `accesstest.StoreContract` against your own store to check every rule above.

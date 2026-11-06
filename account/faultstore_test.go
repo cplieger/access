@@ -44,8 +44,9 @@ type faultStore struct {
 	published    atomic.Int64           // durable commits; a grouped one counts once
 	updateNanos  atomic.Int64           // wall time spent inside Update calls
 	failNamed    atomic.Pointer[string] // the next write of this name inside an Update fails
-	failApplied  atomic.Bool            // the next Update publishes, then returns errFault
-	honourCtx    atomic.Bool            // an Update whose ctx has ended returns its error
+	refuseNamed  atomic.Pointer[namedRefusal]
+	failApplied  atomic.Bool // the next Update publishes, then returns errFault
+	honourCtx    atomic.Bool // an Update whose ctx has ended returns its error
 	grouping     atomic.Bool
 	msTimes      atomic.Bool // PutAuthFailure keeps LockedAt to the millisecond, as rule 11 allows
 }
@@ -84,6 +85,18 @@ func (s *faultStore) failWrite(n int) {
 // failCall makes the next write named name inside an Update return
 // errFault.
 func (s *faultStore) failCall(name string) { s.failNamed.Store(&name) }
+
+// namedRefusal is the error the next write of name returns.
+type namedRefusal struct {
+	err  error
+	name string
+}
+
+// refuseCall makes the next write named name, inside an Update or a single
+// call, return err.
+func (s *faultStore) refuseCall(name string, err error) {
+	s.refuseNamed.Store(&namedRefusal{name: name, err: err})
+}
 
 // panicWrite makes the nth write inside an Update, counted from now, panic.
 func (s *faultStore) panicWrite(n int) {
@@ -176,6 +189,9 @@ func (s *faultStore) read(ctx context.Context, update int, name, arg string) {
 
 func (s *faultStore) write(ctx context.Context, update int, name, arg string) error {
 	s.record(ctx, update, name, arg)
+	if r := s.refuseNamed.Load(); r != nil && r.name == name && s.refuseNamed.CompareAndSwap(r, nil) {
+		return r.err
+	}
 	if update == 0 {
 		return nil
 	}

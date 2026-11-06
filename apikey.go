@@ -9,8 +9,9 @@ import (
 // ErrInvalidAPIKey is returned when an API key cannot be verified.
 var ErrInvalidAPIKey = errors.New("invalid API key")
 
-// ErrInvalidKeyPrefix is returned by [GenerateAPIKey] for a prefix that is
-// not 0 to 16 ASCII letters, digits or underscores.
+// ErrInvalidKeyPrefix is returned by [ValidateKeyPrefix] and
+// [GenerateAPIKey] for a prefix that is not 0 to 16 ASCII letters, digits or
+// underscores.
 var ErrInvalidKeyPrefix = errors.New("access: API key prefix must match ^[A-Za-z0-9_]{0,16}$")
 
 // maxKeyPrefixLength is the longest prefix [GenerateAPIKey] accepts.
@@ -41,8 +42,8 @@ type GeneratedKey struct {
 // of the key, and so of its display parts, is ASCII; any other prefix is
 // [ErrInvalidKeyPrefix].
 func GenerateAPIKey(prefix string) (GeneratedKey, error) {
-	if !validKeyPrefix(prefix) {
-		return GeneratedKey{}, ErrInvalidKeyPrefix
+	if err := ValidateKeyPrefix(prefix); err != nil {
+		return GeneratedKey{}, err
 	}
 	plaintext := prefix + generateRandomHex(apiKeyRandomBytes)
 	return GeneratedKey{
@@ -51,6 +52,15 @@ func GenerateAPIKey(prefix string) (GeneratedKey, error) {
 		DisplayPrefix: plaintext[:keyDisplayPrefixLength],
 		DisplaySuffix: plaintext[len(plaintext)-4:],
 	}, nil
+}
+
+// ValidateKeyPrefix returns nil for a prefix [GenerateAPIKey] accepts, and
+// [ErrInvalidKeyPrefix] otherwise.
+func ValidateKeyPrefix(prefix string) error {
+	if !validKeyPrefix(prefix) {
+		return ErrInvalidKeyPrefix
+	}
+	return nil
 }
 
 // parseAPIKey reports whether key has the shape [GenerateAPIKey] returns: a

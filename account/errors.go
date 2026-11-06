@@ -8,8 +8,9 @@ import (
 	"github.com/cplieger/access"
 )
 
-// Errors a store returns for caller faults. Any other error is a backend
-// failure, and account wraps it as access.ErrAuthBackend.
+// Errors a store returns for caller faults. An operation answers one only
+// where it is that operation's own refusal; any other store error is a
+// backend failure, which account wraps as access.ErrAuthBackend.
 var (
 	ErrNotFound            = errors.New("account: not found")
 	ErrUsernameTaken       = errors.New("account: username taken")
@@ -208,18 +209,38 @@ func backend(err error) error {
 	return fmt.Errorf("%w: %w", access.ErrAuthBackend, err)
 }
 
-// storeSentinels are the caller faults a store reports, which pass through.
+// storeSentinels are the caller faults a store reports.
 var storeSentinels = []error{ErrNotFound, ErrUsernameTaken, ErrOIDCIdentityTaken, ErrDuplicateCredential, ErrSetupComplete}
 
-// storeErr passes a store sentinel through and wraps any other store error
-// as access.ErrAuthBackend.
+// storeErr wraps a store error as access.ErrAuthBackend, a store sentinel
+// reduced to its text (withoutSentinel).
 func storeErr(err error) error {
+	return backend(withoutSentinel(err))
+}
+
+// withoutSentinel is err with a store sentinel reduced to its text. A
+// sentinel that reaches it is one refusedBy did not declare, so the store
+// broke its contract there: the answer never matches a refusal the
+// operation does not give.
+func withoutSentinel(err error) error {
 	for _, sentinel := range storeSentinels {
 		if errors.Is(err, sentinel) {
-			return err
+			return errors.New(err.Error())
 		}
 	}
-	return backend(err)
+	return err
+}
+
+// refusedBy is a store call's error as the operation's own refusal when it
+// matches one of sentinels, the store refusals that call answers; any other
+// error comes back as it is, for storeErr.
+func refusedBy(err error, sentinels ...error) error {
+	for _, sentinel := range sentinels {
+		if errors.Is(err, sentinel) {
+			return refuse(err)
+		}
+	}
+	return err
 }
 
 // refusal carries an operation's own answer out of an Update callback, so

@@ -6,7 +6,7 @@ No go-webauthn type appears in this package's exported API, so your code runs a 
 
 ## The relying party
 
-`webauthn.New` takes an `RPConfig` with an `ID`, a `DisplayName` and optional `Origins`, and returns a `*RelyingParty`. `ID()` reports the relying-party ID it was built with.
+`webauthn.New` takes an `RPConfig` with an `ID`, a `DisplayName`, and optionally `Origins` or `AllowSubdomains`, and returns a `*RelyingParty`. `ID()` reports the relying-party ID it was built with.
 
 `ValidateRPID` decides whether a value can be a relying-party ID. It accepts a lowercase domain name with no scheme, port or path. It refuses an IP address, and a single label other than `localhost`. Every refusal matches `ErrIllegalRPID`. `New` refuses an empty ID, and an illegal one with the same `ErrIllegalRPID` error.
 
@@ -20,19 +20,25 @@ A ceremony that carries no bound origin fails at the finish step with `ErrCeremo
 
 ## The origin policy
 
-`CheckOrigin` runs at every `Begin` call and applies three rules.
+`CheckOrigin` runs at every `Begin` call. It applies the host rule first, then the origin set.
+
+The host rule:
 
 - The scheme must be `https`, or `http` for `localhost`, the specification's exception.
 - The host must be a domain, never an IP address, equal to the relying-party ID or a subdomain of it. The subdomain test requires the separating dot, so `evilexample.com` is not under `example.com`.
-- Any port is accepted at the start, because a relying party behind a proxy cannot know the port a browser uses to reach it. The port is carried into the bound origin, so a response declaring another port fails at the finish step.
+- The port is carried into the bound origin, so a response declaring another port fails at the finish step.
 
-## Narrowing the policy with Origins
+The origin set, which an origin that passes the host rule must also be in:
 
-`RPConfig.Origins` is optional and only narrows the policy. Leave it nil to let the policy decide alone. When you set it, an origin must pass the policy and also equal one listed origin on scheme, host and port, compared in `ParseOrigin`'s form. A miss is `RejectNotAllowlisted`.
+- By default, with `Origins` empty and `AllowSubdomains` false, only the relying party's exact origin: `https://<ID>` on the default port, plus `http://localhost` when the ID is `localhost`. A sibling host under the ID, or the ID on another port, is refused with `RejectNotAllowlisted`. The [WebAuthn specification](https://www.w3.org/TR/webauthn-3/#sctn-validating-origin) recommends restricting origins this way.
+- `Origins` replaces that set with your exact list, described below.
+- `AllowSubdomains` widens it to every subdomain and port of the ID. Use it only when every host under the ID is yours, because any of them that can run script can then start a ceremony for your accounts.
 
-`New` parses every entry. When an entry is not a usable origin, or the policy itself would refuse it, `New` refuses the relying party with an `*OriginsError`. The error names the entry, its index and the reason. A list therefore never widens the policy.
+## Listing origins with Origins
 
-When hosts you do not control share your registrable domain, set the list to your own origin. A browser lets any host under the relying-party ID request an assertion, and the list is the only check at this layer that refuses one from a sibling host.
+Set `RPConfig.Origins` when your service answers on an origin other than `https://<ID>`, such as a subdomain, a non-default port behind a proxy, or several hosts. An origin must then pass the host rule and also equal one listed origin on scheme, host and port, compared in `ParseOrigin`'s form. A miss is `RejectNotAllowlisted`.
+
+`New` parses every entry. When an entry is not a usable origin, or the host rule would refuse it, `New` refuses the relying party with an `*OriginsError` that names the entry, its index and the reason, so a list never widens the host rule. `New` also refuses `Origins` and `AllowSubdomains` set together.
 
 ## Running a ceremony
 
@@ -40,7 +46,7 @@ When hosts you do not control share your registrable domain, set the list to you
 
 Each `Begin` call returns two values. `CredentialCreation` or `CredentialAssertion` holds the options for the browser, restating the WebAuthn dictionaries of sections 5.4 and 5.5, and serializes exactly as the browser expects. `Ceremony` is an opaque handle you keep between the two halves. Evict it from your ceremony store at `Ceremony.Expires()`, so the deadline the authenticator received and the one your store enforces stay the same.
 
-`FinishRegistration` returns an `access.PasskeyCredential` ready to store. Set its `Name` first with `PasskeyFriendlyName`. It names a known passkey provider from its AAGUID, such as `Chrome on Mac`, and numbers the rest, such as `Passkey 2`. It never repeats one of the user's existing names.
+`FinishRegistration` returns an `access.PasskeyCredential` ready to store. Set its `Name` first with `PasskeyFriendlyName`. It names a known passkey provider from its AAGUID, such as `Chrome on Mac`, numbered from the second passkey of that provider (`Chrome on Mac 2`), and numbers every other passkey, from `Passkey 1`. It never repeats one of the user's existing names.
 
 The provider names come from the [passkey authenticator AAGUID list](https://github.com/passkeydeveloper/passkey-authenticator-aaguids), which the passkey developer community maintains. The package ships a copy, adds three authenticators the list lacks, and reads nothing over the network. Dependency-update pull requests refresh the copy, and each copy names the commit of the list it came from. `AuthenticatorName` returns the name for an AAGUID, and `false` when the AAGUID is unknown.
 

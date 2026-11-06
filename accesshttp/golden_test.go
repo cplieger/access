@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/doc"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"maps"
 	"net/http"
@@ -12,6 +16,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -182,10 +187,16 @@ type wireRoute struct {
 
 // wireField is one JSON key of a wire type in types.json; Optional is a
 // key the encoder may leave out (omitempty, omitzero) or send as null (a
-// pointer).
+// pointer). Values are the constants of a field whose type is a named
+// string type with constants, and Open says the type also takes values
+// outside them; Fields are the keys of a struct-typed field, or of each
+// element of a struct list.
 type wireField struct {
-	Name     string `json:"name"`
-	Optional bool   `json:"optional,omitempty"`
+	Name     string      `json:"name"`
+	Values   []string    `json:"values,omitempty"`
+	Fields   []wireField `json:"fields,omitempty"`
+	Optional bool        `json:"optional,omitempty"`
+	Open     bool        `json:"open,omitempty"`
 }
 
 func wireTypeName(typ reflect.Type) *string {
@@ -234,7 +245,104 @@ func wireFields(t *testing.T, typ reflect.Type) []wireField {
 			name = f.Name
 		}
 		optional := f.Type.Kind() == reflect.Pointer || slices.Contains(strings.Split(opts, ","), "omitempty") || slices.Contains(strings.Split(opts, ","), "omitzero")
-		out = append(out, wireField{Name: name, Optional: optional})
+		row := wireField{Name: name, Optional: optional}
+		elem := f.Type
+		for elem.Kind() == reflect.Pointer || elem.Kind() == reflect.Slice {
+			elem = elem.Elem()
+		}
+		switch {
+		case elem.Kind() == reflect.String && elem.Name() != "string":
+			row.Values, row.Open = enumValues(t, elem)
+		case elem.Kind() == reflect.Struct && elem != reflect.TypeFor[time.Time]():
+			row.Fields = wireFields(t, elem)
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// openDoc is the phrase a type's doc comment carries when the type takes
+// values outside its constants (types.go's Method, Role, TokenPurpose).
+const openDoc = "are app-defined"
+
+// enumValues is the values of typ's constants, read from the non-test files
+// of the package that declares it, in declaration order, and whether typ's
+// doc comment says values outside them are app-defined; nil for a named
+// string type with no constants (any string, such as webauthn.Base64URL).
+func enumValues(t *testing.T, typ reflect.Type) (values []string, open bool) {
+	t.Helper()
+	const module = "github.com/cplieger/access"
+	rel, ok := strings.CutPrefix(typ.PkgPath(), module)
+	if !ok {
+		t.Fatalf("%v is declared outside %s", typ, module)
+	}
+	names, err := filepath.Glob(filepath.Join("..", filepath.FromSlash(rel), "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	var files []*ast.File
+	for _, name := range names {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, parser.ParseComments|parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, f)
+		for _, d := range f.Decls {
+			if g, ok := d.(*ast.GenDecl); ok && g.Tok == token.CONST {
+				values = append(values, typedConsts(t, fset, g, typ.Name())...)
+			}
+		}
+	}
+	if len(values) == 0 {
+		return nil, false
+	}
+	pkg, err := doc.NewFromFiles(fset, files, typ.PkgPath(), doc.PreserveAST)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dt := range pkg.Types {
+		if dt.Name == typ.Name() {
+			return values, strings.Contains(strings.Join(strings.Fields(dt.Doc), " "), openDoc)
+		}
+	}
+	t.Fatalf("%v has no type declaration in %s", typ, rel)
+	return nil, false
+}
+
+// typedConsts is the values of g's constants of type typeName. A spec with
+// neither type nor values repeats the previous spec's (the Go spec's
+// implicit repetition), so its names are typeName's constants too.
+func typedConsts(t *testing.T, fset *token.FileSet, g *ast.GenDecl, typeName string) []string {
+	t.Helper()
+	var typ ast.Expr
+	var exprs []ast.Expr
+	var out []string
+	for _, s := range g.Specs {
+		spec := s.(*ast.ValueSpec)
+		if spec.Type != nil || len(spec.Values) > 0 {
+			typ, exprs = spec.Type, spec.Values
+		}
+		if id, ok := typ.(*ast.Ident); !ok || id.Name != typeName {
+			continue
+		}
+		for i, name := range spec.Names {
+			if i >= len(exprs) {
+				t.Fatalf("%s: %s has no value", fset.Position(name.Pos()), name.Name)
+			}
+			lit, ok := exprs[i].(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				t.Fatalf("%s: a %s constant that is not a string literal", fset.Position(name.Pos()), typeName)
+			}
+			v, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, v)
+		}
 	}
 	return out
 }
@@ -511,5 +619,40 @@ func zeroFields(v reflect.Value, path string) []string {
 			return []string{path}
 		}
 		return nil
+	}
+}
+
+// Method, Role and TokenPurpose take app-defined values (types.go), so
+// types.json must mark them open or the TypeScript client refuses a server's
+// real answer.
+func TestGoldenWireOpenEnums(t *testing.T) {
+	for _, typ := range []reflect.Type{reflect.TypeFor[access.Method](), reflect.TypeFor[access.Role](), reflect.TypeFor[access.TokenPurpose]()} {
+		t.Run(typ.Name(), func(t *testing.T) {
+			values, open := enumValues(t, typ)
+			if len(values) == 0 || !open {
+				t.Errorf("enumValues(%v) = %q, open %t; want its constants, open (its doc comment must say values outside them %s)", typ, values, open, openDoc)
+			}
+		})
+	}
+}
+
+func TestTypedConstsImplicitRepetition(t *testing.T) {
+	const src = `package p
+const (
+	A M = "a"
+	B
+	C, D M = "c", "d"
+	E, F
+	G = "untyped"
+	H
+)`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "p.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := typedConsts(t, fset, f.Decls[0].(*ast.GenDecl), "M")
+	if want := []string{"a", "a", "c", "d", "c", "d"}; !slices.Equal(got, want) {
+		t.Errorf("typedConsts = %q, want %q", got, want)
 	}
 }

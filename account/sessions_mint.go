@@ -216,10 +216,11 @@ func (s *Service) writeSession(ctx context.Context, r Rules, op *sessionOp, d *d
 
 // createUser creates user through create, which assigns its ID, and deletes
 // the new name's failure records in the same Update, so failures typed
-// against the name before it was a user lock nothing.
-func (s *Service) createUser(ctx context.Context, tx Tx, user *access.User, create func(context.Context, *access.User) error) error {
+// against the name before it was a user lock nothing. refusals are the
+// store refusals create answers (refusedBy).
+func (s *Service) createUser(ctx context.Context, tx Tx, user *access.User, create func(context.Context, *access.User) error, refusals ...error) error {
 	if err := create(ctx, user); err != nil {
-		return err
+		return refusedBy(err, refusals...)
 	}
 	return tx.DeleteAuthFailures(ctx, failureName(s.failureMAC(), user.Username), countedMethods)
 }

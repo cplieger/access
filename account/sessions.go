@@ -53,7 +53,7 @@ func (s *Service) RenameSession(ctx context.Context, p access.Principal, in Sess
 		return err
 	}
 	if err := s.store.UpdateSessionLabel(ctx, access.SessionRef{ID: in.ID, UserID: p.User.ID}, in.Label); err != nil {
-		return storeErr(err)
+		return answer(refusedBy(err, ErrNotFound))
 	}
 	return nil
 }
@@ -70,7 +70,7 @@ func (s *Service) RevokeSession(ctx context.Context, p access.Principal, id stri
 	}
 	userID := p.User.ID
 	err := s.update(ctx, func(tx Tx) error {
-		return tx.DeleteSession(ctx, access.SessionRef{ID: id, UserID: userID})
+		return refusedBy(tx.DeleteSession(ctx, access.SessionRef{ID: id, UserID: userID}), ErrNotFound)
 	})
 	if err != nil {
 		return err

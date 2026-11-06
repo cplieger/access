@@ -181,7 +181,7 @@ func (s *Service) createFirstUser(ctx context.Context, tx Tx, spend access.Hash,
 	if err := s.policy.Authorize(ctx, Decision{Op: OpCreateUser, Via: ViaSetup, Role: access.RoleAdmin}); err != nil {
 		return refuse(err)
 	}
-	return s.createUser(ctx, tx, user, tx.CreateInitialUser)
+	return s.createUser(ctx, tx, user, tx.CreateInitialUser, ErrSetupComplete)
 }
 
 // spendSetupToken consumes the setup token whose hash is spend inside the

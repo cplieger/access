@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -188,6 +189,7 @@ func TestErrorCodeTable(t *testing.T) {
 			want string
 		}{
 			{&ratelimit.RefusedError{Dimension: "ip", RetryAfter: 1500 * time.Millisecond}, "2"},
+			{&ratelimit.RefusedError{Dimension: "ip"}, ""},
 			{access.ErrHashBusy, "1"},
 			{access.ErrAuthBackend, "5"},
 			{access.ErrBreachCheckUnavailable, "5"},
@@ -200,6 +202,20 @@ func TestErrorCodeTable(t *testing.T) {
 			if w.Header().Get("Retry-After") != tc.want || w.Code != got.Status || w.Body.Len() != 0 {
 				t.Errorf("%v: Retry-After %q status %d body %q, want %q, the writer's status and no body", tc.err, w.Header().Get("Retry-After"), w.Code, w.Body.String(), tc.want)
 			}
+		}
+	})
+	t.Run("password_length_detail", func(t *testing.T) {
+		for _, err := range []error{
+			&access.PasswordError{Reason: access.PasswordCommon},
+			wrapped(&access.PasswordError{Reason: access.PasswordBreached}),
+		} {
+			if e, _ := classify(err, ceremonyNone); strings.ContainsAny(e.Detail, "0123456789") {
+				t.Errorf("classify(%v).Detail = %q, want no length bounds for an error with none", err, e.Detail)
+			}
+		}
+		err := &access.PasswordError{Reason: access.PasswordTooShort, Min: 15, Max: 128}
+		if e, _ := classify(err, ceremonyNone); !strings.Contains(e.Detail, "15") || !strings.Contains(e.Detail, "128") {
+			t.Errorf("classify(%v).Detail = %q, want both bounds 15 and 128", err, e.Detail)
 		}
 	})
 }

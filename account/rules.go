@@ -122,7 +122,7 @@ const (
 	minRecentAuth     = time.Minute
 )
 
-// Validate checks every bounded field and Provisioning. The error is a
+// Validate checks every bounded field, KeyPrefix and Provisioning. The error is a
 // *RulesError naming the field, which matches ErrRulesInvalid.
 func (r Rules) Validate() error { //nolint:gocritic // hugeParam: Rules is the value Config.Rules returns
 	switch {
@@ -132,6 +132,9 @@ func (r Rules) Validate() error { //nolint:gocritic // hugeParam: Rules is the v
 		return &RulesError{Field: "Breach", Reason: "unknown mode"}
 	case r.MaxSessionsPerUser < 0:
 		return &RulesError{Field: "MaxSessionsPerUser", Reason: "negative"}
+	}
+	if err := access.ValidateKeyPrefix(r.KeyPrefix); err != nil {
+		return &RulesError{Field: "KeyPrefix", Reason: err.Error(), Err: err}
 	}
 	if err := r.Provisioning.Validate(); err != nil {
 		return &RulesError{Field: "Provisioning", Reason: err.Error(), Err: err}

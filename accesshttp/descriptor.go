@@ -81,8 +81,8 @@ func (p pathID) key() string {
 	return "id"
 }
 
-// routeSpec is one route's static facts; descriptors derives each
-// Descriptor from it and the Account's scopes.
+// routeSpec is one route's static facts; descriptor derives its Descriptor
+// under a DescriptorConfig.
 type routeSpec struct {
 	request, query, response reflect.Type
 	serve                    serveFunc
@@ -258,18 +258,18 @@ func (s *routeSpec) transportCodes() []Code {
 	return codes
 }
 
-// classFor resolves a spec's class and scope against the Account's scopes.
-func (s *routeSpec) classFor(sc scopes) (class Class, scope string) {
+// classFor resolves a spec's class and scope against dc's scopes.
+func (s *routeSpec) classFor(dc *DescriptorConfig) (class Class, scope string) {
 	switch s.scope {
 	case scopeAdmin:
-		if sc.admin != "" {
-			return ClassKeyScope, sc.admin
+		if dc.AdminScope != "" {
+			return ClassKeyScope, dc.AdminScope
 		}
 		return ClassSession, ""
 	case scopeUsers:
-		return permission(sc.users)
+		return permission(dc.ManageUsersScope)
 	case scopeKeys:
-		return permission(sc.keys)
+		return permission(dc.CreateKeysScope)
 	default:
 		return s.class, ""
 	}
@@ -282,15 +282,31 @@ func permission(scope string) (class Class, required string) {
 	return ClassRecentAuth, ""
 }
 
-// scopes are the Account's three key scopes, read once at New.
-type scopes struct{ admin, users, keys string }
+// DescriptorConfig is what a route's Path and access level read: Config's
+// two prefixes and account.Config's three key scopes.
+type DescriptorConfig struct {
+	Prefix           string
+	OIDCPrefix       string
+	AdminScope       string
+	ManageUsersScope string
+	CreateKeysScope  string
+}
 
-// descriptor builds s's Descriptor under the handler's prefixes and scopes.
-func (s *routeSpec) descriptor(prefix, oidcPrefix string, sc scopes) Descriptor {
-	class, scope := s.classFor(sc)
-	path := prefix + s.path
+// Descriptors returns every route's Descriptor, in Routes order, with no
+// Account: for the same values it equals the Descriptors of New's Routes.
+func Descriptors(cfg DescriptorConfig) []Descriptor { //nolint:gocritic // hugeParam: as New
+	out := make([]Descriptor, len(specs))
+	for i := range specs {
+		out[i] = specs[i].descriptor(&cfg)
+	}
+	return out
+}
+
+func (s *routeSpec) descriptor(dc *DescriptorConfig) Descriptor {
+	class, scope := s.classFor(dc)
+	path := dc.Prefix + s.path
 	if s.oidc {
-		path = oidcPrefix + s.path
+		path = dc.OIDCPrefix + s.path
 	}
 	kind := KindJSON
 	if s.redirect {

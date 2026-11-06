@@ -175,7 +175,7 @@ func (s *Service) acceptIn(ctx context.Context, tx Tx, token access.Secret, acc 
 		}
 	}
 	acc.user.Role = tok.Role
-	if createErr := s.createUser(ctx, tx, &acc.user, tx.CreateUser); createErr != nil {
+	if createErr := s.createUser(ctx, tx, &acc.user, tx.CreateUser, ErrUsernameTaken); createErr != nil {
 		return createErr
 	}
 	if acc.issuer == nil {

@@ -21,6 +21,7 @@ const (
 )
 
 // Role is a typed string identifying a user's authorization level.
+// Values outside the constants are app-defined.
 type Role string
 
 // User role constants.
@@ -51,16 +52,11 @@ type User struct {
 	Role         Role         `json:"role"`
 	OIDC         OIDCIdentity `json:"-"`
 
-	// WebAuthnHandle is the account's WebAuthn user handle, the value an
-	// authenticator stores to identify this account and returns during a
-	// discoverable login. Set it with [GenerateWebAuthnHandle] when creating an
-	// account, and never change it afterwards: every passkey already registered
-	// is bound to the value in force at its registration, so a new handle
-	// orphans all of them.
-	//
-	// It is deliberately not derived from any other field. An authenticator may
-	// reveal a handle without verifying the user, so it must say nothing about
-	// who the account belongs to.
+	// WebAuthnHandle is the account's WebAuthn user handle, which an
+	// authenticator returns during a discoverable login. Set it once with
+	// [GenerateWebAuthnHandle] and never change it: every registered passkey is
+	// bound to it, so a new handle orphans them all. It is derived from no other
+	// field, because an authenticator may reveal it without verifying the user.
 	WebAuthnHandle []byte `json:"-"`
 
 	ID      int64 `json:"id"`
@@ -173,15 +169,10 @@ type PasskeyCredential struct {
 	CreatedAt  time.Time `json:"created_at"`
 	LastUsedAt time.Time `json:"last_used_at,omitzero"`
 
-	// Discoverable is the credProps.rk extension output: whether the credential
-	// is client-side discoverable. Nil means the client did not report it, which
-	// is distinct from a reported false. This library requests credProps on
-	// every registration and refuses a credential reported as non-discoverable,
-	// so a stored false should not occur; nil is normal.
-	//
-	// It is the only extension output stored, because it is the only one this
-	// library requests. An extension that is not requested is not reported, so a
-	// field for it would be permanently zero.
+	// Discoverable is the credProps.rk extension output; nil means the client
+	// did not report it. Registration requests credProps and refuses a reported
+	// false, so a stored false should not occur. It is the only extension output
+	// stored, because credProps is the only extension requested.
 	Discoverable *bool `json:"-"`
 
 	// AttestationType is the attestation type conveyed at registration

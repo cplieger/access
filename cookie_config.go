@@ -279,14 +279,19 @@ func validSameSite(s http.SameSite) bool {
 	}
 }
 
+// MaxCookieNameBytes is the longest [CookieConfig.Name] Validate accepts:
+// far above any real name, it leaves a derived cookie room for a sealed
+// value in a browser's 4096 bytes (RFC 6265 §6.1).
+const MaxCookieNameBytes = 64
+
 // Validate refuses a configuration browsers would drop or mis-scope: an
 // undeclared Posture; a name, Path or Domain [http.Cookie.Valid] refuses; a
-// Name with a __Secure-, __Host- or __Http- prefix in any letter case; a Path
-// not starting with "/" or over 1024 bytes; a SameSite other than unset, Lax
-// or Strict; a nil HTTPS under PosturePerRequest; and, under a __Host- posture
-// (all but PostureInsecureLAN), a Domain or a Path other than "/". The
-// 4096-byte limit on name and value together stays the caller's, because
-// Validate never sees the value. [New] calls it.
+// Name over [MaxCookieNameBytes], or with a __Secure-, __Host- or __Http-
+// prefix in any letter case; a Path not starting with "/" or over 1024
+// bytes; a SameSite other than unset, Lax or Strict; a nil HTTPS under
+// PosturePerRequest; and, under a __Host- posture (all but
+// PostureInsecureLAN), a Domain or a Path other than "/". The 4096 bytes of
+// name and value stay the caller's, since Validate never sees the value.
 func (c *CookieConfig) Validate() error {
 	if c.Posture < PostureSecure || c.Posture > PosturePerRequest {
 		return fmt.Errorf("access: CookieConfig.Posture %v is not a declared posture", c.Posture)
@@ -294,6 +299,9 @@ func (c *CookieConfig) Validate() error {
 	probe := &http.Cookie{Name: c.EffectiveName(), Value: "x", Path: c.Path, Domain: c.Domain} //nolint:gosec // G124: a validation probe, never sent
 	if err := probe.Valid(); err != nil {
 		return fmt.Errorf("access: CookieConfig is not a valid cookie: %w", err)
+	}
+	if len(c.baseName()) > MaxCookieNameBytes {
+		return fmt.Errorf("access: CookieConfig.Name must be at most %d bytes", MaxCookieNameBytes)
 	}
 	// Browsers match the prefixes in any case and drop such a cookie sent without
 	// Secure (draft-ietf-httpbis-layered-cookies §5.4.3).
