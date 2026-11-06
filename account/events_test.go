@@ -1,6 +1,7 @@
 package account_test
 
 import (
+	"log/slog"
 	"reflect"
 	"slices"
 	"testing"
@@ -55,4 +56,35 @@ func withAt(evs []account.Event) []account.Event {
 		evs[i].At = time.Unix(1, 0)
 	}
 	return evs
+}
+
+func TestOnEventPanicRecovered(t *testing.T) {
+	t.Parallel()
+	const msg = "account: OnEvent panicked"
+	for _, tc := range []struct {
+		name    string
+		hook    func(account.Event)
+		wantErr int
+	}{
+		{"panicking_hook", func(account.Event) { panic("hook") }, 1},
+		{"quiet_hook", func(account.Event) {}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := newPW(t, pwOptions{edit: func(c *account.Config) { c.OnEvent = tc.hook }})
+			passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
+			if _, err := p.login(t.Context(), localClient, "alice", goodPassword); err != nil {
+				t.Fatalf("PasswordLogin: %v", err)
+			}
+			n := 0
+			for _, r := range p.logs.Records("") {
+				if r.Level == slog.LevelError && r.Message == msg {
+					n++
+				}
+			}
+			if n != tc.wantErr {
+				t.Errorf("%q ERROR lines = %d, want %d", msg, n, tc.wantErr)
+			}
+		})
+	}
 }

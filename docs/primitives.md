@@ -2,6 +2,18 @@
 
 This page explains each building block of the root package and of the `oidc` package. For each one it says what it does, what it returns and the rule a caller must keep. Read it when you write the handlers around them. Signatures are on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access), and the defaults are on the [Configuration](configuration.md) page.
 
+## Secrets and hashes
+
+Every plaintext credential the library hands you is an `access.Secret`, and every stored credential hash is an `access.Hash`. Every way of printing either one, the `fmt` verbs, `slog`, `encoding/json` and reflection-based printers included, shows `[redacted]` or masked bytes, so neither leaks into a log by accident. Only `Reveal()` returns the text: call it at the boundary where the value leaves your process, a cookie, a response body or a store column. `NewSecret` and `NewHash` wrap a string you decoded yourself.
+
+`==` does not compile on either type. Compare hashes with `Hash.Equal`, which runs in constant time, and key an in-memory map on `Hash.Key()`. Neither type has a JSON or text decoder, so a struct holding one cannot be filled from untrusted JSON by accident.
+
+## Sealed cookies
+
+`access.Sealer` seals short payloads with AES-256-GCM under a ring of 1 to 4 keys of `SealerKeySize` bytes. The first key seals and every key opens, so you rotate by putting the new key first and keeping the old one second until every cookie it sealed has expired. `GenerateSealerKey` returns a new key to persist, and `NewSealer` builds the ring from your persisted keys. `NewEphemeralSealer` uses one random key that nobody else holds, so what it sealed cannot be opened after a restart. Each `Seal` binds a purpose and an expiry, and `Open` refuses a payload sealed for another purpose or past its expiry.
+
+The OIDC flow cookie, the pending-link cookie and the trusted-device cookie are sealed this way. Pass a sealer over persisted keys where a restart should keep them working: `ratelimit.Config.Devices` requires one.
+
 ## Passwords
 
 `Hasher.Hash` hashes a password with Argon2id and returns its PHC string as an `access.Hash`. `Hasher.Verify` checks a password against a stored hash and also reports whether the hash was made with other parameters, and `Hasher.NeedsRehash` reports that alone. `Hash` and `Verify` wait for room in the hasher's `HashBudget`, which bounds the memory all Argon2 work sharing it holds at once, and return `ErrHashBusy` when none comes in time.
@@ -12,7 +24,7 @@ When the username does not exist, verify the password against the zero `access.H
 
 `ValidatePasswordContext` refuses a password that is a forbidden word or the username, or a simple variant of one: the word with digits, spaces or punctuation around it, or the word repeated. It compares the whole password after the NFC normalization `Hasher` applies and case folding, so every Unicode spelling of the same characters gets the same answer. A password that only contains the word is accepted, as is the word wrapped in symbols such as emoji. The username counts when it has four characters or more. A word or username made only of digits, spaces and punctuation refuses only a password equal to it. A refusal is a `*PasswordError` with `Reason` `contains_forbidden_word` or `contains_username`. Its zero `PasswordContext` checks nothing at all, so fill every field the account has.
 
-`ValidatePasswordCommon` refuses a password on the package's built-in list of common passwords, with a `*PasswordError` whose `Reason` is `common`. The list holds the most frequent passwords of 15 characters or more from [SecLists](https://github.com/danielmiessler/SecLists) (MIT), and the comparison ignores case and Unicode normalization. It ships inside the package and reads nothing over the network; the copy names the SecLists commit it came from and is regenerated with `go generate`.
+`ValidatePasswordCommon` refuses a password on the package's built-in list of common passwords, with a `*PasswordError` whose `Reason` is `common`. The list holds the most frequent passwords of 15 characters or more from [SecLists](https://github.com/danielmiessler/SecLists) (MIT), and the comparison runs after NFC normalization and case folding, so neither case nor Unicode spelling changes the answer. It ships inside the package and reads nothing over the network; the copy names the SecLists commit it came from and is regenerated with `go generate`.
 
 `CheckBreachedPassword` asks the Have I Been Pwned Passwords API whether a password appears in a breach. It sends only the first five characters of the SHA-1 hash of the password's NFC form, the k-anonymity range request, so two spellings of the same characters get the same answer. It never logs and never follows a redirect. When it gets no answer, because the client is nil, the request times out or fails, the status is not 200 or the body is over 2 MiB, it returns an error wrapping `ErrBreachCheckUnavailable` whose text names the cause. When your context was cancelled or its deadline passed, the error also wraps `context.Canceled` or `context.DeadlineExceeded`, so `errors.Is` tells a walk-away from an unavailable service. Your policy decides whether to accept the password.
 

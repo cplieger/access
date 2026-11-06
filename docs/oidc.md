@@ -16,20 +16,20 @@ A `Provider` does not change after `NewProvider` returns. When the settings chan
 
 `Config.FlowSealer` seals the cookie. When you leave it nil, each `Provider` gets its own ephemeral sealer, and a flow begun under one provider value cannot finish under a rebuilt one. If you rebuild providers while flows are in flight, pass one sealer that outlives them.
 
+`NewProvider` sizes the cookie before discovery. It refuses with `ErrConfigInvalid` a configuration whose largest flow the sealer refuses as too large, which also matches `access.ErrSealTooLarge`. It also refuses a configuration whose largest sealed flow plus the longest flow-cookie name a valid session cookie config gives passes 4096 bytes, the most a browser keeps. A long issuer, client ID or redirect URL is what pushes a flow past these limits, so `Begin` never refuses a flow for its size.
+
 `Begin` refuses each of these before it sets any cookie:
 
 - a `Redirect` longer than `MaxRedirectBytes`, which is 512, with `ErrRedirectTooLong`
 - a session cookie config that fails `Validate`, with `ErrConfigInvalid`
 - a `BeginRequest` whose intent is unknown, or whose session ID and user ID do not fit its intent, with `ErrFlowInvalid`. A sign-in carries neither, and a link or step-up needs both, with a positive user ID.
 - a link or step-up request whose `Sec-Fetch-Site` header is present and is not `same-origin`, with `ErrFlowInvalid`
-- a flow that the sealer refuses as too large, with `ErrConfigInvalid`, which also matches `access.ErrSealTooLarge`
-- a flow cookie whose name and value together pass 4096 bytes, the most a browser keeps, with `ErrConfigInvalid`
 
 The redirect goes through `access.ValidateRedirectURI`, so an unsafe path becomes `/`.
 
 ## The callback
 
-Decode the callback's query once and pass its `state`, `code` and `error` values to `Provider.Finish` as an `oidc.Callback`. `Finish` never reads the request URL. It reads and clears the flow cookie on every outcome, then takes these steps:
+Decode the callback's query once and pass its `state`, `code` and `error` values to `Provider.Finish` as an `oidc.Callback`. `Finish` never reads the request URL. A session cookie config that fails `Validate` is `ErrConfigInvalid`, with no cookie set. Past that check, `Finish` reads and clears the flow cookie on every outcome, then takes these steps:
 
 1. It opens the cookie. A cookie that is missing, forged, expired or duplicated fails with `ErrFlowInvalid`, and so does one sealed by a provider with another issuer, client ID or redirect URL.
 2. It compares the state, and only then reads the provider's error. That error becomes a `*ProviderError` whose `Code` is one of the RFC 6749 codes or `other`. The `error_description` is never read.

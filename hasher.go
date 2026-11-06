@@ -110,8 +110,9 @@ const defaultHashBudgetWait = 2 * time.Second
 // zero Params is [DefaultArgon2Params], a nil Budget is a private budget of
 // 4 × [HashCost](Params), and a zero Wait is 2 s.
 type HasherConfig struct {
-	// Budget is shared by every Hasher in the process, so one bound covers
-	// them all.
+	// Budget bounds this Hasher's derivations. Passing the same budget to
+	// every Hasher makes one bound cover them all; a nil Budget gets a
+	// private one.
 	Budget *HashBudget
 	// Params are the Argon2id parameters.
 	Params Argon2Params

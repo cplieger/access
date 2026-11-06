@@ -110,8 +110,9 @@ type Provider struct {
 	cfg      Config
 }
 
-// NewProvider validates cfg, runs discovery through cfg's client and
-// refuses, with ErrDiscovery naming the field, a document whose
+// NewProvider validates cfg, refuses with ErrConfigInvalid one whose
+// largest flow would not seal or fit its cookie, runs discovery through
+// cfg's client and refuses, with ErrDiscovery naming the field, a document whose
 // authorization_endpoint, token_endpoint or jwks_uri is not an absolute
 // https URL with a host and without userinfo; http is accepted only on a
 // loopback host while the issuer itself is a loopback http URL.
@@ -129,6 +130,9 @@ func NewProvider(ctx context.Context, cfg Config) (*Provider, error) { //nolint:
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
+	}
+	if err := checkFlowFits(&cfg); err != nil {
+		return nil, err
 	}
 	discovered, err := gooidc.NewProvider(gooidc.ClientContext(ctx, cfg.HTTPClient), cfg.IssuerURL)
 	if err != nil {

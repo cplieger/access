@@ -75,7 +75,7 @@ func (s *Service) createUserIn(ctx context.Context, tx Tx, a Actor, user *access
 	if ruleErr := ua.target(OpCreateUser, user.Role); ruleErr != nil {
 		return ruleErr
 	}
-	if err := s.createUser(ctx, tx, user, tx.CreateUser); err != nil {
+	if err := s.createUser(ctx, tx, user, tx.CreateUser, ErrUsernameTaken); err != nil {
 		return err
 	}
 	if ua.key == nil {

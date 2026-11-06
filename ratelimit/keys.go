@@ -7,8 +7,9 @@ import (
 	"github.com/cplieger/access"
 )
 
-// maxRawAccountKey caps how much of a refused username its key reads, so a
-// refused input of any length hashes in bounded time.
+// maxRawAccountKey caps the raw bytes of a refused username that its key's
+// digest covers, and nothing more: AccountKey still passes the whole input to
+// access.NormalizeUsername first.
 const maxRawAccountKey = 256
 
 // IP is the IP dimension's key. Build it with IPKey; the zero value is the

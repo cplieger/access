@@ -924,18 +924,17 @@ func flowConfig(t *testing.T) {
 	t.Run("long_cookie_name", func(t *testing.T) {
 		t.Parallel()
 		b := newBrowser(t)
-		b.session.Name = strings.Repeat("n", 4000)
+		b.session.Name = strings.Repeat("n", access.MaxCookieNameBytes+1)
 		_, set, err := b.begin(p, signIn, nil)
-		if !errors.Is(err, oidc.ErrConfigInvalid) || errors.Is(err, access.ErrSealTooLarge) || len(set) != 0 {
-			t.Errorf("Begin = %v with %d cookies, want ErrConfigInvalid for the cookie size and none", err, len(set))
+		if !errors.Is(err, oidc.ErrConfigInvalid) || len(set) != 0 {
+			t.Errorf("Begin with a %d-byte session cookie Name = %v with %d cookies, want ErrConfigInvalid and none", len(b.session.Name), err, len(set))
 		}
 	})
 	t.Run("seal_too_large", func(t *testing.T) {
 		t.Parallel()
 		big := accesstest.NewIdP(t, accesstest.IdPOptions{ClientID: strings.Repeat("c", 3<<10)})
-		_, set, err := newBrowser(t).begin(mustProvider(t, configFor(big)), signIn, nil)
-		if !errors.Is(err, oidc.ErrConfigInvalid) || !errors.Is(err, access.ErrSealTooLarge) || len(set) != 0 {
-			t.Errorf("Begin = %v with %d cookies, want ErrConfigInvalid wrapping access.ErrSealTooLarge and none", err, len(set))
+		if _, err := oidc.NewProvider(t.Context(), configFor(big)); !errors.Is(err, oidc.ErrConfigInvalid) || !errors.Is(err, access.ErrSealTooLarge) {
+			t.Errorf("NewProvider = %v, want ErrConfigInvalid wrapping access.ErrSealTooLarge", err)
 		}
 	})
 	t.Run("bounds_round_trip", func(t *testing.T) {

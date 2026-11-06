@@ -116,16 +116,13 @@ type PasswordContext struct {
 	ForbiddenWords []string
 }
 
-// ValidatePasswordContext refuses a password that is one of pctx's words or
-// a simple derivative of one, with a *[PasswordError] whose Reason is
-// "contains_forbidden_word" or "contains_username". It compares in the form
-// [Hasher] hashes, case-folded (NFC, then full case folding), so every input
-// form of one password gets one verdict: the password equal to the word, or
-// the password's core equal to the word's core once or repeated, with only
-// digits, spaces and punctuation between the copies. A core is the folded
-// text with its leading and trailing digits, spaces and punctuation stripped,
-// so the word plus digits matches. A password that only contains a word is
-// accepted (NIST SP 800-63B-4 §3.1.1.2).
+// ValidatePasswordContext refuses a password that is one of pctx's words or a
+// simple derivative of one, with a *[PasswordError] whose Reason is
+// "contains_forbidden_word" or "contains_username". Both sides are NFC and
+// case-folded, as [Hasher] hashes. It refuses the word itself, or the word's
+// core once or repeated with only digits, spaces and punctuation around and
+// between the copies (a core strips those from both ends). A password that only
+// contains a word is accepted (NIST SP 800-63B-4 §3.1.1.2).
 func ValidatePasswordContext(password string, pctx PasswordContext) error {
 	folded := blocklist.Fold(password)
 	for _, word := range pctx.ForbiddenWords {
@@ -180,16 +177,12 @@ func ValidatePasswordCommon(password string) error {
 	return nil
 }
 
-// CheckBreachedPassword checks a password against the Have I Been Pwned
-// Passwords API using k-anonymity: only the first five hex characters of the
-// SHA-1 of the password's NFC form, the form [Hasher] hashes, leave the
-// process. It reports true when the password has been found in a breach. It
-// never logs and never follows a redirect. A nil client, a failed or timed
-// out request, a non-200 status (a redirect included), a failed read or a
-// body over 2 MiB returns false and an error wrapping
-// [ErrBreachCheckUnavailable] that names the cause without the URL; when ctx
-// has ended, the error also wraps ctx.Err(). The caller's policy decides
-// whether to accept the password.
+// CheckBreachedPassword reports whether the Have I Been Pwned Passwords API
+// lists the password, sending only the first five hex characters of the SHA-1
+// of its NFC form (k-anonymity). It never logs or follows a redirect. A nil
+// client, a failed request, a non-200 status, a failed read or a body over 2 MiB
+// returns false and an error wrapping [ErrBreachCheckUnavailable], naming the
+// cause but not the URL, and also wrapping ctx.Err() once ctx has ended.
 func CheckBreachedPassword(ctx context.Context, client *http.Client, password string) (bool, error) {
 	if client == nil {
 		return false, breachUnavailable(ctx, "no HTTP client")

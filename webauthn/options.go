@@ -6,22 +6,12 @@ import (
 	"fmt"
 )
 
-// This file mirrors the two WebAuthn options dictionaries as first-party types,
-// so a consumer can serialize what a Begin* call returns without importing
-// go-webauthn. The shape is fixed by the specification rather than by this
-// library or by upstream: these are §5.4 PublicKeyCredentialCreationOptions and
-// §5.5 PublicKeyCredentialRequestOptions, whose members are camelCase JSON that
-// the browser's own parsers read, so no member may be renamed on either side.
-//
-// It restates the IDL rather than copying upstream's structs. Upstream carries
-// internal ceremony state in the same values (an Origin it never serializes, and
-// attestation bookkeeping on a descriptor), and copying those would invite a
-// caller to set a field that never reaches the wire.
-//
-// Conversion is field by field, deliberately. A JSON round-trip through upstream
-// would be shorter and would silently drop any member added upstream; an
-// explicit assignment turns that into a compile error here, which is the whole
-// reason these types are first-party.
+// These types restate WebAuthn §5.4 PublicKeyCredentialCreationOptions and §5.5
+// PublicKeyCredentialRequestOptions, whose camelCase members the browser's
+// parsers read, so no member may be renamed. Upstream's structs also carry
+// ceremony state that never reaches the wire, hence not copied. Conversion is
+// field by field: a JSON round-trip through upstream would silently drop a
+// member upstream adds, where an assignment fails to compile.
 
 // Base64URL is a byte string that travels as unpadded base64url, the encoding
 // every binary member of the options dictionaries uses.

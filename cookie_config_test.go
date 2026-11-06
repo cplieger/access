@@ -447,3 +447,17 @@ func TestCookieConfig_PerRequest_nilHTTPSPanics(t *testing.T) {
 	}()
 	cfg.CookieName(httpsRequest())
 }
+
+func TestCookieConfig_NameBound(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		ok   bool
+	}{{strings.Repeat("a", 64), true}, {strings.Repeat("a", 65), false}} {
+		cfg := DefaultCookieConfig()
+		cfg.Name = tc.name
+		if err := cfg.Validate(); (err == nil) != tc.ok {
+			t.Errorf("Validate() of a %d-byte Name = %v, want ok %t", len(tc.name), err, tc.ok)
+		}
+	}
+}

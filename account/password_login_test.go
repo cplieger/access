@@ -244,6 +244,39 @@ func TestCapPerTrustContext(t *testing.T) {
 			t.Errorf("record after the success = %+v (found %t), want the new lock at %v kept at count 0", rec, found, relock.LockedAt)
 		}
 	})
+	t.Run("relock_both_contexts_between_count_and_reset", func(t *testing.T) {
+		t.Parallel()
+		var hk armed
+		p := newPW(t, pwOptions{store: storeVariants[1].store(), hooks: account.Hooks{AfterVerify: hk.hook}})
+		u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
+		pr, _ := p.signedInVia(t, u, access.MethodPasskey)
+		trusted := localClient
+		trusted.Device = p.deviceCookie(t, localClient, "alice", goodPassword)
+		p.failN(t, clientAt(1), "alice", account.FailureCap-1)
+		var relocked [2]account.FailureCount
+		hk.arm(func(ctx context.Context) {
+			hk.disarm()
+			if err := p.svc.ReenableMethod(ctx, pr, access.MethodPassword); err != nil {
+				t.Errorf("ReenableMethod between the count and the success = %v", err)
+			}
+			p.failN(t, clientAt(2), "alice", account.FailureCap)
+			p.failN(t, trusted, "alice", account.FailureCap)
+			relocked[0], _ = record(t, p.mem, p.svc, "alice", false)
+			relocked[1], _ = record(t, p.mem, p.svc, "alice", true)
+		})
+		if _, err := p.login(t.Context(), clientAt(3), "alice", goodPassword); err != nil {
+			t.Fatalf("right password = %v, want a sign-in", err)
+		}
+		for i, isTrusted := range []bool{false, true} {
+			if !relocked[i].Locked {
+				t.Fatalf("trusted=%t record after the re-enable and %d more failures = %+v, want a new lock", isTrusted, account.FailureCap, relocked[i])
+			}
+			rec, found := record(t, p.mem, p.svc, "alice", isTrusted)
+			if !found || !rec.Locked || rec.Count != 0 || !rec.LockedAt.Equal(relocked[i].LockedAt) {
+				t.Errorf("trusted=%t record after the success = %+v (found %t), want the new lock at %v kept at count 0", isTrusted, rec, found, relocked[i].LockedAt)
+			}
+		}
+	})
 	t.Run("trusted", func(t *testing.T) {
 		t.Parallel()
 		p := newPW(t, pwOptions{})
@@ -572,8 +605,12 @@ func TestRehashOnSignIn(t *testing.T) {
 		t.Parallel()
 		p := newPW(t, pwOptions{})
 		u, _ := seed(t, p)
-		if _, err := p.login(t.Context(), localClient, "alice", goodPassword); err != nil {
+		in, err := p.login(t.Context(), localClient, "alice", goodPassword)
+		if err != nil {
 			t.Fatalf("PasswordLogin: %v", err)
+		}
+		if in.User == nil || in.User.ID != u.ID || in.Session.UserID != u.ID || in.Token.IsZero() {
+			t.Errorf("PasswordLogin = user %+v session %+v, want alice signed in with a session", in.User, in.Session)
 		}
 		got := storedUser(t, p.mem, u.ID).PasswordHash
 		if p.hasher.NeedsRehash(got) {

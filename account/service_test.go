@@ -213,12 +213,19 @@ func TestRulesValidate(t *testing.T) {
 		"breach_negative":       {field: "Breach", r: account.Rules{Breach: -1}},
 		"max_sessions_negative": {field: "MaxSessionsPerUser", r: account.Rules{MaxSessionsPerUser: -1}},
 		"provisioning":          {field: "Provisioning", r: account.Rules{Provisioning: oidc.Provisioning{Enabled: true, Claim: "groups"}}},
+		"key_prefix_invalid":    {field: "KeyPrefix", r: account.Rules{KeyPrefix: "ak-"}},
 	} {
 		err := tc.r.Validate()
 		var re *account.RulesError
 		if !errors.As(err, &re) || re.Field != tc.field || !errors.Is(err, account.ErrRulesInvalid) {
 			t.Errorf("%s: Validate() = %v, want a *RulesError for %s matching ErrRulesInvalid", name, err, tc.field)
 		}
+	}
+	if err := (account.Rules{KeyPrefix: "ak-"}).Validate(); !errors.Is(err, access.ErrInvalidKeyPrefix) {
+		t.Errorf("Validate() of KeyPrefix \"ak-\" = %v, want it to match access.ErrInvalidKeyPrefix", err)
+	}
+	if err := (account.Rules{KeyPrefix: "ak_"}).Validate(); err != nil {
+		t.Errorf("Validate() of KeyPrefix \"ak_\" = %v, want nil", err)
 	}
 }
 

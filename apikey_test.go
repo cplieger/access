@@ -200,6 +200,9 @@ func TestGenerateAPIKeyPrefix(t *testing.T) {
 	for _, prefix := range []string{"", "ak_", "AZaz09_", "Abcd_0123456789x"} {
 		t.Run("accepts "+prefix, func(t *testing.T) {
 			t.Parallel()
+			if err := ValidateKeyPrefix(prefix); err != nil {
+				t.Errorf("ValidateKeyPrefix(%q) = %v, want nil", prefix, err)
+			}
 			k, err := GenerateAPIKey(prefix)
 			if err != nil {
 				t.Fatalf("GenerateAPIKey(%q) error = %v, want nil", prefix, err)
@@ -244,6 +247,9 @@ func TestGenerateAPIKeyPrefix(t *testing.T) {
 	for name, prefix := range refused {
 		t.Run("refuses "+name, func(t *testing.T) {
 			t.Parallel()
+			if err := ValidateKeyPrefix(prefix); !errors.Is(err, ErrInvalidKeyPrefix) {
+				t.Errorf("ValidateKeyPrefix(%q) = %v, want ErrInvalidKeyPrefix", prefix, err)
+			}
 			k, err := GenerateAPIKey(prefix)
 			if !errors.Is(err, ErrInvalidKeyPrefix) {
 				t.Errorf("GenerateAPIKey(%q) error = %v, want ErrInvalidKeyPrefix", prefix, err)

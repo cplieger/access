@@ -1,14 +1,10 @@
 package webauthn
 
-// The WebAuthn Signal API payloads (WebAuthn §5.1.10 and §5.1.11). A relying
-// party sends these so a credential manager's stored passkey list stays in step
-// with the server: which credentials are still accepted, and what the account is
-// currently called. Without them a deleted passkey lingers in the user's list
-// and a renamed account shows its old name forever.
-//
-// This package derives the payloads; delivering them is the client's job, since
-// only the browser can call PublicKeyCredential.signalAllAcceptedCredentials and
-// signalCurrentUserDetails.
+// The WebAuthn Signal API payloads (WebAuthn §5.1.10 and §5.1.11) keep a
+// credential manager's passkey list in step with the server, so a deleted
+// passkey or an old account name does not linger. This package derives them;
+// only the browser can deliver them, through
+// PublicKeyCredential.signalAllAcceptedCredentials and signalCurrentUserDetails.
 
 // SignalAllAcceptedCredentials is the payload for the client's
 // signalAllAcceptedCredentials call: every credential this relying party still

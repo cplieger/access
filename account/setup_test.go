@@ -346,8 +346,8 @@ func TestIssueSetupToken(t *testing.T) {
 	if evs := f.events.all(); len(evs) != 2 || evs[1].Kind != account.EventSetupTokenIssued || evs[1].Actor.OutOfBand != "socket" {
 		t.Errorf("events = %+v, want two EventSetupTokenIssued from socket", evs)
 	}
-	if _, err := f.svc.IssueSetupToken(ctx, oob, 7*24*time.Hour+time.Nanosecond); !errors.Is(err, account.ErrTTLTooLong) {
-		t.Errorf("IssueSetupToken(above 7 × 24h) = %v, want ErrTTLTooLong", err)
+	if _, err := f.svc.IssueSetupToken(ctx, oob, 7*24*time.Hour+time.Nanosecond); !errors.Is(err, account.ErrTTLTooLong) || !strings.HasSuffix(err.Error(), "is above 168h0m0s") {
+		t.Errorf("IssueSetupToken(above 7 × 24h) = %v, want ErrTTLTooLong naming the 168h bound", err)
 	}
 	if _, err := f.svc.IssueSetupToken(ctx, oob, -time.Second); !errors.Is(err, account.ErrTTLNegative) {
 		t.Errorf("IssueSetupToken(negative ttl) = %v, want ErrTTLNegative", err)
@@ -931,6 +931,7 @@ func TestSetupLocality(t *testing.T) {
 		{l: account.SetupLocality{Local: loopbackOnly}, addr: forwarded, host: "localhost", want: true},
 		{l: account.SetupLocality{Local: loopbackOnly, Hosts: []string{"nas.lan"}}, addr: loopback, host: "NAS.LAN.:8374"},
 		{l: account.SetupLocality{Local: loopbackOnly, Hosts: []string{"NAS.lan."}}, addr: loopback, host: "nas.lan"},
+		{l: account.SetupLocality{Local: loopbackOnly, Hosts: []string{"az.lan"}}, addr: loopback, host: "AZ.lan"},
 		{l: account.SetupLocality{Local: loopbackOnly, Hosts: []string{"nas.lan"}}, addr: loopback, host: "nas.lan.evil", want: true},
 		{l: account.SetupLocality{Local: loopbackOnly, Hosts: []string{""}}, addr: loopback, host: ".", want: true},
 		{l: account.SetupLocality{Local: privateToo}, addr: private, host: "192.168.1.5:8374"},

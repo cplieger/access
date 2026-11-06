@@ -174,15 +174,11 @@ func nextNameSuffix(existingNames []string, base string) int {
 	return highest + 1
 }
 
-// PasskeyFriendlyName returns a display-only, human-friendly label for a
-// newly registered passkey, chosen so it does not duplicate any entry in
-// existingNames (the user's current passkey labels). A known authenticator
-// (matched by AAGUID) gets its bare registry name for the first of its kind
-// (e.g. "Chrome on Mac") and a numbered name for each subsequent one
-// ("Chrome on Mac 2", ...); an unknown authenticator is always numbered
-// ("Passkey 1", "Passkey 2", ...). The numeric suffix is one past the
-// highest already in use, so deleting a passkey that leaves a numbering gap
-// never yields a duplicate label.
+// PasskeyFriendlyName returns a display-only label for a newly registered
+// passkey that duplicates no entry in existingNames. A known AAGUID gets its
+// registry name ("Chrome on Mac"), numbered from the second of its kind ("Chrome
+// on Mac 2"); an unknown one is always numbered ("Passkey 1"). The number is one
+// past the highest in use, so a gap left by a deletion never yields a duplicate.
 func PasskeyFriendlyName(aaguid []byte, existingNames []string) string {
 	baseName, known := AuthenticatorName(aaguid)
 	if !known {
@@ -365,19 +361,11 @@ func (rp *RelyingParty) boundHandle(ceremony Ceremony) (*gowebauthn.WebAuthn, er
 }
 
 // Ceremony is the server-side state of one in-flight WebAuthn ceremony: the
-// challenge and the parameters the matching Finish step verifies the
-// authenticator's response against.
-//
-// It is opaque and atomic. Hold it between the Begin and the Finish call
-// without reshaping it, keep it server-side where a client cannot modify it,
-// and discard it once the ceremony completes. A consumer's ceremony store keys
-// it by its own opaque token; [Ceremony.Expires] is the only value that store
-// needs to read.
-//
-// The value is cheap to copy and every copy refers to the same ceremony, which
-// is safe because nothing mutates one after a Begin call returns it. The zero
-// value is not a usable ceremony and reports a zero deadline, which is why a
-// ceremony lookup reports absence with a separate boolean rather than a nil.
+// challenge and the parameters its Finish step verifies the response against.
+// Keep it server-side, unmodified, from Begin to Finish, then discard it; a
+// ceremony store needs only [Ceremony.Expires]. Copies share one immutable
+// ceremony. The zero value is unusable and reports a zero deadline, so a lookup
+// reports absence with a separate boolean.
 type Ceremony struct {
 	data *gowebauthn.SessionData
 }
@@ -504,16 +492,12 @@ var ErrNotDiscoverable = errors.New("access/webauthn: authenticator did not crea
 var ErrUnknownCredential = errors.New("access/webauthn: the asserted credential is not registered")
 
 // BeginRegistration starts a WebAuthn registration ceremony at origin, the
-// browser origin the request arrived from (see [ParseOrigin]). The origin must
-// pass [RelyingParty.CheckOrigin], whose *[OriginError] is returned unchanged
-// otherwise, and is bound into the ceremony: the response is verified against
-// exactly that origin.
-//
-// The credential parameters offer the three ML-DSA parameter sets ahead of
-// EdDSA, ES256 and RS256, so an authenticator that implements a post-quantum
-// algorithm produces a post-quantum credential and every authenticator in
-// current use still registers on a classical one. Verifying an ML-DSA
-// signature needs Go 1.27, which this module already requires.
+// browser origin the request arrived from (see [ParseOrigin]). An origin that
+// fails [RelyingParty.CheckOrigin] returns its *[OriginError] unchanged; the
+// ceremony verifies the response against exactly that origin. The three ML-DSA
+// parameter sets are offered ahead of EdDSA, ES256 and RS256, so a post-quantum
+// authenticator registers a post-quantum credential and every other one still
+// registers.
 func BeginRegistration(rp *RelyingParty, user *User, origin Origin) (*CredentialCreation, Ceremony, error) {
 	if err := rp.CheckOrigin(origin); err != nil {
 		return nil, Ceremony{}, err

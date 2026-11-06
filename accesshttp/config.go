@@ -67,10 +67,13 @@ func newHandler(cfg Config, acct accountAPI) (*Handler, error) { //nolint:gocrit
 	if h.pending == nil {
 		h.pending = access.NewEphemeralSealer()
 	}
-	sc := scopes{admin: acct.AdminScope(), users: acct.ManageUsersScope(), keys: acct.CreateKeysScope()}
+	dc := DescriptorConfig{
+		Prefix: cfg.Prefix, OIDCPrefix: cfg.OIDCPrefix,
+		AdminScope: acct.AdminScope(), ManageUsersScope: acct.ManageUsersScope(), CreateKeysScope: acct.CreateKeysScope(),
+	}
 	for i := range specs {
 		s := &specs[i]
-		d := s.descriptor(cfg.Prefix, cfg.OIDCPrefix, sc)
+		d := s.descriptor(&dc)
 		h.routes = append(h.routes, Route{Descriptor: d, Handler: h.mount(s, &d)})
 	}
 	return h, nil

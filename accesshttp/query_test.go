@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cplieger/access/oidc"
 )
 
 func decodeOn(t *testing.T, name, rawQuery string) (any, error) {
@@ -45,6 +47,7 @@ func TestQueryDecode(t *testing.T) {
 		{"signin_redirect", "authOIDCStartSignIn", "redirect=%2Fsettings%3Ftab%3D1", OIDCSignInQuery{Redirect: "/settings?tab=1"}},
 		{"signin_repeated", "authOIDCStartSignIn", "redirect=/a&redirect=/b", OIDCSignInQuery{Redirect: "/"}},
 		{"signin_refused", "authOIDCStartSignIn", "redirect=%2F%2Fevil.example", OIDCSignInQuery{Redirect: "/"}},
+		{"signin_at_the_cap", "authOIDCStartSignIn", "redirect=/" + strings.Repeat("a", oidc.MaxRedirectBytes-1), OIDCSignInQuery{Redirect: "/" + strings.Repeat("a", oidc.MaxRedirectBytes-1)}},
 		{"signin_too_long", "authOIDCStartSignIn", "redirect=/" + strings.Repeat("a", 512), OIDCSignInQuery{Redirect: "/"}},
 		{"callback_first_values", "authOIDCCallback", "state=s1&state=s2&code=c&iss=https%3A%2F%2Fidp&error=e1&error=e2", OIDCCallbackQuery{State: "s1", Code: "c", Error: "e1"}},
 		{"callback_skips_malformed", "authOIDCCallback", "state=%ZZ&state=s2&code=c;x", OIDCCallbackQuery{State: "s2"}},
@@ -79,6 +82,7 @@ func TestQueryDecode(t *testing.T) {
 		{"key_semicolon_pair", "authAdminUsers", "key=1;key=2", "key"},
 		{"key_after_semicolon", "authAdminUsers", "x=1;key=2", "key"},
 		{"key_escaped_and_plain", "authAdminUsers", "%6Bey=1&key=2", "key"},
+		{"key_escaped_malformed", "authAdminUsers", "%6Bey=%ZZ", "key"},
 		{"mediation_malformed_escape", "authLoginPasskeyBegin", "mediation=%ZZ", "mediation"},
 		{"keep_keys_malformed_escape", "authRecoveryPasskeyFinish", "keep_keys=%ZZ", "keep_keys"},
 	}

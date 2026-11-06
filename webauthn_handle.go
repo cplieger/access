@@ -7,22 +7,10 @@ import "crypto/rand"
 const WebAuthnHandleSize = 64
 
 // GenerateWebAuthnHandle returns a new WebAuthn user handle: 64 random bytes, as
-// [WebAuthn §14.6.1] recommends.
-//
-// The handle identifies an account to an authenticator, and an authenticator may
-// reveal it without verifying the user first, so it must carry no information
-// about who the account belongs to. That rules out a username, an email address,
-// and any unsalted hash of one — and it also rules out a sequential database
-// identifier, which is not personally identifying but does leak how many accounts
-// the relying party has and in what order they were created.
-//
-// Store the result on the account (see access.User.WebAuthnHandle). The
-// specification says to store it rather than derive it for a practical reason: a
-// derived handle cannot be changed without invalidating every credential
-// registered under the old derivation.
-//
-// It cannot fail; see [generateRandomHex] for why a randomness failure is not a
-// reportable error in this library.
+// [WebAuthn §14.6.1] recommends. An authenticator may reveal the handle without
+// verifying the user, so it carries nothing about the account: no username, no
+// email, no sequential ID. Store it on [User.WebAuthnHandle]; it cannot fail
+// (see [generateRandomHex]).
 //
 // [WebAuthn §14.6.1]: https://www.w3.org/TR/webauthn-3/#sctn-user-handle-privacy
 func GenerateWebAuthnHandle() []byte {

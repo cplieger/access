@@ -30,9 +30,9 @@ const (
 
 func (i Intent) valid() bool { return i == IntentSignIn || i == IntentLink || i == IntentStepUp }
 
-// BeginRequest names what the flow is for. SessionID and a positive UserID
-// are required for IntentLink and IntentStepUp and must be empty for
-// IntentSignIn.
+// BeginRequest names what the flow is for. SessionID, at most 64 bytes, and
+// a positive UserID are required for IntentLink and IntentStepUp and must be
+// empty for IntentSignIn.
 type BeginRequest struct {
 	Intent    Intent
 	SessionID string
@@ -50,12 +50,23 @@ func (req *BeginRequest) check() error {
 		return fmt.Errorf("%w: a sign-in carries no session or user", ErrFlowInvalid)
 	case req.Intent != IntentSignIn && (req.SessionID == "" || req.UserID <= 0):
 		return fmt.Errorf("%w: intent %q needs a session ID and a positive user ID", ErrFlowInvalid, req.Intent)
+	case len(req.SessionID) > maxSessionIDBytes:
+		return fmt.Errorf("%w: a session ID over %d bytes", ErrFlowInvalid, maxSessionIDBytes)
 	}
 	return nil
 }
 
 // MaxRedirectBytes is the longest BeginRequest.Redirect Begin accepts.
 const MaxRedirectBytes = 512
+
+// maxSessionIDBytes bounds BeginRequest.SessionID, so NewProvider can size
+// the largest flow: twice the 32 hex characters account mints.
+const maxSessionIDBytes = 64
+
+// maxFlowCookieName is the longest flow cookie name: __Host- and the
+// longest session cookie Name access.CookieConfig.Validate accepts, derived
+// with flowCookieSuffix.
+const maxFlowCookieName = len("__Host-") + access.MaxCookieNameBytes + len("_") + len(flowCookieSuffix)
 
 const (
 	flowPurpose      = "oidc-flow"
@@ -90,10 +101,9 @@ type Callback struct {
 // and returns the authorization URL, with max_age=0 and prompt=login for
 // IntentLink and IntentStepUp. Before any Set-Cookie it refuses a Redirect
 // over MaxRedirectBytes with ErrRedirectTooLong, first; with ErrConfigInvalid,
-// a session config that fails Validate and a flow cookie Seal refuses (also
-// matching access.ErrSealTooLarge) or whose name plus value passes 4096 bytes;
-// with ErrFlowInvalid, an unknown intent or IDs that do not fit it, and a link
-// or step-up whose Sec-Fetch-Site is present and not same-origin.
+// a session config that fails Validate; with ErrFlowInvalid, an unknown intent
+// or IDs that do not fit it, and a link or step-up whose Sec-Fetch-Site is
+// present and not same-origin. NewProvider owns the flow cookie's size.
 func (p *Provider) Begin(w http.ResponseWriter, r *http.Request, session access.CookieConfig, req BeginRequest) (authURL string, err error) { //nolint:gocritic // hugeParam: the session config is plain data, passed as the caller holds it
 	if len(req.Redirect) > MaxRedirectBytes {
 		return "", ErrRedirectTooLong
@@ -130,9 +140,6 @@ func (p *Provider) Begin(w http.ResponseWriter, r *http.Request, session access.
 		return "", fmt.Errorf("%w: flow cookie: %w", ErrConfigInvalid, err)
 	}
 	cookie := session.Derive(flowCookieSuffix, http.SameSiteLaxMode)
-	if len(cookie.CookieName(r))+len(sealed) > maxCookieBytes {
-		return "", fmt.Errorf("%w: the flow cookie's name and value pass %d bytes", ErrConfigInvalid, maxCookieBytes)
-	}
 	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(st.verifier), oauth2.SetAuthURLParam("nonce", st.nonce)}
 	if req.Intent != IntentSignIn {
 		opts = append(opts, oauth2.SetAuthURLParam("max_age", "0"), oauth2.SetAuthURLParam("prompt", "login"))
@@ -276,6 +283,30 @@ type flowState struct {
 }
 
 const flowFrameVersion = 1
+
+// checkFlowFits refuses a cfg whose largest flow would not seal, or whose
+// sealed value would not fit a flow cookie under the longest cookie name.
+// Begin has no size check of its own, so a flowState field Begin fills must
+// be filled at its largest here too, or Begin sets a cookie browsers drop.
+func checkFlowFits(cfg *Config) error {
+	now := cfg.Now()
+	largest := flowState{
+		state: rand.Text(), nonce: rand.Text(), verifier: oauth2.GenerateVerifier(),
+		flow: Flow{
+			Intent: IntentStepUp, SessionID: string(make([]byte, maxSessionIDBytes)), UserID: math.MaxInt64,
+			BeganAt: now, Redirect: string(make([]byte, MaxRedirectBytes)),
+		},
+		issuer: cfg.IssuerURL, clientID: cfg.ClientID, redirectURL: cfg.RedirectURL,
+	}
+	sealed, err := cfg.FlowSealer.Seal(flowPurpose, largest.encode(), now.Add(flowLifetime))
+	if err != nil {
+		return fmt.Errorf("%w: the largest flow cookie: %w", ErrConfigInvalid, err)
+	}
+	if maxFlowCookieName+len(sealed) > maxCookieBytes {
+		return fmt.Errorf("%w: the largest flow cookie's name and value pass %d bytes", ErrConfigInvalid, maxCookieBytes)
+	}
+	return nil
+}
 
 // encode writes the fixed binary frame: a version byte, then state, nonce,
 // verifier, intent, session ID, user ID, began-at, redirect, issuer, client

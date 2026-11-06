@@ -8,16 +8,11 @@ import (
 	"pgregory.net/rapid"
 )
 
-// TestAPICredentialRoundTrip_preserves_fields asserts that converting a
-// PasskeyCredential to a gowebauthn.Credential and back preserves every scalar
-// field of the credential record. BackupEligible, BackupState and UserVerified
-// drive credential-trust decisions, so a conversion that silently dropped or
-// swapped one would weaken authentication while the spot-check tests (which
-// assert only UserPresent and CloneWarning) stayed green.
-//
-// The flags travel as the raw octet, which is authoritative, so the four
-// booleans are asserted against what that octet implies rather than against
-// what was drawn.
+// TestAPICredentialRoundTrip_preserves_fields asserts that a PasskeyCredential
+// survives the round trip through gowebauthn.Credential field for field. The
+// backup and verification flags drive trust decisions, and the spot-check tests
+// assert only UserPresent and CloneWarning. The flags travel as the raw octet,
+// which is authoritative, so the booleans are checked against what it implies.
 func TestAPICredentialRoundTrip_preserves_fields(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {

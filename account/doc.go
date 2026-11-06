@@ -196,9 +196,10 @@
 //     [FailureCount], and the structs they embed or hold, OIDCIdentity and
 //     [FailureRef]) reads back as it was written, apart from what the store
 //     assigns (IDs, the LineageIDs append of rule 17). The record fields
-//     carry `json:"-"` and Hash has no codec, so every store maps every
-//     field by hand. A persistent store keeps the same fidelity across a
-//     close and a reopen of its medium.
+//     carry `json:"-"`, and Hash's MarshalJSON writes "[redacted]" ("" for
+//     the zero Hash) with no UnmarshalJSON, so every store maps every field
+//     by hand. A persistent store keeps the same fidelity across a close
+//     and a reopen of its medium.
 //  21. Activity never moves backwards. UpdateSessionActivity stores act.At
 //     as LastActivity, and act.IP as LastIP, only when act.At is after the
 //     stored LastActivity, comparing and writing in one atomic step; an

@@ -20,7 +20,12 @@
   ],
   "InviteRequest": [
     {
-      "name": "role"
+      "name": "role",
+      "values": [
+        "admin",
+        "user"
+      ],
+      "open": true
     },
     {
       "name": "hours",
@@ -32,7 +37,46 @@
       "name": "key"
     },
     {
-      "name": "details"
+      "name": "details",
+      "fields": [
+        {
+          "name": "created_at"
+        },
+        {
+          "name": "expires_at",
+          "optional": true
+        },
+        {
+          "name": "last_used_at",
+          "optional": true
+        },
+        {
+          "name": "owner",
+          "optional": true
+        },
+        {
+          "name": "label"
+        },
+        {
+          "name": "prefix"
+        },
+        {
+          "name": "suffix"
+        },
+        {
+          "name": "scopes"
+        },
+        {
+          "name": "id"
+        },
+        {
+          "name": "user_id"
+        },
+        {
+          "name": "parent_key_id",
+          "optional": true
+        }
+      ]
     }
   ],
   "KeyView": [
@@ -84,13 +128,127 @@
   ],
   "MeResponse": [
     {
-      "name": "session"
+      "name": "session",
+      "fields": [
+        {
+          "name": "auth_time"
+        },
+        {
+          "name": "idle_deadline"
+        },
+        {
+          "name": "absolute_deadline"
+        },
+        {
+          "name": "id"
+        },
+        {
+          "name": "method",
+          "values": [
+            "password",
+            "passkey",
+            "oidc",
+            "recovery",
+            "api_key",
+            "bypass"
+          ],
+          "open": true
+        }
+      ]
     },
     {
-      "name": "methods"
+      "name": "methods",
+      "fields": [
+        {
+          "name": "locks",
+          "fields": [
+            {
+              "name": "method",
+              "values": [
+                "password",
+                "passkey",
+                "oidc",
+                "recovery",
+                "api_key",
+                "bypass"
+              ],
+              "open": true
+            },
+            {
+              "name": "untrusted"
+            },
+            {
+              "name": "trusted"
+            }
+          ]
+        },
+        {
+          "name": "passkey_count"
+        },
+        {
+          "name": "password"
+        },
+        {
+          "name": "oidc_linked"
+        },
+        {
+          "name": "oidc_available"
+        },
+        {
+          "name": "passkeys_available"
+        },
+        {
+          "name": "password_login"
+        }
+      ]
     },
     {
-      "name": "user"
+      "name": "user",
+      "fields": [
+        {
+          "name": "created_at"
+        },
+        {
+          "name": "methods",
+          "fields": [
+            {
+              "name": "passkey_count"
+            },
+            {
+              "name": "password"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "name": "username"
+        },
+        {
+          "name": "display_name",
+          "optional": true
+        },
+        {
+          "name": "role",
+          "values": [
+            "admin",
+            "user"
+          ],
+          "open": true
+        },
+        {
+          "name": "key_lineage",
+          "optional": true
+        },
+        {
+          "name": "id"
+        },
+        {
+          "name": "enabled"
+        },
+        {
+          "name": "oidc_linked"
+        }
+      ]
     },
     {
       "name": "can_link_oidc"
@@ -122,7 +280,12 @@
       "optional": true
     },
     {
-      "name": "role"
+      "name": "role",
+      "values": [
+        "admin",
+        "user"
+      ],
+      "open": true
     }
   ],
   "OIDCStartResponse": [
@@ -213,7 +376,50 @@
       "name": "username"
     },
     {
-      "name": "methods"
+      "name": "methods",
+      "fields": [
+        {
+          "name": "locks",
+          "fields": [
+            {
+              "name": "method",
+              "values": [
+                "password",
+                "passkey",
+                "oidc",
+                "recovery",
+                "api_key",
+                "bypass"
+              ],
+              "open": true
+            },
+            {
+              "name": "untrusted"
+            },
+            {
+              "name": "trusted"
+            }
+          ]
+        },
+        {
+          "name": "passkey_count"
+        },
+        {
+          "name": "password"
+        },
+        {
+          "name": "oidc_linked"
+        },
+        {
+          "name": "oidc_available"
+        },
+        {
+          "name": "passkeys_available"
+        },
+        {
+          "name": "password_login"
+        }
+      ]
     }
   ],
   "RedirectRequest": [
@@ -254,7 +460,16 @@
       "optional": true
     },
     {
-      "name": "method"
+      "name": "method",
+      "values": [
+        "password",
+        "passkey",
+        "oidc",
+        "recovery",
+        "api_key",
+        "bypass"
+      ],
+      "open": true
     },
     {
       "name": "current"
@@ -283,10 +498,35 @@
   ],
   "Signals": [
     {
-      "name": "currentUserDetails"
+      "name": "currentUserDetails",
+      "fields": [
+        {
+          "name": "rpId"
+        },
+        {
+          "name": "name"
+        },
+        {
+          "name": "displayName"
+        },
+        {
+          "name": "userId"
+        }
+      ]
     },
     {
-      "name": "allAcceptedCredentials"
+      "name": "allAcceptedCredentials",
+      "fields": [
+        {
+          "name": "rpId"
+        },
+        {
+          "name": "userId"
+        },
+        {
+          "name": "allAcceptedCredentialIds"
+        }
+      ]
     }
   ],
   "SignedInResponse": [
@@ -294,7 +534,52 @@
       "name": "session_id"
     },
     {
-      "name": "user"
+      "name": "user",
+      "fields": [
+        {
+          "name": "created_at"
+        },
+        {
+          "name": "methods",
+          "fields": [
+            {
+              "name": "passkey_count"
+            },
+            {
+              "name": "password"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "name": "username"
+        },
+        {
+          "name": "display_name",
+          "optional": true
+        },
+        {
+          "name": "role",
+          "values": [
+            "admin",
+            "user"
+          ],
+          "open": true
+        },
+        {
+          "name": "key_lineage",
+          "optional": true
+        },
+        {
+          "name": "id"
+        },
+        {
+          "name": "enabled"
+        },
+        {
+          "name": "oidc_linked"
+        }
+      ]
     },
     {
       "name": "clone_warning",
@@ -342,11 +627,22 @@
       "name": "expires_at"
     },
     {
-      "name": "purpose"
+      "name": "purpose",
+      "values": [
+        "setup",
+        "recovery",
+        "invite"
+      ],
+      "open": true
     },
     {
       "name": "role",
-      "optional": true
+      "values": [
+        "admin",
+        "user"
+      ],
+      "optional": true,
+      "open": true
     },
     {
       "name": "issuer_lineage",
@@ -364,7 +660,12 @@
   "UserUpdateRequest": [
     {
       "name": "role",
-      "optional": true
+      "values": [
+        "admin",
+        "user"
+      ],
+      "optional": true,
+      "open": true
     },
     {
       "name": "enabled",
@@ -377,6 +678,14 @@
     },
     {
       "name": "methods",
+      "fields": [
+        {
+          "name": "passkey_count"
+        },
+        {
+          "name": "password"
+        }
+      ],
       "optional": true
     },
     {
@@ -387,7 +696,12 @@
       "optional": true
     },
     {
-      "name": "role"
+      "name": "role",
+      "values": [
+        "admin",
+        "user"
+      ],
+      "open": true
     },
     {
       "name": "key_lineage",
