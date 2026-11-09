@@ -7,7 +7,19 @@ import (
 	"github.com/cplieger/access"
 )
 
-// currentKeyActor decides a key's authority inside the caller's Update from
+// currentKeyActor is keyAuthority for the key a change acts as. On success
+// it caches the key's Label and Suffix in j from this read, so every entry
+// the change logs with the key as its actor carries them.
+func (s *Service) currentKeyActor(ctx context.Context, tx Tx, j *journal, op Operation, ref access.KeyRef, scope string) (Actor, *access.Key, error) {
+	actor, key, err := s.keyAuthority(ctx, tx, op, ref, scope)
+	if err != nil {
+		return Actor{}, nil, err
+	}
+	j.keys[key.ID] = shown{label: key.Label, keySuffix: key.KeySuffix}
+	return actor, key, nil
+}
+
+// keyAuthority decides a key's authority inside the caller's Update from
 // the stored records alone, never from the request's Principal. ref names a
 // principal's key by owner and ID, or a token issuer by ID alone. The key
 // must exist, be unexpired at Config.Now and carry the non-empty scope, and
@@ -15,7 +27,7 @@ import (
 // key_not_current, and a store error is returned as it is, for the caller's
 // Update. The Actor is rebuilt with the owner's stored role, and the key's
 // LineageIDs is the path the write attributes.
-func (s *Service) currentKeyActor(ctx context.Context, tx Tx, op Operation, ref access.KeyRef, scope string) (Actor, *access.Key, error) {
+func (s *Service) keyAuthority(ctx context.Context, tx Tx, op Operation, ref access.KeyRef, scope string) (Actor, *access.Key, error) {
 	notCurrent := refuse(&PolicyError{Op: op, Reason: ReasonKeyNotCurrent})
 	if scope == "" || ref.ID == 0 {
 		return Actor{}, nil, notCurrent
@@ -69,7 +81,7 @@ func requireUserTarget(op Operation, roles ...access.Role) error {
 }
 
 // attribute appends the one KeyAttribution of a key's act on userID, with a
-// copy of the key's LineageIDs as currentKeyActor re-read it. It is the only
+// copy of the key's LineageIDs as keyAuthority re-read it. It is the only
 // writer of attribution records.
 func (s *Service) attribute(ctx context.Context, tx Tx, userID int64, action access.AttributionAction, key *access.Key) error {
 	return tx.CreateKeyAttribution(ctx, &access.KeyAttribution{

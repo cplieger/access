@@ -41,8 +41,8 @@ func (s *Service) StartRecovery(ctx context.Context, c Client, token access.Secr
 			return s.startIn(ctx, tx, r, token, &st)
 		},
 		fill: func(sess *access.Session) { sess.IssuedByKey = st.issuedBy },
-		announce: func(u *access.User, sess *access.Session) {
-			s.emit(Event{Kind: EventRecoveryConsumed, At: sess.CreatedAt, UserID: u.ID, KeyID: sess.IssuedByKey})
+		announce: func(j *journal, u *access.User, sess *access.Session) {
+			j.add(Event{Kind: EventRecoveryConsumed, At: sess.CreatedAt, UserID: u.ID, KeyID: sess.IssuedByKey})
 		},
 	})
 	switch {
@@ -133,7 +133,7 @@ func (s *Service) recoveryIssuer(ctx context.Context, tx Tx, keyID int64, subjec
 // access.ErrTokenInvalid), writes the password and a key's recovered record,
 // ends the session and the recovery tokens, revokes the other sessions and
 // keys unless opts keeps them, and clears the failure records. Nobody signs
-// in; the events follow in emitRecovered's order.
+// in; the events follow in addRecovered's order.
 func (s *Service) RecoverWithPassword(ctx context.Context, p access.Principal, password access.Secret, opts RecoverOptions) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	r, err := s.begin()
 	if err != nil {
@@ -181,7 +181,7 @@ func (s *Service) RecoverPasskeyBegin(ctx context.Context, p access.Principal, o
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id := s.pending.put(purposeRecovery, pending{user: u, ceremony: ceremony}, s.now())
+	id := s.pending.put(purposeRecovery, pending{user: *u, ceremony: ceremony}, s.now())
 	return PendingCeremony{ID: id, Creation: cc}, nil
 }
 
@@ -204,7 +204,7 @@ func (s *Service) RecoverPasskeyFinish(ctx context.Context, p access.Principal, 
 	if err != nil {
 		return err
 	}
-	cred, err := webauthn.FinishRegistration(rp, &webauthn.User{AuthUser: entry.user}, entry.ceremony, body)
+	cred, err := webauthn.FinishRegistration(rp, &webauthn.User{AuthUser: &entry.user}, entry.ceremony, body)
 	if err != nil {
 		return err
 	}
@@ -243,9 +243,8 @@ func (s *Service) RecoverOutOfBand(ctx context.Context, a Actor, userID int64, p
 	if err != nil {
 		return err
 	}
-	var rep repaired
-	err = s.update(ctx, func(tx Tx) error {
-		rep = repaired{}
+	return s.change(ctx, by(a), func(tx Tx, j *journal) error {
+		var rep repaired
 		stored, ok, readErr := tx.UserByID(ctx, userID)
 		switch {
 		case readErr != nil:
@@ -260,13 +259,12 @@ func (s *Service) RecoverOutOfBand(ctx context.Context, a Actor, userID int64, p
 		if writeErr := tx.UpdateUser(ctx, stored); writeErr != nil {
 			return writeErr
 		}
-		return s.repairIn(ctx, tx, stored, "", opts, &rep)
+		if repairErr := s.repairIn(ctx, tx, stored, "", opts, &rep); repairErr != nil {
+			return repairErr
+		}
+		s.addRecovered(j, userID, &rep, eventActor(a))
+		return nil
 	})
-	if err != nil {
-		return err
-	}
-	s.emitRecovered(userID, &rep, eventActor(a))
-	return nil
 }
 
 // requireRecovery is the actor precondition of a recovery completion: only
@@ -289,13 +287,17 @@ type repaired struct {
 	refused  bool
 }
 
-// completeRecovery runs a session-based completion in one Update and,
-// after the commit, its events.
+// completeRecovery runs a session-based completion and its entries in one
+// change; a refused issuer commits the session's deletion alone.
 func (s *Service) completeRecovery(ctx context.Context, p access.Principal, opts RecoverOptions, write func(tx Tx, u *access.User) error) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	var rep repaired
-	err := s.update(ctx, func(tx Tx) error {
+	err := s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
 		rep = repaired{}
-		return s.completeIn(ctx, tx, p, opts, write, &rep)
+		if err := s.completeIn(ctx, tx, p, opts, write, &rep); err != nil || rep.refused {
+			return err
+		}
+		s.addRecovered(j, p.User.ID, &rep, eventActor(As(p)))
+		return nil
 	})
 	switch {
 	case err != nil:
@@ -303,7 +305,6 @@ func (s *Service) completeRecovery(ctx context.Context, p access.Principal, opts
 	case rep.refused:
 		return access.ErrTokenInvalid
 	}
-	s.emitRecovered(p.User.ID, &rep, eventActor(As(p)))
 	return nil
 }
 
@@ -381,16 +382,15 @@ func (s *Service) repairIn(ctx context.Context, tx Tx, u *access.User, recoveryI
 	return tx.DeleteAuthFailures(ctx, name, countedMethods)
 }
 
-// emitRecovered reports a committed completion: EventRecoveryCompleted
-// with the sessions it ended and the issuing key, one EventKeyRevoked per
-// deleted key, then emitCleared's EventMethodLocked and
-// EventMethodReenabled for the cleared locks.
-func (s *Service) emitRecovered(userID int64, rep *repaired, actor EventActor) {
+// addRecovered adds a completion's entries: EventRecoveryCompleted with the
+// sessions it ended and the issuing key, one EventKeyRevoked per deleted
+// key, then addCleared's for the cleared locks.
+func (s *Service) addRecovered(j *journal, userID int64, rep *repaired, actor EventActor) {
 	completed := Event{Kind: EventRecoveryCompleted, At: s.now(), UserID: userID, SessionIDs: rep.sessions, Actor: actor}
 	if rep.issuer != nil {
 		completed.KeyID = rep.issuer.ID
 	}
-	s.emit(completed)
-	s.emitKeysRevoked(userID, rep.keys, actor)
-	s.emitCleared(userID, rep.locks, actor)
+	j.add(completed)
+	s.addKeysRevoked(j, userID, rep.keys, actor)
+	s.addCleared(j, userID, rep.locks, actor)
 }

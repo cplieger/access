@@ -157,6 +157,50 @@ type FailureStore interface {
 	PruneAuthFailures(ctx context.Context, keep []string) (int64, error)
 }
 
+// LogStore holds the append-only security log ([LogEntry]). It has no
+// update; entries leave only through PruneLog.
+type LogStore interface {
+	// AppendLog assigns e.Event.Seq and stores a deep copy (rule 22).
+	AppendLog(ctx context.Context, e *LogEntry) error
+	// ListLog returns the entries with r.AfterSeq < Seq, and Seq <
+	// r.BeforeSeq when r.BeforeSeq is non-zero, in ascending Seq, or
+	// descending when r.Descending, at most r.Limit of them (rule 22).
+	ListLog(ctx context.Context, r LogRange) ([]LogEntry, error)
+	// PruneLog removes entries of p.Class, lowest Seq first: with p.Keep
+	// set, each beyond the newest p.Keep of that class, adding the number
+	// removed to the class's Evicted; with p.Before set, each with At
+	// before p.Before. Exactly one of the two is set, else it returns an
+	// error. It removes at most p.Limit and returns how many (rule 22).
+	PruneLog(ctx context.Context, p LogPrune) (int, error)
+	// LogStats returns one LogClassStats per class that has ever held an
+	// entry, in [LogClasses] order (rule 22).
+	LogStats(ctx context.Context) ([]LogClassStats, error)
+}
+
+// LogClassStats is one class's entry count and cap evictions.
+type LogClassStats struct {
+	Class   LogClass
+	Count   int    // entries the class holds now
+	Evicted uint64 // entries Keep prunes have removed, ever; never lowered
+}
+
+// LogRange is one [LogStore.ListLog] call: an open Seq range, 0 BeforeSeq
+// being unbounded.
+type LogRange struct {
+	AfterSeq, BeforeSeq uint64
+	Limit               int
+	Descending          bool
+}
+
+// LogPrune is one [LogStore.PruneLog] call, with exactly one of Keep (a
+// positive cap) and Before (a non-zero age bound) set.
+type LogPrune struct {
+	Before time.Time
+	Class  LogClass
+	Keep   int
+	Limit  int
+}
+
 // Tx is the view of the store inside one transaction. It is valid only
 // until the Update callback returns.
 type Tx interface {
@@ -167,6 +211,7 @@ type Tx interface {
 	TokenStore
 	AttributionStore
 	FailureStore
+	LogStore
 }
 
 // Sweeper holds the two expiry cleanups the background sweep calls, each a

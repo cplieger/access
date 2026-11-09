@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/cplieger/access"
@@ -127,6 +128,7 @@ func TestEqualWorkArms(t *testing.T) {
 				arm.seed(t, p)
 			}
 			fs.resetRecord()
+			count := fmt.Sprintf("@%d", fs.updates.Load()+1)
 			_, err := p.login(t.Context(), localClient, username, arm.password)
 			if !errors.Is(err, account.ErrInvalidCredentials) {
 				t.Fatalf("PasswordLogin = %v, want ErrInvalidCredentials", err)
@@ -139,7 +141,7 @@ func TestEqualWorkArms(t *testing.T) {
 			for _, c := range calls {
 				shape = append(shape, fmt.Sprintf("%s@%d", c.name, c.update))
 			}
-			want := []string{"Update@2", "UserByUsername@2", "AuthFailure@2", "PutAuthFailure@2"}
+			want := []string{"Update" + count, "UserByUsername" + count, "AuthFailure" + count, "PutAuthFailure" + count}
 			if !slices.Equal(shape, want) {
 				t.Fatalf("store calls = %v, want %v and nothing after", shape, want)
 			}
@@ -276,6 +278,45 @@ func TestCapPerTrustContext(t *testing.T) {
 				t.Errorf("trusted=%t record after the success = %+v (found %t), want the new lock at %v kept at count 0", isTrusted, rec, found, relocked[i].LockedAt)
 			}
 		}
+	})
+	t.Run("trusted_success_resets_its_record", func(t *testing.T) {
+		t.Parallel()
+		p := newPW(t, pwOptions{})
+		passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
+		trusted := localClient
+		trusted.Device = p.deviceCookie(t, localClient, "alice", goodPassword)
+		p.failN(t, trusted, "alice", account.FailureCap-1)
+		if _, err := p.login(t.Context(), trusted, "alice", goodPassword); err != nil {
+			t.Fatalf("trusted right password = %v, want a sign-in", err)
+		}
+		if rec, found := record(t, p.mem, p.svc, "alice", true); found {
+			t.Errorf("trusted record = %+v after the trusted success, want it gone", rec)
+		}
+	})
+	t.Run("other_context_locked_in_the_same_millisecond", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			start := time.Now()
+			p := newPW(t, pwOptions{})
+			passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
+			trusted := localClient
+			trusted.Device = p.deviceCookie(t, localClient, "alice", goodPassword)
+			p.failN(t, trusted, "alice", account.FailureCap)
+			p.failN(t, clientAt(1), "alice", account.FailureCap-1)
+			if _, err := p.login(t.Context(), clientAt(2), "alice", goodPassword); err != nil {
+				t.Fatalf("right password on the attempt that reaches the untrusted cap = %v, want a sign-in", err)
+			}
+			if !time.Now().Equal(start) {
+				t.Fatalf("the bubble's clock moved from %v to %v, so the two locks are not in one millisecond", start, time.Now())
+			}
+			if rec, found := record(t, p.mem, p.svc, "alice", false); found {
+				t.Errorf("untrusted record = %+v after the success, want the lock it set cleared", rec)
+			}
+			rec, found := record(t, p.mem, p.svc, "alice", true)
+			if !found || !rec.Locked || rec.Count != 0 || !rec.LockedAt.Equal(start.Truncate(time.Millisecond)) {
+				t.Errorf("trusted record after the untrusted success = %+v (found %t), want its lock at %v kept at count 0", rec, found, start.Truncate(time.Millisecond))
+			}
+		})
 	})
 	t.Run("trusted", func(t *testing.T) {
 		t.Parallel()
@@ -577,6 +618,39 @@ func TestCredentialChangeBetweenCountAndSuccess(t *testing.T) {
 	}
 	if !p.verifies(t, u, changed) {
 		t.Error("the stored hash is not the changed one: the racing sign-in wrote its rehash")
+	}
+}
+
+func TestUserChangeBetweenVerifyAndSuccess(t *testing.T) {
+	t.Parallel()
+	for name, change := range map[string]func(ctx context.Context, t *testing.T, p *pwFixture, u *access.User) error{
+		"disabled": func(ctx context.Context, t *testing.T, p *pwFixture, u *access.User) error {
+			v := storedUser(t, p.mem, u.ID)
+			v.Enabled = false
+			return p.mem.UpdateUser(ctx, v)
+		},
+		"deleted": func(ctx context.Context, _ *testing.T, p *pwFixture, u *access.User) error {
+			return p.mem.DeleteUser(ctx, u.ID)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var hk armed
+			p := newPW(t, pwOptions{hooks: account.Hooks{AfterVerify: hk.hook}})
+			u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
+			hk.arm(func(ctx context.Context) {
+				hk.disarm()
+				if err := change(ctx, t, p, u); err != nil {
+					t.Errorf("%s between the comparison and the success: %v", name, err)
+				}
+			})
+			if _, err := p.login(t.Context(), localClient, "alice", goodPassword); !errors.Is(err, account.ErrInvalidCredentials) {
+				t.Errorf("sign-in of a user %s after its comparison = %v, want ErrInvalidCredentials", name, err)
+			}
+			if ss := sessionsOf(t, p.mem, u.ID); len(ss) != 0 {
+				t.Errorf("sessions = %d, want none", len(ss))
+			}
+		})
 	}
 }
 

@@ -50,7 +50,7 @@ func (s *Service) OIDCComplete(ctx context.Context, c Client, flow oidc.Flow, cl
 	case oidc.IntentSignIn:
 		out, err = s.oidcSignIn(ctx, r, c, claims)
 	case oidc.IntentLink:
-		out, err = s.oidcLink(ctx, r, flow, claims.Identity)
+		out, err = s.oidcLink(ctx, r, c, flow, claims.Identity)
 	case oidc.IntentStepUp:
 		out, err = s.oidcStepUp(ctx, c, flow, claims.Identity)
 	default:
@@ -78,9 +78,9 @@ func (s *Service) oidcSignIn(ctx context.Context, r Rules, c Client, claims oidc
 			u, created, err = s.oidcUserIn(ctx, tx, claims.Identity, candidate)
 			return u, err
 		},
-		announce: func(u *access.User, sess *access.Session) {
+		announce: func(j *journal, u *access.User, sess *access.Session) {
 			if created {
-				s.emit(Event{Kind: EventUserCreated, At: sess.CreatedAt, UserID: u.ID})
+				announceCreated(j, u, sess)
 			}
 		},
 	})
@@ -174,24 +174,28 @@ func pendingLink(claims oidc.Claims) PendingLink { //nolint:gocritic // hugePara
 
 // oidcLink links id to flow's user in one Update: the session check, then
 // flow.BeganAt within r.RecentAuth (else access.ErrRecentAuthRequired), then
-// linkIn, rotating the session by (UserID, ID).
-func (s *Service) oidcLink(ctx context.Context, r Rules, flow oidc.Flow, id access.OIDCIdentity) (OIDCOutcome, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Flow
+// linkIn, rotating the session by (UserID, ID), from c's address.
+func (s *Service) oidcLink(ctx context.Context, r Rules, c Client, flow oidc.Flow, id access.OIDCIdentity) (OIDCOutcome, error) { //nolint:gocritic // hugeParam: the operation's one Rules value, Client and Flow
 	var l linked
-	err := s.update(ctx, func(tx Tx) error {
+	err := s.change(ctx, byClient(Actor{}, c), func(tx Tx, j *journal) error {
 		u, sess, err := s.flowSession(ctx, tx, flow)
 		if err != nil {
 			return err
 		}
+		j.actorSession(sess)
 		now := s.now()
 		if flow.BeganAt.Before(now.Add(-r.RecentAuth)) || flow.BeganAt.After(now) {
 			return refuse(access.ErrRecentAuthRequired)
 		}
-		return s.linkIn(ctx, tx, r, sessionActor(u, sess), u, sess, access.Hash{}, id, &l)
+		if err := s.linkIn(ctx, tx, r, sessionActor(u, sess), u, sess, access.Hash{}, id, &l); err != nil {
+			return err
+		}
+		s.addLinked(j, &l)
+		return nil
 	})
 	if err != nil {
 		return OIDCOutcome{}, err
 	}
-	s.emitLinked(&l)
 	return OIDCOutcome{Kind: OutcomeLinked, Issued: Issued{Token: l.rot.token, Session: l.rot.session}}, nil
 }
 
@@ -205,24 +209,27 @@ func (s *Service) oidcStepUp(ctx context.Context, c Client, flow oidc.Flow, id a
 		user *access.User
 		rot  rotated
 	)
-	err := s.update(ctx, func(tx Tx) error {
+	err := s.change(ctx, byClient(Actor{}, c), func(tx Tx, j *journal) error {
 		u, sess, err := s.flowSession(ctx, tx, flow)
 		if err != nil {
 			return err
 		}
+		j.actorSession(sess)
 		if u.OIDC.IsZero() || u.OIDC != id {
 			return refuse(ErrInvalidCredentials)
 		}
 		user = u
-		rot, err = s.rotateSession(ctx, tx, sess, access.Hash{}, access.MethodOIDC)
-		return err
+		if rot, err = s.rotateSession(ctx, tx, sess, access.Hash{}, access.MethodOIDC); err != nil {
+			return err
+		}
+		actor := EventActor{SessionID: rot.session.ID, UserID: u.ID}
+		j.add(Event{Kind: EventSteppedUp, At: rot.session.AuthTime, UserID: u.ID, Method: access.MethodOIDC, SessionIDs: []string{rot.session.ID}, Actor: actor})
+		return nil
 	})
 	if err != nil {
 		return OIDCOutcome{}, err
 	}
 	device := s.limiter.DeviceCookie(ratelimit.AccountKey(user.Username), c.Device)
-	actor := EventActor{SessionID: rot.session.ID, UserID: user.ID}
-	s.emit(Event{Kind: EventSteppedUp, At: rot.session.AuthTime, UserID: user.ID, Method: access.MethodOIDC, SessionIDs: []string{rot.session.ID}, Actor: actor})
 	return OIDCOutcome{Kind: OutcomeSteppedUp, Issued: Issued{Token: rot.token, DeviceCookie: device, Session: rot.session}}, nil
 }
 
@@ -281,7 +288,7 @@ func (s *Service) LinkPendingOIDC(ctx context.Context, p access.Principal, pendi
 		l  linked
 		me Me
 	)
-	err = s.update(ctx, func(tx Tx) error {
+	err = s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
 		u, userErr := ownUserIn(ctx, tx, p)
 		if userErr != nil {
 			return userErr
@@ -297,13 +304,15 @@ func (s *Service) LinkPendingOIDC(ctx context.Context, p access.Principal, pendi
 			return linkErr
 		}
 		var meErr error
-		me, meErr = s.meIn(ctx, tx, r, u, p)
-		return meErr
+		if me, meErr = s.meIn(ctx, tx, r, u, p); meErr != nil {
+			return meErr
+		}
+		s.addLinked(j, &l)
+		return nil
 	})
 	if err != nil {
 		return Issued{}, Me{}, err
 	}
-	s.emitLinked(&l)
 	return Issued{Token: l.rot.token, Session: l.rot.session}, me, nil
 }
 
@@ -378,20 +387,20 @@ func (s *Service) migrateIn(ctx context.Context, tx Tx, r Rules, actor Actor, u 
 	return err
 }
 
-// emitLinked reports a committed link: EventOIDCLinked, then a migration's
+// addLinked adds a link's entries: EventOIDCLinked, then a migration's
 // EventPasswordRemoved, one EventPasskeyRemoved per passkey, one
 // EventKeyRevoked per key and EventUserSessionsRevoked.
-func (s *Service) emitLinked(l *linked) {
+func (s *Service) addLinked(j *journal, l *linked) {
 	at := s.now()
-	s.emit(Event{Kind: EventOIDCLinked, At: at, UserID: l.userID, Actor: l.actor})
+	j.add(Event{Kind: EventOIDCLinked, At: at, UserID: l.userID, Actor: l.actor})
 	if l.password {
-		s.emit(Event{Kind: EventPasswordRemoved, At: at, UserID: l.userID, Method: access.MethodPassword, Actor: l.actor})
+		j.add(Event{Kind: EventPasswordRemoved, At: at, UserID: l.userID, Method: access.MethodPassword, Actor: l.actor})
 	}
 	for _, id := range l.passkeys {
-		s.emit(Event{Kind: EventPasskeyRemoved, At: at, UserID: l.userID, PasskeyID: id, Actor: l.actor})
+		j.add(Event{Kind: EventPasskeyRemoved, At: at, UserID: l.userID, PasskeyID: id, Actor: l.actor})
 	}
-	s.emitKeysRevoked(l.userID, l.keys, l.actor)
-	s.emitRevoked(l.userID, l.sessions, l.actor)
+	s.addKeysRevoked(j, l.userID, l.keys, l.actor)
+	s.addRevoked(j, l.userID, l.sessions, l.actor)
 }
 
 // UnlinkOIDC removes p's own user's OIDC link, for a full session within
@@ -404,7 +413,7 @@ func (s *Service) UnlinkOIDC(ctx context.Context, p access.Principal) error { //
 		return err
 	}
 	gone := credential{method: access.MethodOIDC}
-	err = s.update(ctx, func(tx Tx) error {
+	return s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
 		u, userErr := ownUserIn(ctx, tx, p)
 		if userErr != nil {
 			return userErr
@@ -416,11 +425,10 @@ func (s *Service) UnlinkOIDC(ctx context.Context, p access.Principal) error { //
 			return guardErr
 		}
 		u.OIDC, u.UpdatedAt = access.OIDCIdentity{}, s.now()
-		return tx.UpdateUser(ctx, u)
+		if err := tx.UpdateUser(ctx, u); err != nil {
+			return err
+		}
+		j.add(Event{Kind: EventOIDCUnlinked, At: s.now(), UserID: p.User.ID, Actor: eventActor(As(p))})
+		return nil
 	})
-	if err != nil {
-		return err
-	}
-	s.emit(Event{Kind: EventOIDCUnlinked, At: s.now(), UserID: p.User.ID, Actor: eventActor(As(p))})
-	return nil
 }

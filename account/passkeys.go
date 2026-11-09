@@ -133,7 +133,7 @@ func (s *Service) PasskeyRegisterBegin(ctx context.Context, p access.Principal, 
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id := s.pending.put(purposeRegister, pending{user: u, ceremony: ceremony}, s.now())
+	id := s.pending.put(purposeRegister, pending{user: *u, ceremony: ceremony}, s.now())
 	return PendingCeremony{ID: id, Creation: cc}, nil
 }
 
@@ -155,7 +155,7 @@ func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal,
 	if err != nil {
 		return Registered{}, err
 	}
-	cred, err := webauthn.FinishRegistration(rp, &webauthn.User{AuthUser: entry.user}, entry.ceremony, body)
+	cred, err := webauthn.FinishRegistration(rp, &webauthn.User{AuthUser: &entry.user}, entry.ceremony, body)
 	if err != nil {
 		return Registered{}, err
 	}
@@ -163,7 +163,7 @@ func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal,
 		pk  access.PasskeyCredential
 		rot rotated
 	)
-	err = s.update(ctx, func(tx Tx) error {
+	err = s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
 		u, userErr := ownUserIn(ctx, tx, p)
 		if userErr != nil {
 			return userErr
@@ -176,13 +176,15 @@ func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal,
 			return addErr
 		}
 		var rotErr error
-		rot, rotErr = s.rotate(ctx, tx, p, u.ID, "")
-		return rotErr
+		if rot, rotErr = s.rotate(ctx, tx, p, u.ID, ""); rotErr != nil {
+			return rotErr
+		}
+		j.add(Event{Kind: EventPasskeyAdded, At: pk.CreatedAt, UserID: pk.UserID, PasskeyID: pk.ID, Actor: eventActor(As(p))})
+		return nil
 	})
 	if err != nil {
 		return Registered{}, err
 	}
-	s.emit(Event{Kind: EventPasskeyAdded, At: pk.CreatedAt, UserID: pk.UserID, PasskeyID: pk.ID, Actor: eventActor(As(p))})
 	return Registered{Passkey: pk, Issued: Issued{Token: rot.token, Session: rot.session}}, nil
 }
 
@@ -216,7 +218,7 @@ func (s *Service) StepUpPasskeyBegin(ctx context.Context, p access.Principal, or
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id := s.pending.put(purposeStepUp, pending{user: u, ceremony: ceremony}, s.now())
+	id := s.pending.put(purposeStepUp, pending{user: *u, ceremony: ceremony}, s.now())
 	return PendingCeremony{ID: id, Assertion: assertion}, nil
 }
 
@@ -253,17 +255,18 @@ func (s *Service) StepUpPasskeyFinish(ctx context.Context, c Client, p access.Pr
 		return Issued{}, verifyErr
 	}
 	var rot rotated
-	err = s.update(ctx, func(tx Tx) error {
+	err = s.change(ctx, byClient(As(p), c), func(tx Tx, j *journal) error {
 		var rotErr error
-		rot, rotErr = s.rotate(ctx, tx, p, u.ID, access.MethodPasskey)
-		return rotErr
+		if rot, rotErr = s.rotate(ctx, tx, p, u.ID, access.MethodPasskey); rotErr != nil {
+			return rotErr
+		}
+		j.add(Event{Kind: EventSteppedUp, At: rot.session.AuthTime, UserID: u.ID, Method: access.MethodPasskey, SessionIDs: []string{rot.session.ID}, Actor: eventActor(As(p))})
+		return nil
 	})
 	if err != nil {
 		return Issued{}, err
 	}
 	device := s.limiter.DeviceCookie(ratelimit.AccountKey(u.Username), c.Device)
-	actor := eventActor(As(p))
-	s.emit(Event{Kind: EventSteppedUp, At: rot.session.AuthTime, UserID: u.ID, Method: access.MethodPasskey, SessionIDs: []string{rot.session.ID}, Actor: actor})
 	return Issued{Token: rot.token, DeviceCookie: device, Session: rot.session}, nil
 }
 
@@ -314,7 +317,7 @@ func (s *Service) RemovePasskey(ctx context.Context, p access.Principal, id int6
 		return err
 	}
 	gone := credential{method: access.MethodPasskey, passkeyID: id}
-	err = s.update(ctx, func(tx Tx) error {
+	return s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
 		u, userErr := ownUserIn(ctx, tx, p)
 		if userErr != nil {
 			return userErr
@@ -325,13 +328,12 @@ func (s *Service) RemovePasskey(ctx context.Context, p access.Principal, id int6
 		if guardErr := s.guardLastMethod(ctx, tx, r, u, gone); guardErr != nil {
 			return guardErr
 		}
-		return tx.DeletePasskey(ctx, access.PasskeyRef{ID: id, UserID: u.ID})
+		if err := tx.DeletePasskey(ctx, access.PasskeyRef{ID: id, UserID: u.ID}); err != nil {
+			return err
+		}
+		j.add(Event{Kind: EventPasskeyRemoved, At: s.now(), UserID: p.User.ID, PasskeyID: id, Actor: eventActor(As(p))})
+		return nil
 	})
-	if err != nil {
-		return err
-	}
-	s.emit(Event{Kind: EventPasskeyRemoved, At: s.now(), UserID: p.User.ID, PasskeyID: id, Actor: eventActor(As(p))})
-	return nil
 }
 
 // WebAuthnSignals returns the reconciliation payloads for p's own user and
@@ -431,7 +433,7 @@ func (s *Service) webauthnUser(ctx context.Context, u *access.User) (*webauthn.U
 // ErrCeremonyInvalid, and is spent all the same.
 func (s *Service) takeOwn(id string, purpose pendingPurpose, p access.Principal) (pending, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	entry, ok := s.pending.take(id, purpose, s.now())
-	if !ok || entry.user == nil || entry.user.ID != p.User.ID {
+	if !ok || entry.user.ID != p.User.ID {
 		return pending{}, ErrCeremonyInvalid
 	}
 	return entry, nil

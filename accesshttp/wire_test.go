@@ -2,8 +2,10 @@ package accesshttp
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"reflect"
 	"slices"
 	"strings"
@@ -158,11 +160,11 @@ func TestViewsCarryEveryField(t *testing.T) {
 	}
 	at := func(h int) time.Time { return created.Add(time.Duration(h) * time.Hour) }
 	me := account.Me{
-		User: user, Methods: methods, CanLinkOIDC: true,
+		User: user, Methods: methods, CanLinkOIDC: true, SSOGoverned: true,
 		Current: account.CurrentSession{ID: "sess", Method: access.MethodPasskey, AuthTime: at(1), IdleDeadline: at(2), AbsoluteDeadline: at(3)},
 	}
 	wantMe := MeResponse{
-		User: wantUser, Methods: wantMethods, CanLinkOIDC: true,
+		User: wantUser, Methods: wantMethods, CanLinkOIDC: true, SSOGoverned: true,
 		Session: CurrentSessionView{ID: "sess", Method: access.MethodPasskey, AuthTime: at(1), IdleDeadline: at(2), AbsoluteDeadline: at(3)},
 	}
 	wantSignedIn := SignedInResponse{User: wantUser, SessionID: "sess", CloneWarning: true}
@@ -203,6 +205,27 @@ func TestViewsCarryEveryField(t *testing.T) {
 		Purpose: access.PurposeInvite, Role: access.RoleUser, Subject: 9, IssuedByKey: 5, IssuerLineage: []int64{3, 5},
 		CreatedAt: at(1), ExpiresAt: at(5),
 	}
+	logPage := account.LogPage{
+		Entries: []account.LogEntry{{
+			At: at(2), IP: netip.MustParseAddr("192.0.2.9"), Class: account.LogClassChange,
+			ActorLabel: "laptop", ActorUserAgent: "Firefox", ActorKeySuffix: "wxyz", Detail: "d",
+			Event: account.Event{
+				At: at(1), Kind: account.EventMethodLocked, Method: access.MethodPasskey, Role: access.RoleUser,
+				SessionIDs: []string{"s1", "s2"}, UserID: 7, KeyID: 5, PasskeyID: 2, Seq: 11, Trusted: true,
+				Actor: account.EventActor{SessionID: "sess", OutOfBand: "cli", UserID: 3, KeyID: 4},
+			},
+		}},
+		Classes: []account.LogClassStats{{Class: account.LogClassChange, Count: 6, Evicted: 8}},
+	}
+	wantLogPage := SecurityLogView{
+		Entries: []LogEntryView{{
+			Seq: 11, At: at(2), OccurredAt: at(1), Class: account.LogClassChange, Kind: "method_locked",
+			IP: "192.0.2.9", Method: access.MethodPasskey, Role: access.RoleUser, Detail: "d",
+			SessionIDs: []string{"s1", "s2"}, UserID: 7, KeyID: 5, PasskeyID: 2, Trusted: true,
+			Actor: LogActorView{SessionID: "sess", OutOfBand: "cli", Label: "laptop", UserAgent: "Firefox", KeySuffix: "wxyz", UserID: 3, KeyID: 4},
+		}},
+		Classes: []LogClassView{{Class: account.LogClassChange, Count: 6, Evicted: 8}},
+	}
 	for _, tc := range []struct {
 		got, want any
 		name      string
@@ -216,6 +239,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 		{name: "SessionView", got: sessionView(&session, timeouts, "sess"), want: wantSession},
 		{name: "KeyView", got: keyView(&key, "alice"), want: wantKey},
 		{name: "TokenView", got: tokenView(&token), want: wantToken},
+		{name: "SecurityLogView", got: securityLogView(&logPage), want: wantLogPage},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if unset := unsetFields(reflect.ValueOf(tc.want), tc.name, adminListOnly); len(unset) != 0 {
@@ -292,4 +316,34 @@ func TestViewsCarryEveryField(t *testing.T) {
 			t.Errorf("unsetFields = %v, want [MethodsView.Locks[].Trusted]", got)
 		}
 	})
+}
+
+// TestLogEntryViewJSON holds the omitempty keys to an entry that sets none
+// of them: the golden fixture sets every field, so it cannot catch one.
+func TestLogEntryViewJSON(t *testing.T) {
+	at := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
+	e := account.LogEntry{At: at, Class: account.LogClassChange, Event: account.Event{At: at, Kind: account.EventPasswordChanged, Seq: 9}}
+	b, err := json.Marshal(logEntryView(&e))
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := jsonKeys(t, b)
+	if got, want := slices.Sorted(maps.Keys(keys)), []string{"actor", "at", "class", "kind", "occurred_at", "seq"}; !slices.Equal(got, want) {
+		t.Errorf("keys %q of %s, want %q", got, b, want)
+	}
+	if got := string(keys["actor"]); got != "{}" {
+		t.Errorf("actor %s, want {} for the zero actor", got)
+	}
+}
+
+func TestSecurityLogViewJSON(t *testing.T) {
+	page := account.LogPage{Classes: []account.LogClassStats{{Class: account.LogClassChange}, {Class: account.LogClassSession}}}
+	b, err := json.Marshal(securityLogView(&page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `{"entries":[],"classes":[{"class":"change","count":0,"evicted":0},{"class":"session","count":0,"evicted":0}]}`
+	if string(b) != want {
+		t.Errorf("empty page encodes %s, want %s", b, want)
+	}
 }

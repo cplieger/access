@@ -2,6 +2,7 @@ package accesstest
 
 import (
 	"fmt"
+	"net/netip"
 	"reflect"
 	"slices"
 	"testing"
@@ -14,6 +15,7 @@ import (
 var (
 	hashType = reflect.TypeFor[access.Hash]()
 	timeType = reflect.TypeFor[time.Time]()
+	addrType = reflect.TypeFor[netip.Addr]()
 )
 
 // fidelity: rule 20.
@@ -50,6 +52,9 @@ func (f *filler) fill(v reflect.Value, path string) {
 		return
 	case timeType:
 		v.Set(reflect.ValueOf(epoch.Add(time.Duration(f.next()) * 1001 * time.Millisecond)))
+		return
+	case addrType:
+		v.Set(reflect.ValueOf(netip.MustParseAddr(fmt.Sprintf("2001:db8::%x", f.next()))))
 		return
 	}
 	switch v.Kind() {
@@ -105,6 +110,7 @@ type fidelityRecords struct {
 	token       *access.OneTimeToken
 	attribution *access.KeyAttribution
 	failure     *account.FailureCount
+	log         *account.LogEntry
 }
 
 // writeFilled writes one filled record of each type through its SPI write
@@ -137,6 +143,9 @@ func writeFilled(t *testing.T, s account.Store) fidelityRecords {
 	check(t, "CreateKeyAttribution", s.CreateKeyAttribution(ctx, r.attribution))
 	r.failure = filled[account.FailureCount](f)
 	check(t, "PutAuthFailure", s.PutAuthFailure(ctx, *r.failure))
+	r.log = filled[account.LogEntry](f)
+	r.log.Class = account.LogClassChange
+	check(t, "AppendLog", s.AppendLog(ctx, r.log))
 	return r
 }
 
@@ -166,6 +175,8 @@ func checkFidelity(t *testing.T, w fidelityRecords, s account.Store) {
 	check(t, "PasskeysByUserID", err)
 	attributions, err := s.ListKeyAttributions(ctx)
 	check(t, "ListKeyAttributions", err)
+	entries, err := s.ListLog(ctx, account.LogRange{Limit: logPage})
+	check(t, "ListLog", err)
 	pairs := []struct {
 		want, got any
 	}{
@@ -176,6 +187,7 @@ func checkFidelity(t *testing.T, w fidelityRecords, s account.Store) {
 		{w.failure, &failure},
 		{w.passkey, byID(passkeys, w.passkey.ID, func(p access.PasskeyCredential) int64 { return p.ID })},
 		{w.attribution, byID(attributions, w.attribution.ID, func(a access.KeyAttribution) int64 { return a.ID })},
+		{w.log, byID(entries, int64(w.log.Event.Seq), func(e account.LogEntry) int64 { return int64(e.Event.Seq) })}, //nolint:gosec // G115: rule 22 bounds Seq to 2^53 − 1
 	}
 	for _, p := range pairs {
 		want, got := reflect.ValueOf(p.want), reflect.ValueOf(p.got)
@@ -212,6 +224,10 @@ func firstDiff(want, got reflect.Value, path string) string {
 		w, _ := reflect.TypeAssert[time.Time](want)
 		g, _ := reflect.TypeAssert[time.Time](got)
 		return diffIf(!w.Equal(g), path)
+	case addrType:
+		w, _ := reflect.TypeAssert[netip.Addr](want)
+		g, _ := reflect.TypeAssert[netip.Addr](got)
+		return diffIf(w != g, path)
 	}
 	switch want.Kind() {
 	case reflect.Struct:

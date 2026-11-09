@@ -16,7 +16,6 @@ const (
 	EventSignedIn            EventKind = "signed_in"
 	EventSessionRevoked      EventKind = "session_revoked"
 	EventUserSessionsRevoked EventKind = "user_sessions_revoked"
-	EventSessionRotated      EventKind = "session_rotated"
 	EventSessionsExpired     EventKind = "sessions_expired" // the sweep deleted expired sessions; after a call that returns nil
 	EventPasswordSet         EventKind = "password_set"
 	EventPasswordChanged     EventKind = "password_changed"
@@ -37,18 +36,76 @@ const (
 	EventUserDeleted         EventKind = "user_deleted"
 	EventRoleChanged         EventKind = "role_changed"
 	EventUserCreated         EventKind = "user_created"
-	EventMethodLocked        EventKind = "method_locked"    // a failure counter reached the cap; reported by the sweep
+	EventInviteIssued        EventKind = "invite_issued"
+	EventMethodLocked        EventKind = "method_locked"    // a failure counter reached the cap; reported by the sweep, or by the Update that clears an unreported lock
 	EventMethodReenabled     EventKind = "method_reenabled" // recovery, ReenableMethod or a sign-in cleared a lock, after its commit
 )
 
+// eventKinds is every EventKind in declaration order, with the class its
+// log entries take. The zero class marks the kind the log never holds: an
+// entry of it fails its change.
+var eventKinds = [...]struct {
+	kind  EventKind
+	class LogClass
+}{
+	{EventSignedIn, LogClassSession},
+	{EventSessionRevoked, LogClassSession},
+	{EventUserSessionsRevoked, LogClassChange},
+	{EventSessionsExpired, ""},
+	{EventPasswordSet, LogClassChange},
+	{EventPasswordChanged, LogClassChange},
+	{EventPasswordRemoved, LogClassChange},
+	{EventPasskeyAdded, LogClassChange},
+	{EventPasskeyRemoved, LogClassChange},
+	{EventOIDCLinked, LogClassChange},
+	{EventOIDCUnlinked, LogClassChange},
+	{EventSetupTokenIssued, LogClassChange},
+	{EventRecoveryIssued, LogClassChange},
+	{EventRecoveryConsumed, LogClassChange},
+	{EventRecoveryCompleted, LogClassChange},
+	{EventKeyMinted, LogClassChange},
+	{EventKeyRevoked, LogClassChange},
+	{EventSteppedUp, LogClassSession},
+	{EventUserDisabled, LogClassChange},
+	{EventUserEnabled, LogClassChange},
+	{EventUserDeleted, LogClassChange},
+	{EventRoleChanged, LogClassChange},
+	{EventUserCreated, LogClassChange},
+	{EventInviteIssued, LogClassChange},
+	{EventMethodLocked, LogClassChange},
+	{EventMethodReenabled, LogClassChange},
+}
+
+// EventKinds returns every EventKind, in declaration order.
+func EventKinds() []EventKind {
+	kinds := make([]EventKind, len(eventKinds))
+	for i := range eventKinds {
+		kinds[i] = eventKinds[i].kind
+	}
+	return kinds
+}
+
+// classOf is k's retention class; empty for a kind the log never holds.
+func classOf(k EventKind) LogClass {
+	for i := range eventKinds {
+		if eventKinds[i].kind == k {
+			return eventKinds[i].class
+		}
+	}
+	return ""
+}
+
 // Event is one committed change, delivered to Config.OnEvent after the
 // Update that made it returns nil. Delivery is at most once: a crash
-// between the commit and the dispatch loses the event.
+// between the commit and the dispatch loses the event, never its log entry.
 type Event struct {
-	At         time.Time
-	Kind       EventKind
-	Method     access.Method // sign-in, step-up, lock and re-enable
-	SessionIDs []string      // sessions ended or rotated
+	At     time.Time
+	Kind   EventKind
+	Method access.Method // sign-in, step-up, lock and re-enable
+	// Role is the new role of an EventRoleChanged, the created user's of an
+	// EventUserCreated and the invite's of an EventInviteIssued.
+	Role       access.Role
+	SessionIDs []string // sessions ended or rotated
 	Actor      EventActor
 	UserID     int64 // the account the event is about (target)
 	// KeyID is the key of a key event, and the issuing key of an
@@ -56,7 +113,10 @@ type Event struct {
 	// EventUserCreated whose token a key issued.
 	KeyID     int64
 	PasskeyID int64 // passkey events
-	Trusted   bool  // EventMethodLocked: which context locked
+	// Seq is the Seq of the log entry this event's commit appended; 0 for
+	// EventSessionsExpired, which the log does not hold.
+	Seq     uint64
+	Trusted bool // EventMethodLocked: which context locked
 }
 
 // EventActor is who caused an Event; the zero value is no actor (the
@@ -68,10 +128,10 @@ type EventActor struct {
 	KeyID     int64
 }
 
-// emit delivers ev to Config.OnEvent in the calling goroutine. A panic in
+// deliver hands ev to Config.OnEvent in the calling goroutine. A panic in
 // the hook is recovered and logged at ERROR: the write has committed, and
 // the operation must not fail after the fact.
-func (s *Service) emit(ev Event) { //nolint:gocritic // hugeParam: each event is built for this one call
+func (s *Service) deliver(ev Event) { //nolint:gocritic // hugeParam: each event is built for this one call
 	if s.onEvent == nil {
 		return
 	}

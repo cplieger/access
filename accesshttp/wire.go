@@ -204,6 +204,7 @@ type MeResponse struct {
 	Methods     MethodsView        `json:"methods"`
 	User        UserView           `json:"user"`
 	CanLinkOIDC bool               `json:"can_link_oidc"`
+	SSOGoverned bool               `json:"sso_governed"`
 }
 
 // RecoveryResponse is a started recovery.
@@ -285,6 +286,50 @@ type TokenView struct {
 	IssuedByKey   int64   `json:"issued_by_key,omitempty"`
 }
 
+// SecurityLogView is one authAdminSecurityLog page.
+type SecurityLogView struct {
+	Entries []LogEntryView `json:"entries"` // never null: an empty page is []
+	Classes []LogClassView `json:"classes"` // one per account.LogClasses() value, in order
+}
+
+// LogClassView is one log class's entry count and cap evictions.
+type LogClassView struct {
+	Class   account.LogClass `json:"class"`
+	Count   int64            `json:"count"`
+	Evicted int64            `json:"evicted"` // removed by the size limit, ever
+}
+
+// LogEntryView is one security-log entry.
+type LogEntryView struct {
+	At         time.Time        `json:"at"`
+	OccurredAt time.Time        `json:"occurred_at"` // Event.At
+	Class      account.LogClass `json:"class"`
+	Kind       string           `json:"kind"`
+	IP         string           `json:"ip,omitempty"`
+	Method     access.Method    `json:"method,omitempty"`
+	Role       access.Role      `json:"role,omitempty"`
+	Detail     string           `json:"detail,omitempty"`
+	SessionIDs []string         `json:"session_ids,omitempty"`
+	Actor      LogActorView     `json:"actor"`
+	Seq        int64            `json:"seq"`
+	UserID     int64            `json:"user_id,omitempty"`
+	KeyID      int64            `json:"key_id,omitempty"`
+	PasskeyID  int64            `json:"passkey_id,omitempty"`
+	Trusted    bool             `json:"trusted,omitempty"`
+}
+
+// LogActorView is who made a logged change, with the display data the
+// change's Update snapshotted.
+type LogActorView struct {
+	SessionID string `json:"session_id,omitempty"`
+	OutOfBand string `json:"out_of_band,omitempty"`
+	Label     string `json:"label,omitempty"`
+	UserAgent string `json:"user_agent,omitempty"`
+	KeySuffix string `json:"key_suffix,omitempty"`
+	UserID    int64  `json:"user_id,omitempty"`
+	KeyID     int64  `json:"key_id,omitempty"`
+}
+
 // A query struct's JSON names are its query keys (query.go).
 
 // PasskeyBeginQuery is authLoginPasskeyBegin's query.
@@ -315,6 +360,20 @@ type RecoveryPasskeyFinishQuery struct {
 // AdminUsersQuery is authAdminUsers' query.
 type AdminUsersQuery struct {
 	Key int64 `json:"key,omitempty"` // a positive decimal key ID, or absent
+}
+
+// AdminSecurityLogQuery is authAdminSecurityLog's query. Kinds is a
+// comma-separated list of kinds, OldestFirst is "true" or absent, and every
+// other key is a positive decimal.
+type AdminSecurityLogQuery struct {
+	Kinds       string `json:"kinds,omitempty"`        // LogFilter.Kinds, split on ","
+	User        int64  `json:"user,omitempty"`         // LogFilter.UserID
+	Actor       int64  `json:"actor,omitempty"`        // LogFilter.ActorUserID
+	ActorKey    int64  `json:"actor_key,omitempty"`    // LogFilter.ActorKeyID
+	After       int64  `json:"after,omitempty"`        // LogFilter.AfterSeq
+	Before      int64  `json:"before,omitempty"`       // LogFilter.BeforeSeq
+	Limit       int64  `json:"limit,omitempty"`        // LogFilter.Limit
+	OldestFirst bool   `json:"oldest_first,omitempty"` // LogFilter.OldestFirst
 }
 
 // shownOnce is a response that carries one plaintext.
@@ -399,6 +458,36 @@ func tokenView(l *account.ListedToken) TokenView {
 	}
 }
 
+// securityLogView is p on the wire, Entries never nil.
+func securityLogView(p *account.LogPage) SecurityLogView {
+	entries := make([]LogEntryView, 0, len(p.Entries))
+	for i := range p.Entries {
+		entries = append(entries, logEntryView(&p.Entries[i]))
+	}
+	classes := make([]LogClassView, 0, len(p.Classes))
+	for _, c := range p.Classes {
+		classes = append(classes, LogClassView{Class: c.Class, Count: int64(c.Count), Evicted: int64(c.Evicted)}) //nolint:gosec // G115: rule 22 bounds Evicted by Seq, at most 2^53 - 1
+	}
+	return SecurityLogView{Entries: entries, Classes: classes}
+}
+
+func logEntryView(e *account.LogEntry) LogEntryView {
+	ev := &e.Event
+	v := LogEntryView{
+		Seq: int64(ev.Seq), At: e.At, OccurredAt: ev.At, Class: e.Class, Kind: string(ev.Kind), //nolint:gosec // G115: rule 22 bounds Seq at 2^53 - 1
+		UserID: ev.UserID, SessionIDs: ev.SessionIDs, KeyID: ev.KeyID, PasskeyID: ev.PasskeyID,
+		Method: ev.Method, Role: ev.Role, Trusted: ev.Trusted, Detail: e.Detail,
+		Actor: LogActorView{
+			UserID: ev.Actor.UserID, SessionID: ev.Actor.SessionID, KeyID: ev.Actor.KeyID, OutOfBand: ev.Actor.OutOfBand,
+			Label: e.ActorLabel, UserAgent: e.ActorUserAgent, KeySuffix: e.ActorKeySuffix,
+		},
+	}
+	if e.IP.IsValid() {
+		v.IP = e.IP.String()
+	}
+	return v
+}
+
 func methodsView(m account.Methods) MethodsView {
 	locks := make([]MethodLockView, 0, len(m.Locks))
 	for _, l := range m.Locks {
@@ -424,6 +513,7 @@ func meResponse(m *account.Me) MeResponse {
 			IdleDeadline: m.Current.IdleDeadline, AbsoluteDeadline: m.Current.AbsoluteDeadline,
 		},
 		CanLinkOIDC: m.CanLinkOIDC,
+		SSOGoverned: m.SSOGoverned,
 	}
 }
 

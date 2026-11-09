@@ -51,10 +51,14 @@ func adminScenarios() map[scenarioKey]scenario {
 	}
 	enable := `{"enabled":false}`
 
-	for _, name := range []string{"authAdminUsers", "authAdminKeys", "authAdminTokens"} {
+	for _, name := range []string{"authAdminUsers", "authAdminKeys", "authAdminTokens", "authAdminSecurityLog"} {
 		out[scenarioKey{name, CodeForbidden}] = byAlice(name, "")
 		out[scenarioKey{name, CodeUnavailable}] = closing(envOptions{}, byRoot(name, missing, ""))
 	}
+
+	out[scenarioKey{"authAdminSecurityLog", CodeBadRequest}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		return e.securityLog(t, "kinds=a.b,", e.rootSession(t))
+	}}
 
 	const create = "authAdminUserCreate"
 	out[scenarioKey{create, CodeForbidden}] = byAlice(create, newUser("carol", testPassword))

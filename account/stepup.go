@@ -35,30 +35,28 @@ func (s *Service) StepUpPassword(ctx context.Context, c Client, p access.Princip
 	if verifyErr := s.verifyCounted(ctx, a, canonical, password, false); verifyErr != nil {
 		return Issued{}, verifyErr
 	}
-	var (
-		rot       rotated
-		reenabled bool
-	)
-	err = s.update(ctx, func(tx Tx) error {
+	var rot rotated
+	err = s.change(ctx, byClient(As(p), c), func(tx Tx, j *journal) error {
 		u, cleared, commitErr := commitVerified(ctx, tx, a)
 		if commitErr != nil {
 			return commitErr
 		}
-		reenabled = cleared
 		var rotErr error
-		rot, rotErr = s.rotate(ctx, tx, p, u.ID, access.MethodPassword)
-		return rotErr
+		if rot, rotErr = s.rotate(ctx, tx, p, u.ID, access.MethodPassword); rotErr != nil {
+			return rotErr
+		}
+		actor := EventActor{SessionID: rot.session.ID, UserID: rot.session.UserID}
+		at := rot.session.AuthTime
+		if cleared {
+			j.add(Event{Kind: EventMethodReenabled, At: at, UserID: actor.UserID, Method: access.MethodPassword, Trusted: a.ref.Trusted, Actor: actor})
+		}
+		j.add(Event{Kind: EventSteppedUp, At: at, UserID: actor.UserID, Method: access.MethodPassword, SessionIDs: []string{rot.session.ID}, Actor: actor})
+		return nil
 	})
 	if err != nil {
 		a.res.Fail()
 		return Issued{}, err
 	}
 	device := a.res.Succeed()
-	actor := EventActor{SessionID: rot.session.ID, UserID: rot.session.UserID}
-	at := rot.session.AuthTime
-	if reenabled {
-		s.emit(Event{Kind: EventMethodReenabled, At: at, UserID: actor.UserID, Method: access.MethodPassword, Trusted: a.ref.Trusted, Actor: actor})
-	}
-	s.emit(Event{Kind: EventSteppedUp, At: at, UserID: actor.UserID, Method: access.MethodPassword, SessionIDs: []string{rot.session.ID}, Actor: actor})
 	return Issued{Token: rot.token, DeviceCookie: device, Session: rot.session}, nil
 }

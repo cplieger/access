@@ -1,10 +1,10 @@
 # Implementing the store
 
-access stores nothing itself. This page is for the developer writing the storage layer: the interfaces it implements, the transaction boundary, the 21 contract rules and what each costs. The [`account` package documentation](https://pkg.go.dev/github.com/cplieger/access/account) owns the rules' exact wording, and `accesstest.StoreContract` tests every one of them. Where this page and the package documentation differ, the package documentation is right. Method signatures are on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access).
+access stores nothing itself. This page is for the developer writing the storage layer: the interfaces it implements, the transaction boundary, the 22 contract rules and what each costs. The [`account` package documentation](https://pkg.go.dev/github.com/cplieger/access/account) owns the rules' exact wording, and `accesstest.StoreContract` tests every one of them. Where this page and the package documentation differ, the package documentation is right. Method signatures are on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access).
 
 ## The interfaces
 
-A store implements `account.Store`: the roles `UserStore`, `SessionStore`, `PasskeyStore`, `KeyStore`, `TokenStore`, `AttributionStore` and `FailureStore`, grouped as `account.Tx` inside `Store.Update`, plus the `Sweeper` cleanups the background sweep calls.
+A store implements `account.Store`: the roles `UserStore`, `SessionStore`, `PasskeyStore`, `KeyStore`, `TokenStore`, `AttributionStore`, `FailureStore` and `LogStore`, grouped as `account.Tx` inside `Store.Update`, plus the `Sweeper` cleanups the background sweep calls.
 
 `access.New` takes an `AuthenticatorStore`, the read side it needs: session lookup and activity updates, user lookup by ID, API-key lookup by hash, and `TouchAPIKey`, which records a key's last use. `webauthn.CompleteLogin` takes a `webauthn.Store`. An `account.Store` satisfies both.
 
@@ -16,7 +16,7 @@ What your store must give that callback:
 
 - Two `Update`s never interleave, and a single-call write outside `Update` is ordered against them. A last-admin, last-method or user-count check inside one callback is then race-free with no lock in the app.
 - An `Update` commits every record it touches as one unit. A store that spreads records over several files publishes one `Update` with one atomic step: every file written into a new generation directory and published by one rename of a pointer, or every record kept in one file. Two renames in sequence break the rule, because a crash between them leaves half the writes durable.
-- The store may run a callback more than once, as bbolt's `db.Batch` does. `account` rebuilds its results and events on each run and emits nothing until `Update` returns nil, so only the last run's writes may remain.
+- The store may run a callback more than once, as bbolt's `db.Batch` does. `account` rebuilds its results, events and log entries on each run and emits nothing until `Update` returns nil, so only the last run's writes may remain.
 - The callback uses only its `tx`. Calling the store from inside it can deadlock on a single-writer backend such as bbolt, and `account` never does it. A `Tx` is not kept after the callback returns.
 
 ### Your own rules inside the transaction
@@ -50,6 +50,20 @@ Each rule below is one line of the package documentation's numbered list. `acces
 19. **Writes to an absent row.** `UpdateSessionActivity`, `TouchAPIKey` and `UpdatePasskeyAfterLogin` never create a row. The first two write nothing and return nil, and the third returns `ErrNotFound`. A verification that read a session just before it was revoked or rotated can therefore never bring it back.
 20. **Fidelity.** Every exported field of every record reads back as it was written, apart from what the store assigns, and a persistent store keeps that across a close and a reopen. `accesstest.ContractConfig.Reopen` lets the contract check the reopen.
 21. **Activity never moves backwards.** `UpdateSessionActivity` stores `LastActivity` and `LastIP` only when the new time is after the stored one, and `TouchAPIKey` does the same for `LastUsedAt`. `RotateSession` keeps the stored `LastActivity` and `LastIP` when the stored `LastActivity` is after `Next`'s, in the same conditional write, so no write path lowers either. Two requests can reach the store in the reverse order of their clocks, and a late, older write would otherwise move a session's idle deadline back. Implement it as one conditional update (`UPDATE … WHERE last_activity < ?`, or a compare inside the write transaction or writer mutex), never as a read followed by a separate write.
+22. **The security log.** See [The security log](#the-security-log).
+
+## The security log
+
+`LogStore` keeps the [security log](security-log.md). Its four methods are on `Tx`, so `account` appends each entry in the same `Update` as the change it records. Rule 22 in the [`account` package documentation](https://pkg.go.dev/github.com/cplieger/access/account) owns the exact wording. In short:
+
+- **Order.** `AppendLog` assigns `Event.Seq` a positive integer no larger than 2^53 − 1, in commit order. A reader that sees an entry already sees every committed entry with a smaller `Seq`. Being larger than every entry committed before it is not enough for a store whose `Update`s run concurrently under serializable isolation: two writers could take 5 and 6 and commit 6 first, and a reader catching up from 6 would never see 5. Assign `Seq` under the lock that orders your commits, such as bbolt's single writer transaction or a file store's writer mutex. A store whose writers commit concurrently assigns it at commit, in commit order.
+- **Never reused.** A `Seq` is never given to two committed entries, after any prune and across a close and a reopen included. A rolled-back or re-run `Update` may use up numbers that no entry keeps, so gaps are allowed. Keep a counter that commits with the entry and that nothing lowers, as for [IDs](#ids-and-key-lineage).
+- **One unit with its change.** An entry commits and rolls back with its `Update`, and a re-run callback leaves only its last run's entries. A stored entry reads back with every field as written, `Event.SessionIDs` and `IP` included, and reads return deep copies.
+- **Reads.** `ListLog` returns exactly the committed entries in its open `Seq` range, in the order asked, at most `Limit`. `ListLog` and `LogStats` never wait on a write, as rule 16 asks of every read.
+- **Pruning.** `PruneLog` removes entries of one class only, lowest `Seq` first, never more than `Limit`, and returns the count. A `LogPrune` sets exactly one criterion: `Keep`, the cap, removes the entries beyond the class's newest `Keep`, and `Before`, the age, removes the entries appended before that time. Refuse a prune with both set or neither, because the criterion is what tells a removal by the cap from a removal by age.
+- **The eviction counter.** Each class keeps a durable `Evicted` counter. A `Keep` prune adds the number it removed, in the same `Update`, and nothing else changes it: a `Before` prune leaves it alone, a rolled-back `Update` leaves it as it was, and it survives a close and a reopen. `LogStats` returns each class that has ever held an entry, with its committed `Count` and `Evicted`.
+- **Nothing else removes an entry.** No other method changes or removes one, and `DeleteUser`'s cascade keeps the user's entries.
+- **Durable.** Keep the log with the durability of your users and keys. A store that resets derived data on a format change classifies its log records as durable, never derived. The library names no table, bucket or file of yours, so your reset policy names your own log table.
 
 ## Hashes
 
@@ -101,6 +115,12 @@ Measured on an Intel Core i5-13500 limited to 4 of its 20 logical CPUs (`GOMAXPR
 | `PruneAtBound`, 1,000 users | 54.7 ms per sweep | | |
 
 In memory the count commit is under 0.1 % of an attempt, which the derivation dominates. Behind a 10 ms batch window a lone caller waits out the whole window, and concurrent callers share commits. `PruneAtBound` is one failure-sweep `Update` over rule 15's bound for 1,000 users. Your store's own figures depend on its medium, so measure them with your store in place of `MemStore`.
+
+### Security-log writes
+
+Every logged `Update` adds one `AppendLog` per entry and one `Keep` prune for each class it appended to, which trims the class back to its cap. A no-op trim is the common case, so keep a count and a `Seq`-ordered index per class: the trim then costs O(removed), and O(1) when it removes nothing, never a scan of the class. The background sweep adds a `Before` prune per class each `CleanupInterval`, in `Update`s that each remove at most `account.MaxSweepBatch` (1000) entries.
+
+A change entry with its actor's label and user agent and an IPv6 address is about 420 bytes of compact JSON. At the default caps of 10,000 entries per class, a class of such entries is about 4.2 MB. A store that rewrites one whole file on every commit pays that on every write, sign-in counts included, so set `LogMaxChanges` and `LogMaxSessions` lower: 1,000 per class is about 0.42 MB.
 
 ## The test store
 

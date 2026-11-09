@@ -15,7 +15,7 @@ import (
 func TestPendingCache(t *testing.T) {
 	t.Parallel()
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	user := func(id int64) *access.User { return &access.User{ID: id} }
+	user := func(id int64) access.User { return access.User{ID: id} }
 	t.Run("ids", func(t *testing.T) {
 		t.Parallel()
 		c := account.NewPendingCache(10)
@@ -125,7 +125,7 @@ func TestPendingCacheConcurrent(t *testing.T) {
 		c := account.NewPendingCache(1000)
 		ids := make([]string, 200)
 		for i := range ids {
-			ids[i] = c.Put(account.PurposeLogin, &access.User{ID: int64(i)}, t0)
+			ids[i] = c.Put(account.PurposeLogin, access.User{ID: int64(i)}, t0)
 		}
 		var taken [200]atomic.Int32
 		var wg sync.WaitGroup
@@ -153,7 +153,7 @@ func TestPendingCacheConcurrent(t *testing.T) {
 		for g := range 16 {
 			wg.Go(func() {
 				for i := range 500 {
-					id := c.Put(account.PurposeLogin, &access.User{ID: int64(g*1000 + i)}, t0)
+					id := c.Put(account.PurposeLogin, access.User{ID: int64(g*1000 + i)}, t0)
 					if c.Len() > 100 {
 						over.Store(true)
 					}

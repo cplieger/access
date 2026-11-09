@@ -78,7 +78,7 @@ func (s *Service) IssueSetupToken(ctx context.Context, a Actor, ttl time.Duratio
 		return access.Secret{}, err
 	}
 	plaintext, rec := access.NewOneTimeToken(access.PurposeSetup, 0, ttl, s.now())
-	err = s.update(ctx, func(tx Tx) error {
+	err = s.change(ctx, by(a), func(tx Tx, j *journal) error {
 		n, countErr := tx.UserCount(ctx)
 		switch {
 		case countErr != nil:
@@ -89,12 +89,15 @@ func (s *Service) IssueSetupToken(ctx context.Context, a Actor, ttl time.Duratio
 		if _, delErr := tx.DeleteOneTimeTokens(ctx, access.PurposeSetup, 0); delErr != nil {
 			return delErr
 		}
-		return tx.CreateOneTimeToken(ctx, rec)
+		if createErr := tx.CreateOneTimeToken(ctx, rec); createErr != nil {
+			return createErr
+		}
+		j.add(Event{Kind: EventSetupTokenIssued, At: rec.CreatedAt, Actor: eventActor(a)})
+		return nil
 	})
 	if err != nil {
 		return access.Secret{}, err
 	}
-	s.emit(Event{Kind: EventSetupTokenIssued, At: rec.CreatedAt, Actor: eventActor(a)})
 	return plaintext, nil
 }
 
@@ -141,7 +144,14 @@ func (s *Service) SetupWithPassword(ctx context.Context, c Client, in SetupPassw
 			user := base
 			return &user, s.createFirstUser(ctx, tx, spend, &user)
 		},
+		announce: announceCreated,
 	})
+}
+
+// announceCreated adds the EventUserCreated, with the user's role, of a
+// creation that signs the new user in.
+func announceCreated(j *journal, u *access.User, sess *access.Session) {
+	j.add(Event{Kind: EventUserCreated, At: sess.CreatedAt, UserID: u.ID, Role: u.Role})
 }
 
 // setupChecks runs setup steps 1 to 3, the refusals that need neither a

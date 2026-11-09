@@ -116,6 +116,10 @@ func TestErrorCodeTable(t *testing.T) {
 		{name: "current_password_required", err: account.ErrCurrentPasswordRequired, code: "auth_bad_request", reason: "current_password_required"},
 		{name: "text_label_too_long", err: &account.TextError{Field: "label", Reason: "too_long"}, code: "auth_bad_request", reason: "label_too_long"},
 		{name: "text_display_name_character", err: wrapped(&account.TextError{Field: "display_name", Reason: "disallowed_character"}), code: "auth_bad_request", reason: "display_name_disallowed_character"},
+		{name: "log_filter_limit", err: &account.LogFilterError{Reason: "log_limit"}, code: "auth_bad_request", reason: "log_limit"},
+		{name: "log_filter_range", err: wrapped(&account.LogFilterError{Reason: "log_range"}), code: "auth_bad_request", reason: "log_range"},
+		{name: "log_filter_kind", err: &account.LogFilterError{Reason: "log_kind"}, code: "auth_bad_request", reason: "log_kind"},
+		{name: "log_filter_id", err: &account.LogFilterError{Reason: "log_id"}, code: "auth_bad_request", reason: "log_id"},
 		{name: "max_bytes", err: &http.MaxBytesError{Limit: 4096}, code: "auth_body_too_large"},
 		{name: "response_too_large", err: webauthn.ErrResponseTooLarge, code: "auth_body_too_large"},
 		{name: "username_invalid", err: &account.UsernameError{Reason: "too_long"}, code: "auth_username_invalid", reason: "too_long"},
@@ -214,8 +218,8 @@ func TestErrorCodeTable(t *testing.T) {
 			}
 		}
 		err := &access.PasswordError{Reason: access.PasswordTooShort, Min: 15, Max: 128}
-		if e, _ := classify(err, ceremonyNone); !strings.Contains(e.Detail, "15") || !strings.Contains(e.Detail, "128") {
-			t.Errorf("classify(%v).Detail = %q, want both bounds 15 and 128", err, e.Detail)
+		if e, _ := classify(err, ceremonyNone); e.Detail != "The password is not allowed. Length: 15 to 128 characters." {
+			t.Errorf("classify(%v).Detail = %q, want the code's detail followed by both bounds 15 and 128", err, e.Detail)
 		}
 	})
 }

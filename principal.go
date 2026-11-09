@@ -3,6 +3,7 @@ package access
 import (
 	"context"
 	"log/slog"
+	"net/netip"
 	"slices"
 	"time"
 )
@@ -19,7 +20,11 @@ type Principal struct {
 	// A stream ends itself at the earlier non-zero one without a store read.
 	IdleDeadline     time.Time
 	AbsoluteDeadline time.Time
-	User             *User
+	// IP is the client address of the request Authenticate verified,
+	// Recheck's input's for a rechecked principal; zero for a principal
+	// built elsewhere.
+	IP   netip.Addr
+	User *User
 	// credential is the looked-up session or key hash, for Recheck and
 	// rotation.
 	credential Hash

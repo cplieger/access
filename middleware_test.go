@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"reflect"
 	"strings"
 	"testing"
@@ -676,4 +677,72 @@ func TestAuthenticatorPrinting(t *testing.T) {
 		"access.Config.Logger", "access.Config.Verifier",
 		"access.CookieConfig.Name", "access.CookieConfig.Path", "access.CookieConfig.Domain",
 	}, Types: []string{"time.Time"}}, reflect.TypeFor[*Authenticator]())
+}
+
+func TestAuthenticateSetsPrincipalIP(t *testing.T) {
+	t.Parallel()
+	proxy, client := netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("203.0.113.9")
+	// behindProxy trusts 10.0.0.1 as a proxy and takes the client from its
+	// X-Forwarded-For.
+	behindProxy := func(r *http.Request) ClientAddr {
+		peer := netip.MustParseAddrPort(r.RemoteAddr).Addr()
+		if peer == proxy {
+			return ClientAddr{IP: netip.MustParseAddr(r.Header.Get("X-Forwarded-For")), Peer: peer, Proxied: true}
+		}
+		return ClientAddr{IP: peer, Peer: peer}
+	}
+	f := newChainFixture(t)
+	custom := Principal{User: &User{Username: "agent", Enabled: true}, Method: "agent_key"}
+	for _, tc := range []struct {
+		name string
+		cfg  Config
+		req  func() *http.Request
+		want netip.Addr
+	}{
+		{"session", Config{}, func() *http.Request { return withSession(bearerRequest(""), f.session) }, netip.MustParseAddr("192.0.2.1")},
+		{"key", Config{}, func() *http.Request { return bearerRequest(f.key) }, netip.MustParseAddr("192.0.2.1")},
+		{"custom_verifier", Config{Verifier: stubVerifier{p: custom, ok: true}}, func() *http.Request { return bearerRequest("") }, netip.MustParseAddr("192.0.2.1")},
+		{"bypass", Config{Bypass: func() bool { return true }}, func() *http.Request { return bearerRequest("") }, netip.MustParseAddr("192.0.2.1")},
+		{"session_behind_proxy", Config{ClientAddr: behindProxy}, func() *http.Request {
+			r := withSession(bearerRequest(""), f.session)
+			r.RemoteAddr = netip.AddrPortFrom(proxy, 4000).String()
+			r.Header.Set("X-Forwarded-For", client.String())
+			return r
+		}, client},
+		{"bypass_behind_proxy", Config{ClientAddr: behindProxy, Bypass: func() bool { return true }}, func() *http.Request {
+			r := bearerRequest("")
+			r.RemoteAddr = netip.AddrPortFrom(proxy, 4000).String()
+			r.Header.Set("X-Forwarded-For", client.String())
+			return r
+		}, client},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			a := mustAuthenticator(t, f.store, tc.cfg)
+			r := tc.req()
+			p := mustAuthenticate(t, a, r)
+			if want := a.ClientAddr(r).IP; p.IP != want || p.IP != tc.want {
+				t.Errorf("Principal.IP = %v, want ClientAddr(r).IP %v (%v)", p.IP, want, tc.want)
+			}
+		})
+	}
+	t.Run("recheck_keeps_ip", func(t *testing.T) {
+		t.Parallel()
+		a := mustAuthenticator(t, f.store, Config{ClientAddr: behindProxy})
+		for name, r := range map[string]*http.Request{
+			"session": withSession(bearerRequest(""), f.session),
+			"key":     bearerRequest(f.key),
+		} {
+			r.RemoteAddr = netip.AddrPortFrom(proxy, 4000).String()
+			r.Header.Set("X-Forwarded-For", client.String())
+			p := mustAuthenticate(t, a, r)
+			q, err := a.Recheck(t.Context(), p)
+			if err != nil {
+				t.Fatalf("Recheck(%s) = %v", name, err)
+			}
+			if q.IP != client || q.IP != p.IP {
+				t.Errorf("Recheck(%s).IP = %v, want the passed principal's %v", name, q.IP, p.IP)
+			}
+		}
+	})
 }

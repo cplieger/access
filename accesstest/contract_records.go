@@ -456,6 +456,7 @@ func timeRoundTripRest(t *testing.T, s account.Store, userID int64, at time.Time
 	check(t, "PutAuthFailure", s.PutAuthFailure(ctx, account.FailureCount{FailureRef: ref, Count: 1, Locked: true, LockedAt: at}))
 	failure, found, err := s.AuthFailure(ctx, ref)
 	same("FailureCount.LockedAt", mustFind(t, "AuthFailure", failure, found, err).LockedAt)
+	logTimeRoundTrip(t, s, at, same)
 }
 
 // mustFind returns v, failing the test unless the read that made it found

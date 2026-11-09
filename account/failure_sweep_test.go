@@ -59,6 +59,19 @@ func TestLockReportedBySweep(t *testing.T) {
 			t.Errorf("events after a second sweep and a new Service's first = %d, want only the first report", n)
 		}
 	})
+	t.Run("lock_of_no_user_listed_first", func(t *testing.T) {
+		t.Parallel()
+		fs := newFaultStore()
+		p := newPW(t, pwOptions{store: fs})
+		u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
+		p.failN(t, clientAt(1), "ghost", account.FailureCap)
+		p.failN(t, clientAt(2), "alice", account.FailureCap)
+		fs.locksFirst.Store(new(account.FailureName(p.svc, "ghost")))
+		sweepFailures(t, p.svc)
+		if locked := eventsOf(p.events, account.EventMethodLocked); len(locked) != 1 || locked[0].UserID != u.ID {
+			t.Errorf("EventMethodLocked after the sweep = %v, want alice's lock though the store listed ghost's first", locked)
+		}
+	})
 	t.Run("abandoned_service", func(t *testing.T) {
 		t.Parallel()
 		p := newPW(t, pwOptions{})

@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/cplieger/access.svg)](https://pkg.go.dev/github.com/cplieger/access) [![Go version](https://img.shields.io/github/go-mod/go-version/cplieger/access)](https://github.com/cplieger/access/blob/main/go.mod) [![Mutation](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/cplieger/access/badges/mutation.json)](https://github.com/cplieger/access/issues?q=label%3Agremlins-tracker)
 
-access gives your Go web service its sign-in: Argon2id passwords, passkeys, OIDC sign-in, sessions, API keys, invites and recovery, served as JSON routes you mount on your own mux. You write the storage and the pages.
+access gives your Go web service its sign-in: Argon2id passwords, passkeys, OIDC sign-in, sessions, API keys, invites and recovery, served as JSON routes you mount on your own mux, with a typed browser client. You write the storage and the pages.
 
 It reads no environment variables, and every setting lives on the value you construct. It needs Go 1.27.3 or later and is licensed under Apache-2.0. It has six direct dependencies at run time: `golang.org/x/crypto`, `golang.org/x/oauth2`, `golang.org/x/sync`, `golang.org/x/text`, `go-webauthn/webauthn` and `coreos/go-oidc`.
 
@@ -18,6 +18,7 @@ access is built for a Go service that owns its login pages and its database.
 - OIDC sign-in sends a PKCE S256 challenge, checks the ID token's nonce and keeps the flow in a sealed cookie, with nothing stored on the server.
 - API keys can carry scopes, and two permissions you grant explicitly let a key manage regular users or mint narrower keys, each act attributed to the key's whole lineage.
 - Every credential is an `access.Secret` or an `access.Hash`, which print as redacted wherever they are logged.
+- Sign-ins and credential, key, role and account changes append a security-log entry in the same transaction that makes the change, so the change and its record commit together, and the next failure-record sweep records each lock. The [security log](docs/security-log.md) lists what it leaves out, such as renames and failed attempts.
 
 Consider [Authboss](https://github.com/aarondl/authboss) if you want ready-made registration and recovery flows with HTML views. Consider [Ory Kratos](https://github.com/ory/kratos) if you want identity as a separate server.
 
@@ -26,17 +27,24 @@ Consider [Authboss](https://github.com/aarondl/authboss) if you want ready-made 
 | Package | What it does |
 | --- | --- |
 | `access` | The building blocks: the `Authenticator` that guards a route, the password hasher, session and API-key tokens, cookies, `Secret`, `Hash` and `Sealer` |
-| `account` | Sign-in, sessions, passkeys, OIDC, keys, invites, recovery and the user set, run over your `account.Store` |
+| `account` | Sign-in, sessions, passkeys, OIDC, keys, invites, recovery, the user set and the [security log](docs/security-log.md), run over your `account.Store` |
 | `accesshttp` | Every `account` operation as a JSON route with a descriptor, for your own mux |
 | `ratelimit` | Per-IP, per-account and per-device limits on failed attempts, with trusted-device cookies |
 | `webauthn` | Passkey ceremonies |
 | `oidc` | OpenID Connect sign-in, link and step-up |
 | `accesstest` | An in-memory store, the store contract suite, a test identity provider and a software passkey |
+| [`@cplieger/access`](web/README.md) | The browser client for `accesshttp`'s routes |
 
 ## Install
 
 ```sh
 go get github.com/cplieger/access@latest
+```
+
+For the browser client:
+
+```sh
+npm install @cplieger/access @cplieger/reactive@dev
 ```
 
 ## Usage
@@ -173,6 +181,7 @@ Report a vulnerability privately through the [security policy](https://github.co
 These are left out on purpose. [Non-goals](docs/non-goals.md) gives the reason for each and what to use instead.
 
 - Several processes over one store. Every read-check-write decision runs inside one store transaction, but the rate limiter's windows and the pending passkey ceremonies live in the process, so run one process per store.
+- Page rendering. The browser client renders nothing.
 - A CSRF token, because Go's `http.CrossOriginProtection` refuses cross-origin state-changing requests without needing one.
 - OIDC token refresh, a registry of several providers, back-channel logout and the userinfo endpoint.
 - WebAuthn metadata-service verification, attestation conveyance, filtering authenticators by AAGUID, and the passkey well-known endpoints.
@@ -186,6 +195,7 @@ The library has no TOTP or SMS second factor. A custom `CredentialVerifier` pass
 - [Configuration](docs/configuration.md) lists every setting and default, the cookie postures, the rate limiter's limits, the key permissions and the HTTP handlers' error contract.
 - [Passwords, sessions and tokens](docs/primitives.md) covers each building block in detail.
 - [Implementing the store](docs/storage.md) explains the transaction boundary, the store contract and what each write costs.
+- [The security log](docs/security-log.md) lists what is logged, how long it is kept, and who can read it.
 - [Passkeys](docs/webauthn.md) explains how ceremonies check origins and what registration requires.
 - [OIDC sign-in](docs/oidc.md) explains the sealed flow cookie, the link and step-up checks and the limits on outbound calls.
 - [Migrating from auth v6](docs/migration-v7.md) lists every change and its replacement.
@@ -200,7 +210,7 @@ Issues and pull requests are welcome. The [shared contributing rules](https://gi
 
 This project is built with care and follows security best practices, but it is intended for personal / self-hosted use. No guarantees of fitness for production environments. Use at your own risk.
 
-This project was built with AI-assisted tooling using [Claude](https://claude.com), [GPT](https://openai.com), and [Kiro](https://kiro.dev). The human maintainer defines architecture, supervises implementation, and makes all final decisions.
+This project was built with AI assistance. The human maintainer defines architecture, supervises implementation, and makes all final decisions.
 
 ## License
 

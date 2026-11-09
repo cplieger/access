@@ -252,6 +252,9 @@
     },
     {
       "name": "can_link_oidc"
+    },
+    {
+      "name": "sso_governed"
     }
   ],
   "NameRequest": [
@@ -426,6 +429,133 @@
     {
       "name": "redirect",
       "optional": true
+    }
+  ],
+  "SecurityLogView": [
+    {
+      "name": "entries",
+      "fields": [
+        {
+          "name": "at"
+        },
+        {
+          "name": "occurred_at"
+        },
+        {
+          "name": "class",
+          "values": [
+            "change",
+            "session"
+          ]
+        },
+        {
+          "name": "kind"
+        },
+        {
+          "name": "ip",
+          "optional": true
+        },
+        {
+          "name": "method",
+          "values": [
+            "password",
+            "passkey",
+            "oidc",
+            "recovery",
+            "api_key",
+            "bypass"
+          ],
+          "optional": true,
+          "open": true
+        },
+        {
+          "name": "role",
+          "values": [
+            "admin",
+            "user"
+          ],
+          "optional": true,
+          "open": true
+        },
+        {
+          "name": "detail",
+          "optional": true
+        },
+        {
+          "name": "session_ids",
+          "optional": true
+        },
+        {
+          "name": "actor",
+          "fields": [
+            {
+              "name": "session_id",
+              "optional": true
+            },
+            {
+              "name": "out_of_band",
+              "optional": true
+            },
+            {
+              "name": "label",
+              "optional": true
+            },
+            {
+              "name": "user_agent",
+              "optional": true
+            },
+            {
+              "name": "key_suffix",
+              "optional": true
+            },
+            {
+              "name": "user_id",
+              "optional": true
+            },
+            {
+              "name": "key_id",
+              "optional": true
+            }
+          ]
+        },
+        {
+          "name": "seq"
+        },
+        {
+          "name": "user_id",
+          "optional": true
+        },
+        {
+          "name": "key_id",
+          "optional": true
+        },
+        {
+          "name": "passkey_id",
+          "optional": true
+        },
+        {
+          "name": "trusted",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "classes",
+      "fields": [
+        {
+          "name": "class",
+          "values": [
+            "change",
+            "session"
+          ]
+        },
+        {
+          "name": "count"
+        },
+        {
+          "name": "evicted"
+        }
+      ]
     }
   ],
   "SessionView": [

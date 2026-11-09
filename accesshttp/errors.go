@@ -335,6 +335,9 @@ func typedCode(err error) (code Code, reason string, ok bool) {
 	if te, is := errors.AsType[*account.TextError](err); is {
 		return CodeBadRequest, textReason(te.Field, te.Reason), true
 	}
+	if le, is := errors.AsType[*account.LogFilterError](err); is {
+		return CodeBadRequest, le.Reason, true
+	}
 	if pe, is := errors.AsType[*access.PasswordError](err); is {
 		return CodePasswordRejected, string(pe.Reason), true
 	}

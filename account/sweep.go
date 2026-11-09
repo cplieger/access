@@ -49,6 +49,10 @@ func (s *Service) sweep(ctx context.Context) {
 		return
 	}
 	s.sweepFailuresLogged(ctx)
+	if ctx.Err() != nil {
+		return
+	}
+	s.sweepLog(ctx, now)
 	s.logger().Info("account: sweep finished", "sessions", sessions, "tokens", tokens)
 }
 
@@ -70,7 +74,7 @@ func (s *Service) sweepSessions(ctx context.Context, now time.Time) int {
 		deleted += len(refs)
 		events := sessionsExpired(refs, now)
 		for i := range events {
-			s.emit(events[i])
+			s.deliver(events[i])
 		}
 		if len(refs) < MaxSweepBatch {
 			return deleted
@@ -99,16 +103,15 @@ func (s *Service) sweepFailuresLogged(ctx context.Context) bool {
 // user's records, reports each unreported lock of a user (clearing its
 // Unreported), and prunes every record whose name is no user's. Reading the
 // users and pruning in one transaction keeps a user created meanwhile from
-// losing a count. After the commit it refills the untrusted allowance, so a
-// failed prune leaves it spent, then emits one EventMethodLocked per
-// reported lock.
+// losing a count. Each reported lock's EventMethodLocked is appended in the
+// same Update that clears its mark, so a failed append leaves it to the
+// next sweep. After the commit it refills the untrusted allowance, so a
+// failed prune leaves it spent.
 func (s *Service) sweepFailures(ctx context.Context) error {
 	if s.hooks.failureSweep != nil {
 		s.hooks.failureSweep(ctx)
 	}
-	var events []Event
-	err := s.update(ctx, func(tx Tx) error {
-		events = nil
+	err := s.change(ctx, origin{}, func(tx Tx, j *journal) error {
 		users, err := tx.ListUsers(ctx)
 		if err != nil {
 			return err
@@ -121,9 +124,8 @@ func (s *Service) sweepFailures(ctx context.Context) error {
 			keep = append(keep, name)
 			userOf[name] = users[i].ID
 		}
-		events, err = reportLocks(ctx, tx, userOf)
-		if err != nil {
-			return err
+		if reportErr := reportLocks(ctx, tx, j, userOf); reportErr != nil {
+			return reportErr
 		}
 		_, err = tx.PruneAuthFailures(ctx, keep)
 		return err
@@ -132,20 +134,16 @@ func (s *Service) sweepFailures(ctx context.Context) error {
 		return err
 	}
 	s.allowance.reset()
-	for i := range events {
-		s.emit(events[i])
-	}
 	return nil
 }
 
 // reportLocks clears Unreported on every unreported lock of a user's name
-// and returns one EventMethodLocked per lock it cleared.
-func reportLocks(ctx context.Context, tx Tx, userOf map[string]int64) ([]Event, error) {
+// and adds one EventMethodLocked, at the lock time, per lock it cleared.
+func reportLocks(ctx context.Context, tx Tx, j *journal, userOf map[string]int64) error {
 	locks, err := tx.UnreportedLocks(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var events []Event
 	for i := range locks {
 		lock := locks[i]
 		userID, ok := userOf[lock.Name]
@@ -154,14 +152,67 @@ func reportLocks(ctx context.Context, tx Tx, userOf map[string]int64) ([]Event, 
 		}
 		lock.Unreported = false
 		if err := tx.PutAuthFailure(ctx, lock); err != nil {
-			return nil, err
+			return err
 		}
-		events = append(events, Event{
+		j.add(Event{
 			Kind: EventMethodLocked, At: lock.LockedAt, UserID: userID,
 			Method: lock.Method, Trusted: lock.Trusted,
 		})
 	}
-	return events, nil
+	return nil
+}
+
+// sweepLog is the log leg: each class's entries older than LogMaxAge at
+// now, in calls of MaxSweepBatch. A class's store error is logged and
+// retried on the next tick; the cap holds at append and needs no pass.
+func (s *Service) sweepLog(ctx context.Context, now time.Time) {
+	for _, class := range LogClasses() {
+		err := s.pruneLog(ctx, LogPrune{Class: class, Before: now.Add(-s.logMaxAge), Limit: MaxSweepBatch})
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			s.logger().Warn("account: security-log age prune failed; retrying next tick", "class", class, "err", err)
+		}
+	}
+}
+
+// drainLog prunes every class to its cap, then to LogMaxAge, before New
+// returns: each append's trim removes at most what it added, so a cap
+// lowered since the last run is applied here and never in a request.
+func (s *Service) drainLog(ctx context.Context) error {
+	before := s.now().Add(-s.logMaxAge)
+	for _, class := range LogClasses() {
+		for _, p := range []LogPrune{
+			{Class: class, Keep: s.logCap(class), Limit: MaxSweepBatch},
+			{Class: class, Before: before, Limit: MaxSweepBatch},
+		} {
+			if err := s.pruneLog(ctx, p); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// pruneLog runs p in Updates of its own until one removes fewer than
+// p.Limit. A ctx that ends with entries left is an error, so New never
+// returns over a log past its bound.
+func (s *Service) pruneLog(ctx context.Context, p LogPrune) error {
+	for {
+		var n int
+		err := s.update(ctx, func(tx Tx) error {
+			var err error
+			n, err = tx.PruneLog(ctx, p)
+			return err
+		})
+		switch {
+		case err != nil, n < p.Limit:
+			return err
+		case ctx.Err() != nil:
+			return storeErr(ctx.Err())
+		}
+	}
 }
 
 // failureMAC is a fresh HMAC-SHA256 under the failure key, for one caller's

@@ -275,7 +275,7 @@ func publicOperations() []operation {
 					in, err = w.svc.SetupWithPassword(ctx, localClient, account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)})
 					return err
 				},
-				want: func() []account.Event { return []account.Event{signedIn(in, access.MethodPassword)} },
+				want: func() []account.Event { return setupEvents(in, access.MethodPassword) },
 			}
 		}},
 		{name: "SetupPasskeyBegin", class: classPublic, empty: true, readOnly: true, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
@@ -292,7 +292,7 @@ func publicOperations() []operation {
 					in, err = w.svc.SetupPasskeyFinish(ctx, localClient, id, bytes.NewReader(body))
 					return err
 				},
-				want: func() []account.Event { return []account.Event{signedIn(in, access.MethodPasskey)} },
+				want: func() []account.Event { return setupEvents(in, access.MethodPasskey) },
 			}
 		}},
 		{name: "PasswordLogin", class: classPublic, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
@@ -350,7 +350,7 @@ func publicOperations() []operation {
 					return err
 				},
 				want: func() []account.Event {
-					return []account.Event{{Kind: account.EventUserCreated, UserID: in.User.ID}, signedIn(in, access.MethodPassword)}
+					return []account.Event{{Kind: account.EventUserCreated, UserID: in.User.ID, Role: access.RoleUser}, signedIn(in, access.MethodPassword)}
 				},
 			}
 		}},
@@ -378,6 +378,16 @@ func publicOperations() []operation {
 			}
 		}},
 	}
+}
+
+// setupEvents are a setup's EventUserCreated of the admin it created, then
+// its EventSignedIn.
+func setupEvents(in account.SignedIn, m access.Method) []account.Event {
+	created := account.Event{Kind: account.EventUserCreated, Role: access.RoleAdmin}
+	if in.User != nil {
+		created.UserID = in.User.ID
+	}
+	return []account.Event{created, signedIn(in, m)}
 }
 
 // signedIn is the EventSignedIn of a sign-in that returned in.
@@ -627,6 +637,9 @@ func adminOperations() []operation {
 		{name: "Tokens", class: classAdminScope, readOnly: true, asks: []account.Operation{account.OpListUsers}, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
 			return opCall{run: func(ctx context.Context) error { _, err := w.svc.Tokens(ctx, p); return err }, want: none, actor: actorOf(p)}
 		}},
+		{name: "SecurityLog", class: classAdminScope, readOnly: true, asks: []account.Operation{account.OpListUsers}, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
+			return opCall{run: func(ctx context.Context) error { _, err := w.svc.SecurityLog(ctx, p, account.LogFilter{}); return err }, want: none, actor: actorOf(p)}
+		}},
 		{name: "RevokeAnyAPIKey", class: classAdminScope, asks: []account.Operation{account.OpManageAllKeys}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			k := w.storedKey(t, w.alice, "read")
 			return opCall{
@@ -645,7 +658,7 @@ func adminOperations() []operation {
 					return err
 				},
 				want: func() []account.Event {
-					return []account.Event{{Kind: account.EventUserCreated, UserID: u.ID, Actor: actorOf(p)}}
+					return []account.Event{{Kind: account.EventUserCreated, UserID: u.ID, Role: access.RoleUser, Actor: actorOf(p)}}
 				},
 			}
 		}},
@@ -680,7 +693,11 @@ func adminOperations() []operation {
 			}
 		}},
 		{name: "CreateInvite", class: classManageUsers, asks: []account.Operation{account.OpInvite}, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
-			return opCall{run: func(ctx context.Context) error { _, err := w.svc.CreateInvite(ctx, p, access.RoleUser, 0); return err }, want: none, actor: actorOf(p)}
+			return opCall{
+				run:   func(ctx context.Context) error { _, err := w.svc.CreateInvite(ctx, p, access.RoleUser, 0); return err },
+				want:  events(account.Event{Kind: account.EventInviteIssued, Role: access.RoleUser, Actor: actorOf(p)}),
+				actor: actorOf(p),
+			}
 		}},
 		{name: "CreateAPIKey", class: classCreateKeys, asks: []account.Operation{account.OpCreateOwnKey}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			u := w.owner(t, p)

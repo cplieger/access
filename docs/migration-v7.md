@@ -114,7 +114,25 @@ The store interfaces move to `account`, and the store contract changes ([Impleme
 | `CreateAPIKey` | appends the ID it assigns to `Key.LineageIDs` |
 | `OIDCStateStore`, `OIDCState`, `OIDCNonce`, `OIDCCodeVerifier` | none; the OIDC flow travels in a sealed cookie |
 
-New roles: `account.FailureStore` for the durable failure cap and `account.AttributionStore` for key attribution.
+New roles: `account.FailureStore` for the durable failure cap, `account.AttributionStore` for key attribution and `account.LogStore` for the security log.
+
+## The security log
+
+`account` keeps an append-only [security log](security-log.md), written in the same `Update` as each change it records.
+
+- `account.Tx` embeds the new role `account.LogStore`, so every store implements its four methods: `AppendLog`, `ListLog`, `PruneLog` and `LogStats`, under contract rule 22 ([Implementing the store](storage.md#the-security-log)).
+- `access.Principal.IP` holds the client address of the request `Authenticate` verified, for every principal it returns, the bypass principal included. `Recheck` copies it into the principal it returns, and a principal built elsewhere holds the zero address.
+- `Service.AppendLog` appends an app's own entry, and `Service.SecurityLog` reads the log, which `accesshttp` serves as `GET {Prefix}/security-log`.
+
+Code written against an earlier development release, one that predates the security log, also changes here:
+
+| Before | Now |
+| --- | --- |
+| `account.Event` | gains `Seq`, the `Seq` of the event's log entry (0 for `EventSessionsExpired`), and `Role`, the role of an `EventRoleChanged`, `EventUserCreated` or `EventInviteIssued` |
+| `CreateInvite` reporting no event | reports the new `EventInviteIssued`, with the invite's role |
+| first-user setup reporting `EventSignedIn` only | reports `EventUserCreated` with the admin role, then `EventSignedIn` |
+| `EventSessionRotated` | removed. Nothing sent it: each rotation is reported by the event of the operation that rotates, whose `SessionIDs` name the session |
+| `account.Tx` without `LogStore` | embeds `LogStore`, so a store without the four methods no longer compiles |
 
 ## Tokens and display text in account
 

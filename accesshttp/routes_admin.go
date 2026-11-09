@@ -2,6 +2,7 @@ package accesshttp
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/cplieger/access"
@@ -118,6 +119,32 @@ func serveAdminTokens(h *Handler, c *call) error {
 		views[i] = tokenView(&tokens[i])
 	}
 	writeJSON(c.w, http.StatusOK, views)
+	return nil
+}
+
+// serveAdminSecurityLog reads one security-log page. An empty kinds value
+// is every kind; a non-empty one is split on ",", so an empty element
+// reaches account as an empty kind, which it refuses.
+func serveAdminSecurityLog(h *Handler, c *call) error {
+	q := queryOf[AdminSecurityLogQuery](c)
+	f := account.LogFilter{
+		UserID: q.User, ActorUserID: q.Actor, ActorKeyID: q.ActorKey,
+		AfterSeq: uint64(q.After), BeforeSeq: uint64(q.Before), //nolint:gosec // G115: the query decode admits only positive int64s, which a uint64 holds
+		// Clamped before narrowing: on a 32-bit int an oversized limit would
+		// wrap into a valid one, and account refuses MaxLogPage+1 as it is.
+		Limit:       int(min(q.Limit, account.MaxLogPage+1)),
+		OldestFirst: q.OldestFirst,
+	}
+	if q.Kinds != "" {
+		for k := range strings.SplitSeq(q.Kinds, ",") {
+			f.Kinds = append(f.Kinds, account.EventKind(k))
+		}
+	}
+	page, err := h.acct.SecurityLog(c.r.Context(), c.p, f)
+	if err != nil {
+		return err
+	}
+	writeJSON(c.w, http.StatusOK, securityLogView(&page))
 	return nil
 }
 

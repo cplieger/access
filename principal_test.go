@@ -49,7 +49,7 @@ func TestPrincipalPrinting(t *testing.T) {
 	}
 	t.Run("type_graph", func(t *testing.T) {
 		t.Parallel()
-		checkTypes(t, printcheck.Allow{Fields: principalFields, Types: []string{"time.Time"}}, reflect.TypeFor[*Principal]())
+		checkTypes(t, printcheck.Allow{Fields: principalFields, Types: []string{"time.Time", "netip.Addr"}}, reflect.TypeFor[*Principal]())
 	})
 }
 

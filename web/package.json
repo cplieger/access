@@ -1,0 +1,62 @@
+{
+  "name": "@cplieger/access",
+  "version": "0.0.0",
+  "description": "Browser client for the cplieger/access accesshttp routes: typed calls, passkey ceremonies and step-up",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cplieger/access.git",
+    "directory": "web"
+  },
+  "homepage": "https://github.com/cplieger/access",
+  "bugs": {
+    "url": "https://github.com/cplieger/access/issues"
+  },
+  "author": "cplieger <917744+cplieger@users.noreply.github.com>",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src/",
+    "!src/**/*.test.ts",
+    "!src/**/*-setup.ts",
+    "!src/**/test-helpers/**",
+    "jsr.json",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.tests.json",
+    "typecheck:tests": "tsc -p tsconfig.tests.json",
+    "test": "vitest --run",
+    "test:browser": "vitest --run --project browser",
+    "lint:eslint": "eslint .",
+    "lint:prettier": "prettier --check .",
+    "lint:knip": "knip",
+    "lint:fix": "eslint . --fix && prettier --write ."
+  },
+  "devDependencies": {
+    "@cplieger/reactive": "2.4.0-dev.1",
+    "@eslint/js": "10.0.1",
+    "@types/node": "26.6.6",
+    "@typescript/native": "npm:typescript@7.0.2",
+    "@vitest/browser-playwright": "5.0.5",
+    "eslint": "10.13.0",
+    "fast-check": "4.10.2",
+    "knip": "6.44.0",
+    "playwright": "1.64.1",
+    "prettier": "3.9.10",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "typescript-eslint": "8.72.1",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  },
+  "overrides": {
+    "minimatch": "^11.0.1"
+  },
+  "peerDependencies": {
+    "@cplieger/reactive": "^2.4.0-dev.1"
+  }
+}

@@ -31,6 +31,9 @@ var (
 	errIDsExhausted     = errors.New("accesstest: IDs exhausted")
 	errLimit            = errors.New("accesstest: cleanup limit below 1")
 	errTimeouts         = errors.New("accesstest: cleanup timeouts not positive")
+	errLogClass         = errors.New("accesstest: log entry of no LogClasses class")
+	errLogLimit         = errors.New("accesstest: log limit below 1")
+	errLogCriterion     = errors.New("accesstest: log prune needs exactly one of a positive Keep and a non-zero Before")
 )
 
 // MemStore is an in-memory [account.Store]. Every read returns a deep copy
@@ -60,6 +63,7 @@ func NewMemStore() *MemStore {
 		keyHashes:  map[access.HashKey]int64{},
 		tokens:     map[access.HashKey]access.OneTimeToken{},
 		failures:   map[account.FailureRef]account.FailureCount{},
+		log:        map[account.LogClass]classLog{},
 	})
 	return m
 }
@@ -80,10 +84,19 @@ type state struct {
 	keyHashes    map[access.HashKey]int64
 	tokens       map[access.HashKey]access.OneTimeToken
 	failures     map[account.FailureRef]account.FailureCount
+	log          map[account.LogClass]classLog
 	attributions []access.KeyAttribution // ascending ID
-	// The high-water marks of rule 17: a delete never lowers them, and a
-	// rolled-back Update discards its copy, so no ID is ever handed out twice.
+	// The high-water marks of rules 17 and 22: a delete or a prune never
+	// lowers them, and a rolled-back Update discards its copy, so no ID or
+	// Seq is ever handed out twice.
 	lastUser, lastPasskey, lastKey, lastAttribution int64
+	lastLog                                         uint64
+}
+
+// classLog is one class's entries in ascending Seq and its Keep evictions.
+type classLog struct {
+	entries []account.LogEntry
+	evicted uint64
 }
 
 func (s *state) clone() *state {
@@ -101,6 +114,10 @@ func (s *state) clone() *state {
 	c.tokens = maps.Clone(s.tokens)
 	c.failures = maps.Clone(s.failures)
 	c.attributions = slices.Clone(s.attributions)
+	c.log = make(map[account.LogClass]classLog, len(s.log))
+	for class, l := range s.log {
+		c.log[class] = classLog{entries: slices.Clone(l.entries), evicted: l.evicted}
+	}
 	return &c
 }
 
@@ -752,6 +769,98 @@ func (t *memTx) PruneAuthFailures(_ context.Context, keep []string) (int64, erro
 	return t.prune(keep), nil
 }
 
+// --- Security log ---
+
+// cloneEntry returns a deep copy of e.
+func cloneEntry(e *account.LogEntry) account.LogEntry {
+	cp := *e
+	cp.Event.SessionIDs = slices.Clone(e.Event.SessionIDs)
+	return cp
+}
+
+func (t *memTx) AppendLog(_ context.Context, e *account.LogEntry) error {
+	if !slices.Contains(account.LogClasses(), e.Class) {
+		return errLogClass
+	}
+	if t.s.lastLog >= maxID {
+		return errIDsExhausted
+	}
+	t.s.lastLog++
+	cp := cloneEntry(e)
+	cp.Event.Seq = t.s.lastLog
+	l := t.s.log[e.Class]
+	l.entries = append(l.entries, cp)
+	t.s.log[e.Class] = l
+	e.Event.Seq = cp.Event.Seq
+	return nil
+}
+
+func (t *memTx) ListLog(_ context.Context, r account.LogRange) ([]account.LogEntry, error) {
+	if r.Limit < 1 {
+		return nil, errLogLimit
+	}
+	out := []account.LogEntry{}
+	for _, class := range account.LogClasses() {
+		for i := range t.s.log[class].entries {
+			e := &t.s.log[class].entries[i]
+			if seq := e.Event.Seq; seq > r.AfterSeq && (r.BeforeSeq == 0 || seq < r.BeforeSeq) {
+				out = append(out, cloneEntry(e))
+			}
+		}
+	}
+	slices.SortFunc(out, func(a, b account.LogEntry) int {
+		if r.Descending {
+			a, b = b, a
+		}
+		return cmp.Compare(a.Event.Seq, b.Event.Seq)
+	})
+	return out[:min(r.Limit, len(out))], nil
+}
+
+// pruneLog applies p to the copy and returns how many entries it removed.
+func (t *memTx) pruneLog(p account.LogPrune) (int, error) {
+	switch {
+	case p.Limit < 1:
+		return 0, errLogLimit
+	case p.Keep < 0, (p.Keep > 0) == !p.Before.IsZero():
+		return 0, errLogCriterion
+	}
+	l, ok := t.s.log[p.Class]
+	if !ok {
+		return 0, nil
+	}
+	var n int
+	if p.Keep > 0 {
+		n = min(p.Limit, max(len(l.entries)-p.Keep, 0))
+		l.entries = l.entries[n:]
+		l.evicted += uint64(n)
+	} else {
+		l.entries = slices.DeleteFunc(l.entries, func(e account.LogEntry) bool {
+			if n < p.Limit && e.At.Before(p.Before) {
+				n++
+				return true
+			}
+			return false
+		})
+	}
+	t.s.log[p.Class] = l
+	return n, nil
+}
+
+func (t *memTx) PruneLog(_ context.Context, p account.LogPrune) (int, error) {
+	return t.pruneLog(p)
+}
+
+func (t *memTx) LogStats(context.Context) ([]account.LogClassStats, error) {
+	out := []account.LogClassStats{}
+	for _, class := range account.LogClasses() {
+		if l, ok := t.s.log[class]; ok {
+			out = append(out, account.LogClassStats{Class: class, Count: len(l.entries), Evicted: l.evicted})
+		}
+	}
+	return out, nil
+}
+
 // --- Sweeper ---
 
 // cleanup deletes up to limit sessions ValidateSession refuses, in session ID
@@ -1054,6 +1163,31 @@ func (m *MemStore) UnreportedLocks(ctx context.Context) ([]account.FailureCount,
 // DeleteAuthFailures implements [account.FailureStore].
 func (m *MemStore) DeleteAuthFailures(ctx context.Context, name string, methods []access.Method) error {
 	return m.write(func(tx *memTx) (bool, error) { return true, tx.DeleteAuthFailures(ctx, name, methods) })
+}
+
+// AppendLog implements [account.LogStore].
+func (m *MemStore) AppendLog(ctx context.Context, e *account.LogEntry) error {
+	return m.write(func(tx *memTx) (bool, error) { return true, tx.AppendLog(ctx, e) })
+}
+
+// ListLog implements [account.LogStore] on the published snapshot.
+func (m *MemStore) ListLog(ctx context.Context, r account.LogRange) ([]account.LogEntry, error) {
+	return m.view().ListLog(ctx, r)
+}
+
+// PruneLog implements [account.LogStore].
+func (m *MemStore) PruneLog(_ context.Context, p account.LogPrune) (int, error) {
+	var n int
+	err := m.write(func(tx *memTx) (changed bool, err error) {
+		n, err = tx.pruneLog(p)
+		return n > 0, err
+	})
+	return n, err
+}
+
+// LogStats implements [account.LogStore] on the published snapshot.
+func (m *MemStore) LogStats(ctx context.Context) ([]account.LogClassStats, error) {
+	return m.view().LogStats(ctx)
 }
 
 // PruneAuthFailures implements [account.FailureStore].

@@ -29,17 +29,18 @@ var designClasses = map[string]struct {
 	"authPasskeyRegisterFinish": {open: ClassRecentAuth}, "authPasskeyRename": {open: ClassSession}, "authPasskeyRemove": {open: ClassRecentAuth},
 	"authWebAuthnSignals": {open: ClassSession}, "authSessions": {open: ClassSession}, "authSessionRename": {open: ClassSession},
 	"authSessionRevoke": {open: ClassSession}, "authSessionsRevokeOthers": {open: ClassRecentAuth}, "authKeys": {open: ClassSession},
-	"authKeyCreate":       {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "keys"},
-	"authKeyRevoke":       {open: ClassSession},
-	"authAdminUsers":      {open: ClassSession, scoped: ClassKeyScope, scope: "admin"},
-	"authAdminUserCreate": {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
-	"authAdminUserUpdate": {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
-	"authAdminUserDelete": {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
-	"authAdminRecovery":   {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
-	"authAdminInvite":     {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
-	"authAdminKeys":       {open: ClassSession, scoped: ClassKeyScope, scope: "admin"},
-	"authAdminKeyRevoke":  {open: ClassSession, scoped: ClassKeyScope, scope: "admin"},
-	"authAdminTokens":     {open: ClassSession, scoped: ClassKeyScope, scope: "admin"},
+	"authKeyCreate":        {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "keys"},
+	"authKeyRevoke":        {open: ClassSession},
+	"authAdminUsers":       {open: ClassSession, scoped: ClassKeyScope, scope: "admin"},
+	"authAdminUserCreate":  {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
+	"authAdminUserUpdate":  {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
+	"authAdminUserDelete":  {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
+	"authAdminRecovery":    {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
+	"authAdminInvite":      {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
+	"authAdminKeys":        {open: ClassSession, scoped: ClassKeyScope, scope: "admin"},
+	"authAdminKeyRevoke":   {open: ClassSession, scoped: ClassKeyScope, scope: "admin"},
+	"authAdminTokens":      {open: ClassSession, scoped: ClassKeyScope, scope: "admin"},
+	"authAdminSecurityLog": {open: ClassSession, scoped: ClassKeyScope, scope: "admin"},
 }
 
 // scopeSets is each of the three scopes empty and set.
@@ -91,6 +92,7 @@ func TestDescriptorQueryTable(t *testing.T) {
 		"authOIDCCallback":          reflect.TypeFor[OIDCCallbackQuery](),
 		"authRecoveryPasskeyFinish": reflect.TypeFor[RecoveryPasskeyFinishQuery](),
 		"authAdminUsers":            reflect.TypeFor[AdminUsersQuery](),
+		"authAdminSecurityLog":      reflect.TypeFor[AdminSecurityLogQuery](),
 	}
 	for i := range specs {
 		d := specs[i].descriptor(&DescriptorConfig{Prefix: "/p", OIDCPrefix: "/o"})

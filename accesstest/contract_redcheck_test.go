@@ -184,7 +184,7 @@ func TestRedCheckVariant(t *testing.T) {
 	if name == "" {
 		return
 	}
-	v, ok := variants[name]
+	v, ok := redCheckVariants()[name]
 	if !ok {
 		t.Fatalf("unknown variant %q", name)
 	}
@@ -196,8 +196,9 @@ func TestRedCheckVariant(t *testing.T) {
 // of every broken store must exit non-zero with its named subtests failing.
 func TestStoreContractRedCheck(t *testing.T) {
 	t.Parallel()
-	for _, name := range slices.Sorted(maps.Keys(variants)) {
-		v := variants[name]
+	all := redCheckVariants()
+	for _, name := range slices.Sorted(maps.Keys(all)) {
+		v := all[name]
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			out, err := rerun(t, "TestRedCheckVariant", variantEnv+"="+name)

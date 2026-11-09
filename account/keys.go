@@ -68,9 +68,9 @@ func (s *Service) CreateAPIKey(ctx context.Context, a Actor, userID int64, in Ne
 		rot rotated
 	)
 	session := m.principal()
-	err = s.update(ctx, func(tx Tx) error {
+	err = s.change(ctx, by(a), func(tx Tx, j *journal) error {
 		key, rot = *draft.Clone(), rotated{}
-		owner, mintErr := s.authorizeMint(ctx, tx, m, &key)
+		owner, mintErr := s.authorizeMint(ctx, tx, j, m, &key)
 		if mintErr != nil {
 			return mintErr
 		}
@@ -80,6 +80,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, a Actor, userID int64, in Ne
 		if createErr := tx.CreateAPIKey(ctx, &key); createErr != nil {
 			return createErr
 		}
+		j.add(Event{Kind: EventKeyMinted, At: now, UserID: userID, KeyID: key.ID, Actor: eventActor(a)})
 		if !session.IsSession() {
 			return nil
 		}
@@ -90,7 +91,6 @@ func (s *Service) CreateAPIKey(ctx context.Context, a Actor, userID int64, in Ne
 	if err != nil {
 		return CreatedKey{}, err
 	}
-	s.emit(Event{Kind: EventKeyMinted, At: now, UserID: userID, KeyID: key.ID, Actor: eventActor(a)})
 	created := CreatedKey{Plaintext: gen.Plaintext, Key: key}
 	if session.IsSession() {
 		created.Issued = Issued{Token: rot.token, Session: rot.session}
@@ -135,7 +135,7 @@ func checkKeyInput(r Rules, in NewKey) error { //nolint:gocritic // hugeParam: t
 // authorizeMint decides a mint inside its Update and returns the key's
 // owner as tx read it. A key minter's parent is re-read first, and key
 // takes its path; then the Policy, then the owner must be enabled.
-func (s *Service) authorizeMint(ctx context.Context, tx Tx, m minter, key *access.Key) (*access.User, error) { //nolint:gocritic // hugeParam: the minter admitMinter built
+func (s *Service) authorizeMint(ctx context.Context, tx Tx, j *journal, m minter, key *access.Key) (*access.User, error) { //nolint:gocritic // hugeParam: the minter admitMinter built
 	actor := m.actor
 	if m.key {
 		var (
@@ -143,7 +143,7 @@ func (s *Service) authorizeMint(ctx context.Context, tx Tx, m minter, key *acces
 			err    error
 		)
 		p := m.principal()
-		actor, parent, err = s.currentKeyActor(ctx, tx, m.op, access.KeyRef{ID: p.KeyID, UserID: p.User.ID}, s.keysScope)
+		actor, parent, err = s.currentKeyActor(ctx, tx, j, m.op, access.KeyRef{ID: p.KeyID, UserID: p.User.ID}, s.keysScope)
 		if err != nil {
 			return nil, err
 		}
@@ -233,17 +233,14 @@ func (s *Service) RevokeAPIKey(ctx context.Context, p access.Principal, id int64
 		return err
 	}
 	userID := p.User.ID
-	var revoked []int64
-	err := s.update(ctx, func(tx Tx) error {
-		var revErr error
-		revoked, revErr = revokeSubtree(ctx, tx, userID, id)
-		return revErr
+	return s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
+		revoked, err := revokeSubtree(ctx, tx, userID, id)
+		if err != nil {
+			return err
+		}
+		s.addKeysRevoked(j, userID, revoked, eventActor(As(p)))
+		return nil
 	})
-	if err != nil {
-		return err
-	}
-	s.emitKeysRevoked(userID, revoked, eventActor(As(p)))
-	return nil
 }
 
 // AllAPIKeys returns every user's keys by ID, each with its owner's
@@ -295,16 +292,11 @@ func (s *Service) RevokeAnyAPIKey(ctx context.Context, p access.Principal, id in
 	if err := s.admitAdminScope(p); err != nil {
 		return err
 	}
-	var (
-		owner   int64
-		revoked []int64
-	)
-	err := s.update(ctx, func(tx Tx) error {
-		owner, revoked = 0, nil
+	return s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
 		actor := As(p)
 		if p.IsAPIKey() {
 			var keyErr error
-			if actor, _, keyErr = s.currentKeyActor(ctx, tx, OpManageAllKeys, access.KeyRef{ID: p.KeyID, UserID: p.User.ID}, s.adminScope); keyErr != nil {
+			if actor, _, keyErr = s.currentKeyActor(ctx, tx, j, OpManageAllKeys, access.KeyRef{ID: p.KeyID, UserID: p.User.ID}, s.adminScope); keyErr != nil {
 				return keyErr
 			}
 		}
@@ -319,15 +311,14 @@ func (s *Service) RevokeAnyAPIKey(ctx context.Context, p access.Principal, id in
 		if i < 0 {
 			return refuse(ErrNotFound)
 		}
-		owner = keys[i].UserID
-		revoked, err = revokeSubtree(ctx, tx, owner, id)
-		return err
+		owner := keys[i].UserID
+		revoked, err := revokeSubtree(ctx, tx, owner, id)
+		if err != nil {
+			return err
+		}
+		s.addKeysRevoked(j, owner, revoked, eventActor(As(p)))
+		return nil
 	})
-	if err != nil {
-		return err
-	}
-	s.emitKeysRevoked(owner, revoked, eventActor(As(p)))
-	return nil
 }
 
 // revokeSubtree deletes userID's key id and every key of that user whose
@@ -377,12 +368,11 @@ func deleteIssuedTokens(ctx context.Context, tx Tx, keyIDs []int64) error {
 	return err
 }
 
-// emitKeysRevoked emits one EventKeyRevoked per deleted key, after the
-// commit.
-func (s *Service) emitKeysRevoked(userID int64, ids []int64, actor EventActor) {
+// addKeysRevoked adds one EventKeyRevoked per deleted key.
+func (s *Service) addKeysRevoked(j *journal, userID int64, ids []int64, actor EventActor) {
 	at := s.now()
 	for _, id := range ids {
-		s.emit(Event{Kind: EventKeyRevoked, At: at, UserID: userID, KeyID: id, Actor: actor})
+		j.add(Event{Kind: EventKeyRevoked, At: at, UserID: userID, KeyID: id, Actor: actor})
 	}
 }
 

@@ -448,5 +448,14 @@
     "path": "{prefix}/tokens",
     "kind": "json",
     "array": true
+  },
+  {
+    "request": null,
+    "response": "SecurityLogView",
+    "name": "authAdminSecurityLog",
+    "method": "GET",
+    "path": "{prefix}/security-log",
+    "kind": "json",
+    "array": false
   }
 ]

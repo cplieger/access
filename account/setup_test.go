@@ -114,6 +114,23 @@ func TestSetupOrderNoHashBeforeChecks(t *testing.T) {
 			t.Errorf("setup with an unknown token = %v, want access.ErrTokenInvalid before any hash", err)
 		}
 	})
+	t.Run("other_purpose_token", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t, options{edit: withBusyHasher(t)})
+		plaintext, rec := access.NewOneTimeToken(access.PurposeInvite, 0, time.Hour, time.Now())
+		rec.Role = access.RoleUser
+		if err := f.mem.CreateOneTimeToken(t.Context(), rec); err != nil {
+			t.Fatalf("CreateOneTimeToken: %v", err)
+		}
+		bad := in
+		bad.Token = plaintext
+		if _, err := f.svc.SetupWithPassword(t.Context(), localClient, bad); !errors.Is(err, access.ErrTokenInvalid) {
+			t.Errorf("setup with an invite token = %v, want access.ErrTokenInvalid before any hash", err)
+		}
+		if !tokenStored(t, f.mem, rec) {
+			t.Error("the refused setup consumed the invite")
+		}
+	})
 	t.Run("expired_token", func(t *testing.T) {
 		t.Parallel()
 		clock := newTestClock(time.Now())
@@ -177,8 +194,9 @@ func TestSetupOrderNoHashBeforeChecks(t *testing.T) {
 			t.Errorf("the setup session is not stored: %v, %t", err, found)
 		}
 		evs := f.events.all()
-		if len(evs) != 1 || evs[0].Kind != account.EventSignedIn || evs[0].UserID != got.User.ID || evs[0].Method != access.MethodPassword {
-			t.Errorf("events = %+v, want one EventSignedIn", evs)
+		if len(evs) != 2 || evs[0].Kind != account.EventUserCreated || evs[0].UserID != got.User.ID || evs[0].Role != access.RoleAdmin ||
+			evs[1].Kind != account.EventSignedIn || evs[1].UserID != got.User.ID || evs[1].Method != access.MethodPassword {
+			t.Errorf("events = %+v, want EventUserCreated of the admin, then EventSignedIn", evs)
 		}
 		st, err := f.svc.State(t.Context())
 		if err != nil || st.SetupRequired || !st.PasswordLogin || st.Passkeys || st.OIDC {

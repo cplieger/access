@@ -70,6 +70,7 @@ type accountAPI interface {
 	AllAPIKeys(ctx context.Context, p access.Principal) ([]account.ListedKey, error)
 	RevokeAnyAPIKey(ctx context.Context, p access.Principal, id int64) error
 	Tokens(ctx context.Context, p access.Principal) ([]account.ListedToken, error)
+	SecurityLog(ctx context.Context, p access.Principal, f account.LogFilter) (account.LogPage, error)
 }
 
 var _ accountAPI = (*account.Service)(nil)

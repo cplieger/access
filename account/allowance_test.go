@@ -172,4 +172,24 @@ func TestUntrustedAllowanceBound(t *testing.T) {
 			t.Error("the attempt refused at admission wrote a record")
 		}
 	})
+	t.Run("return_within_interval", func(t *testing.T) {
+		t.Parallel()
+		var hk armed
+		p := newPW(t, pwOptions{edit: noTick, hooks: account.Hooks{Admitted: hk.hook}})
+		if _, err := p.login(t.Context(), clientAt(1), "first", wrongPassword); !errors.Is(err, account.ErrInvalidCredentials) {
+			t.Fatalf("counted attempt = %v, want ErrInvalidCredentials", err)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		hk.arm(func(context.Context) {
+			hk.disarm()
+			cancel()
+		})
+		_, err := p.login(ctx, clientAt(2), "late", wrongPassword)
+		if !errors.Is(err, access.ErrHashBusy) || !errors.Is(err, context.Canceled) {
+			t.Fatalf("attempt whose context ended at admission = %v, want access.ErrHashBusy wrapping context.Canceled", err)
+		}
+		if got := account.AllowanceUsed(p.svc); got != 1 {
+			t.Errorf("slots taken = %d, want 1: the counted attempt keeps its slot and the refused one returns its own", got)
+		}
+	})
 }

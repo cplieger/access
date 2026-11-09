@@ -1,12 +1,15 @@
 package accesshttp
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -652,4 +655,176 @@ func countLevel(e *env, level slog.Level) int {
 		}
 	}
 	return n
+}
+
+// securityLog is authAdminSecurityLog's request with rawQuery.
+func (e *env) securityLog(t testing.TB, rawQuery string, cookies ...*http.Cookie) *http.Request {
+	t.Helper()
+	rt := e.route(t, "authAdminSecurityLog")
+	return requestAt(testOrigin, rt.Path+"?"+rawQuery, rt, "", cookies...)
+}
+
+// appendApp appends an app entry made by a through the Service.
+func (e *env) appendApp(t testing.TB, a account.Actor, in account.AppEntry) {
+	t.Helper()
+	in.Actor = a
+	if err := e.mem.Update(t.Context(), func(tx account.Tx) error {
+		_, err := e.svc.AppendLog(t.Context(), tx, in)
+		return err
+	}); err != nil {
+		t.Fatalf("AppendLog(%s): %v", in.Kind, err)
+	}
+}
+
+// filterSpy records the LogFilter each SecurityLog call gets.
+type filterSpy struct {
+	accountAPI
+	got *recorded[account.LogFilter]
+}
+
+func (s filterSpy) SecurityLog(ctx context.Context, p access.Principal, f account.LogFilter) (account.LogPage, error) {
+	s.got.add(f)
+	return s.accountAPI.SecurityLog(ctx, p, f)
+}
+
+// requireEntryView checks that v carries every field of the stored e.
+func requireEntryView(t *testing.T, v LogEntryView, e *account.LogEntry) {
+	t.Helper()
+	ev := &e.Event
+	ip := ""
+	if e.IP.IsValid() {
+		ip = e.IP.String()
+	}
+	want := LogActorView{
+		UserID: ev.Actor.UserID, SessionID: ev.Actor.SessionID, KeyID: ev.Actor.KeyID, OutOfBand: ev.Actor.OutOfBand,
+		Label: e.ActorLabel, UserAgent: e.ActorUserAgent, KeySuffix: e.ActorKeySuffix,
+	}
+	if v.Seq != int64(ev.Seq) || !v.At.Equal(e.At) || !v.OccurredAt.Equal(ev.At) || v.Class != e.Class || v.Kind != string(ev.Kind) ||
+		v.UserID != ev.UserID || v.IP != ip || !slices.Equal(v.SessionIDs, ev.SessionIDs) || v.KeyID != ev.KeyID ||
+		v.PasskeyID != ev.PasskeyID || v.Method != ev.Method || v.Role != ev.Role || v.Trusted != ev.Trusted ||
+		v.Detail != e.Detail || v.Actor != want {
+		t.Errorf("view %+v, want the entry %+v", v, *e)
+	}
+}
+
+// TestAdminSecurityLog is authAdminSecurityLog: the page, its query keys,
+// its refusals and its gate.
+func TestAdminSecurityLog(t *testing.T) {
+	t.Run("page", func(t *testing.T) {
+		spy := &recorded[account.LogFilter]{}
+		e := newEnv(t, with(allScopes, envOptions{wrap: func(_ *env, s *account.Service) accountAPI { return filterSpy{accountAPI: s, got: spy} }}))
+		root := e.rootSession(t)
+		rootP := e.principal(t, root)
+		rootP.IP = netip.MustParseAddr("192.0.2.7")
+		if err := e.svc.RenameSession(t.Context(), rootP, account.SessionLabel{ID: rootP.SessionID, Label: "laptop"}); err != nil {
+			t.Fatalf("RenameSession: %v", err)
+		}
+		if _, err := e.svc.PasswordLogin(t.Context(), account.Client{UserAgent: "Firefox"}, account.Credentials{Username: "alice", Password: access.NewSecret(testPassword)}); err != nil {
+			t.Fatalf("PasswordLogin: %v", err)
+		}
+		if _, err := e.svc.CreateInvite(t.Context(), rootP, access.RoleAdmin, 0); err != nil {
+			t.Fatalf("CreateInvite: %v", err)
+		}
+		key := e.mintKey(t, "root", account.NewKey{Label: "ci", Scopes: []string{scopeAdminName}})
+		e.appendApp(t, account.As(rootP), account.AppEntry{Kind: "app.setting", Method: access.MethodPassword, Detail: "password sign-in on"})
+		e.appendApp(t, account.As(e.keyPrincipal(t, key.Plaintext)), account.AppEntry{Kind: "app.reset"})
+		stored, err := e.mem.ListLog(t.Context(), account.LogRange{Limit: account.MaxLogPage, Descending: true})
+		if err != nil || len(stored) < 5 {
+			t.Fatalf("ListLog = %d entries, %v; want the fixture's", len(stored), err)
+		}
+
+		page := decoded[SecurityLogView](t, e, do(e.route(t, "authAdminSecurityLog"), e.securityLog(t, "", root)), http.StatusOK)
+		if len(page.Entries) != len(stored) {
+			t.Fatalf("%d entries, want the %d stored", len(page.Entries), len(stored))
+		}
+		for i := range stored {
+			requireEntryView(t, page.Entries[i], &stored[i])
+		}
+		want := []LogClassView{{Class: account.LogClassChange}, {Class: account.LogClassSession}}
+		for _, st := range stored {
+			want[slices.IndexFunc(want, func(c LogClassView) bool { return c.Class == st.Class })].Count++
+		}
+		if !slices.Equal(page.Classes, want) {
+			t.Errorf("classes %+v, want %+v", page.Classes, want)
+		}
+
+		decoded[SecurityLogView](t, e, do(e.route(t, "authAdminSecurityLog"), e.securityLog(t, "kinds=", root)), http.StatusOK)
+		decoded[SecurityLogView](t, e, do(e.route(t, "authAdminSecurityLog"), e.securityLog(t, "user=3&actor=4&actor_key=5&after=6&before=9&limit=7&kinds=a.b,signed_in", root)), http.StatusOK)
+		decoded[SecurityLogView](t, e, do(e.route(t, "authAdminSecurityLog"), e.securityLog(t, "oldest_first=true", root)), http.StatusOK)
+		decoded[SecurityLogView](t, e, do(e.route(t, "authAdminSecurityLog"), e.securityLog(t, "after=6&oldest_first=true", root)), http.StatusOK)
+		got := spy.all()
+		wantFilters := []account.LogFilter{
+			{},
+			{},
+			{UserID: 3, ActorUserID: 4, ActorKeyID: 5, AfterSeq: 6, BeforeSeq: 9, Limit: 7, Kinds: []account.EventKind{"a.b", account.EventSignedIn}},
+			{OldestFirst: true},
+			{AfterSeq: 6, OldestFirst: true},
+		}
+		if len(got) != len(wantFilters) {
+			t.Fatalf("filters %+v, want %+v", got, wantFilters)
+		}
+		for i := range got {
+			if !reflect.DeepEqual(got[i], wantFilters[i]) {
+				t.Errorf("filter %d = %+v, want %+v", i, got[i], wantFilters[i])
+			}
+		}
+	})
+	t.Run("empty", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		root := e.rootSession(t)
+		w := do(e.route(t, "authAdminSecurityLog"), e.securityLog(t, "kinds=app.none", root))
+		page := decoded[SecurityLogView](t, e, w, http.StatusOK)
+		if len(page.Entries) != 0 || !strings.Contains(w.Body.String(), `"entries":[]`) {
+			t.Errorf("body %s, want an empty entries array", w.Body.String())
+		}
+	})
+	t.Run("refused", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		root := e.rootSession(t)
+		refusals := map[string]string{
+			"kinds=a.b,": account.ReasonLogKind,
+			"limit=501":  account.ReasonLogLimit,
+			// 2^32 and 2^32+50, which a 32-bit int would wrap to 0 and 50.
+			"limit=4294967296": account.ReasonLogLimit,
+			"limit=4294967346": account.ReasonLogLimit,
+		}
+		for _, key := range []string{"user", "actor", "actor_key", "after", "before", "limit"} {
+			for _, raw := range []string{key + "=0", key + "=-1", key + "=x", key + "=1&" + key + "=2"} {
+				refusals[raw] = key
+			}
+		}
+		for _, raw := range []string{"oldest_first=false", "oldest_first=1", "oldest_first=", "oldest_first=true&oldest_first=true"} {
+			refusals[raw] = "oldest_first"
+		}
+		for raw, reason := range refusals {
+			if got := e.requireRefused(t, do(e.route(t, "authAdminSecurityLog"), e.securityLog(t, raw, root)), CodeBadRequest); got.Reason != reason {
+				t.Errorf("%s: reason %q, want %q", raw, got.Reason, reason)
+			}
+		}
+		e.requireRefused(t, do(e.route(t, "authAdminSecurityLog"), e.securityLog(t, "", e.sessionCookie(t, "alice"))), CodeForbidden)
+	})
+	t.Run("evicted", func(t *testing.T) {
+		e := newEnv(t, envOptions{edit: func(c *account.Config) { c.LogMaxChanges = 2 }})
+		root := e.rootSession(t)
+		for range 5 {
+			e.appendApp(t, account.OutOfBand("test"), account.AppEntry{Kind: "app.tick"})
+		}
+		page := decoded[SecurityLogView](t, e, do(e.route(t, "authAdminSecurityLog"), e.securityLog(t, "", root)), http.StatusOK)
+		if len(page.Classes) != 2 || page.Classes[0] != (LogClassView{Class: account.LogClassChange, Count: 2, Evicted: 3}) {
+			t.Errorf("classes %+v, want change with 2 kept and 3 evicted", page.Classes)
+		}
+	})
+	t.Run("keys", func(t *testing.T) {
+		scopedEnv := newEnv(t, scoped(scopeAdminName, "", ""))
+		scopedEnv.rootSession(t)
+		admin := scopedEnv.mintKey(t, "root", account.NewKey{Label: "admin", Scopes: []string{scopeAdminName}})
+		read := scopedEnv.mintKey(t, "root", account.NewKey{Label: "read", Scopes: []string{"read"}})
+		decoded[SecurityLogView](t, scopedEnv, do(scopedEnv.route(t, "authAdminSecurityLog"), bearer(scopedEnv.securityLog(t, ""), admin.Plaintext)), http.StatusOK)
+		scopedEnv.requireRefused(t, do(scopedEnv.route(t, "authAdminSecurityLog"), bearer(scopedEnv.securityLog(t, ""), read.Plaintext)), CodeScopeRequired)
+
+		open := newEnv(t, envOptions{})
+		open.rootSession(t)
+		k := open.mintKey(t, "root", account.NewKey{Label: "ci"})
+		open.requireRefused(t, do(open.route(t, "authAdminSecurityLog"), bearer(open.securityLog(t, ""), k.Plaintext)), CodeSessionRequired)
+	})
 }

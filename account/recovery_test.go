@@ -695,6 +695,28 @@ func TestDurableLockClears(t *testing.T) {
 	}
 }
 
+func TestStartRecoverySubjectDisabledBeforeUpdate(t *testing.T) {
+	t.Parallel()
+	w := newRecWorld(t, pwOptions{}, nil)
+	tok := w.issue(t, account.OutOfBand("socket"), w.alice.ID)
+	var once sync.Once
+	w.fs.onUpdate(func(ctx context.Context, _ int) {
+		once.Do(func() {
+			v := storedUser(t, w.mem, w.alice.ID)
+			v.Enabled = false
+			if err := w.mem.UpdateUser(ctx, v); err != nil {
+				t.Errorf("disable alice: %v", err)
+			}
+		})
+	})
+	if _, err := w.svc.StartRecovery(t.Context(), localClient, tok.Plaintext); !errors.Is(err, access.ErrTokenInvalid) {
+		t.Errorf("a start whose subject was disabled after the peek = %v, want access.ErrTokenInvalid", err)
+	}
+	if got := len(recoverySessions(t, w.mem, w.alice.ID)); got != 0 {
+		t.Errorf("recovery sessions = %d, want none", got)
+	}
+}
+
 func TestConcurrentStartRecovery(t *testing.T) {
 	t.Parallel()
 	w := newRecWorld(t, pwOptions{}, nil)

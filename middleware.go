@@ -91,7 +91,7 @@ func (a *Authenticator) Authenticate(r *http.Request) (Principal, error) {
 	if a.bypassed() {
 		// A deep copy per request, so no consumer can mutate the principal
 		// handed to any other request: User holds a slice.
-		return Principal{User: syntheticAdminUser.Clone(), Method: MethodBypass}, nil
+		return Principal{User: syntheticAdminUser.Clone(), Method: MethodBypass, IP: a.ClientAddr(r).IP}, nil
 	}
 
 	ctx := r.Context()
@@ -116,6 +116,7 @@ func (a *Authenticator) Authenticate(r *http.Request) (Principal, error) {
 		if !ok {
 			continue
 		}
+		p.IP = a.ClientAddr(r).IP
 		return grant(p)
 	}
 	if unusable != nil {
@@ -155,6 +156,7 @@ func (a *Authenticator) Recheck(ctx context.Context, p Principal) (Principal, er
 	if !ok {
 		return Principal{}, ErrNotRecheckable
 	}
+	q.IP = p.IP
 	return grant(q)
 }
 

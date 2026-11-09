@@ -29,6 +29,8 @@ func TestReasonLists(t *testing.T) {
 		{"UsernameReasons", account.UsernameReasons(), []string{"empty", "disallowed_character", "too_long"}},
 		{"TextErrorReasons", account.TextErrorReasons(), []string{"disallowed_character", "too_long"}},
 		{"TextErrorFields", account.TextErrorFields(), []string{"label", "display_name"}},
+		{"LogFilterReasons", account.LogFilterReasons(), []string{"log_limit", "log_range", "log_kind", "log_id"}},
+		{"AppEntryReasons", account.AppEntryReasons(), []string{"app_kind", "app_detail", "app_method"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -40,9 +42,9 @@ func TestReasonLists(t *testing.T) {
 }
 
 // TestReasonProducers reads the package's own producers: every Reason a
-// PolicyError, UsernameError or TextError literal sets, and every Field
-// checkLine is given, is a listed constant, and every listed value has a
-// producer.
+// PolicyError, UsernameError, TextError, LogFilterError or AppEntryError
+// literal sets, and every Field checkLine is given, is a listed constant,
+// and every listed value has a producer.
 func TestReasonProducers(t *testing.T) {
 	t.Parallel()
 	p := scanProducers(t)
@@ -55,6 +57,8 @@ func TestReasonProducers(t *testing.T) {
 		{"UsernameError.Reason", p.username, account.UsernameReasons()},
 		{"TextError.Reason", p.text, account.TextErrorReasons()},
 		{"TextError.Field", p.fields, account.TextErrorFields()},
+		{"LogFilterError.Reason", p.logFilter, account.LogFilterReasons()},
+		{"AppEntryError.Reason", p.appEntry, account.AppEntryReasons()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -70,6 +74,7 @@ func TestReasonProducers(t *testing.T) {
 
 type producers struct {
 	policy, username, text, fields map[string]bool
+	logFilter, appEntry            map[string]bool
 	unlisted                       []string
 }
 
@@ -106,7 +111,10 @@ func scanProducers(t *testing.T) producers {
 			return true
 		})
 	}
-	p := producers{policy: map[string]bool{}, username: map[string]bool{}, text: map[string]bool{}, fields: map[string]bool{}}
+	p := producers{
+		policy: map[string]bool{}, username: map[string]bool{}, text: map[string]bool{}, fields: map[string]bool{},
+		logFilter: map[string]bool{}, appEntry: map[string]bool{},
+	}
 	record := func(into map[string]bool, e ast.Expr) {
 		if id, ok := e.(*ast.Ident); ok {
 			if v, declared := consts[id.Name]; declared {
@@ -127,7 +135,10 @@ func scanProducers(t *testing.T) producers {
 				if !ok {
 					return true
 				}
-				into := map[string]map[string]bool{"PolicyError": p.policy, "UsernameError": p.username, "TextError": p.text}[typ.Name]
+				into := map[string]map[string]bool{
+					"PolicyError": p.policy, "UsernameError": p.username, "TextError": p.text,
+					"LogFilterError": p.logFilter, "AppEntryError": p.appEntry,
+				}[typ.Name]
 				for _, el := range n.Elts {
 					kv, isKV := el.(*ast.KeyValueExpr)
 					if !isKV || into == nil {
