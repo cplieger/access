@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import * as auth from "./index.js";
 import type {
   AuthClient,
@@ -58,8 +58,9 @@ import type {
   WebAuthnSignals,
 } from "./index.js";
 
-// The types of the published surface: the typecheck fails when one is no longer exported.
-export type Surface = [
+// The types of the published surface: the import above fails the typecheck when one is no
+// longer exported.
+type Surface = [
   AuthClient,
   AuthClientOptions,
   AuthCode,
@@ -189,6 +190,10 @@ describe("package root (browser)", () => {
 
   it("exports exactly the published values", () => {
     expect(Object.keys(auth).sort()).toEqual([...helpers, ...validators].sort());
+  });
+
+  it("exports the published types", () => {
+    expectTypeOf<Surface>().toBeArray();
   });
 
   it("exports continuation as an object with put and take", () => {
