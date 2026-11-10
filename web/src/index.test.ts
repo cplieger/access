@@ -117,6 +117,9 @@ type Surface = [
   Validator<unknown>,
   WebAuthnSignals,
 ];
+// Module scope, as in index.node.test.ts: inside an it() this makes no runtime
+// assertion, which the config's requireAssertions fails.
+expectTypeOf<Surface>().toBeArray();
 
 const helpers = [
   "authCode",
@@ -190,10 +193,6 @@ describe("package root (browser)", () => {
 
   it("exports exactly the published values", () => {
     expect(Object.keys(auth).sort()).toEqual([...helpers, ...validators].sort());
-  });
-
-  it("exports the published types", () => {
-    expectTypeOf<Surface>().toBeArray();
   });
 
   it("exports continuation as an object with put and take", () => {
