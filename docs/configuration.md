@@ -260,7 +260,7 @@ Every key-authorized write re-reads the key and its owner inside its own transac
 | `Audit` | Receives the request-level outcomes that change no state | nil: none |
 | `Prefix` | The path every route not under `OIDCPrefix` starts with, such as `/api/auth` | empty |
 | `OIDCPrefix` | The prefix of the OIDC start and callback routes | empty |
-| `SignInPath` | Where the OIDC callback sends a browser on any outcome other than success | empty |
+| `SignInPath` | Where the OIDC callback sends a browser on any outcome other than success. A value that is not a safe relative path, as `access.ValidateRedirectURI` judges it, is replaced by `/` | `/` |
 | `PendingSealer` | The `*access.Sealer` for the pending-link cookie | an ephemeral sealer, so a restart drops a pending link |
 | `Logger` | The `*slog.Logger` | `slog.Default()` at each call |
 

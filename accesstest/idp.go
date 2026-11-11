@@ -47,17 +47,17 @@ const (
 //
 //nolint:revive // IdP is the usual spelling of identity provider, as in OpenID Connect Core 1.0 section 1.2.
 const (
-	DefaultIdPClientID     = "authtest-client"
-	DefaultIdPClientSecret = "authtest-secret"
-	DefaultIdPSubject      = "authtest-subject"
-	DefaultIdPEmail        = "authtest@example.com"
-	DefaultIdPUsername     = "authtest"
+	DefaultIdPClientID     = "accesstest-client"
+	DefaultIdPClientSecret = "accesstest-secret"
+	DefaultIdPSubject      = "accesstest-subject"
+	DefaultIdPEmail        = "accesstest@example.com"
+	DefaultIdPUsername     = "accesstest"
 	defaultIDTokenLifetime = 5 * time.Minute
 )
 
 const (
-	idpKeyIDRS256    = "authtest-rs256"
-	idpKeyIDES256    = "authtest-es256"
+	idpKeyIDRS256    = "accesstest-rs256"
+	idpKeyIDES256    = "accesstest-es256"
 	maxTokenFormBody = 64 << 10
 	pkceS256         = "S256"
 	// maxAgeCeiling is the largest max_age, in seconds, a time.Duration

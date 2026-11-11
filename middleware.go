@@ -233,10 +233,9 @@ func (a *Authenticator) Cookie() CookieConfig { return a.cfg.Cookie }
 // configured one.
 func (a *Authenticator) Timeouts() SessionTimeouts { return a.cfg.timeouts() }
 
-// HasRole reports whether the user is authorized for the given role.
+// HasRole reports whether the user is authorized for the given role. A nil
+// user has no role.
 func HasRole(user *User, role Role) bool {
-	// Mirror the existing nil-guard convention in ValidateSession; fail-closed
-	// for a nil principal rather than panicking in an authz primitive.
 	if user == nil {
 		return false
 	}

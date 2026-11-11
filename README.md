@@ -4,7 +4,7 @@
 
 access gives your Go web service its sign-in: Argon2id passwords, passkeys, OIDC sign-in, sessions, API keys, invites and recovery, served as JSON routes you mount on your own mux, with a typed browser client. You write the storage and the pages.
 
-It reads no environment variables, and every setting lives on the value you construct. It needs Go 1.27.3 or later and is licensed under Apache-2.0. It has six direct dependencies at run time: `golang.org/x/crypto`, `golang.org/x/oauth2`, `golang.org/x/sync`, `golang.org/x/text`, `go-webauthn/webauthn` and `coreos/go-oidc`.
+It reads no environment variables, and every setting lives on the value you construct. It needs the Go version its `go.mod` names and is licensed under Apache-2.0. It has six direct dependencies at run time: `golang.org/x/crypto`, `golang.org/x/oauth2`, `golang.org/x/sync`, `golang.org/x/text`, `go-webauthn/webauthn` and `coreos/go-oidc`.
 
 ## Why use it
 

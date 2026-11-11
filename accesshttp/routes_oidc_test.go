@@ -172,6 +172,23 @@ func TestCallbackRedirects(t *testing.T) {
 			t.Errorf("Location %q, want /signin?auth_error=auth_oidc_failed", loc)
 		}
 	})
+	t.Run("sign_in_path_refused", func(t *testing.T) {
+		for _, signIn := range []string{"", "https://evil.example/login", "//evil.example/login"} {
+			handler := envOptions{handler: func(c *Config) { c.SignInPath = signIn }}
+			e, idp := linkedAlice(t, handler)
+			b := newBrowser(t)
+			cb := authorize(t, idp, e.startSignIn(t, b, ""))
+			b.jar.SetCookies(b.app, []*http.Cookie{{Name: e.flowCookieName(), Value: "forged"}})
+			if loc := location(t, e.callback(t, b, cb)); loc != "/?auth_error=auth_oidc_failed" {
+				t.Errorf("SignInPath %q: failure Location %q, want /?auth_error=auth_oidc_failed", signIn, loc)
+			}
+			e = newEnv(t, handler)
+			idp = e.useIdP(t, accesstest.IdPOptions{}, nil)
+			if loc := location(t, e.signInFlow(t, newBrowser(t), idp, "")); loc != "/?oidc=not_linked" {
+				t.Errorf("SignInPath %q: not-linked Location %q, want /?oidc=not_linked", signIn, loc)
+			}
+		}
+	})
 	t.Run("provider_changed", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		idp := e.useIdP(t, accesstest.IdPOptions{}, nil)

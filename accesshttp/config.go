@@ -22,7 +22,9 @@ type Config struct {
 	Logger        *slog.Logger   // nil: slog.Default() at each log call
 	Prefix        string         // e.g. "/api/auth"; every path not under OIDCPrefix starts with it
 	OIDCPrefix    string         // the OIDC start and callback routes' prefix
-	SignInPath    string         // where the OIDC callback sends a browser on a non-success outcome
+	// SignInPath is where the OIDC callback sends a browser on a non-success
+	// outcome. A value access.ValidateRedirectURI refuses, empty included, is "/".
+	SignInPath string
 }
 
 // Handler serves the access routes. Build it with New.
@@ -62,7 +64,7 @@ func newHandler(cfg Config, acct accountAPI) (*Handler, error) { //nolint:gocrit
 		audit:   cfg.Audit,
 		pending: cfg.PendingSealer,
 		logger:  cfg.Logger,
-		signIn:  cfg.SignInPath,
+		signIn:  access.ValidateRedirectURI(cfg.SignInPath),
 	}
 	if h.pending == nil {
 		h.pending = access.NewEphemeralSealer()
