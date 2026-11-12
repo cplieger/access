@@ -31,7 +31,7 @@ type logClause struct {
 func (c *contract) logClauses() []logClause {
 	return []logClause{
 		{c.seqIncreasing, "seq_increasing", "AppendLog assigns Event.Seq in commit order; ascending ListLog is append order"},
-		{c.seqVisibleInOrder, "seq_visible_in_order", "a reader that sees an entry already sees every committed entry with a smaller Seq"},
+		{c.seqVisibleInOrder, "seq_visible_in_order", "a reader that sees an entry already sees every committed entry with a smaller Seq, through AppendLog and Update alike"},
 		{c.seqNeverReused, "seq_never_reused", "a Seq is never assigned to two committed entries, after any prune"},
 		{c.seqNeverReusedReopen, "seq_never_reused_reopen", "a Seq is never assigned to two committed entries, across a close and a reopen"},
 		{c.seqBound, "seq_bound", "every Seq is a positive integer no larger than 2^53 − 1"},
@@ -189,16 +189,15 @@ func (c *contract) seqVisibleInOrder(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
 	var running atomic.Int64
 	running.Store(writers)
+	got := make([][]uint64, writers)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		raceN(writers, func(int) {
+		raceN(writers, func(w int) {
 			defer running.Add(-1)
-			for range perWriter {
-				if err := s.Update(ctx, func(tx account.Tx) error { return tx.AppendLog(ctx, logEntry(account.LogClassChange, epoch)) }); err != nil {
-					t.Errorf("Update: %v", err)
-					return
-				}
+			var err error
+			if got[w], err = appendAlternating(ctx, s, w, perWriter); err != nil {
+				t.Errorf("append: %v", err)
 			}
 		})
 	}()
@@ -221,6 +220,41 @@ func (c *contract) seqVisibleInOrder(t *testing.T) {
 	if len(missed) > 0 {
 		t.Errorf("a reader catching up from its largest Seq never saw %v: they committed after a larger Seq was visible", missed)
 	}
+	for w, seqs := range got {
+		if !increasing(seqs) {
+			t.Errorf("writer %d's appends, each committed before its next, got Seqs %v, want strictly increasing", w, seqs)
+		}
+	}
+}
+
+// appendAlternating appends n change entries, alternating from first the
+// single-call AppendLog with an Update's tx.AppendLog, since a store may
+// number the two paths apart, and returns their Seqs.
+func appendAlternating(ctx context.Context, s account.Store, first, n int) ([]uint64, error) {
+	seqs := make([]uint64, 0, n)
+	for i := range n {
+		e := logEntry(account.LogClassChange, epoch)
+		var err error
+		if (first+i)%2 == 0 {
+			err = s.AppendLog(ctx, e)
+		} else {
+			err = s.Update(ctx, func(tx account.Tx) error { return tx.AppendLog(ctx, e) })
+		}
+		if err != nil {
+			return seqs, err
+		}
+		seqs = append(seqs, e.Event.Seq)
+	}
+	return seqs, nil
+}
+
+func increasing(seqs []uint64) bool {
+	for i := 1; i < len(seqs); i++ {
+		if seqs[i] <= seqs[i-1] {
+			return false
+		}
+	}
+	return true
 }
 
 // logPoller reads the log from the largest Seq it has seen.
@@ -468,7 +502,18 @@ func (c *contract) statsCount(t *testing.T) {
 	if got := stats(t, s); len(got) != 0 {
 		t.Errorf("an empty store's LogStats = %v, want none", got)
 	}
+	for _, class := range account.LogClasses() {
+		mustPrune(t, s, account.LogPrune{Class: class, Keep: 1, Limit: logPage})
+		mustPrune(t, s, account.LogPrune{Class: class, Before: epoch.Add(time.Hour), Limit: logPage})
+	}
+	if got := stats(t, s); len(got) != 0 {
+		t.Errorf("after a Keep and a Before prune of every class of an empty store, LogStats = %v, want none: no class has held an entry", got)
+	}
 	appendN(t, s, account.LogClassSession, epoch, 2)
+	mustPrune(t, s, account.LogPrune{Class: account.LogClassChange, Keep: 1, Limit: logPage})
+	if got := stats(t, s); len(got) != 1 || got[account.LogClassSession].Count != 2 {
+		t.Errorf("after a Keep prune of the never-used change class, LogStats = %v, want only the session class with Count 2", got)
+	}
 	appendN(t, s, account.LogClassChange, epoch, 3)
 	mustPrune(t, s, account.LogPrune{Class: account.LogClassChange, Keep: 2, Limit: logPage})
 	got := stats(t, s)

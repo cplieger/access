@@ -33,6 +33,12 @@ var logVariants = map[string]variant{
 		make:  memVariant(func(m *MemStore) account.Store { return &seqBeforeLockStore{MemStore: m, seen: make(chan struct{})} }),
 		fails: []string{"rule_22_log/seq_visible_in_order"},
 	},
+	"log-single-call-seq-before-lock": {
+		make: memVariant(func(m *MemStore) account.Store {
+			return &seqBeforeLockStore{MemStore: m, seen: make(chan struct{}), singleCallOnly: true}
+		}),
+		fails: []string{"rule_22_log/seq_visible_in_order"},
+	},
 	"log-seq-past-json-bound": {
 		make:  memVariant(func(m *MemStore) account.Store { return &seqPastBoundStore{m} }),
 		fails: []string{"rule_22_log/seq_bound"},
@@ -79,6 +85,10 @@ var logVariants = map[string]variant{
 		make:  memVariant(func(m *MemStore) account.Store { return &countEvictedStore{m} }),
 		fails: []string{"rule_22_log/stats_count"},
 	},
+	"log-noop-prune-writes-stats": {
+		make:  memVariant(func(m *MemStore) account.Store { return &noopPruneStatsStore{m} }),
+		fails: []string{"rule_22_log/stats_count"},
+	},
 	"log-keep-not-evicted": {
 		make:  memVariant(func(m *MemStore) account.Store { return &keepUncountedStore{m} }),
 		fails: []string{"rule_22_log/stats_evicted"},
@@ -121,7 +131,7 @@ var logVariants = map[string]variant{
 // its subtest.
 var logClauseVariants = map[string][]string{
 	"seq_increasing":          {"log-list-always-descending"},
-	"seq_visible_in_order":    {"log-seq-before-lock"},
+	"seq_visible_in_order":    {"log-seq-before-lock", "log-single-call-seq-before-lock"},
 	"seq_never_reused":        {"log-seq-highest-live-plus-one"},
 	"seq_never_reused_reopen": {"log-seq-recomputed-on-reopen"},
 	"seq_bound":               {"log-seq-past-json-bound"},
@@ -134,7 +144,7 @@ var logClauseVariants = map[string][]string{
 	"prune_before":            {"log-before-inclusive"},
 	"prune_limit":             {"log-prune-ignores-limit"},
 	"prune_one_criterion":     {"log-prune-keep-wins"},
-	"stats_count":             {"log-stats-count-includes-evicted"},
+	"stats_count":             {"log-stats-count-includes-evicted", "log-noop-prune-writes-stats"},
 	"stats_evicted":           {"log-keep-not-evicted", "log-before-evicts"},
 	"stats_reopen":            {"log-evicted-lost-on-reopen"},
 	"delete_user_keeps":       {"log-delete-user-deletes-entries"},
@@ -220,38 +230,48 @@ func (s *rollbackKeepsLogStore) Update(ctx context.Context, fn func(account.Tx) 
 	return err
 }
 
-// seqBeforeLockStore reserves each Update's Seq before it takes the writer
-// lock. Its first Update with a competitor holds between the reservation
-// and the lock until a ListLog has returned a larger Seq, so that larger
-// Seq is visible before the smaller one commits.
+// seqBeforeLockStore reserves each write's Seq before it takes the writer
+// lock: every write's, or with singleCallOnly only the single-call
+// AppendLog's, an Update numbering under the lock. Its first reserving write
+// with a competitor holds between the reservation and the lock until a
+// ListLog has returned a larger Seq, so that larger Seq is visible before
+// the smaller one commits.
 type seqBeforeLockStore struct {
 	*MemStore
-	seen     chan struct{}
-	seenOnce sync.Once
-	next     atomic.Uint64
-	held     atomic.Uint64
-	pending  atomic.Int64
-	holdOnce atomic.Bool
+	seen           chan struct{}
+	seenOnce       sync.Once
+	next           atomic.Uint64
+	held           atomic.Uint64
+	pending        atomic.Int64
+	holdOnce       atomic.Bool
+	singleCallOnly bool
 }
 
 func (s *seqBeforeLockStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.write(ctx, !s.singleCallOnly, fn)
+}
+
+func (s *seqBeforeLockStore) AppendLog(ctx context.Context, e *account.LogEntry) error {
+	return s.write(ctx, true, func(tx account.Tx) error { return tx.AppendLog(ctx, e) })
+}
+
+func (s *seqBeforeLockStore) write(ctx context.Context, reserve bool, fn func(account.Tx) error) error {
 	s.pending.Add(1)
 	defer s.pending.Add(-1)
-	seq := s.next.Add(1)
-	if s.holdOnce.CompareAndSwap(false, true) && waitFor(100*time.Millisecond, func() bool { return s.pending.Load() > 1 }) {
-		s.held.Store(seq)
-		select {
-		case <-s.seen:
-		case <-time.After(5 * time.Second):
+	var seq uint64
+	if reserve {
+		seq = s.next.Add(1)
+		if s.holdOnce.CompareAndSwap(false, true) && waitFor(100*time.Millisecond, func() bool { return s.pending.Load() > 1 }) {
+			s.held.Store(seq)
+			select {
+			case <-s.seen:
+			case <-time.After(5 * time.Second):
+			}
 		}
 	}
 	return s.MemStore.Update(ctx, func(tx account.Tx) error {
 		return fn(&reservedSeqTx{memTx: tx.(*memTx), seq: seq, next: &s.next})
 	})
-}
-
-func (s *seqBeforeLockStore) AppendLog(ctx context.Context, e *account.LogEntry) error {
-	return s.Update(ctx, func(tx account.Tx) error { return tx.AppendLog(ctx, e) })
 }
 
 func (s *seqBeforeLockStore) ListLog(ctx context.Context, r account.LogRange) ([]account.LogEntry, error) {
@@ -418,6 +438,24 @@ func (s *countEvictedStore) LogStats(ctx context.Context) ([]account.LogClassSta
 		out[i].Count += int(out[i].Evicted)
 	}
 	return out, err
+}
+
+// noopPruneStatsStore gives a class its stats row on any prune, one of a
+// class that never held an entry included.
+type noopPruneStatsStore struct{ *MemStore }
+
+func (s *noopPruneStatsStore) PruneLog(ctx context.Context, p account.LogPrune) (int, error) {
+	var n int
+	err := s.Update(ctx, func(tx account.Tx) error {
+		mt := tx.(*memTx)
+		if _, ok := mt.s.log[p.Class]; !ok {
+			mt.s.log[p.Class] = classLog{}
+		}
+		var err error
+		n, err = mt.pruneLog(p)
+		return err
+	})
+	return n, err
 }
 
 // keepUncountedStore's Keep prune does not raise Evicted.
