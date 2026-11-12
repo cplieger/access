@@ -90,6 +90,9 @@ func TestValidateRedirectURI_table(t *testing.T) {
 		{"protocol-relative", "//evil.com", "/"},
 		{"scheme in path", "/foo://bar", "/"},
 		{"no leading slash", "evil.com", "/"},
+		{"dot segments in fragment kept", "/settings#/../../admin", "/settings#/../../admin"},
+		{"CR after fragment", "/#/../\r/evil.com", "/"},
+		{"NUL in path", "/a\x00", "/"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -489,6 +492,24 @@ func TestValidateRedirectURI_rejects_backslash_and_malformed(t *testing.T) {
 				t.Errorf("ValidateRedirectURI(%q) = %q, want %q", tt.uri, got, "/")
 			}
 		})
+	}
+}
+
+func TestValidateRedirectURIRefusesControlBytes(t *testing.T) {
+	t.Parallel()
+	controls := []byte{0x7f}
+	for c := range byte(0x20) {
+		controls = append(controls, c)
+	}
+	for _, c := range controls {
+		for _, uri := range []string{"/a" + string(c) + "b", "/a?q=" + string(c), "/a#" + string(c)} {
+			if got := ValidateRedirectURI(uri); got != "/" {
+				t.Errorf("ValidateRedirectURI(%q) = %q, want %q", uri, got, "/")
+			}
+		}
+	}
+	if got := ValidateRedirectURI("/a#b c"); got != "/a#b c" {
+		t.Errorf("ValidateRedirectURI(%q) = %q, want it kept", "/a#b c", got)
 	}
 }
 

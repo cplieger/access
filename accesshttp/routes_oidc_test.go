@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -121,6 +120,7 @@ func TestCallbackRedirects(t *testing.T) {
 		{"failure_drops_oidc", "authOIDCStartLink", "/p?oidc=stepped_up", "/p?auth_error=auth_oidc_failed", stale, false},
 		{"other_pairs_survive", "authOIDCStartLink", "/x?a=%zz&b=1", "/x?a=%zz&b=1&oidc=linked", accesstest.IdPOptions{}, false},
 		{"fragment_kept", "authOIDCStartLink", "/a#x?y", "/a?oidc=linked#x?y", accesstest.IdPOptions{}, false},
+		{"fragment_dot_segments_kept", "authOIDCStartLink", "/settings#/../../admin", "/settings?oidc=linked#/../../admin", accesstest.IdPOptions{}, false},
 		{"redirect_512_bytes", "authOIDCStartLink", "/" + strings.Repeat("a", 511), "/" + strings.Repeat("a", 511) + "?oidc=linked", accesstest.IdPOptions{}, false},
 		{"escaped_path_link", "authOIDCStartLink", "/A%2Fb?x=1", "/A%2Fb?x=1&oidc=linked", accesstest.IdPOptions{}, false},
 		{"escaped_path_step_up", "authOIDCStartStepUp", "/A%2Fb?x=1", "/A%2Fb?x=1&oidc=stepped_up", accesstest.IdPOptions{}, true},
@@ -137,9 +137,8 @@ func TestCallbackRedirects(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, seed := range []string{"/%2Fevil.com/|", "/%2f</@", "/%2F%2Fevil.com x", "/a#x?y", "/A%2Fb?x=1"} {
+		for _, seed := range []string{"/%2Fevil.com/|", "/%2f</@", "/%2F%2Fevil.com x", "/a#x?y", "/A%2Fb?x=1", "/settings#/../../admin", "/a/../b/"} {
 			sealed := access.ValidateRedirectURI(seed)
-			want := cleanKeepingSlash(pathPart(sealed))
 			for _, target := range []string{
 				sealed,
 				withMarker(sealed, markerOIDC, "linked"),
@@ -147,10 +146,10 @@ func TestCallbackRedirects(t *testing.T) {
 				withMarker(sealed, markerError, "x"),
 			} {
 				w := httptest.NewRecorder()
-				redirect(w, httptest.NewRequest(http.MethodGet, "https://app.example/api/auth/oidc/callback", nil), target)
+				redirect(w, target)
 				loc := w.Header().Get("Location")
-				if got := pathPart(loc); got != want {
-					t.Errorf("seed %q target %q: Location %q has path %q, want %q", seed, target, loc, got, want)
+				if loc != target {
+					t.Errorf("seed %q: Location %q, want the target %q", seed, loc, target)
 				}
 				ref, err := url.Parse(browserNormalised(loc))
 				if err != nil {
@@ -222,6 +221,8 @@ func TestCallbackRedirects(t *testing.T) {
 			{"redirect=/" + strings.Repeat("a", 512), "/"},
 			{"redirect=" + url.QueryEscape("//evil.com"), "/"},
 			{"redirect=/a&redirect=/b", "/"},
+			{"redirect=" + url.QueryEscape("/settings#/../../admin"), "/settings#/../../admin"},
+			{"redirect=" + url.QueryEscape("/#/../\r/evil.com"), "/"},
 		} {
 			e, idp := linkedAlice(t, envOptions{})
 			if loc := location(t, e.signInFlow(t, newBrowser(t), idp, tc.query)); loc != tc.want {
@@ -723,24 +724,6 @@ func TestOIDCPendingRoutes(t *testing.T) {
 			t.Errorf("alice still linked to %+v", got)
 		}
 	})
-}
-
-// pathPart is loc up to its first '?' or '#'.
-func pathPart(loc string) string {
-	if i := strings.IndexAny(loc, "?#"); i >= 0 {
-		return loc[:i]
-	}
-	return loc
-}
-
-// cleanKeepingSlash is p after path.Clean with a trailing slash kept, as
-// http.Redirect writes a path-absolute Location.
-func cleanKeepingSlash(p string) string {
-	c := path.Clean(p)
-	if strings.HasSuffix(p, "/") && !strings.HasSuffix(c, "/") {
-		c += "/"
-	}
-	return c
 }
 
 // passkeyReadsFail is a Store whose PasskeysByUserID fails inside an Update

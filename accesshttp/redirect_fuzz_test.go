@@ -1,7 +1,6 @@
 package accesshttp
 
 import (
-	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -21,9 +20,10 @@ func browserNormalised(loc string) string {
 
 // FuzzCallbackLocation holds the callback's emission to the origin: for any
 // input, the Location written for ValidateRedirectURI's answer, with each
-// marker, is a path-absolute reference that resolves on the app's origin.
+// marker, is that target byte for byte, and a path-absolute reference that
+// resolves on the app's origin.
 func FuzzCallbackLocation(f *testing.F) {
-	for _, seed := range []string{"/%2Fevil.com/|", "/%2f</@", "/%2F%2Fevil.com x", "/a#x?y"} {
+	for _, seed := range []string{"/%2Fevil.com/|", "/%2f</@", "/%2F%2Fevil.com x", "/a#x?y", "/settings#/../../admin"} {
 		f.Add(seed)
 	}
 	app, err := url.Parse("https://app.example/")
@@ -39,8 +39,11 @@ func FuzzCallbackLocation(f *testing.F) {
 			withMarker(sealed, markerError, "x"),
 		} {
 			w := httptest.NewRecorder()
-			redirect(w, httptest.NewRequest(http.MethodGet, "https://app.example/api/auth/oidc/callback", nil), target)
+			redirect(w, target)
 			loc := w.Header().Get("Location")
+			if loc != target {
+				t.Fatalf("input %q: Location %q, want the target %q", s, loc, target)
+			}
 			n := browserNormalised(loc)
 			if !strings.HasPrefix(n, "/") || strings.HasPrefix(n, "//") {
 				t.Fatalf("input %q: Location %q is not one path-absolute reference", s, loc)

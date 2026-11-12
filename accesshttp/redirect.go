@@ -42,8 +42,10 @@ func withMarker(target, key, value string) string {
 	return path + "?" + strings.Join(pairs, "&") + fragment
 }
 
-// redirect sends the browser to location, which http.Redirect cleans
-// lexically before its first '?', keeping the origin.
-func redirect(w http.ResponseWriter, r *http.Request, location string) {
-	http.Redirect(w, r, location, http.StatusFound)
+// redirect sends the browser to location byte for byte. http.Redirect would
+// run path.Clean over everything before the first '?', a fragment included,
+// so "/settings#/../../admin" would land on "/admin", not the validated target.
+func redirect(w http.ResponseWriter, location string) {
+	w.Header().Set("Location", location)
+	w.WriteHeader(http.StatusFound)
 }

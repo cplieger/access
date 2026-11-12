@@ -88,7 +88,7 @@ Every derivation now draws on a `HashBudget` (`NewHashBudget`, `HashCost`, `ErrH
 | `PostureForceSecure` | `PostureSecure` |
 | `CookieConfig.Validate`, `ReadCookie` | `Validate` applies `http.Cookie.Valid` and refuses `SameSite=None`; a duplicated cookie reads as no session |
 | `CookieConfig.SetCookie` | drops a positive `maxAge` when `Persistent` answers false for the request |
-| `ValidateRedirectURI` | returns `/` for input over 2048 bytes |
+| `ValidateRedirectURI` | returns `/` for input over 2048 bytes or holding an ASCII control character, in the fragment too |
 | `IsBrowserRequest` | any `Authorization` header means a non-browser request |
 | `CanDisableMethod` | the `MethodAvailability` you pass is what remains after the removal, so a user with two passkeys can remove one |
 | `VerifyAPIKey` | a store that reports a match with no key returns `ErrInvalidAPIKey` |

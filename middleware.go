@@ -247,7 +247,8 @@ func HasRole(user *User, role Role) bool {
 const maxRedirectURILength = 2048
 
 // ValidateRedirectURI returns uri when it is a safe relative path of at most
-// 2048 bytes, and "/" otherwise.
+// 2048 bytes holding no ASCII control byte (0x00 to 0x1F, 0x7F) anywhere, its
+// fragment included, and "/" otherwise.
 func ValidateRedirectURI(uri string) string {
 	if uri == "/" || len(uri) > maxRedirectURILength {
 		return "/"
@@ -259,6 +260,10 @@ func ValidateRedirectURI(uri string) string {
 		return "/"
 	}
 	if strings.Contains(uri, "\\") {
+		return "/"
+	}
+	// url.Parse refuses control bytes only before the '#'.
+	if strings.ContainsFunc(uri, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
 		return "/"
 	}
 	u, err := url.Parse(uri)
