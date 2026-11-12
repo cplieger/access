@@ -496,9 +496,7 @@ func (p *IdP) RetireOldKeys() {
 	p.jwksAlgorithm("RetireOldKeys")
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if key, ok := p.signingKey(); ok {
-		p.keys = []idpKey{key}
-	}
+	p.keys = []idpKey{p.signingKey()}
 }
 
 // jwksAlgorithm returns the IdP's algorithm, failing the test as op when no
@@ -512,14 +510,15 @@ func (p *IdP) jwksAlgorithm(op string) string {
 	return alg
 }
 
-// signingKey is the newest key of the IdP's algorithm; p.mu is held.
-func (p *IdP) signingKey() (idpKey, bool) {
+// signingKey is the newest key of the IdP's algorithm, the zero key under
+// AlgNone or AlgHS256, which sign without one; p.mu is held.
+func (p *IdP) signingKey() idpKey {
 	for _, k := range slices.Backward(p.keys) {
 		if k.alg == p.cfg.algorithm {
-			return k, true
+			return k
 		}
 	}
-	return idpKey{}, false
+	return idpKey{}
 }
 
 // Authorizations returns a copy of the query of every /authorize request
@@ -919,7 +918,7 @@ type jwsHeader struct {
 func (p *IdP) sign(payload []byte) (string, error) {
 	hdr := jwsHeader{Alg: p.cfg.algorithm, Typ: "JWT"}
 	p.mu.Lock()
-	key, _ := p.signingKey()
+	key := p.signingKey()
 	p.mu.Unlock()
 	hdr.Kid = key.kid
 	hb, err := json.Marshal(hdr)
