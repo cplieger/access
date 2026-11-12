@@ -145,11 +145,11 @@
 //     UnreportedLocks returns exactly the records with Unreported set. The
 //     bound, which the store's prune and account's admission make together:
 //     at any time the store holds at most 2 × len(users) records of user
-//     names (one counted method, two trust contexts), plus 2 × 20,000
-//     records of other names, plus the records of users deleted since the
-//     last sweep, plus at most one trusted record per counted method for
-//     each user deleted within the device-cookie lifetime (180 days), whose
-//     old cookie can recreate it.
+//     names (one counted method, two trust contexts), plus
+//     2 × MaxUntrustedCounts (20,000) records of other names, plus the
+//     records of users deleted since the last sweep, plus at most one
+//     trusted record per counted method for each user deleted within the
+//     device-cookie lifetime (180 days), whose old cookie can recreate it.
 //  16. Reads never wait across a write's fsync or rename. A read sees the
 //     last committed state and never blocks on an in-progress Update or
 //     single-call write. bbolt's read transactions give this, except that a
