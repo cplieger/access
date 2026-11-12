@@ -199,6 +199,9 @@ func TestRecoveryCompletion(t *testing.T) {
 			if done := evs[0]; done.UserID != w.alice.ID || !slices.Equal(done.SessionIDs, ended) || done.KeyID != 0 || done.Actor.SessionID != w.rp.SessionID {
 				t.Errorf("EventRecoveryCompleted = %+v, want alice's with sessions %v and the recovery session as actor", done, ended)
 			}
+			if done := evs[0]; done.Method != c.method {
+				t.Errorf("EventRecoveryCompleted.Method = %q, want %q, the credential the completion installed", done.Method, c.method)
+			}
 			if got := []int64{evs[1].KeyID, evs[2].KeyID}; !slices.Equal(got, w.keys) {
 				t.Errorf("EventKeyRevoked keys = %v, want %v", got, w.keys)
 			}
@@ -472,6 +475,9 @@ func TestShellOnlyRepair(t *testing.T) {
 		}
 		if done := evs[0]; done.Actor.OutOfBand != "admin-socket" || done.UserID != w.alice.ID || !slices.Equal(done.SessionIDs, sessions) || done.KeyID != 0 {
 			t.Errorf("EventRecoveryCompleted = %+v, want alice's from admin-socket with sessions %v", done, sessions)
+		}
+		if done := evs[0]; done.Method != access.MethodPassword {
+			t.Errorf("EventRecoveryCompleted.Method = %q, want %q: the repair set a password", done.Method, access.MethodPassword)
 		}
 		if got := []int64{evs[1].KeyID, evs[2].KeyID}; !slices.Equal(got, keys) {
 			t.Errorf("EventKeyRevoked keys = %v, want %v", got, keys)

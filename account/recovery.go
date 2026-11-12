@@ -149,7 +149,7 @@ func (s *Service) RecoverWithPassword(ctx context.Context, p access.Principal, p
 	if err != nil {
 		return err
 	}
-	return s.completeRecovery(ctx, p, opts, func(tx Tx, u *access.User) error {
+	return s.completeRecovery(ctx, p, access.MethodPassword, opts, func(tx Tx, u *access.User) error {
 		u.PasswordHash, u.UpdatedAt = hash, s.now()
 		return tx.UpdateUser(ctx, u)
 	})
@@ -208,7 +208,7 @@ func (s *Service) RecoverPasskeyFinish(ctx context.Context, p access.Principal, 
 	if err != nil {
 		return err
 	}
-	return s.completeRecovery(ctx, p, opts, func(tx Tx, u *access.User) error {
+	return s.completeRecovery(ctx, p, access.MethodPasskey, opts, func(tx Tx, u *access.User) error {
 		_, addErr := s.addPasskey(ctx, tx, u.ID, cred, ErrDuplicateCredential)
 		return addErr
 	})
@@ -262,7 +262,7 @@ func (s *Service) RecoverOutOfBand(ctx context.Context, a Actor, userID int64, p
 		if repairErr := s.repairIn(ctx, tx, stored, "", opts, &rep); repairErr != nil {
 			return repairErr
 		}
-		s.addRecovered(j, userID, &rep, eventActor(a))
+		s.addRecovered(j, userID, access.MethodPassword, &rep, eventActor(a))
 		return nil
 	})
 }
@@ -287,16 +287,17 @@ type repaired struct {
 	refused  bool
 }
 
-// completeRecovery runs a session-based completion and its entries in one
-// change; a refused issuer commits the session's deletion alone.
-func (s *Service) completeRecovery(ctx context.Context, p access.Principal, opts RecoverOptions, write func(tx Tx, u *access.User) error) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
+// completeRecovery runs a session-based completion that installs a
+// credential of method, and its entries, in one change; a refused issuer
+// commits the session's deletion alone.
+func (s *Service) completeRecovery(ctx context.Context, p access.Principal, method access.Method, opts RecoverOptions, write func(tx Tx, u *access.User) error) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	var rep repaired
 	err := s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
 		rep = repaired{}
 		if err := s.completeIn(ctx, tx, p, opts, write, &rep); err != nil || rep.refused {
 			return err
 		}
-		s.addRecovered(j, p.User.ID, &rep, eventActor(As(p)))
+		s.addRecovered(j, p.User.ID, method, &rep, eventActor(As(p)))
 		return nil
 	})
 	switch {
@@ -383,10 +384,11 @@ func (s *Service) repairIn(ctx context.Context, tx Tx, u *access.User, recoveryI
 }
 
 // addRecovered adds a completion's entries: EventRecoveryCompleted with the
-// sessions it ended and the issuing key, one EventKeyRevoked per deleted
-// key, then addCleared's for the cleared locks.
-func (s *Service) addRecovered(j *journal, userID int64, rep *repaired, actor EventActor) {
-	completed := Event{Kind: EventRecoveryCompleted, At: s.now(), UserID: userID, SessionIDs: rep.sessions, Actor: actor}
+// method of the credential it installed, the sessions it ended and the
+// issuing key, one EventKeyRevoked per deleted key, then addCleared's for
+// the cleared locks.
+func (s *Service) addRecovered(j *journal, userID int64, method access.Method, rep *repaired, actor EventActor) {
+	completed := Event{Kind: EventRecoveryCompleted, At: s.now(), UserID: userID, Method: method, SessionIDs: rep.sessions, Actor: actor}
 	if rep.issuer != nil {
 		completed.KeyID = rep.issuer.ID
 	}

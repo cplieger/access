@@ -39,7 +39,7 @@ Each operation appends its entries in the order it reports its events to `OnEven
 | `setup_token_issued` | change | `IssueSetupToken` |
 | `recovery_issued` | change | `IssueRecovery` |
 | `recovery_consumed` | change | `StartRecovery`, which opens a recovery session and appends no `signed_in` |
-| `recovery_completed` | change | `RecoverWithPassword`, `RecoverPasskeyFinish` and `RecoverOutOfBand` |
+| `recovery_completed` | change | `RecoverWithPassword`, `RecoverPasskeyFinish` and `RecoverOutOfBand`. Its `Method` is the credential the recovery installed: `password` for `RecoverWithPassword` and `RecoverOutOfBand`, `passkey` for `RecoverPasskeyFinish` |
 | `method_locked` | change | the failure-record sweep reporting a lock, or `ReenableMethod` or a recovery that clears a lock the sweep has not reported yet, before that change's `method_reenabled` entries |
 | `method_reenabled` | change | `ReenableMethod` and a recovery, one per lock they clear, and a successful password sign-in, `StepUpPassword`, password change through `SetPassword` or `RemovePassword` that clears its own attempt's lock after the sweep reported it |
 | your app's kinds | change | `Service.AppendLog` ([App entries](#app-entries)) |

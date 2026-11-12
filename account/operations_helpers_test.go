@@ -567,10 +567,11 @@ func recentOperations() []operation {
 	}
 }
 
-// completed is a recovery completion's events for u, ended by p: the
-// sessions it ended, then one EventKeyRevoked per key.
-func completed(u *access.User, p access.Principal, sessions []string, keys []int64) []account.Event {
-	evs := []account.Event{{Kind: account.EventRecoveryCompleted, UserID: u.ID, SessionIDs: sessions, Actor: actorOf(p)}}
+// completed is a recovery completion's events for u, ended by p, that
+// installed a credential of method: the sessions it ended, then one
+// EventKeyRevoked per key.
+func completed(u *access.User, p access.Principal, method access.Method, sessions []string, keys []int64) []account.Event {
+	evs := []account.Event{{Kind: account.EventRecoveryCompleted, UserID: u.ID, Method: method, SessionIDs: sessions, Actor: actorOf(p)}}
 	for _, id := range keys {
 		evs = append(evs, account.Event{Kind: account.EventKeyRevoked, UserID: u.ID, KeyID: id, Actor: actorOf(p)})
 	}
@@ -586,7 +587,7 @@ func recoveryOperations() []operation {
 				run: func(ctx context.Context) error {
 					return w.svc.RecoverWithPassword(ctx, p, access.NewSecret(recoveredPassword), account.RecoverOptions{})
 				},
-				want: func() []account.Event { return completed(u, p, sessions, keys) },
+				want: func() []account.Event { return completed(u, p, access.MethodPassword, sessions, keys) },
 			}
 		}},
 		{name: "RecoverPasskeyBegin", class: classRecovery, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
@@ -603,7 +604,7 @@ func recoveryOperations() []operation {
 				run: func(ctx context.Context) error {
 					return w.svc.RecoverPasskeyFinish(ctx, p, pc.ID, bytes.NewReader(body), account.RecoverOptions{})
 				},
-				want: func() []account.Event { return completed(u, p, sessions, keys) },
+				want: func() []account.Event { return completed(u, p, access.MethodPasskey, sessions, keys) },
 			}
 		}},
 		{name: "RecoverOutOfBand", class: classOutOfBand, asks: []account.Operation{account.OpIssueRecovery}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
@@ -615,7 +616,7 @@ func recoveryOperations() []operation {
 					return w.svc.RecoverOutOfBand(ctx, a, w.alice.ID, access.NewSecret(recoveredPassword), account.RecoverOptions{})
 				},
 				want: func() []account.Event {
-					evs := completed(w.alice, access.Principal{}, sessions, keys)
+					evs := completed(w.alice, access.Principal{}, access.MethodPassword, sessions, keys)
 					for i := range evs {
 						evs[i].Actor = account.EventActor{OutOfBand: "socket"}
 					}

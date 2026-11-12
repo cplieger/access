@@ -101,7 +101,7 @@ func classOf(k EventKind) LogClass {
 type Event struct {
 	At     time.Time
 	Kind   EventKind
-	Method access.Method // sign-in, step-up, lock and re-enable
+	Method access.Method // sign-in, step-up, lock, re-enable, and the credential a recovery installed
 	// Role is the new role of an EventRoleChanged, the created user's of an
 	// EventUserCreated and the invite's of an EventInviteIssued.
 	Role       access.Role

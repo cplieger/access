@@ -51,6 +51,10 @@ var logVariants = map[string]variant{
 		}),
 		fails: []string{"rule_22_log/list_copies"},
 	},
+	"log-drops-method": {
+		make:  memVariant(func(m *MemStore) account.Store { return &dropMethodStore{m} }),
+		fails: []string{"rule_22_log/list_copies"},
+	},
 	"log-prune-ignores-class": {
 		make:  memVariant(func(m *MemStore) account.Store { return &pruneEveryClassStore{m} }),
 		fails: []string{"rule_22_log/prune_class"},
@@ -124,7 +128,7 @@ var logClauseVariants = map[string][]string{
 	"seq_rolled_back":         {"log-append-survives-rollback"},
 	"seq_re_run":              {"log-re-run-keeps-earlier-appends"},
 	"list_range":              {"log-list-includes-after", "log-list-always-descending"},
-	"list_copies":             {"log-aliases-session-ids"},
+	"list_copies":             {"log-aliases-session-ids", "log-drops-method"},
 	"prune_class":             {"log-prune-ignores-class"},
 	"prune_keep":              {"log-keep-removes-newest"},
 	"prune_before":            {"log-before-inclusive"},
@@ -330,6 +334,17 @@ func (s *aliasSessionIDsStore) ListLog(ctx context.Context, r account.LogRange) 
 		}
 	}
 	return out, err
+}
+
+// dropMethodStore stores each single-call entry without its Event.Method.
+type dropMethodStore struct{ *MemStore }
+
+func (s *dropMethodStore) AppendLog(ctx context.Context, e *account.LogEntry) error {
+	cp := cloneEntry(e)
+	cp.Event.Method = ""
+	err := s.MemStore.AppendLog(ctx, &cp)
+	e.Event.Seq = cp.Event.Seq
+	return err
 }
 
 // pruneEveryClassStore applies a prune to every class.
