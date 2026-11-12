@@ -1,7 +1,9 @@
 package oidc_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"path"
 	"reflect"
 	"slices"
 	"strings"
@@ -203,6 +206,7 @@ func TestFlow(t *testing.T) { //nolint:paralleltest // the outbound/hung_jwks ca
 	t.Run("cookie_name", flowCookieName)
 	t.Run("callback", flowCallback)
 	t.Run("discovery", flowDiscovery)
+	t.Run("key_rotation", flowKeyRotation)
 }
 
 func flowAccepted(t *testing.T) {
@@ -1206,5 +1210,175 @@ func TestProviderConfigDefaults(t *testing.T) {
 	cfg.HTTPClient = &http.Client{Timeout: -1}
 	if _, err := oidc.NewProvider(t.Context(), cfg); !errors.Is(err, oidc.ErrConfigInvalid) {
 		t.Errorf("a negative Timeout: NewProvider = %v, want ErrConfigInvalid", err)
+	}
+}
+
+// keyTransport counts the JWKS reads it carries and records the kid of the
+// ID token in each /token response. With hold set, it keeps the first /token
+// response, closing minted once the IdP has signed it, until release closes.
+type keyTransport struct {
+	next      http.RoundTripper
+	minted    chan struct{}
+	release   chan struct{}
+	kids      []string
+	jwksReads int
+	mu        sync.Mutex
+	hold      bool
+}
+
+func newKeyTransport(idp *accesstest.IdP, hold bool) *keyTransport {
+	return &keyTransport{next: idp.Client().Transport, hold: hold, minted: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (kt *keyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := kt.next.RoundTrip(r)
+	if err != nil {
+		return nil, err
+	}
+	switch path.Base(r.URL.Path) {
+	case "jwks":
+		kt.mu.Lock()
+		kt.jwksReads++
+		kt.mu.Unlock()
+	case "token":
+		body, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		resp.Body = io.NopCloser(bytes.NewReader(body))
+		kt.mu.Lock()
+		kt.kids = append(kt.kids, idTokenKid(body))
+		hold := kt.hold
+		kt.hold = false
+		kt.mu.Unlock()
+		if hold {
+			close(kt.minted)
+			select {
+			case <-kt.release:
+			case <-r.Context().Done():
+				return nil, r.Context().Err()
+			}
+		}
+	}
+	return resp, nil
+}
+
+func (kt *keyTransport) reads() int {
+	kt.mu.Lock()
+	defer kt.mu.Unlock()
+	return kt.jwksReads
+}
+
+func (kt *keyTransport) lastKid() string {
+	kt.mu.Lock()
+	defer kt.mu.Unlock()
+	if len(kt.kids) == 0 {
+		return ""
+	}
+	return kt.kids[len(kt.kids)-1]
+}
+
+// idTokenKid is the kid in the JWS header of a token response's id_token;
+// empty when the body holds none.
+func idTokenKid(body []byte) string {
+	var tok struct {
+		IDToken string `json:"id_token"`
+	}
+	if json.Unmarshal(body, &tok) != nil {
+		return ""
+	}
+	header, _, _ := strings.Cut(tok.IDToken, ".")
+	raw, err := base64.RawURLEncoding.DecodeString(header)
+	if err != nil {
+		return ""
+	}
+	var h struct {
+		Kid string `json:"kid"`
+	}
+	if json.Unmarshal(raw, &h) != nil {
+		return ""
+	}
+	return h.Kid
+}
+
+// flowKeyRotation: an IdP rotating its signing key (OpenID Connect Core 1.0
+// section 10.1.1). A token under a kid the provider has not seen re-reads
+// the JWKS once, and a token under a kid the IdP retired before the
+// provider first read its JWKS is refused.
+func flowKeyRotation(t *testing.T) {
+	for _, alg := range []string{accesstest.AlgRS256, accesstest.AlgES256} {
+		t.Run(alg, func(t *testing.T) {
+			t.Parallel()
+			idp := accesstest.NewIdP(t, accesstest.IdPOptions{Algorithm: alg})
+			provider := func(kt *keyTransport) *oidc.Provider {
+				cfg := configFor(idp)
+				cfg.HTTPClient = &http.Client{Transport: kt}
+				return mustProvider(t, cfg)
+			}
+			rpKeys, lateKeys := newKeyTransport(idp, false), newKeyTransport(idp, true)
+			rp, late := provider(rpKeys), provider(lateKeys)
+			t.Cleanup(func() {
+				select {
+				case <-lateKeys.release:
+				default:
+					close(lateKeys.release)
+				}
+			})
+
+			lateBrowser := newBrowser(t)
+			authURL, _, err := lateBrowser.begin(late, signIn, nil)
+			if err != nil {
+				t.Fatalf("Begin: %v", err)
+			}
+			cb, loc := lateBrowser.authorize(idp, authURL)
+			lateDone := make(chan finished, 1)
+			go func() { lateDone <- lateBrowser.finish(late, cb, loc.String()) }()
+			select {
+			case <-lateKeys.minted:
+			case <-time.After(10 * time.Second):
+				t.Fatal("the held sign-in's token was not minted within 10 s")
+			}
+
+			if f := newBrowser(t).run(idp, rp, signIn); f.err != nil {
+				t.Fatalf("sign-in before RotateKey: Finish = %v", f.err)
+			}
+			firstKid := rpKeys.lastKid()
+			if n := rpKeys.reads(); n != 1 {
+				t.Errorf("JWKS reads after the first sign-in = %d, want 1", n)
+			}
+
+			idp.RotateKey()
+			if f := newBrowser(t).run(idp, rp, signIn); f.err != nil {
+				t.Fatalf("sign-in after RotateKey: Finish = %v, want the new key found by re-reading the JWKS", f.err)
+			}
+			rotatedKid := rpKeys.lastKid()
+			if rotatedKid == firstKid || rotatedKid == "" {
+				t.Fatalf("token kid after RotateKey = %q, want one other than %q", rotatedKid, firstKid)
+			}
+			if n := rpKeys.reads(); n != 2 {
+				t.Errorf("JWKS reads after the rotated sign-in = %d, want 2: one re-read for the new kid", n)
+			}
+
+			idp.RetireOldKeys()
+			if f := newBrowser(t).run(idp, rp, signIn); f.err != nil {
+				t.Errorf("sign-in after RetireOldKeys: Finish = %v, want nil", f.err)
+			}
+			if n := rpKeys.reads(); n != 2 {
+				t.Errorf("JWKS reads after a sign-in under a known kid = %d, want still 2", n)
+			}
+
+			close(lateKeys.release)
+			f := <-lateDone
+			if got := lateKeys.lastKid(); got != firstKid {
+				t.Fatalf("the held token's kid = %q, want the first key's %q", got, firstKid)
+			}
+			if !errors.Is(f.err, oidc.ErrTokenInvalid) {
+				t.Errorf("a token under the retired kid: Finish = %v, want ErrTokenInvalid", f.err)
+			}
+			if !reflect.DeepEqual(f.claims, oidc.Claims{}) {
+				t.Errorf("Claims = %+v on a refusal, want zero", f.claims)
+			}
+		})
 	}
 }

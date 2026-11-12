@@ -175,13 +175,13 @@ type IdPOptions struct {
 // one user, signed in at NewIdP. /authorize approves each valid request at
 // once, honours prompt and max_age (OpenID Connect Core 1.0 section 3.1.2.1),
 // takes PKCE as S256 only (RFC 7636), and answers a bad client_id or
-// redirect_uri with 400, not a redirect. Every IdP of a test binary signs with
-// the same keys, so a token one issues verifies against another's JWKS.
+// redirect_uri with 400, not a redirect. IdPs share their keys until a
+// RotateKey, so a token one issues verifies against another's JWKS.
 //
 //nolint:revive // IdP is the usual spelling of identity provider, as in OpenID Connect Core 1.0 section 1.2.
 type IdP struct {
+	t      testing.TB
 	srv    *httptest.Server
-	keys   *idpKeys
 	done   chan struct{}
 	cfg    *idpConfig
 	codes  map[string]idpGrant
@@ -190,7 +190,11 @@ type IdP struct {
 	issuer string
 	addr   netip.AddrPort
 	auth   []url.Values
-	mu     sync.Mutex
+	// keys is the JWKS in order of creation; the IdP signs with the newest
+	// key of its algorithm.
+	keys     []idpKey
+	rotation int
+	mu       sync.Mutex
 }
 
 // idpConfig is IdPOptions frozen by NewIdP. Handlers read it without the
@@ -224,24 +228,38 @@ type idpGrant struct {
 	challenge   string
 }
 
-type idpKeys struct {
+// idpKey is one JWKS key: rsa for AlgRS256, ec for AlgES256.
+type idpKey struct {
 	rsa *rsa.PrivateKey
 	ec  *ecdsa.PrivateKey
+	kid string
+	alg string
 }
 
 // Key generation dominates an IdP's start-up, RSA under -race especially,
-// so every IdP of a test binary shares one key pair.
-var sharedSigningKeys = sync.OnceValues(func() (*idpKeys, error) {
-	rk, err := rsa.GenerateKey(rand.Reader, 2048)
+// so every IdP of a test binary starts with one shared key per algorithm.
+var sharedSigningKeys = sync.OnceValues(func() ([]idpKey, error) {
+	rk, err := newSigningKey(AlgRS256, idpKeyIDRS256)
 	if err != nil {
 		return nil, err
 	}
-	ek, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	ek, err := newSigningKey(AlgES256, idpKeyIDES256)
 	if err != nil {
 		return nil, err
 	}
-	return &idpKeys{rsa: rk, ec: ek}, nil
+	return []idpKey{rk, ek}, nil
 })
+
+func newSigningKey(alg, kid string) (idpKey, error) {
+	k := idpKey{kid: kid, alg: alg}
+	var err error
+	if alg == AlgRS256 {
+		k.rsa, err = rsa.GenerateKey(rand.Reader, 2048)
+	} else {
+		k.ec, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	}
+	return k, err
+}
 
 // NewIdP starts an IdP for the test and closes it at the test's cleanup. It
 // fails the test on an unknown IdPOptions.Algorithm, a URL outside its
@@ -258,7 +276,7 @@ func NewIdP(t testing.TB, opts IdPOptions) *IdP {
 	if err != nil {
 		t.Fatalf("accesstest: IdP keys: %v", err)
 	}
-	p := &IdP{cfg: cfg, keys: keys, done: make(chan struct{}), codes: map[string]idpGrant{}, login: cfg.now()}
+	p := &IdP{t: t, cfg: cfg, keys: slices.Clone(keys), done: make(chan struct{}), codes: map[string]idpGrant{}, login: cfg.now()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/openid-configuration", p.endpoint(cfg.discovery, p.discovery))
 	mux.HandleFunc("GET /jwks", p.endpoint(cfg.jwks, p.jwks))
@@ -452,6 +470,58 @@ func (p *IdP) RootCAs() *x509.CertPool {
 	return roots
 }
 
+// RotateKey adds a signing key for IdPOptions.Algorithm under a new kid and
+// signs every later ID token with it. The JWKS serves it beside the keys
+// before it until RetireOldKeys. Under AlgNone or AlgHS256, which sign with
+// no JWKS key, it fails the test.
+func (p *IdP) RotateKey() {
+	p.t.Helper()
+	alg := p.jwksAlgorithm("RotateKey")
+	key, err := newSigningKey(alg, "")
+	if err != nil {
+		p.t.Fatalf("accesstest: RotateKey: %v", err)
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.rotation++
+	key.kid = fmt.Sprintf("accesstest-%s-%d", strings.ToLower(alg), p.rotation+1)
+	p.keys = append(p.keys, key)
+}
+
+// RetireOldKeys removes from the JWKS every key but the one the IdP signs
+// with, so a relying party that reads the JWKS afterwards refuses a token
+// under any other kid. Under AlgNone or AlgHS256 it fails the test.
+func (p *IdP) RetireOldKeys() {
+	p.t.Helper()
+	p.jwksAlgorithm("RetireOldKeys")
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if key, ok := p.signingKey(); ok {
+		p.keys = []idpKey{key}
+	}
+}
+
+// jwksAlgorithm returns the IdP's algorithm, failing the test as op when no
+// JWKS key signs it.
+func (p *IdP) jwksAlgorithm(op string) string {
+	p.t.Helper()
+	alg := p.cfg.algorithm
+	if alg != AlgRS256 && alg != AlgES256 {
+		p.t.Fatalf("accesstest: %s: algorithm %s signs with no JWKS key", op, alg)
+	}
+	return alg
+}
+
+// signingKey is the newest key of the IdP's algorithm; p.mu is held.
+func (p *IdP) signingKey() (idpKey, bool) {
+	for _, k := range slices.Backward(p.keys) {
+		if k.alg == p.cfg.algorithm {
+			return k, true
+		}
+	}
+	return idpKey{}, false
+}
+
 // Authorizations returns a copy of the query of every /authorize request
 // received so far, refused ones included, in arrival order.
 func (p *IdP) Authorizations() []url.Values {
@@ -552,17 +622,24 @@ func (p *IdP) discovery(*http.Request) (status int, body any) {
 }
 
 func (p *IdP) jwks(*http.Request) (status int, body any) {
-	ecPub, err := p.keys.ec.PublicKey.Bytes()
-	if err != nil {
-		return http.StatusInternalServerError, map[string]string{"error": err.Error()}
+	p.mu.Lock()
+	keys := slices.Clone(p.keys)
+	p.mu.Unlock()
+	out := make([]map[string]string, 0, len(keys))
+	for _, k := range keys {
+		switch {
+		case k.rsa != nil:
+			out = append(out, map[string]string{"kty": "RSA", "use": "sig", "alg": k.alg, "kid": k.kid, "n": b64(k.rsa.N.Bytes()), "e": b64(big.NewInt(int64(k.rsa.E)).Bytes())})
+		case k.ec != nil:
+			pub, err := k.ec.PublicKey.Bytes()
+			if err != nil {
+				return http.StatusInternalServerError, map[string]string{"error": err.Error()}
+			}
+			// Bytes is the uncompressed point 0x04 || X || Y (SEC 1, section 2.3.3).
+			out = append(out, map[string]string{"kty": "EC", "use": "sig", "alg": k.alg, "kid": k.kid, "crv": "P-256", "x": b64(pub[1:33]), "y": b64(pub[33:65])})
+		}
 	}
-	// Bytes is the uncompressed point 0x04 || X || Y (SEC 1, section 2.3.3).
-	x, y := ecPub[1:33], ecPub[33:65]
-	rsaPub := p.keys.rsa.PublicKey
-	return http.StatusOK, map[string]any{"keys": []map[string]string{
-		{"kty": "RSA", "use": "sig", "alg": AlgRS256, "kid": idpKeyIDRS256, "n": b64(rsaPub.N.Bytes()), "e": b64(big.NewInt(int64(rsaPub.E)).Bytes())},
-		{"kty": "EC", "use": "sig", "alg": AlgES256, "kid": idpKeyIDES256, "crv": "P-256", "x": b64(x), "y": b64(y)},
-	}}
+	return http.StatusOK, map[string]any{"keys": out}
 }
 
 func b64(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
@@ -841,18 +918,16 @@ type jwsHeader struct {
 
 func (p *IdP) sign(payload []byte) (string, error) {
 	hdr := jwsHeader{Alg: p.cfg.algorithm, Typ: "JWT"}
-	switch hdr.Alg {
-	case AlgRS256:
-		hdr.Kid = idpKeyIDRS256
-	case AlgES256:
-		hdr.Kid = idpKeyIDES256
-	}
+	p.mu.Lock()
+	key, _ := p.signingKey()
+	p.mu.Unlock()
+	hdr.Kid = key.kid
 	hb, err := json.Marshal(hdr)
 	if err != nil {
 		return "", err
 	}
 	input := b64(hb) + "." + b64(payload)
-	sig, err := p.signature(hdr.Alg, []byte(input))
+	sig, err := p.signature(hdr.Alg, &key, []byte(input))
 	if err != nil {
 		return "", err
 	}
@@ -861,13 +936,13 @@ func (p *IdP) sign(payload []byte) (string, error) {
 
 // signature signs a JWS signing input per RFC 7518 section 3; ES256 is the
 // fixed-width R || S, not ASN.1.
-func (p *IdP) signature(alg string, input []byte) ([]byte, error) {
+func (p *IdP) signature(alg string, key *idpKey, input []byte) ([]byte, error) {
 	digest := sha256.Sum256(input)
 	switch alg {
 	case AlgRS256:
-		return rsa.SignPKCS1v15(rand.Reader, p.keys.rsa, crypto.SHA256, digest[:])
+		return rsa.SignPKCS1v15(rand.Reader, key.rsa, crypto.SHA256, digest[:])
 	case AlgES256:
-		r, s, err := ecdsa.Sign(rand.Reader, p.keys.ec, digest[:])
+		r, s, err := ecdsa.Sign(rand.Reader, key.ec, digest[:])
 		if err != nil {
 			return nil, err
 		}
