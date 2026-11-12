@@ -126,13 +126,13 @@ func withMember(obj, name string, value []byte) []byte {
 	return append(out, obj[1:]...)
 }
 
-// FuzzAuthhttpJSON is §9.3's property over every route decodeJSON reads:
+// FuzzAccesshttpJSON is §9.3's property over every route decodeJSON reads:
 // any body either reaches the route's operation or is refused with 400
 // auth_bad_request, a body past 4 KiB is refused with 413
 // auth_body_too_large, and the route's own fixture with an unknown member
 // or trailing data is refused with 400, each before the operation runs and
 // never with a 5xx.
-func FuzzAuthhttpJSON(f *testing.F) {
+func FuzzAccesshttpJSON(f *testing.F) {
 	z := newJSONFuzz(f)
 	for i, rt := range z.routes {
 		f.Add(uint8(i), "Password", []byte(z.fixtures[rt.Name]))

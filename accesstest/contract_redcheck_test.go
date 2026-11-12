@@ -19,7 +19,7 @@ import (
 )
 
 // variantEnv names the broken store TestRedCheckVariant runs the contract on.
-const variantEnv = "AUTHTEST_STORE_CONTRACT_VARIANT"
+const variantEnv = "ACCESSTEST_STORE_CONTRACT_VARIANT"
 
 // variant is one broken store and the contract subtests it must fail.
 type variant struct {
