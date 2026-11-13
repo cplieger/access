@@ -27,8 +27,8 @@ import (
 const goodPassword = "correct-horse-battery-7"
 
 var localClient = account.Client{
-	IP:        netip.MustParseAddr("192.168.1.20"),
 	Peer:      netip.MustParseAddr("192.168.1.20"),
+	Via:       access.ViaDirect,
 	Host:      "nas.lan:8374",
 	UserAgent: "test-agent",
 }
@@ -154,7 +154,7 @@ func TestSetupOrderNoHashBeforeChecks(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ratelimit.New: %v", err)
 			}
-			res, err := l.Attempt(ratelimit.Attempt{IP: ratelimit.IPKey(localClient.IP)})
+			res, err := l.Attempt(ratelimit.Attempt{IP: ratelimit.IPKey(localClient.IP())})
 			if err != nil {
 				t.Fatalf("Attempt: %v", err)
 			}
@@ -215,17 +215,17 @@ func TestSetupProvenance(t *testing.T) {
 		mu.Lock()
 		seen = append(seen, c)
 		mu.Unlock()
-		return c.UntrustedForwarding || !c.IP.IsPrivate()
+		return c.Via == access.ViaUntrustedForwarding || !c.IP().IsPrivate()
 	}
 	f := newFixture(t, options{rules: rulesWith(func(r *account.Rules) { r.SetupTokenRequired = predicate }), edit: withBusyHasher(t)})
 	in := account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)}
 	forwarded := localClient
-	forwarded.UntrustedForwarding = true
+	forwarded.Via = access.ViaUntrustedForwarding
 	if _, err := f.svc.SetupWithPassword(t.Context(), forwarded, in); !errors.Is(err, account.ErrSetupTokenRequired) {
 		t.Errorf("setup from a private peer with an ignored forwarding header = %v, want ErrSetupTokenRequired with no hash", err)
 	}
 	public := localClient
-	public.IP = netip.MustParseAddr("203.0.113.9")
+	public.Peer = netip.MustParseAddr("203.0.113.9")
 	if _, err := f.svc.SetupWithPassword(t.Context(), public, in); !errors.Is(err, account.ErrSetupTokenRequired) {
 		t.Errorf("setup from a public IP = %v, want ErrSetupTokenRequired", err)
 	}
@@ -267,7 +267,7 @@ func TestConcurrentSetups(t *testing.T) {
 		for i := range n {
 			wg.Go(func() {
 				c := localClient
-				c.IP = netip.AddrFrom4([4]byte{192, 168, 2, byte(i + 1)})
+				c.Peer = netip.AddrFrom4([4]byte{192, 168, 2, byte(i + 1)})
 				if _, err := f.svc.SetupWithPassword(t.Context(), c, in(i)); err == nil {
 					won.Add(1)
 				} else {
@@ -510,7 +510,7 @@ func TestUsernameRuleEveryCreationPath(t *testing.T) {
 					if err != nil {
 						t.Fatalf("ratelimit.New: %v", err)
 					}
-					res, _ := l.Attempt(ratelimit.Attempt{IP: ratelimit.IPKey(localClient.IP)})
+					res, _ := l.Attempt(ratelimit.Attempt{IP: ratelimit.IPKey(localClient.IP())})
 					res.Fail()
 					c.Limiter = l
 				}})
@@ -858,7 +858,7 @@ func TestSessionMint(t *testing.T) {
 		t.Errorf("session = %+v, want LastIP 192.168.1.20, the user, a full session and no caps", s)
 	}
 	none := c
-	none.IP = netip.Addr{}
+	none.Peer = netip.Addr{}
 	if s, _ := account.MintSession(t.Context(), f.svc, none, u.ID); s.LastIP != "" {
 		t.Errorf("LastIP with no resolved IP = %q, want empty", s.LastIP)
 	}
@@ -913,14 +913,25 @@ func TestSessionCapsAtCreation(t *testing.T) {
 
 func TestSetupLocality(t *testing.T) {
 	t.Parallel()
-	loopback := access.ClientAddr{IP: netip.MustParseAddr("127.0.0.1"), Peer: netip.MustParseAddr("127.0.0.1")}
-	loopback6 := access.ClientAddr{IP: netip.MustParseAddr("::1"), Peer: netip.MustParseAddr("::1")}
-	private := access.ClientAddr{IP: netip.MustParseAddr("192.168.1.5"), Peer: netip.MustParseAddr("192.168.1.5")}
+	loopback := access.ClientAddr{Peer: netip.MustParseAddr("127.0.0.1"), Via: access.ViaDirect}
+	loopback6 := access.ClientAddr{Peer: netip.MustParseAddr("::1"), Via: access.ViaDirect}
+	private := access.ClientAddr{Peer: netip.MustParseAddr("192.168.1.5"), Via: access.ViaDirect}
 	forwarded := loopback
-	forwarded.UntrustedForwarding = true
-	loopbackOnly := func(c access.ClientAddr) bool { return c.IP.IsLoopback() && !c.UntrustedForwarding }
+	forwarded.Via = access.ViaUntrustedForwarding
+	proxyNoClient := access.ClientAddr{Peer: loopback.Peer, Via: access.ViaProxyNoClient}
+	unknown := access.ClientAddr{Peer: loopback.Peer, Via: access.ViaUnknown}
+	socket := access.ClientAddr{Via: access.ViaDirect}
+	proxied := access.ClientAddr{Peer: netip.MustParseAddr("10.0.0.1"), Forwarded: loopback.Peer, Via: access.ViaProxy}
+	everyone := func(access.ClientAddr) bool { return true }
+	// unconsulted answers true like everyone, and fails the test if called:
+	// an unknown client is refused before Local runs.
+	unconsulted := func(c access.ClientAddr) bool {
+		t.Errorf("Local consulted for %+v, want the unknown client refused first", c)
+		return true
+	}
+	loopbackOnly := func(c access.ClientAddr) bool { return c.Via == access.ViaDirect && c.IP().IsLoopback() }
 	privateToo := func(c access.ClientAddr) bool {
-		return (c.IP.IsLoopback() || c.IP.IsPrivate()) && !c.UntrustedForwarding
+		return c.Via == access.ViaDirect && (c.IP().IsLoopback() || c.IP().IsPrivate())
 	}
 	cases := []struct {
 		l    account.SetupLocality
@@ -946,7 +957,6 @@ func TestSetupLocality(t *testing.T) {
 		{l: account.SetupLocality{Local: loopbackOnly}, addr: loopback6, host: "::1]", want: true},
 		{l: account.SetupLocality{Local: loopbackOnly}, addr: private, host: "localhost", want: true},
 		{l: account.SetupLocality{Local: loopbackOnly}, addr: private, host: "192.168.1.5:8374", want: true},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: forwarded, host: "localhost", want: true},
 		{l: account.SetupLocality{Local: loopbackOnly, Hosts: []string{"nas.lan"}}, addr: loopback, host: "NAS.LAN.:8374"},
 		{l: account.SetupLocality{Local: loopbackOnly, Hosts: []string{"NAS.lan."}}, addr: loopback, host: "nas.lan"},
 		{l: account.SetupLocality{Local: loopbackOnly, Hosts: []string{"az.lan"}}, addr: loopback, host: "AZ.lan"},
@@ -954,12 +964,17 @@ func TestSetupLocality(t *testing.T) {
 		{l: account.SetupLocality{Local: loopbackOnly, Hosts: []string{""}}, addr: loopback, host: ".", want: true},
 		{l: account.SetupLocality{Local: privateToo}, addr: private, host: "192.168.1.5:8374"},
 		{l: account.SetupLocality{Local: privateToo}, addr: private, host: "evil.example", want: true},
+		{l: account.SetupLocality{Local: unconsulted}, addr: proxyNoClient, host: "localhost", want: true},
+		{l: account.SetupLocality{Local: unconsulted}, addr: forwarded, host: "localhost", want: true},
+		{l: account.SetupLocality{Local: unconsulted}, addr: unknown, host: "localhost", want: true},
+		{l: account.SetupLocality{Local: unconsulted}, addr: socket, host: "localhost", want: true},
+		{l: account.SetupLocality{Local: everyone}, addr: proxied, host: "localhost"},
 	}
 	for _, tc := range cases {
 		c := account.Client{ClientAddr: tc.addr, Host: tc.host}
 		if got := tc.l.TokenRequired(t.Context(), c); got != tc.want {
-			t.Errorf("TokenRequired(local=%t hosts=%q, ip=%s untrusted=%t, Host %q) = %t, want %t",
-				tc.l.Local != nil, tc.l.Hosts, tc.addr.IP, tc.addr.UntrustedForwarding, tc.host, got, tc.want)
+			t.Errorf("TokenRequired(local=%t hosts=%q, ip=%s via=%s, Host %q) = %t, want %t",
+				tc.l.Local != nil, tc.l.Hosts, tc.addr.IP(), tc.addr.Via, tc.host, got, tc.want)
 		}
 	}
 	t.Run("as_setup_rule", func(t *testing.T) {
@@ -979,7 +994,7 @@ func TestSetupLocality(t *testing.T) {
 
 func TestSetupNilAlwaysAsks(t *testing.T) {
 	t.Parallel()
-	loopback := account.Client{IP: netip.MustParseAddr("127.0.0.1"), Peer: netip.MustParseAddr("127.0.0.1"), Host: "localhost"}
+	loopback := account.Client{Peer: netip.MustParseAddr("127.0.0.1"), Via: access.ViaDirect, Host: "localhost"}
 	f := newFixture(t, options{edit: withBusyHasher(t)})
 	in := account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)}
 	if _, err := f.svc.SetupWithPassword(t.Context(), loopback, in); !errors.Is(err, account.ErrSetupTokenRequired) {

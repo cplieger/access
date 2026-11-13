@@ -708,9 +708,9 @@ func TestAuthenticateSetsPrincipalIP(t *testing.T) {
 	behindProxy := func(r *http.Request) ClientAddr {
 		peer := netip.MustParseAddrPort(r.RemoteAddr).Addr()
 		if peer == proxy {
-			return ClientAddr{IP: netip.MustParseAddr(r.Header.Get("X-Forwarded-For")), Peer: peer, Proxied: true}
+			return ClientAddr{Peer: peer, Forwarded: netip.MustParseAddr(r.Header.Get("X-Forwarded-For")), Via: ViaProxy}
 		}
-		return ClientAddr{IP: peer, Peer: peer}
+		return ClientAddr{Peer: peer, Via: ViaDirect}
 	}
 	f := newChainFixture(t)
 	custom := Principal{User: &User{Username: "agent", Enabled: true}, Method: "agent_key"}
@@ -742,8 +742,8 @@ func TestAuthenticateSetsPrincipalIP(t *testing.T) {
 			a := mustAuthenticator(t, f.store, tc.cfg)
 			r := tc.req()
 			p := mustAuthenticate(t, a, r)
-			if want := a.ClientAddr(r).IP; p.IP != want || p.IP != tc.want {
-				t.Errorf("Principal.IP = %v, want ClientAddr(r).IP %v (%v)", p.IP, want, tc.want)
+			if want := a.ClientAddr(r).IP(); p.IP != want || p.IP != tc.want {
+				t.Errorf("Principal.IP = %v, want ClientAddr(r).IP() %v (%v)", p.IP, want, tc.want)
 			}
 		})
 	}

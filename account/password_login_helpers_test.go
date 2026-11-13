@@ -184,7 +184,7 @@ func passwordUser(t testing.TB, s account.Store, h *access.Hasher, name, pw stri
 // clientAt is an untrusted client from the i-th /64 of 2001:db8::/32.
 func clientAt(i int) account.Client {
 	ip := netip.MustParseAddr(fmt.Sprintf("2001:db8:%x:%x::1", i>>16, i&0xffff))
-	return account.Client{IP: ip, Peer: ip, UserAgent: "test-agent"}
+	return account.Client{Peer: ip, Via: access.ViaDirect, UserAgent: "test-agent"}
 }
 
 func (p *pwFixture) login(ctx context.Context, c account.Client, name, pw string) (account.SignedIn, error) {

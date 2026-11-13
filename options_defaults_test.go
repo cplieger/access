@@ -49,7 +49,7 @@ func TestConfigZeroValueDefaults(t *testing.T) {
 		r.RemoteAddr = "10.0.0.5:4711"
 		r.Header.Set("X-Forwarded-For", "203.0.113.9")
 		peer := netip.MustParseAddr("10.0.0.5")
-		if got, want := a.ClientAddr(r), (ClientAddr{IP: peer, Peer: peer, UntrustedForwarding: true}); got != want {
+		if got, want := a.ClientAddr(r), (ClientAddr{Peer: peer, Via: ViaUntrustedForwarding}); got != want {
 			t.Errorf("ClientAddr = %+v, want %+v", got, want)
 		}
 	})

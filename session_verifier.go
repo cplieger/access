@@ -39,7 +39,7 @@ func (v *sessionVerifier) Verify(ctx context.Context, r *http.Request) (Principa
 		return Principal{}, false, err
 	}
 	if !IsPassive(ctx) && v.activityDue(sess, ts, now) {
-		act := SessionActivity{At: now, IP: activityIP(v.cfg.ClientAddr(r).IP)}
+		act := SessionActivity{At: now, IP: activityIP(v.cfg.ClientAddr(r).IP())}
 		if err := v.store.UpdateSessionActivity(ctx, hash, act); err != nil {
 			v.warn.log(v.cfg.log(), "access: session activity update failed", "session_id", sess.ID, "error", err)
 		} else {

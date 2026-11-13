@@ -36,7 +36,7 @@ func admitFixture(t *testing.T, provider *oidc.Provider) (*fixture, *ratelimit.L
 // that charged it leaves this one refused.
 func requireUncharged(t *testing.T, l *ratelimit.Limiter, c account.Client) {
 	t.Helper()
-	if err := l.Request(ratelimit.IPKey(c.IP)); err != nil {
+	if err := l.Request(ratelimit.IPKey(c.IP())); err != nil {
 		t.Errorf("Limiter.Request after the refusal = %v, want admitted: the refusal charged the IP", err)
 	}
 }
@@ -86,7 +86,7 @@ func TestAdmitOIDC(t *testing.T) {
 		if err != nil || p != rig.provider {
 			t.Fatalf("AdmitOIDC = %p, %v, want the configured provider %p", p, err, rig.provider)
 		}
-		if err := limiter.Request(ratelimit.IPKey(localClient.IP)); !errors.Is(err, ratelimit.ErrRefused) {
+		if err := limiter.Request(ratelimit.IPKey(localClient.IP())); !errors.Is(err, ratelimit.ErrRefused) {
 			t.Errorf("Limiter.Request after an admission = %v, want refused: AdmitOIDC charged nothing", err)
 		}
 	})

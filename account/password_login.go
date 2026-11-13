@@ -43,7 +43,7 @@ func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (
 				return nameErr
 			},
 			limit: func() (*ratelimit.Reservation, error) {
-				return s.limiter.Attempt(ratelimit.Attempt{IP: ratelimit.IPKey(c.IP), Account: ratelimit.AccountKey(canonical), Device: c.Device})
+				return s.limiter.Attempt(ratelimit.Attempt{IP: ratelimit.IPKey(c.IP()), Account: ratelimit.AccountKey(canonical), Device: c.Device})
 			},
 		},
 		prepare: func(res *ratelimit.Reservation) error {

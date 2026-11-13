@@ -183,7 +183,7 @@ func TestStepUpLimitsAccountAndDevice(t *testing.T) {
 		u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
 		pr, _ := p.signedInVia(t, u, access.MethodPasskey)
 		p.failStepUps(t, localClient, pr, 3)
-		ipOnly := ratelimit.Attempt{IP: ratelimit.IPKey(localClient.IP)}
+		ipOnly := ratelimit.Attempt{IP: ratelimit.IPKey(localClient.IP())}
 		res, err := p.limiter.Attempt(ipOnly)
 		if err != nil {
 			t.Fatalf("IP-only attempt after three wrong step-ups = %v, want admitted: a step-up charged the IP", err)

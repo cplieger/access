@@ -513,10 +513,10 @@ func TestLogIP(t *testing.T) {
 			var want netip.Addr
 			switch {
 			case slices.Contains(clientOperations, op.name):
-				want = localClient.IP
+				want = localClient.IP()
 			case op.class == classPublic || op.class == classOutOfBand:
 			default:
-				if !p.IP.IsValid() || p.IP == localClient.IP {
+				if !p.IP.IsValid() || p.IP == localClient.IP() {
 					t.Fatalf("the actor's Principal.IP = %v, want the request's own address", p.IP)
 				}
 				want = p.IP

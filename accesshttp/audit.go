@@ -32,8 +32,8 @@ func (h *Handler) emit(c *call, e AuditEvent) { //nolint:gocritic // hugeParam: 
 		return
 	}
 	e.Kind = c.spec.audit + "." + e.Kind
-	if c.client.IP.IsValid() {
-		e.IP = c.client.IP.String()
+	if ip := c.client.IP(); ip.IsValid() {
+		e.IP = ip.String()
 	}
 	h.audit(c.r, e)
 }
