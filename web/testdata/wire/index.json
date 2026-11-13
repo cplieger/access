@@ -19,6 +19,7 @@
   "RecoverPasswordRequest",
   "RecoveryResponse",
   "RedirectRequest",
+  "SecurityLogView",
   "SessionView",
   "SetupPasskeyBeginRequest",
   "SetupPasswordRequest",

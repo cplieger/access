@@ -49,6 +49,7 @@ var accountSentinels = []struct {
 	{name: "redirect_too_long", err: oidc.ErrRedirectTooLong, code: CodeBadRequest},
 	{name: "current_password_required", err: account.ErrCurrentPasswordRequired, code: CodeBadRequest},
 	{name: "text", err: &account.TextError{Field: account.TextFieldLabel, Reason: account.ReasonTooLong}, code: CodeBadRequest},
+	{name: "log_filter", err: &account.LogFilterError{Reason: account.ReasonLogKind}, code: CodeBadRequest},
 	{name: "username_invalid", err: &account.UsernameError{Reason: account.ReasonTooLong}, code: CodeUsernameInvalid},
 	{name: "username_taken", err: account.ErrUsernameTaken, code: CodeUsernameTaken},
 	{name: "password_rejected", err: &access.PasswordError{Reason: access.PasswordCommon}, code: CodePasswordRejected},

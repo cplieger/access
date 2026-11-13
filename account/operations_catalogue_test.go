@@ -22,6 +22,7 @@ var notOperations = map[string]string{
 	"RequireKeyPermission": "principal guard for accesshttp's key_permission class; reads no store",
 	"RequireRecentAuth":    "principal guard for accesshttp's recent_auth class; reads no store",
 	"Shutdown":             "lifecycle: the call every operation's ErrServiceClosed answers to",
+	"AppendLog":            "appends through the caller's Tx inside the app's own transaction, asks no Policy and reads no Rules (TestAppendLog)",
 	"UsableMethods":        "reads through the caller's Tx inside the app's own transaction, whose store errors are the app's (TestUsableMethodsRefusals)",
 }
 

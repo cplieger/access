@@ -66,6 +66,16 @@ func lockPassword(t testing.TB, s account.Store, svc *account.Service, u *access
 	}
 }
 
+// countPassword stores one counted, unlocked password failure of u in the
+// trusted or untrusted context.
+func countPassword(t testing.TB, s account.Store, svc *account.Service, u *access.User, trusted bool) {
+	t.Helper()
+	rec := account.FailureCount{Name: account.FailureName(svc, u.Username), Method: access.MethodPassword, Trusted: trusted, Count: 1}
+	if err := s.PutAuthFailure(t.Context(), rec); err != nil {
+		t.Fatalf("PutAuthFailure: %v", err)
+	}
+}
+
 // linkUser links u to issuer.
 func linkUser(t testing.TB, s account.Store, u *access.User, issuer string) {
 	t.Helper()
@@ -239,6 +249,12 @@ func TestLastMethodUsable(t *testing.T) {
 			return removePasskey(t, full, func(t *testing.T, p *pwFixture, u *access.User) {
 				lockPassword(t, p.mem, p.svc, u, false)
 				lockPassword(t, p.mem, p.svc, u, true)
+			})
+		}},
+		{name: "password_counted_unlocked_in_both_contexts", run: func(t *testing.T) error {
+			return removePasskey(t, full, func(t *testing.T, p *pwFixture, u *access.User) {
+				countPassword(t, p.mem, p.svc, u, false)
+				countPassword(t, p.mem, p.svc, u, true)
 			})
 		}},
 		{name: "password_locked_untrusted_only", run: func(t *testing.T) error {

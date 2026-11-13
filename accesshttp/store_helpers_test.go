@@ -196,6 +196,26 @@ func (s *countingStore) PasskeysByUserID(ctx context.Context, a1 int64) ([]acces
 	return s.next.PasskeysByUserID(ctx, a1)
 }
 
+func (s *countingStore) AppendLog(ctx context.Context, a1 *account.LogEntry) error {
+	s.count(ctx, "AppendLog")
+	return s.next.AppendLog(ctx, a1)
+}
+
+func (s *countingStore) ListLog(ctx context.Context, a1 account.LogRange) ([]account.LogEntry, error) {
+	s.count(ctx, "ListLog")
+	return s.next.ListLog(ctx, a1)
+}
+
+func (s *countingStore) PruneLog(ctx context.Context, a1 account.LogPrune) (int, error) {
+	s.count(ctx, "PruneLog")
+	return s.next.PruneLog(ctx, a1)
+}
+
+func (s *countingStore) LogStats(ctx context.Context) ([]account.LogClassStats, error) {
+	s.count(ctx, "LogStats")
+	return s.next.LogStats(ctx)
+}
+
 func (s *countingStore) PruneAuthFailures(ctx context.Context, a1 []string) (int64, error) {
 	s.count(ctx, "PruneAuthFailures")
 	return s.next.PruneAuthFailures(ctx, a1)

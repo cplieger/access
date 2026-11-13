@@ -102,12 +102,13 @@ func recoverySessions(t *testing.T, s account.Store, userID int64) []access.Sess
 }
 
 // completion is one way a recovery session completes: run completes rp's
-// recovery on svc, and holds reports whether the user holds the credential
-// it sets.
+// recovery on svc, holds reports whether the user holds the credential it
+// sets, and method is that credential's.
 type completion struct {
-	run   func(t *testing.T, w *recWorld, svc *account.Service, rp access.Principal, opts account.RecoverOptions) error
-	holds func(t *testing.T, w *recWorld, u *access.User) bool
-	name  string
+	run    func(t *testing.T, w *recWorld, svc *account.Service, rp access.Principal, opts account.RecoverOptions) error
+	holds  func(t *testing.T, w *recWorld, u *access.User) bool
+	name   string
+	method access.Method
 }
 
 // completions are RecoverWithPassword and RecoverPasskeyFinish, the latter
@@ -115,14 +116,16 @@ type completion struct {
 func completions() []completion {
 	return []completion{
 		{
-			name: "password",
+			name:   "password",
+			method: access.MethodPassword,
 			run: func(t *testing.T, _ *recWorld, svc *account.Service, rp access.Principal, opts account.RecoverOptions) error {
 				return completeWithPassword(t, svc, rp, opts)
 			},
 			holds: func(t *testing.T, w *recWorld, u *access.User) bool { return w.verifies(t, u, recoveredPassword) },
 		},
 		{
-			name: "passkey",
+			name:   "passkey",
+			method: access.MethodPasskey,
 			run: func(t *testing.T, w *recWorld, svc *account.Service, rp access.Principal, opts account.RecoverOptions) error {
 				return w.recoverPasskey(t, svc, rp, accesstest.NewPasskeyDevice(t), opts)
 			},

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -121,6 +120,8 @@ func TestCallbackRedirects(t *testing.T) {
 		{"failure_drops_oidc", "authOIDCStartLink", "/p?oidc=stepped_up", "/p?auth_error=auth_oidc_failed", stale, false},
 		{"other_pairs_survive", "authOIDCStartLink", "/x?a=%zz&b=1", "/x?a=%zz&b=1&oidc=linked", accesstest.IdPOptions{}, false},
 		{"fragment_kept", "authOIDCStartLink", "/a#x?y", "/a?oidc=linked#x?y", accesstest.IdPOptions{}, false},
+		{"fragment_dot_segments_kept", "authOIDCStartLink", "/settings#/../../admin", "/settings?oidc=linked#/../../admin", accesstest.IdPOptions{}, false},
+		{"non_ascii_escaped", "authOIDCStartLink", "/caf\u00e9#\u00e9", "/caf%C3%A9?oidc=linked#%C3%A9", accesstest.IdPOptions{}, false},
 		{"redirect_512_bytes", "authOIDCStartLink", "/" + strings.Repeat("a", 511), "/" + strings.Repeat("a", 511) + "?oidc=linked", accesstest.IdPOptions{}, false},
 		{"escaped_path_link", "authOIDCStartLink", "/A%2Fb?x=1", "/A%2Fb?x=1&oidc=linked", accesstest.IdPOptions{}, false},
 		{"escaped_path_step_up", "authOIDCStartStepUp", "/A%2Fb?x=1", "/A%2Fb?x=1&oidc=stepped_up", accesstest.IdPOptions{}, true},
@@ -137,9 +138,8 @@ func TestCallbackRedirects(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, seed := range []string{"/%2Fevil.com/|", "/%2f</@", "/%2F%2Fevil.com x", "/a#x?y", "/A%2Fb?x=1"} {
+		for _, seed := range []string{"/%2Fevil.com/|", "/%2f</@", "/%2F%2Fevil.com x", "/a#x?y", "/A%2Fb?x=1", "/settings#/../../admin", "/a/../b/", "/caf\u00e9#\u00e9", "/a\xff"} {
 			sealed := access.ValidateRedirectURI(seed)
-			want := cleanKeepingSlash(pathPart(sealed))
 			for _, target := range []string{
 				sealed,
 				withMarker(sealed, markerOIDC, "linked"),
@@ -147,10 +147,10 @@ func TestCallbackRedirects(t *testing.T) {
 				withMarker(sealed, markerError, "x"),
 			} {
 				w := httptest.NewRecorder()
-				redirect(w, httptest.NewRequest(http.MethodGet, "https://app.example/api/auth/oidc/callback", nil), target)
+				redirect(w, target)
 				loc := w.Header().Get("Location")
-				if got := pathPart(loc); got != want {
-					t.Errorf("seed %q target %q: Location %q has path %q, want %q", seed, target, loc, got, want)
+				if want := asciiLocation(target); loc != want {
+					t.Errorf("seed %q: Location %q, want %q", seed, loc, want)
 				}
 				ref, err := url.Parse(browserNormalised(loc))
 				if err != nil {
@@ -170,6 +170,23 @@ func TestCallbackRedirects(t *testing.T) {
 		b.jar.SetCookies(b.app, []*http.Cookie{{Name: e.flowCookieName(), Value: "forged"}})
 		if loc := location(t, e.callback(t, b, cb)); loc != "/signin?auth_error=auth_oidc_failed" {
 			t.Errorf("Location %q, want /signin?auth_error=auth_oidc_failed", loc)
+		}
+	})
+	t.Run("sign_in_path_refused", func(t *testing.T) {
+		for _, signIn := range []string{"", "https://evil.example/login", "//evil.example/login"} {
+			handler := envOptions{handler: func(c *Config) { c.SignInPath = signIn }}
+			e, idp := linkedAlice(t, handler)
+			b := newBrowser(t)
+			cb := authorize(t, idp, e.startSignIn(t, b, ""))
+			b.jar.SetCookies(b.app, []*http.Cookie{{Name: e.flowCookieName(), Value: "forged"}})
+			if loc := location(t, e.callback(t, b, cb)); loc != "/?auth_error=auth_oidc_failed" {
+				t.Errorf("SignInPath %q: failure Location %q, want /?auth_error=auth_oidc_failed", signIn, loc)
+			}
+			e = newEnv(t, handler)
+			idp = e.useIdP(t, accesstest.IdPOptions{}, nil)
+			if loc := location(t, e.signInFlow(t, newBrowser(t), idp, "")); loc != "/?oidc=not_linked" {
+				t.Errorf("SignInPath %q: not-linked Location %q, want /?oidc=not_linked", signIn, loc)
+			}
 		}
 	})
 	t.Run("provider_changed", func(t *testing.T) {
@@ -205,6 +222,10 @@ func TestCallbackRedirects(t *testing.T) {
 			{"redirect=/" + strings.Repeat("a", 512), "/"},
 			{"redirect=" + url.QueryEscape("//evil.com"), "/"},
 			{"redirect=/a&redirect=/b", "/"},
+			{"redirect=" + url.QueryEscape("/settings#/../../admin"), "/settings#/../../admin"},
+			{"redirect=" + url.QueryEscape("/#/../\r/evil.com"), "/"},
+			{"redirect=" + url.QueryEscape("/caf\u00e9#\u00e9"), "/caf%C3%A9#%C3%A9"},
+			{"redirect=" + url.QueryEscape("/a\xff"), "/a%FF"},
 		} {
 			e, idp := linkedAlice(t, envOptions{})
 			if loc := location(t, e.signInFlow(t, newBrowser(t), idp, tc.query)); loc != tc.want {
@@ -706,24 +727,6 @@ func TestOIDCPendingRoutes(t *testing.T) {
 			t.Errorf("alice still linked to %+v", got)
 		}
 	})
-}
-
-// pathPart is loc up to its first '?' or '#'.
-func pathPart(loc string) string {
-	if i := strings.IndexAny(loc, "?#"); i >= 0 {
-		return loc[:i]
-	}
-	return loc
-}
-
-// cleanKeepingSlash is p after path.Clean with a trailing slash kept, as
-// http.Redirect writes a path-absolute Location.
-func cleanKeepingSlash(p string) string {
-	c := path.Clean(p)
-	if strings.HasSuffix(p, "/") && !strings.HasSuffix(c, "/") {
-		c += "/"
-	}
-	return c
 }
 
 // passkeyReadsFail is a Store whose PasskeysByUserID fails inside an Update

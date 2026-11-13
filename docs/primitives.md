@@ -70,7 +70,7 @@ A principal's `IdleDeadline` and `AbsoluteDeadline` are when it lapses. A sessio
 
 `HasRole` checks a user's role. The two roles are `RoleUser` and `RoleAdmin`, and an admin passes every role check.
 
-`ValidateRedirectURI` returns the path you pass when it is a safe relative path of 2048 bytes or fewer, and `/` for anything else. Pass the `next` value from a sign-in form through it before you redirect.
+`ValidateRedirectURI` returns the path you pass when it is a safe relative path of 2048 bytes or fewer with no ASCII control character anywhere, its fragment included, and `/` for anything else. Pass the `next` value from a sign-in form through it before you redirect, and write the result as the `Location` header yourself, with each byte of 0x80 or above percent-escaped as `%XX`, since a `Location` holds ASCII only: `http.Redirect` escapes those bytes but also cleans dot segments inside a fragment, so `/settings#/../../admin` would land on `/admin`.
 
 `CanDisableMethod` reports whether a user keeps at least one way to sign in after you turn one off. It takes a `MethodAvailability` value that describes what remains after the change: the password, the OIDC link and the passkeys other than the one you remove. A user with two passkeys can remove one of them. If you pass a count that includes the passkey being removed, that passkey counts as remaining. The zero value refuses every change.
 

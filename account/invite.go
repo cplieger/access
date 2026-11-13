@@ -42,9 +42,9 @@ func (s *Service) CreateInvite(ctx context.Context, p access.Principal, role acc
 	plaintext, base := access.NewOneTimeToken(access.PurposeInvite, 0, ttl, s.now())
 	base.Role = role
 	var rec access.OneTimeToken
-	err = s.update(ctx, func(tx Tx) error {
+	err = s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
 		rec = base
-		ua, uaErr := s.userAdminIn(ctx, tx, OpInvite, As(p))
+		ua, uaErr := s.userAdminIn(ctx, tx, j, OpInvite, As(p))
 		if uaErr != nil {
 			return uaErr
 		}
@@ -55,7 +55,11 @@ func (s *Service) CreateInvite(ctx context.Context, p access.Principal, role acc
 			return ruleErr
 		}
 		ua.issue(&rec)
-		return tx.CreateOneTimeToken(ctx, rec)
+		if createErr := tx.CreateOneTimeToken(ctx, rec); createErr != nil {
+			return createErr
+		}
+		j.add(Event{Kind: EventInviteIssued, At: rec.CreatedAt, Role: role, Actor: eventActor(As(p))})
+		return nil
 	})
 	if err != nil {
 		return IssuedToken{}, err
@@ -106,12 +110,12 @@ func (s *Service) AcceptInvitePassword(ctx context.Context, c Client, in AcceptI
 			}
 			return &acc.user, nil
 		},
-		announce: func(u *access.User, sess *access.Session) {
-			created := Event{Kind: EventUserCreated, At: sess.CreatedAt, UserID: u.ID}
+		announce: func(j *journal, u *access.User, sess *access.Session) {
+			created := Event{Kind: EventUserCreated, At: sess.CreatedAt, UserID: u.ID, Role: u.Role}
 			if acc.issuer != nil {
 				created.KeyID = acc.issuer.ID
 			}
-			s.emit(created)
+			j.add(created)
 		},
 	})
 	if err == nil && acc.spent {
@@ -201,12 +205,13 @@ func (s *Service) peekToken(ctx context.Context, token access.Secret, purpose ac
 }
 
 // tokenIssuer re-checks the issuer keyID of a key-issued token inside the
-// Update that consumes it or completes its recovery: currentKeyActor under
+// Update that consumes it or completes its recovery: keyAuthority under
 // ManageUsersScope, the issuing operation's d again with that actor, then
-// the admin-target rule on role. current is false on any refusal; err is
-// the store's.
+// the admin-target rule on role. It calls keyAuthority, not currentKeyActor,
+// because the issuer is not the change's actor. current is false on any
+// refusal; err is the store's.
 func (s *Service) tokenIssuer(ctx context.Context, tx Tx, keyID int64, d Decision, role access.Role) (key *access.Key, current bool, err error) { //nolint:gocritic // hugeParam: the Decision is built for this one call
-	actor, key, err := s.currentKeyActor(ctx, tx, d.Op, access.KeyRef{ID: keyID}, s.usersScope)
+	actor, key, err := s.keyAuthority(ctx, tx, d.Op, access.KeyRef{ID: keyID}, s.usersScope)
 	if _, refused := errors.AsType[*refusal](err); refused {
 		return nil, false, nil
 	}

@@ -473,3 +473,101 @@ func TestMemStoreAbsentRows(t *testing.T) {
 		t.Errorf("after TouchAPIKey(unknown ID), ListAPIKeys = (%v, %v), want none", keys, err)
 	}
 }
+
+func TestMemStoreLog(t *testing.T) {
+	t.Parallel()
+	ctx, store := t.Context(), accesstest.NewMemStore()
+	owner := mustCreateUser(t, store, &access.User{Username: "log-owner", Role: access.RoleAdmin, Enabled: true, CreatedAt: t0, UpdatedAt: t0})
+	appendAt := func(class account.LogClass, at time.Time) uint64 {
+		t.Helper()
+		e := &account.LogEntry{At: at, Class: class, Event: account.Event{Kind: account.EventKeyMinted, UserID: owner.ID, SessionIDs: []string{"s1"}}}
+		if err := store.AppendLog(ctx, e); err != nil {
+			t.Fatalf("AppendLog: %v", err)
+		}
+		return e.Event.Seq
+	}
+	list := func(r account.LogRange) []uint64 {
+		t.Helper()
+		got, err := store.ListLog(ctx, r)
+		if err != nil {
+			t.Fatalf("ListLog(%+v): %v", r, err)
+		}
+		seqs := make([]uint64, len(got))
+		for i := range got {
+			seqs[i] = got[i].Event.Seq
+		}
+		return seqs
+	}
+	stats := func() []account.LogClassStats {
+		t.Helper()
+		got, err := store.LogStats(ctx)
+		if err != nil {
+			t.Fatalf("LogStats: %v", err)
+		}
+		return got
+	}
+	a := appendAt(account.LogClassChange, t0)
+	b := appendAt(account.LogClassSession, t0.Add(time.Minute))
+	c := appendAt(account.LogClassChange, t0.Add(2*time.Minute))
+	if a != 1 || b != 2 || c != 3 {
+		t.Fatalf("three appends to an empty store got Seqs %d, %d, %d, want 1, 2, 3", a, b, c)
+	}
+	for _, tc := range []struct {
+		name string
+		r    account.LogRange
+		want []uint64
+	}{
+		{"all", account.LogRange{Limit: 10}, []uint64{a, b, c}},
+		{"descending", account.LogRange{Limit: 10, Descending: true}, []uint64{c, b, a}},
+		{"after", account.LogRange{AfterSeq: a, Limit: 10}, []uint64{b, c}},
+		{"before", account.LogRange{BeforeSeq: c, Limit: 10}, []uint64{a, b}},
+		{"limit", account.LogRange{Limit: 1, Descending: true}, []uint64{c}},
+	} {
+		if got := list(tc.r); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: ListLog = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	if _, err := store.ListLog(ctx, account.LogRange{}); err == nil {
+		t.Error("ListLog with Limit 0 = nil error, want a refusal")
+	}
+	read, _ := store.ListLog(ctx, account.LogRange{Limit: 1})
+	read[0].Event.SessionIDs[0] = "mutated"
+	if again, _ := store.ListLog(ctx, account.LogRange{Limit: 1}); again[0].Event.SessionIDs[0] != "s1" {
+		t.Errorf("a returned SessionIDs aliases the stored one: %v", again[0].Event.SessionIDs)
+	}
+	for name, p := range map[string]account.LogPrune{
+		"both":       {Class: account.LogClassChange, Keep: 1, Before: t0, Limit: 10},
+		"neither":    {Class: account.LogClassChange, Limit: 10},
+		"limit_zero": {Class: account.LogClassChange, Keep: 1},
+	} {
+		if _, err := store.PruneLog(ctx, p); err == nil {
+			t.Errorf("%s: PruneLog(%+v) = nil error, want a refusal", name, p)
+		}
+	}
+	if n, err := store.PruneLog(ctx, account.LogPrune{Class: account.LogClassChange, Keep: 1, Limit: 10}); err != nil || n != 1 {
+		t.Errorf("Keep 1 of the change class = (%d, %v), want (1, nil)", n, err)
+	}
+	want := []account.LogClassStats{{Class: account.LogClassChange, Count: 1, Evicted: 1}, {Class: account.LogClassSession, Count: 1}}
+	if got := stats(); !slices.Equal(got, want) {
+		t.Errorf("after a Keep prune LogStats = %+v, want %+v", got, want)
+	}
+	if n, err := store.PruneLog(ctx, account.LogPrune{Class: account.LogClassSession, Before: t0.Add(2 * time.Minute), Limit: 10}); err != nil || n != 1 {
+		t.Errorf("a Before prune of the session class = (%d, %v), want (1, nil)", n, err)
+	}
+	want[1].Count = 0
+	if got := stats(); !slices.Equal(got, want) {
+		t.Errorf("after a Before prune LogStats = %+v, want %+v (Evicted unchanged)", got, want)
+	}
+	if err := store.DeleteUser(ctx, owner.ID); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	if got := list(account.LogRange{Limit: 10}); !slices.Equal(got, []uint64{c}) {
+		t.Errorf("after DeleteUser the log holds %v, want %v", got, []uint64{c})
+	}
+	if got := stats(); !slices.Equal(got, want) {
+		t.Errorf("after DeleteUser LogStats = %+v, want %+v", got, want)
+	}
+	if next := appendAt(account.LogClassSession, t0); next != c+1 {
+		t.Errorf("the append after the prunes got Seq %d, want %d", next, c+1)
+	}
+}

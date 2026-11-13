@@ -46,12 +46,12 @@ func (s *Service) admitUserAdmin(r Rules, a Actor) error { //nolint:gocritic // 
 // userAdminIn decides a's authority first inside the write's Update: a key
 // principal's from its stored key and owner under ManageUsersScope
 // (key_not_current), any other actor as it is.
-func (s *Service) userAdminIn(ctx context.Context, tx Tx, op Operation, a Actor) (userAdmin, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
+func (s *Service) userAdminIn(ctx context.Context, tx Tx, j *journal, op Operation, a Actor) (userAdmin, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	p, ok := a.Principal()
 	if !ok || !p.IsAPIKey() {
 		return userAdmin{actor: a}, nil
 	}
-	actor, key, err := s.currentKeyActor(ctx, tx, op, access.KeyRef{ID: p.KeyID, UserID: p.User.ID}, s.usersScope)
+	actor, key, err := s.currentKeyActor(ctx, tx, j, op, access.KeyRef{ID: p.KeyID, UserID: p.User.ID}, s.usersScope)
 	if err != nil {
 		return userAdmin{}, err
 	}
@@ -149,14 +149,17 @@ func (s *Service) UpdateUser(ctx context.Context, p access.Principal, userID int
 		return nil, ErrNoChange
 	}
 	var res userUpdate
-	err = s.update(ctx, func(tx Tx) error {
+	err = s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
 		res = userUpdate{}
-		return s.updateUser(ctx, tx, op, As(p), userID, ch, &res)
+		if updErr := s.updateUser(ctx, tx, j, op, As(p), userID, ch, &res); updErr != nil {
+			return updErr
+		}
+		s.addUserUpdate(j, userID, eventActor(As(p)), &res)
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	s.emitUserUpdate(userID, eventActor(As(p)), &res)
 	return res.user, nil
 }
 
@@ -168,8 +171,8 @@ type userUpdate struct {
 	roleChanged, enabledMoved bool
 }
 
-func (s *Service) updateUser(ctx context.Context, tx Tx, op Operation, a Actor, userID int64, ch UserChange, res *userUpdate) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
-	ua, err := s.userAdminIn(ctx, tx, op, a)
+func (s *Service) updateUser(ctx context.Context, tx Tx, j *journal, op Operation, a Actor, userID int64, ch UserChange, res *userUpdate) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
+	ua, err := s.userAdminIn(ctx, tx, j, op, a)
 	if err != nil {
 		return err
 	}
@@ -266,25 +269,25 @@ func revokeForChange(ctx context.Context, tx Tx, userID int64, disabled bool, re
 	return err
 }
 
-// emitUserUpdate reports a committed UpdateUser: the role change, then the
-// disable with its sessions and one EventKeyRevoked per key, or the
-// re-enable. A role change alone carries the sessions it revoked.
-func (s *Service) emitUserUpdate(userID int64, actor EventActor, res *userUpdate) {
+// addUserUpdate adds an UpdateUser's entries: the role change with the new
+// role, then the disable with its sessions and one EventKeyRevoked per key,
+// or the re-enable. A role change alone carries the sessions it revoked.
+func (s *Service) addUserUpdate(j *journal, userID int64, actor EventActor, res *userUpdate) {
 	at := s.now()
 	disabled := res.enabledMoved && !res.user.Enabled
 	if res.roleChanged {
-		ev := Event{Kind: EventRoleChanged, At: at, UserID: userID, Actor: actor}
+		ev := Event{Kind: EventRoleChanged, At: at, UserID: userID, Role: res.user.Role, Actor: actor}
 		if !disabled {
 			ev.SessionIDs = res.sessions
 		}
-		s.emit(ev)
+		j.add(ev)
 	}
 	switch {
 	case disabled:
-		s.emit(Event{Kind: EventUserDisabled, At: at, UserID: userID, SessionIDs: res.sessions, Actor: actor})
-		s.emitKeysRevoked(userID, res.keys, actor)
+		j.add(Event{Kind: EventUserDisabled, At: at, UserID: userID, SessionIDs: res.sessions, Actor: actor})
+		s.addKeysRevoked(j, userID, res.keys, actor)
 	case res.enabledMoved:
-		s.emit(Event{Kind: EventUserEnabled, At: at, UserID: userID, Actor: actor})
+		j.add(Event{Kind: EventUserEnabled, At: at, UserID: userID, Actor: actor})
 	}
 }
 
@@ -304,13 +307,8 @@ func (s *Service) DeleteUser(ctx context.Context, p access.Principal, userID int
 	if admitErr := s.admitUserAdmin(r, As(p)); admitErr != nil {
 		return admitErr
 	}
-	var (
-		sessions []string
-		keys     []int64
-	)
-	err = s.update(ctx, func(tx Tx) error {
-		sessions, keys = nil, nil
-		ua, uaErr := s.userAdminIn(ctx, tx, OpDeleteUser, As(p))
+	return s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
+		ua, uaErr := s.userAdminIn(ctx, tx, j, OpDeleteUser, As(p))
 		if uaErr != nil {
 			return uaErr
 		}
@@ -327,17 +325,15 @@ func (s *Service) DeleteUser(ctx context.Context, p access.Principal, userID int
 		if ruleErr := ua.target(OpDeleteUser, target.Role); ruleErr != nil {
 			return ruleErr
 		}
-		var cascadeErr error
-		sessions, keys, cascadeErr = deleteUserCascade(ctx, tx, userID)
-		return cascadeErr
+		sessions, keys, cascadeErr := deleteUserCascade(ctx, tx, userID)
+		if cascadeErr != nil {
+			return cascadeErr
+		}
+		actor := eventActor(As(p))
+		j.add(Event{Kind: EventUserDeleted, At: s.now(), UserID: userID, SessionIDs: sessions, Actor: actor})
+		s.addKeysRevoked(j, userID, keys, actor)
+		return nil
 	})
-	if err != nil {
-		return err
-	}
-	actor := eventActor(As(p))
-	s.emit(Event{Kind: EventUserDeleted, At: s.now(), UserID: userID, SessionIDs: sessions, Actor: actor})
-	s.emitKeysRevoked(userID, keys, actor)
-	return nil
 }
 
 // deleteUserCascade reads userID's session and key IDs for the events,

@@ -107,7 +107,7 @@ func TestOpCodesFromProducers(t *testing.T) {
 
 // oidcConfigRefuted is why no validated configuration reaches an
 // oidc.ErrConfigInvalid arm of Begin or Finish.
-const oidcConfigRefuted = "Begin's and Finish's session cookie arms (oidc/flow.go:113, :166) are ruled out by access.New validating the Authenticator's cookie config (options.go:86); Begin's seal and size arms (oidc/flow.go:141, :145) by NewProvider's checkFlowFits (oidc/config.go:134), which sizes the largest flow under a cookie Name of at most access.MaxCookieNameBytes (cookie_config.go:303)"
+const oidcConfigRefuted = "Begin's and Finish's session cookie arms (oidc/flow.go:112, :162) are ruled out by access.New validating the Authenticator's cookie config (options.go:86); Begin's seal arm (oidc/flow.go:140) by NewProvider's checkFlowFits (oidc/config.go:134), which seals the largest flow under a cookie Name of at most access.MaxCookieNameBytes (cookie_config.go:303)"
 
 // refuted is each path the analysis follows that the runtime rules out: a
 // code the route's producers seem to answer, or, with leaf set, an error
@@ -173,6 +173,7 @@ var producerErrors = map[string]error{
 	modulePath + "/account.RulesError":                 &account.RulesError{Field: "Breach", Reason: "no client"},
 	modulePath + "/account.UsernameError":              &account.UsernameError{Reason: account.ReasonTooLong},
 	modulePath + "/account.TextError":                  &account.TextError{Field: account.TextFieldLabel, Reason: account.ReasonTooLong},
+	modulePath + "/account.LogFilterError":             &account.LogFilterError{Reason: account.ReasonLogKind},
 	modulePath + "/webauthn.ErrResponseTooLarge":       webauthn.ErrResponseTooLarge,
 	modulePath + "/webauthn.ErrNotDiscoverable":        webauthn.ErrNotDiscoverable,
 	modulePath + "/webauthn.ErrUnknownCredential":      webauthn.ErrUnknownCredential,

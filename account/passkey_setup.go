@@ -48,8 +48,8 @@ func (s *Service) SetupPasskeyBegin(ctx context.Context, c Client, in SetupPassk
 	if _, admitErr := gate.admit(); admitErr != nil {
 		return PendingCeremony{}, admitErr
 	}
-	user := &access.User{Username: username, Role: access.RoleAdmin, Enabled: true, WebAuthnHandle: access.GenerateWebAuthnHandle()}
-	creation, ceremony, err := webauthn.BeginRegistration(rp, &webauthn.User{AuthUser: user}, in.Origin)
+	user := access.User{Username: username, Role: access.RoleAdmin, Enabled: true, WebAuthnHandle: access.GenerateWebAuthnHandle()}
+	creation, ceremony, err := webauthn.BeginRegistration(rp, &webauthn.User{AuthUser: &user}, in.Origin)
 	if err != nil {
 		return PendingCeremony{}, err
 	}
@@ -84,12 +84,12 @@ func (s *Service) SetupPasskeyFinish(ctx context.Context, c Client, ceremonyID s
 				return ErrCeremonyInvalid
 			}
 			var verifyErr error
-			cred, verifyErr = webauthn.FinishRegistration(rp, &webauthn.User{AuthUser: entry.user}, entry.ceremony, body)
+			cred, verifyErr = webauthn.FinishRegistration(rp, &webauthn.User{AuthUser: &entry.user}, entry.ceremony, body)
 			return verifyErr
 		},
 		in: func(tx Tx) (*access.User, error) {
 			now := s.now()
-			user := *entry.user
+			user := entry.user
 			user.CreatedAt, user.UpdatedAt = now, now
 			if err := s.createFirstUser(ctx, tx, entry.setupToken, &user); err != nil {
 				return nil, err
@@ -99,5 +99,6 @@ func (s *Service) SetupPasskeyFinish(ctx context.Context, c Client, ceremonyID s
 			}
 			return &user, nil
 		},
+		announce: announceCreated,
 	})
 }

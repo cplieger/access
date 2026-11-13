@@ -26,16 +26,16 @@ const (
 
 // pending is what a begin call leaves for its finish call.
 type pending struct {
-	user       *access.User // the user, or setup's provisional user
-	setupToken access.Hash  // the setup token a setup finish spends; zero when setup asked for none
+	setupToken access.Hash // the setup token a setup finish spends; zero when setup asked for none
 	ceremony   webauthn.Ceremony
+	user       access.User // the ceremony's user, setup's provisional user, or zero for a sign-in
 }
 
 type pendingEntry struct {
-	expires    time.Time
 	prev, next *pendingEntry
-	value      pending
 	id         string
+	expires    time.Time
+	value      pending
 	purpose    pendingPurpose
 }
 
@@ -55,7 +55,7 @@ func newPendingCache(maxEntries int) *pendingCache {
 // put stores v under a new 256-bit random ID for webauthn.CeremonyTimeout
 // from now. Expired entries go first; when the cache is still full, the
 // oldest entry is evicted.
-func (c *pendingCache) put(purpose pendingPurpose, v pending, now time.Time) string {
+func (c *pendingCache) put(purpose pendingPurpose, v pending, now time.Time) string { //nolint:gocritic // hugeParam: the entry keeps its own copy
 	b := make([]byte, 32)
 	_, _ = rand.Read(b) // crypto/rand.Read never fails (Go 1.24+); it crashes the program instead
 	e := &pendingEntry{id: hex.EncodeToString(b), purpose: purpose, value: v, expires: now.Add(webauthn.CeremonyTimeout)}

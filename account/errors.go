@@ -143,6 +143,51 @@ func (e *PolicyError) Error() string {
 // Is reports ErrPolicyRefused.
 func (*PolicyError) Is(target error) bool { return target == ErrPolicyRefused }
 
+// ErrLogFilterInvalid is matched by every *LogFilterError.
+var ErrLogFilterInvalid = errors.New("account: log filter invalid")
+
+// The LogFilterError Reasons, in LogFilterReasons order.
+const (
+	ReasonLogLimit = "log_limit" // Limit negative or above MaxLogPage
+	ReasonLogRange = "log_range" // a Seq bound above 2^53 - 1, or no Seq between AfterSeq and BeforeSeq
+	ReasonLogKind  = "log_kind"  // a kind that is neither an EventKinds value nor an app kind
+	ReasonLogID    = "log_id"    // a negative user or key ID
+)
+
+// LogFilterReasons returns every LogFilterError Reason, in a stable order.
+func LogFilterReasons() []string {
+	return []string{ReasonLogLimit, ReasonLogRange, ReasonLogKind, ReasonLogID}
+}
+
+// LogFilterError is a LogFilter SecurityLog refuses, before any store
+// read. Reason is one of LogFilterReasons. It matches ErrLogFilterInvalid.
+type LogFilterError struct {
+	Reason string
+}
+
+func (e *LogFilterError) Error() string { return "account: invalid log filter: " + e.Reason }
+
+// Is reports ErrLogFilterInvalid.
+func (*LogFilterError) Is(target error) bool { return target == ErrLogFilterInvalid }
+
+// The AppEntryError Reasons, in AppEntryReasons order.
+const (
+	ReasonAppKind   = "app_kind"
+	ReasonAppDetail = "app_detail"
+	ReasonAppMethod = "app_method"
+)
+
+// AppEntryReasons returns every AppEntryError Reason, in a stable order.
+func AppEntryReasons() []string { return []string{ReasonAppKind, ReasonAppDetail, ReasonAppMethod} }
+
+// AppEntryError reports why AppendLog refused an entry. Reason is one of
+// AppEntryReasons.
+type AppEntryError struct {
+	Reason string
+}
+
+func (e *AppEntryError) Error() string { return "account: invalid app log entry: " + e.Reason }
+
 // RulesError names the Rules field that is invalid. It matches
 // ErrRulesInvalid, and unwraps to Err when a check of another package
 // refused the field.

@@ -26,10 +26,17 @@ func TestMeLocks(t *testing.T) {
 	if !methodsEqual(me.Methods, want) || me.CanLinkOIDC || me.User == nil || me.User.ID != u.ID {
 		t.Errorf("Me with no lock = %+v, want alice with a password, no passkey, no lock", me)
 	}
+	p.failN(t, clientAt(1), "alice", 1)
+	if me, err = p.svc.Me(t.Context(), pr); err != nil {
+		t.Fatalf("Me = %v", err)
+	}
+	if !methodsEqual(me.Methods, want) {
+		t.Errorf("Me.Methods with one counted, unlocked failure = %+v, want %+v with no lock", me.Methods, want)
+	}
 	if err := p.mem.CreatePasskey(t.Context(), &access.PasskeyCredential{UserID: u.ID, CredentialID: []byte("cred-1"), Name: "key"}); err != nil {
 		t.Fatalf("CreatePasskey: %v", err)
 	}
-	p.failN(t, clientAt(1), "alice", account.FailureCap)
+	p.failN(t, clientAt(1), "alice", account.FailureCap-1)
 	untrusted, _ := record(t, p.mem, p.svc, "alice", false)
 	if me, err = p.svc.Me(t.Context(), pr); err != nil {
 		t.Fatalf("Me = %v", err)
@@ -97,6 +104,45 @@ func TestMeMethods(t *testing.T) {
 			t.Errorf("Me with Config.OIDC resolving to nil = %+v, CanLinkOIDC %t; want OIDC unavailable, not linkable, passkeys on", m.Methods, m.CanLinkOIDC)
 		}
 	})
+}
+
+func TestMeSSOGoverned(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name             string
+		governed, linked bool
+	}{
+		{"governed_linked", true, true},
+		{"governed_unlinked", true, false},
+		{"ungoverned_linked", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := newPK(t, pwOptions{rules: func() account.Rules { return account.Rules{SSOGoverned: tc.governed} }})
+			u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
+			if tc.linked {
+				linkUser(t, p.mem, u, "https://idp.example")
+			}
+			pr, _ := p.signedInVia(t, u, access.MethodPassword)
+			me, err := p.svc.Me(t.Context(), pr)
+			if err != nil {
+				t.Fatalf("Me = %v", err)
+			}
+			want := tc.governed && tc.linked
+			if me.SSOGoverned != want {
+				t.Errorf("Me.SSOGoverned = %t, want %t", me.SSOGoverned, want)
+			}
+			agrees := func(err error) bool {
+				return errors.Is(err, account.ErrSSOGoverned) == want && (want || err == nil)
+			}
+			if _, err := p.svc.PasskeyRegisterBegin(t.Context(), pr, p.origin); !agrees(err) {
+				t.Errorf("PasskeyRegisterBegin = %v, want ErrSSOGoverned %t, else nil", err, want)
+			}
+			if _, err := p.setPassword(t.Context(), pr, goodPassword, newPassword); !agrees(err) {
+				t.Errorf("SetPassword = %v, want ErrSSOGoverned %t, else nil", err, want)
+			}
+		})
+	}
 }
 
 func TestMePasswordLoginDisabled(t *testing.T) {

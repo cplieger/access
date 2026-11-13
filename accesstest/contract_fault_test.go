@@ -446,6 +446,24 @@ func (f *faultStore) PruneAuthFailures(ctx context.Context, keep []string) (int6
 	return n, err
 }
 
+func (f *faultStore) AppendLog(ctx context.Context, e *account.LogEntry) error {
+	return f.commit(func(tx *memTx) error { return tx.AppendLog(ctx, e) })
+}
+
+func (f *faultStore) ListLog(ctx context.Context, r account.LogRange) ([]account.LogEntry, error) {
+	return f.view().ListLog(ctx, r)
+}
+
+func (f *faultStore) PruneLog(ctx context.Context, p account.LogPrune) (int, error) {
+	var n int
+	err := f.commit(func(tx *memTx) (err error) { n, err = tx.PruneLog(ctx, p); return err })
+	return n, err
+}
+
+func (f *faultStore) LogStats(ctx context.Context) ([]account.LogClassStats, error) {
+	return f.view().LogStats(ctx)
+}
+
 // faultConfig is the ContractConfig over media that mk wraps: NewFaulty
 // returns every hook, and Reopen reopens the medium.
 func faultConfig(mk func(med *medium) account.Store, reopen func(old account.Store) account.Store) (func(*testing.T) account.Store, ContractConfig) {

@@ -30,9 +30,9 @@
 // Two Updates never interleave, and a single-call write outside Update is
 // ordered against them, so a read-check-write inside one callback (last
 // admin, last method, user count) is race-free without an in-process lock.
-// The callback resets, then fills, its local results and events on each
-// run, so a re-run under a grouped commit reports and emits nothing twice,
-// and no event is emitted until Update returns nil.
+// The callback resets, then fills, its local results and log entries on
+// each run, so a re-run under a grouped commit appends and reports nothing
+// twice, and no event is dispatched until Update returns nil.
 //
 // An Update commits every record set it touches as one unit. A store that
 // spreads its records over several files must still publish one Update
@@ -44,6 +44,10 @@
 // The callback uses only its tx. Calling the Store from inside it can
 // deadlock (bbolt's single writer), and account never does. A Tx is not
 // retained.
+//
+// An app records its own change in the log by calling [Service.AppendLog]
+// with its callback's tx. Tx.AppendLog is account's: a direct call skips
+// AppendLog's validation and the class trim.
 //
 // # Contract rules
 //
@@ -141,11 +145,11 @@
 //     UnreportedLocks returns exactly the records with Unreported set. The
 //     bound, which the store's prune and account's admission make together:
 //     at any time the store holds at most 2 × len(users) records of user
-//     names (one counted method, two trust contexts), plus 2 × 20,000
-//     records of other names, plus the records of users deleted since the
-//     last sweep, plus at most one trusted record per counted method for
-//     each user deleted within the device-cookie lifetime (180 days), whose
-//     old cookie can recreate it.
+//     names (one counted method, two trust contexts), plus
+//     2 × MaxUntrustedCounts (20,000) records of other names, plus the
+//     records of users deleted since the last sweep, plus at most one
+//     trusted record per counted method for each user deleted within the
+//     device-cookie lifetime (180 days), whose old cookie can recreate it.
 //  16. Reads never wait across a write's fsync or rename. A read sees the
 //     last committed state and never blocks on an in-progress Update or
 //     single-call write. bbolt's read transactions give this, except that a
@@ -193,9 +197,10 @@
 //     rotated can therefore never bring it back.
 //  20. Fidelity. Every exported field of every record a store keeps
 //     (User, Session, PasskeyCredential, Key, OneTimeToken, KeyAttribution,
-//     [FailureCount], and the structs they embed or hold, OIDCIdentity and
-//     [FailureRef]) reads back as it was written, apart from what the store
-//     assigns (IDs, the LineageIDs append of rule 17). The record fields
+//     [FailureCount], [LogEntry], and the structs they embed or hold,
+//     OIDCIdentity, [FailureRef], [Event] and [EventActor]) reads back as it
+//     was written, apart from what the store assigns (IDs, the LineageIDs
+//     append of rule 17, Event.Seq of rule 22). The record fields
 //     carry `json:"-"`, and Hash's MarshalJSON writes "[redacted]" ("" for
 //     the zero Hash) with no UnmarshalJSON, so every store maps every field
 //     by hand. A persistent store keeps the same fidelity across a close
@@ -214,4 +219,36 @@
 //     implements it as a conditional update (UPDATE … WHERE last_activity <
 //     ?, or a compare inside its write transaction or writer mutex), never
 //     as a read followed by a separate write.
+//  22. The security log. AppendLog assigns Event.Seq a positive integer
+//     no larger than 2^53 − 1 (rule 17's JSON bound), in commit order: a
+//     reader that sees an entry already sees every committed entry with a
+//     smaller Seq, and no entry with a smaller Seq commits after one with a
+//     larger Seq is visible. Rule 5 lets concurrent Updates be serialisable
+//     rather than serial, so "larger than every entry committed before it"
+//     is not enough: two writers could take 5 and 6 and commit 6 first, and
+//     a reader catching up with AfterSeq = 6 would never see 5. A store
+//     meets the rule by assigning Seq under the lock that orders its commits
+//     (MemStore's writer lock, bbolt's single writer transaction, a
+//     single-writer file store's mutex); a store with concurrent writers
+//     assigns it at commit, in commit order. A Seq is never assigned to two committed
+//     entries, after any prune and across a close and a reopen included,
+//     while a rolled-back or re-run Update may consume numbers no entry
+//     keeps, so gaps are allowed. An appended entry commits and rolls back
+//     with its Update (rule 5), and a re-run callback leaves only its last
+//     run's entries. A stored entry reads back with every field as written
+//     (rule 20), Event.SessionIDs and IP included, and reads return deep
+//     copies (rule 2). ListLog returns exactly the committed entries in its
+//     open range, in the asked order, at most Limit (a Limit below 1 may be
+//     refused). PruneLog removes exactly what its comment says, never an
+//     entry of another class and never more than Limit (a Limit below 1 may
+//     be refused), refuses a LogPrune with both Keep and Before set or
+//     neither, and returns the count. A Keep prune adds the count to its
+//     class's Evicted in the same Update; Evicted rolls back with that
+//     Update, survives a close and a reopen, and nothing else changes it.
+//     LogStats returns, per class that has ever held an entry, the committed
+//     Count and Evicted, and never waits on a write (rule 16). No other SPI
+//     method removes or changes an entry: DeleteUser's cascade deletes none.
+//     A store keeps the log with the durability of its users and keys: a
+//     store that resets derived data on a format change classifies its log
+//     records as durable, never derived.
 package account

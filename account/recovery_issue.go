@@ -40,22 +40,25 @@ func (s *Service) IssueRecovery(ctx context.Context, a Actor, userID int64, ttl 
 	}
 	plaintext, base := access.NewOneTimeToken(access.PurposeRecovery, userID, ttl, s.now())
 	var rec access.OneTimeToken
-	err = s.update(ctx, func(tx Tx) error {
+	err = s.change(ctx, by(a), func(tx Tx, j *journal) error {
 		rec = base
-		return s.issueRecoveryIn(ctx, tx, a, &rec)
+		if issueErr := s.issueRecoveryIn(ctx, tx, j, a, &rec); issueErr != nil {
+			return issueErr
+		}
+		j.add(Event{Kind: EventRecoveryIssued, At: rec.CreatedAt, UserID: userID, Actor: eventActor(a)})
+		return nil
 	})
 	if err != nil {
 		return IssuedToken{}, err
 	}
-	s.emit(Event{Kind: EventRecoveryIssued, At: rec.CreatedAt, UserID: userID, Actor: eventActor(a)})
 	return IssuedToken{Plaintext: plaintext, ExpiresAt: rec.ExpiresAt}, nil
 }
 
 // issueRecoveryIn is IssueRecovery's Update: a's authority, the subject read
 // in tx for the Policy, then existence and the admin-target rule, the
 // earlier tokens voided and rec stored with a key's mark.
-func (s *Service) issueRecoveryIn(ctx context.Context, tx Tx, a Actor, rec *access.OneTimeToken) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
-	ua, err := s.userAdminIn(ctx, tx, OpIssueRecovery, a)
+func (s *Service) issueRecoveryIn(ctx context.Context, tx Tx, j *journal, a Actor, rec *access.OneTimeToken) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
+	ua, err := s.userAdminIn(ctx, tx, j, OpIssueRecovery, a)
 	if err != nil {
 		return err
 	}

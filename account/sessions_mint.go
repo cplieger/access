@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/cplieger/access"
@@ -131,17 +132,17 @@ type sessionOp struct {
 	in func(tx Tx) (*access.User, error)
 	// fill sets the session fields op.in decided, after each run of it.
 	fill func(sess *access.Session)
-	// announce emits the operation's own events for the committed session,
-	// between EventSessionRevoked and EventSignedIn.
-	announce func(u *access.User, sess *access.Session)
+	// announce adds the operation's own entries for the written session,
+	// between EventSessionRevoked and EventSignedIn, in the same run.
+	announce func(j *journal, u *access.User, sess *access.Session)
 	method   access.Method
 	kind     access.SessionKind
 }
 
 // createSession runs op in order: the admission, prepare, Rules.SessionCaps
-// once with c, then one Update holding op.in, op.fill, the session write
-// and the MaxSessionsPerUser eviction; after the commit, EventSessionRevoked,
-// op.announce and, for a full session, EventSignedIn. A full session's device
+// once with c, then one change holding op.in, op.fill, the session write,
+// the MaxSessionsPerUser eviction and its entries: EventSessionRevoked,
+// op.announce's and, for a full session, EventSignedIn. A full session's device
 // cookie is Succeed's, else (no or an IP-only reservation) Limiter.DeviceCookie
 // for c.Device; a recovery session gets none. A prepare error cancels the
 // reservation and an Update error fails it; a commit whose op.in gave no user
@@ -152,7 +153,7 @@ func (s *Service) createSession(ctx context.Context, r Rules, c Client, op *sess
 		return SignedIn{}, err
 	}
 	d := s.newDraft(ctx, r, c, op)
-	user, evicted, err := s.writeSession(ctx, r, op, &d)
+	user, err := s.writeSession(ctx, r, c, op, &d)
 	if err != nil || user == nil {
 		if res != nil {
 			res.Fail()
@@ -165,13 +166,6 @@ func (s *Service) createSession(ctx context.Context, r Rules, c Client, op *sess
 	}
 	if device.IsZero() && op.kind == access.SessionFull {
 		device = s.limiter.DeviceCookie(ratelimit.AccountKey(user.Username), c.Device)
-	}
-	s.emitEvicted(user.ID, evicted)
-	if op.announce != nil {
-		op.announce(user, &d.session)
-	}
-	if op.kind == access.SessionFull {
-		s.emit(Event{Kind: EventSignedIn, At: d.session.CreatedAt, UserID: user.ID, Method: op.method, SessionIDs: []string{d.session.ID}})
 	}
 	return SignedIn{User: user.Clone(), Session: d.session, Token: d.token, DeviceCookie: device}, nil
 }
@@ -192,11 +186,12 @@ func (op *sessionOp) admitAndPrepare() (*ratelimit.Reservation, error) {
 	return res, nil
 }
 
-// writeSession is createSession's Update: op.in and op.fill, then d's
-// session for the user op.in returned, with the evictions.
-func (s *Service) writeSession(ctx context.Context, r Rules, op *sessionOp, d *draft) (user *access.User, evicted []string, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value
-	err = s.update(ctx, func(tx Tx) error {
-		user, evicted = nil, nil
+// writeSession is createSession's change, from c's address: op.in and
+// op.fill, then d's session for the user op.in returned, with the
+// evictions and the entries.
+func (s *Service) writeSession(ctx context.Context, r Rules, c Client, op *sessionOp, d *draft) (user *access.User, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
+	err = s.change(ctx, byClient(Actor{}, c), func(tx Tx, j *journal) error {
+		user = nil
 		u, inErr := op.in(tx)
 		if inErr != nil || u == nil {
 			return inErr
@@ -204,14 +199,24 @@ func (s *Service) writeSession(ctx context.Context, r Rules, op *sessionOp, d *d
 		if op.fill != nil {
 			op.fill(&d.session)
 		}
-		ids, writeErr := d.store(ctx, tx, r, u.ID)
+		evicted, writeErr := d.store(ctx, tx, r, u.ID)
 		if writeErr != nil {
 			return writeErr
 		}
-		user, evicted = u, ids
+		j.created(&d.session)
+		if len(evicted) > 0 {
+			j.add(Event{Kind: EventSessionRevoked, At: s.now(), UserID: u.ID, SessionIDs: evicted})
+		}
+		if op.announce != nil {
+			op.announce(j, u, &d.session)
+		}
+		if op.kind == access.SessionFull {
+			j.add(Event{Kind: EventSignedIn, At: d.session.CreatedAt, UserID: u.ID, Method: op.method, SessionIDs: []string{d.session.ID}})
+		}
+		user = u
 		return nil
 	})
-	return user, evicted, err
+	return user, err
 }
 
 // createUser creates user through create, which assigns its ID, and deletes
@@ -225,17 +230,16 @@ func (s *Service) createUser(ctx context.Context, tx Tx, user *access.User, crea
 	return tx.DeleteAuthFailures(ctx, failureName(s.failureMAC(), user.Username), countedMethods)
 }
 
-// emitEvicted reports the sessions draft.store evicted, after the commit.
-func (s *Service) emitEvicted(userID int64, evicted []string) {
-	if len(evicted) > 0 {
-		s.emit(Event{Kind: EventSessionRevoked, At: s.now(), UserID: userID, SessionIDs: evicted})
-	}
-}
-
+// sanitizeUserAgent drops invalid UTF-8, controls, format characters (Cf,
+// bidi controls among them) and line or paragraph separators, stopping
+// before maxUserAgentBytes on a rune boundary. It drops more than
+// lineBreaking: a user agent is not text a person typed, so no invisible
+// character in it is legitimate, and one would disguise it where the
+// Security page and the security log show it.
 func sanitizeUserAgent(ua string) string {
 	var b strings.Builder
 	for _, r := range ua {
-		if r == utf8.RuneError || lineBreaking(r) {
+		if r == utf8.RuneError || unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
 			continue
 		}
 		if b.Len()+utf8.RuneLen(r) > maxUserAgentBytes {

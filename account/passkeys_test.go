@@ -312,6 +312,43 @@ func TestPasskeyCeremonyRefusals(t *testing.T) {
 	})
 }
 
+// TestCeremonyBeginRecordsItsUser pins what the finish calls' owner check
+// compares against: each begin that is for a signed-in user leaves that user
+// in its pending entry.
+func TestCeremonyBeginRecordsItsUser(t *testing.T) {
+	t.Parallel()
+	w := newRecWorld(t, pwOptions{}, nil)
+	session, _ := w.signedInVia(t, w.alice, access.MethodPassword)
+	_, recovery := w.start(t, w.svc, w.issue(t, account.OutOfBand("socket"), w.alice.ID))
+	for _, tc := range []struct {
+		begin   func(t *testing.T) (account.PendingCeremony, error)
+		name    string
+		purpose account.PendingPurpose
+	}{
+		{name: "register", purpose: account.PurposeRegister, begin: func(t *testing.T) (account.PendingCeremony, error) {
+			return w.svc.PasskeyRegisterBegin(t.Context(), session, w.origin)
+		}},
+		{name: "recovery", purpose: account.PurposeRecovery, begin: func(t *testing.T) (account.PendingCeremony, error) {
+			return w.svc.RecoverPasskeyBegin(t.Context(), recovery, w.origin)
+		}},
+		{name: "step_up", purpose: account.PurposeStepUp, begin: func(t *testing.T) (account.PendingCeremony, error) {
+			w.enrol(t, w.alice, accesstest.NewPasskeyDevice(t))
+			return w.svc.StepUpPasskeyBegin(t.Context(), session, w.origin)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pc, err := tc.begin(t)
+			if err != nil {
+				t.Fatalf("begin = %v", err)
+			}
+			u, ok := account.Pending(w.svc).Take(pc.ID, tc.purpose, time.Now())
+			if !ok || u.ID != w.alice.ID || u.Username != "alice" {
+				t.Errorf("pending entry = user %d %q (found %t), want alice, user %d", u.ID, u.Username, ok, w.alice.ID)
+			}
+		})
+	}
+}
+
 func TestPasskeysUnavailable(t *testing.T) {
 	t.Parallel()
 	// Request admits one call per IP and every op runs twice, so a begin

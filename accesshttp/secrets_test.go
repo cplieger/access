@@ -110,7 +110,7 @@ func newService(t *testing.T) (*account.Service, *access.Authenticator) {
 	svc, err := account.New(t.Context(), account.Config{
 		Store: mem, Policy: account.RolePolicy{}, Authenticator: authn, Hasher: hasher, Limiter: limiter,
 		Rules:      func() account.Rules { return account.Rules{} },
-		FailureKey: []byte("authhttp-test-failure-key-32byte"),
+		FailureKey: []byte("accesshttp-test-failure-key-32by"),
 	})
 	if err != nil {
 		t.Fatal(err)

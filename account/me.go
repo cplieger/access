@@ -8,9 +8,10 @@ import (
 )
 
 // Me returns p's own view: the user as stored, its sign-in methods with
-// their failure-cap locks, and p's session with the deadlines p was
-// verified under. Only a full session may call it (ErrSessionRequired); a
-// user deleted since p was verified is ErrSessionGone. It writes nothing.
+// their failure-cap locks, whether single sign-on governs them, and p's
+// session with the deadlines p was verified under. Only a full session may
+// call it (ErrSessionRequired); a user deleted since p was verified is
+// ErrSessionGone. It writes nothing.
 func (s *Service) Me(ctx context.Context, p access.Principal) (Me, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	r, err := s.begin()
 	if err != nil {
@@ -44,6 +45,7 @@ func (s *Service) meIn(ctx context.Context, tx Tx, r Rules, u *access.User, p ac
 		User:        u,
 		Methods:     m,
 		CanLinkOIDC: m.OIDCAvailable && !m.OIDCLinked,
+		SSOGoverned: r.SSOGoverned && m.OIDCLinked,
 		Current: CurrentSession{
 			ID: p.SessionID, Method: p.Method, AuthTime: p.AuthTime,
 			IdleDeadline: p.IdleDeadline, AbsoluteDeadline: p.AbsoluteDeadline,

@@ -1,0 +1,6 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "treatConfigHintsAsErrors": true,
+  // cycles is knip's one warn-level issue type: without this it prints and exits 0.
+  "rules": { "cycles": "error" },
+}

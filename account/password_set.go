@@ -38,18 +38,18 @@ func (s *Service) SetPassword(ctx context.Context, c Client, p access.Principal,
 		return Issued{}, err
 	}
 	if !held {
-		return s.firstPassword(ctx, r, p, password)
+		return s.firstPassword(ctx, r, c, p, password)
 	}
 	return s.changePassword(ctx, r, c, p, current, password)
 }
 
-func (s *Service) firstPassword(ctx context.Context, r Rules, p access.Principal, password access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and its Principal
+func (s *Service) firstPassword(ctx context.Context, r Rules, c Client, p access.Principal, password access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the operation's one Rules value, Client and Principal
 	hash, err := s.hasher.Hash(ctx, password.Reveal())
 	if err != nil {
 		return Issued{}, err
 	}
 	var ch credentialChange
-	err = s.update(ctx, func(tx Tx) error {
+	err = s.change(ctx, byClient(As(p), c), func(tx Tx, j *journal) error {
 		u, found, readErr := tx.UserByID(ctx, p.User.ID)
 		switch {
 		case readErr != nil:
@@ -60,12 +60,15 @@ func (s *Service) firstPassword(ctx context.Context, r Rules, p access.Principal
 			return refuse(ErrCurrentPasswordRequired)
 		}
 		u.PasswordHash = hash
-		return s.changeCredential(ctx, tx, r, p, u, &ch)
+		if chErr := s.changeCredential(ctx, tx, r, p, u, &ch); chErr != nil {
+			return chErr
+		}
+		s.addCredentialChange(j, EventPasswordSet, p, &ch)
+		return nil
 	})
 	if err != nil {
 		return Issued{}, err
 	}
-	s.emitCredentialChange(EventPasswordSet, p, &ch)
 	return Issued{Token: ch.rot.token, Session: ch.rot.session}, nil
 }
 
@@ -82,26 +85,25 @@ func (s *Service) changePassword(ctx context.Context, r Rules, c Client, p acces
 	if verifyErr := s.verifyCounted(ctx, a, p.User.Username, current, false); verifyErr != nil {
 		return Issued{}, verifyErr
 	}
-	var (
-		ch        credentialChange
-		reenabled bool
-	)
-	err = s.update(ctx, func(tx Tx) error {
+	var ch credentialChange
+	err = s.change(ctx, byClient(As(p), c), func(tx Tx, j *journal) error {
 		u, cleared, commitErr := commitVerified(ctx, tx, a)
 		if commitErr != nil {
 			return commitErr
 		}
-		reenabled = cleared
 		u.PasswordHash = next
-		return s.changeCredential(ctx, tx, r, p, u, &ch)
+		if chErr := s.changeCredential(ctx, tx, r, p, u, &ch); chErr != nil {
+			return chErr
+		}
+		s.addReenabled(j, cleared, p, a.ref.Trusted)
+		s.addCredentialChange(j, EventPasswordChanged, p, &ch)
+		return nil
 	})
 	if err != nil {
 		a.res.Fail()
 		return Issued{}, err
 	}
 	device := a.res.Succeed()
-	s.emitReenabled(reenabled, p, a.ref.Trusted)
-	s.emitCredentialChange(EventPasswordChanged, p, &ch)
 	return Issued{Token: ch.rot.token, DeviceCookie: device, Session: ch.rot.session}, nil
 }
 
@@ -139,35 +141,42 @@ func (s *Service) RemovePassword(ctx context.Context, c Client, p access.Princip
 	if verifyErr := s.verifyCounted(ctx, a, p.User.Username, current, false); verifyErr != nil {
 		return Issued{}, verifyErr
 	}
-	var (
-		rot       rotated
-		reenabled bool
-	)
-	err = s.update(ctx, func(tx Tx) error {
-		stored, cleared, commitErr := commitVerified(ctx, tx, a)
-		if commitErr != nil {
-			return commitErr
-		}
-		if guardErr := s.guardLastMethod(ctx, tx, r, stored, gone); guardErr != nil {
-			return guardErr
-		}
-		reenabled = cleared
-		stored.PasswordHash, stored.UpdatedAt = access.Hash{}, s.now()
-		if writeErr := tx.UpdateUser(ctx, stored); writeErr != nil {
-			return writeErr
-		}
-		var rotErr error
-		rot, rotErr = s.rotate(ctx, tx, p, stored.ID, "")
-		return rotErr
+	var rot rotated
+	err = s.change(ctx, byClient(As(p), c), func(tx Tx, j *journal) error {
+		var removeErr error
+		rot, removeErr = s.removePasswordIn(ctx, tx, j, r, a, p)
+		return removeErr
 	})
 	if err != nil {
 		a.res.Fail()
 		return Issued{}, err
 	}
 	device := a.res.Succeed()
-	s.emitReenabled(reenabled, p, a.ref.Trusted)
-	s.emit(Event{Kind: EventPasswordRemoved, At: s.now(), UserID: p.User.ID, Method: access.MethodPassword, Actor: eventActor(As(p))})
 	return Issued{Token: rot.token, DeviceCookie: device, Session: rot.session}, nil
+}
+
+// removePasswordIn is RemovePassword's change: the verified hash still
+// stored and the last-method guard re-run in tx, then the removal, the
+// rotation and the entries.
+func (s *Service) removePasswordIn(ctx context.Context, tx Tx, j *journal, r Rules, a *passwordAttempt, p access.Principal) (rotated, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and its Principal
+	stored, cleared, err := commitVerified(ctx, tx, a)
+	if err != nil {
+		return rotated{}, err
+	}
+	if guardErr := s.guardLastMethod(ctx, tx, r, stored, credential{method: access.MethodPassword}); guardErr != nil {
+		return rotated{}, guardErr
+	}
+	stored.PasswordHash, stored.UpdatedAt = access.Hash{}, s.now()
+	if writeErr := tx.UpdateUser(ctx, stored); writeErr != nil {
+		return rotated{}, writeErr
+	}
+	rot, err := s.rotate(ctx, tx, p, stored.ID, "")
+	if err != nil {
+		return rotated{}, err
+	}
+	s.addReenabled(j, cleared, p, a.ref.Trusted)
+	j.add(Event{Kind: EventPasswordRemoved, At: s.now(), UserID: p.User.ID, Method: access.MethodPassword, Actor: eventActor(As(p))})
+	return rot, nil
 }
 
 // beginRecentSession is the head of a change to p's own credential: the
@@ -241,19 +250,19 @@ func (s *Service) changeCredential(ctx context.Context, tx Tx, r Rules, p access
 	return err
 }
 
-// emitCredentialChange reports a committed credential change: kind, the
+// addCredentialChange adds a credential change's entries: kind, the
 // revoked sessions, then one EventKeyRevoked per deleted key.
-func (s *Service) emitCredentialChange(kind EventKind, p access.Principal, ch *credentialChange) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
+func (s *Service) addCredentialChange(j *journal, kind EventKind, p access.Principal, ch *credentialChange) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	actor, userID := eventActor(As(p)), p.User.ID
-	s.emit(Event{Kind: kind, At: s.now(), UserID: userID, Method: access.MethodPassword, Actor: actor})
-	s.emitRevoked(userID, ch.sessions, actor)
-	s.emitKeysRevoked(userID, ch.keys, actor)
+	j.add(Event{Kind: kind, At: s.now(), UserID: userID, Method: access.MethodPassword, Actor: actor})
+	s.addRevoked(j, userID, ch.sessions, actor)
+	s.addKeysRevoked(j, userID, ch.keys, actor)
 }
 
-// emitReenabled reports a reported lock a verified password's reset
-// cleared.
-func (s *Service) emitReenabled(reenabled bool, p access.Principal, trusted bool) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
+// addReenabled adds the EventMethodReenabled of a reported lock a verified
+// password's reset cleared.
+func (s *Service) addReenabled(j *journal, reenabled bool, p access.Principal, trusted bool) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	if reenabled {
-		s.emit(Event{Kind: EventMethodReenabled, At: s.now(), UserID: p.User.ID, Method: access.MethodPassword, Trusted: trusted, Actor: eventActor(As(p))})
+		j.add(Event{Kind: EventMethodReenabled, At: s.now(), UserID: p.User.ID, Method: access.MethodPassword, Trusted: trusted, Actor: eventActor(As(p))})
 	}
 }

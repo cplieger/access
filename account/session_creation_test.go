@@ -144,6 +144,19 @@ func TestSessionRulesEveryCreationPath(t *testing.T) {
 			if !slices.EqualFunc(revoked, want, slices.Equal[[]string]) {
 				t.Errorf("EventSessionRevoked for the user = %v, want %v", revoked, want)
 			}
+			created := 0
+			for _, e := range logOf(t, f.mem) {
+				if e.Event.Actor != (account.EventActor{}) {
+					continue
+				}
+				created++
+				if e.ActorLabel != got.Label || e.ActorUserAgent != rulesAgent {
+					t.Errorf("%s entry with no actor carries %q and %q, want the created session's %q and %q", e.Event.Kind, e.ActorLabel, e.ActorUserAgent, got.Label, rulesAgent)
+				}
+			}
+			if created == 0 {
+				t.Error("the creation appended no entry with the zero actor")
+			}
 		})
 	}
 }
@@ -599,4 +612,34 @@ func TestSessionCapsEveryCreation(t *testing.T) {
 			t.Errorf("EventSessionsExpired = %+v, want one naming only %s", got, first.Session.ID)
 		}
 	})
+}
+
+func TestSessionUserAgentStored(t *testing.T) {
+	t.Parallel()
+	atCap := strings.Repeat("a", 256)
+	p := newPW(t, pwOptions{})
+	passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
+	for _, tc := range []struct {
+		name, in, want string
+	}{
+		{"plain_kept", "Mozilla/5.0 (X11)", "Mozilla/5.0 (X11)"},
+		{"line_breaking_dropped", "a\x00b\nc\u202ed\u2028e\u2029f", "abcdef"},
+		{"format_dropped", "a\u200bb\u00adc\u200dd\ufeffe", "abcde"},
+		{"invalid_utf8_dropped", "a\xffb", "ab"},
+		{"exactly_the_cap_kept", atCap, atCap},
+		{"one_past_the_cap_cut", atCap + "b", atCap},
+		{"nothing_kept_after_the_cut", atCap[1:] + "éb", atCap[1:]},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := localClient
+			c.UserAgent = tc.in
+			in, err := p.login(t.Context(), c, "alice", goodPassword)
+			if err != nil {
+				t.Fatalf("PasswordLogin = %v", err)
+			}
+			if got := storedSession(t, p.mem, in.User.ID, in.Session.ID).UserAgent; got != tc.want || in.Session.UserAgent != tc.want {
+				t.Errorf("stored UserAgent %q (%d bytes), returned %q, want %q (%d bytes)", got, len(got), in.Session.UserAgent, tc.want, len(tc.want))
+			}
+		})
+	}
 }

@@ -177,6 +177,36 @@ func keysOf(t *testing.T, s account.Store, userID int64) []access.Key {
 	return keys
 }
 
+func TestSetPasswordSSOGoverned(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name             string
+		governed, linked bool
+		want             error
+	}{
+		{"governed_linked", true, true, account.ErrSSOGoverned},
+		{"governed_unlinked", true, false, nil},
+		{"ungoverned_linked", false, true, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := newPW(t, pwOptions{rules: func() account.Rules { return account.Rules{SSOGoverned: tc.governed} }})
+			u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
+			if tc.linked {
+				linkUser(t, p.mem, u, "https://idp.example")
+			}
+			pr, _ := p.signedInVia(t, u, access.MethodPassword)
+			_, err := p.setPassword(t.Context(), pr, goodPassword, newPassword)
+			if !errors.Is(err, tc.want) || (tc.want == nil && err != nil) {
+				t.Errorf("SetPassword = %v, want %v", err, tc.want)
+			}
+			if got := p.verifies(t, u, newPassword); got != (tc.want == nil) {
+				t.Errorf("the stored hash is the new password's: %t, want %t", got, tc.want == nil)
+			}
+		})
+	}
+}
+
 func TestSetPasswordCurrent(t *testing.T) {
 	t.Parallel()
 	t.Run("right", func(t *testing.T) {

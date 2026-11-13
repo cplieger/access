@@ -55,6 +55,7 @@ func TestQueryDecode(t *testing.T) {
 		{"signin_semicolon", "authOIDCStartSignIn", "redirect=/a;b", OIDCSignInQuery{Redirect: "/"}},
 		{"malformed_unknown_key_ignored", "authAdminUsers", "other=%ZZ&key=7", AdminUsersQuery{Key: 7}},
 		{"escaped_key", "authAdminUsers", "%6Bey=7", AdminUsersQuery{Key: 7}},
+		{"empty_pairs_skipped", "authAdminUsers", "&&key=7", AdminUsersQuery{Key: 7}},
 	}
 	for _, tc := range ok {
 		t.Run(tc.name, func(t *testing.T) {

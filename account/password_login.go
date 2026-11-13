@@ -55,9 +55,9 @@ func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (
 			reenabled = cleared
 			return u, err
 		},
-		announce: func(u *access.User, sess *access.Session) {
+		announce: func(j *journal, u *access.User, sess *access.Session) {
 			if reenabled {
-				s.emit(Event{
+				j.add(Event{
 					Kind: EventMethodReenabled, At: sess.CreatedAt, UserID: u.ID, Method: access.MethodPassword, Trusted: a.ref.Trusted,
 					Actor: EventActor{SessionID: sess.ID, UserID: u.ID},
 				})

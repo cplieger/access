@@ -59,7 +59,7 @@ func (s *Service) RenameSession(ctx context.Context, p access.Principal, in Sess
 }
 
 // RevokeSession ends one of p's own sessions, the current one included,
-// and emits EventSessionRevoked after the commit. A session of another
+// with its EventSessionRevoked. A session of another
 // user, or none, is ErrNotFound.
 func (s *Service) RevokeSession(ctx context.Context, p access.Principal, id string) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	if _, err := s.begin(); err != nil {
@@ -69,19 +69,18 @@ func (s *Service) RevokeSession(ctx context.Context, p access.Principal, id stri
 		return err
 	}
 	userID := p.User.ID
-	err := s.update(ctx, func(tx Tx) error {
-		return refusedBy(tx.DeleteSession(ctx, access.SessionRef{ID: id, UserID: userID}), ErrNotFound)
+	return s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
+		if err := tx.DeleteSession(ctx, access.SessionRef{ID: id, UserID: userID}); err != nil {
+			return refusedBy(err, ErrNotFound)
+		}
+		j.add(Event{Kind: EventSessionRevoked, At: s.now(), UserID: userID, SessionIDs: []string{id}, Actor: eventActor(As(p))})
+		return nil
 	})
-	if err != nil {
-		return err
-	}
-	s.emit(Event{Kind: EventSessionRevoked, At: s.now(), UserID: userID, SessionIDs: []string{id}, Actor: eventActor(As(p))})
-	return nil
 }
 
 // RevokeOtherSessions ends every session of p's user but p's own. p must be
-// a full session within Rules().RecentAuth. It emits
-// EventUserSessionsRevoked with the ended IDs when there were any.
+// a full session within Rules().RecentAuth. Its EventUserSessionsRevoked
+// names the ended IDs, when there were any.
 func (s *Service) RevokeOtherSessions(ctx context.Context, p access.Principal) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	r, err := s.begin()
 	if err != nil {
@@ -94,22 +93,19 @@ func (s *Service) RevokeOtherSessions(ctx context.Context, p access.Principal) e
 		return authErr
 	}
 	userID := p.User.ID
-	var revoked []string
-	err = s.update(ctx, func(tx Tx) error {
-		var delErr error
-		revoked, delErr = tx.DeleteUserSessions(ctx, userID, p.SessionID)
-		return delErr
+	return s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
+		revoked, err := tx.DeleteUserSessions(ctx, userID, p.SessionID)
+		if err != nil {
+			return err
+		}
+		s.addRevoked(j, userID, revoked, eventActor(As(p)))
+		return nil
 	})
-	if err != nil {
-		return err
-	}
-	s.emitRevoked(userID, revoked, eventActor(As(p)))
-	return nil
 }
 
 // Logout ends the session whose token hashes to tokenHash. It is
-// idempotent: no such session is nil, and only a session it ended emits
-// EventSessionRevoked.
+// idempotent: no such session is nil, and only a session it ended has an
+// EventSessionRevoked, carrying that session's display data.
 func (s *Service) Logout(ctx context.Context, tokenHash access.Hash) error {
 	if _, err := s.begin(); err != nil {
 		return err
@@ -117,32 +113,27 @@ func (s *Service) Logout(ctx context.Context, tokenHash access.Hash) error {
 	if tokenHash.IsZero() {
 		return nil
 	}
-	var ended *access.Session
-	err := s.update(ctx, func(tx Tx) error {
-		ended = nil
+	return s.change(ctx, origin{}, func(tx Tx, j *journal) error {
 		sess, found, err := tx.SessionByHash(ctx, tokenHash)
 		if err != nil || !found {
 			return err
 		}
-		ended = sess
-		return tx.DeleteSession(ctx, access.SessionRef{ID: sess.ID, UserID: sess.UserID})
-	})
-	if err != nil {
-		return err
-	}
-	if ended != nil {
-		s.emit(Event{
-			Kind: EventSessionRevoked, At: s.now(), UserID: ended.UserID, SessionIDs: []string{ended.ID},
-			Actor: EventActor{SessionID: ended.ID, UserID: ended.UserID},
+		j.actorSession(sess)
+		if err := tx.DeleteSession(ctx, access.SessionRef{ID: sess.ID, UserID: sess.UserID}); err != nil {
+			return err
+		}
+		j.add(Event{
+			Kind: EventSessionRevoked, At: s.now(), UserID: sess.UserID, SessionIDs: []string{sess.ID},
+			Actor: EventActor{SessionID: sess.ID, UserID: sess.UserID},
 		})
-	}
-	return nil
+		return nil
+	})
 }
 
-// emitRevoked reports a credential change's or a revocation's ended
-// sessions, after the commit, when there were any.
-func (s *Service) emitRevoked(userID int64, ids []string, actor EventActor) {
+// addRevoked adds a credential change's or a revocation's ended sessions,
+// when there were any.
+func (s *Service) addRevoked(j *journal, userID int64, ids []string, actor EventActor) {
 	if len(ids) > 0 {
-		s.emit(Event{Kind: EventUserSessionsRevoked, At: s.now(), UserID: userID, SessionIDs: ids, Actor: actor})
+		j.add(Event{Kind: EventUserSessionsRevoked, At: s.now(), UserID: userID, SessionIDs: ids, Actor: actor})
 	}
 }

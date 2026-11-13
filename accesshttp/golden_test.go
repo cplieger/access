@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/webauthn"
 )
 
@@ -109,7 +110,7 @@ func fixtures() []fixture {
 		{name: "OIDCStartResponse", value: OIDCStartResponse{URL: "https://idp.example.com/authorize?state=x"}},
 		{name: "PendingLinkResponse", value: PendingLinkResponse{Issuer: "https://idp.example.com", UsernameHint: "alice", Email: "alice@example.com"}},
 		{name: "MeResponse", value: MeResponse{
-			User: goldenUser(), Methods: goldenMethods(), CanLinkOIDC: true,
+			User: goldenUser(), Methods: goldenMethods(), CanLinkOIDC: true, SSOGoverned: true,
 			Session: CurrentSessionView{ID: "s1", Method: access.MethodPasskey, AuthTime: goldenTime, IdleDeadline: goldenTime, AbsoluteDeadline: goldenLater},
 		}},
 		{name: "RecoveryResponse", value: RecoveryResponse{Username: "alice", Methods: goldenMethods()}},
@@ -129,6 +130,21 @@ func fixtures() []fixture {
 		{name: "TokenView", value: TokenView{
 			CreatedAt: goldenTime, ExpiresAt: goldenLater, Purpose: access.PurposeRecovery, Role: access.RoleUser,
 			IssuerLineage: []int64{3, 5}, Subject: 7, IssuedByKey: 5,
+		}},
+		{name: "SecurityLogView", value: SecurityLogView{
+			Entries: []LogEntryView{{
+				Seq: 42, At: goldenLater, OccurredAt: goldenTime, Class: account.LogClassChange, Kind: string(account.EventPasskeyAdded),
+				UserID: 7, IP: "192.0.2.1", SessionIDs: []string{"s1", "s2"}, KeyID: 5, PasskeyID: 2,
+				Method: access.MethodPasskey, Role: access.RoleUser, Trusted: true, Detail: "fixture-detail",
+				Actor: LogActorView{
+					UserID: 7, SessionID: "s1", KeyID: 5, OutOfBand: "cli",
+					Label: "laptop", UserAgent: "Firefox", KeySuffix: "wxyz",
+				},
+			}},
+			Classes: []LogClassView{
+				{Class: account.LogClassChange, Count: 12, Evicted: 3},
+				{Class: account.LogClassSession, Count: 40, Evicted: 9},
+			},
 		}},
 	}
 }

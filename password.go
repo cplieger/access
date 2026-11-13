@@ -1,8 +1,9 @@
-// Package access implements authentication primitives: password hashing
-// (Argon2id in PHC string format), WebAuthn/FIDO2 passkey ceremonies, OIDC
-// provider integration with PKCE, session management with idle/absolute
-// timeouts, API key generation and verification, and role-based access
-// control helpers.
+// Package access holds the building blocks of sign-in: the Authenticator
+// that guards a route with session and idle/absolute timeouts, Argon2id
+// password hashing in PHC string format, session and API-key tokens, cookies,
+// Secret, Hash and Sealer, and the role check. Passkeys live in webauthn,
+// OIDC in oidc, the account operations in account and their routes in
+// accesshttp.
 package access
 
 import (

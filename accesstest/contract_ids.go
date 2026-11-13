@@ -424,7 +424,7 @@ func sweeperCalls(s account.Store) []namedCall {
 
 // txCalls is every Tx method, aimed at sd's rows, deletes last.
 func txCalls(tx account.Tx, sd *seeded) []namedCall {
-	return slices.Concat(userCalls(tx, sd), sessionCalls(tx, sd), credentialCalls(tx, sd), recordCalls(tx, sd), deleteCalls(tx, sd))
+	return slices.Concat(userCalls(tx, sd), sessionCalls(tx, sd), credentialCalls(tx, sd), recordCalls(tx, sd), logCalls(tx), deleteCalls(tx, sd))
 }
 
 func userCalls(tx account.Tx, sd *seeded) []namedCall {

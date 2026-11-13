@@ -93,3 +93,27 @@ func TestDecodeStrict(t *testing.T) {
 		}
 	})
 }
+
+func TestPathValuesSession(t *testing.T) {
+	const valid = "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"
+	for _, tc := range []struct {
+		name, id, want string // want is the stored session ID, "" for a refusal naming id
+	}{
+		{"lowercase_hex_at_the_length", valid, valid},
+		{"non_hex_at_the_length", strings.Repeat("z", 32), ""},
+		{"uppercase_hex_at_the_length", strings.Repeat("AB", 16), ""},
+		{"hex_one_short", valid[1:], ""},
+		{"hex_one_long", valid + "0", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodDelete, "/", nil)
+			r.SetPathValue("id", tc.id)
+			var c call
+			err := pathValues(&routeSpec{pathID: pathSession}, r, &c)
+			re, refused := errors.AsType[*requestError](err)
+			if c.sessionID != tc.want || refused != (tc.want == "") || (refused && re.reason != "id") || (!refused && err != nil) {
+				t.Errorf("pathValues(%q) = %v with session %q, want session %q (a bad request naming id when empty)", tc.id, err, c.sessionID, tc.want)
+			}
+		})
+	}
+}

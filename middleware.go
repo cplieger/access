@@ -91,7 +91,7 @@ func (a *Authenticator) Authenticate(r *http.Request) (Principal, error) {
 	if a.bypassed() {
 		// A deep copy per request, so no consumer can mutate the principal
 		// handed to any other request: User holds a slice.
-		return Principal{User: syntheticAdminUser.Clone(), Method: MethodBypass}, nil
+		return Principal{User: syntheticAdminUser.Clone(), Method: MethodBypass, IP: a.ClientAddr(r).IP}, nil
 	}
 
 	ctx := r.Context()
@@ -116,6 +116,7 @@ func (a *Authenticator) Authenticate(r *http.Request) (Principal, error) {
 		if !ok {
 			continue
 		}
+		p.IP = a.ClientAddr(r).IP
 		return grant(p)
 	}
 	if unusable != nil {
@@ -155,6 +156,7 @@ func (a *Authenticator) Recheck(ctx context.Context, p Principal) (Principal, er
 	if !ok {
 		return Principal{}, ErrNotRecheckable
 	}
+	q.IP = p.IP
 	return grant(q)
 }
 
@@ -231,10 +233,9 @@ func (a *Authenticator) Cookie() CookieConfig { return a.cfg.Cookie }
 // configured one.
 func (a *Authenticator) Timeouts() SessionTimeouts { return a.cfg.timeouts() }
 
-// HasRole reports whether the user is authorized for the given role.
+// HasRole reports whether the user is authorized for the given role. A nil
+// user has no role.
 func HasRole(user *User, role Role) bool {
-	// Mirror the existing nil-guard convention in ValidateSession; fail-closed
-	// for a nil principal rather than panicking in an authz primitive.
 	if user == nil {
 		return false
 	}
@@ -246,7 +247,8 @@ func HasRole(user *User, role Role) bool {
 const maxRedirectURILength = 2048
 
 // ValidateRedirectURI returns uri when it is a safe relative path of at most
-// 2048 bytes, and "/" otherwise.
+// 2048 bytes holding no ASCII control byte (0x00 to 0x1F, 0x7F) anywhere, its
+// fragment included, and "/" otherwise.
 func ValidateRedirectURI(uri string) string {
 	if uri == "/" || len(uri) > maxRedirectURILength {
 		return "/"
@@ -258,6 +260,10 @@ func ValidateRedirectURI(uri string) string {
 		return "/"
 	}
 	if strings.Contains(uri, "\\") {
+		return "/"
+	}
+	// url.Parse refuses control bytes only before the '#'.
+	if strings.ContainsFunc(uri, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
 		return "/"
 	}
 	u, err := url.Parse(uri)

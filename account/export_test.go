@@ -2,6 +2,7 @@ package account
 
 import (
 	"context"
+	"net/netip"
 	"time"
 
 	"github.com/cplieger/access"
@@ -34,6 +35,9 @@ func NewWithHooks(ctx context.Context, cfg Config, h Hooks) (*Service, error) {
 // SweepFailures runs the failure-record leg once, as the sweep does.
 func SweepFailures(ctx context.Context, s *Service) error { return s.sweepFailures(ctx) }
 
+// SweepLog runs the log leg once at Config.Now, as the sweep does.
+func SweepLog(ctx context.Context, s *Service) { s.sweepLog(ctx, s.now()) }
+
 // AllowanceUsed is how many untrusted slots the current interval has taken.
 func AllowanceUsed(s *Service) int {
 	return int(s.allowance.state.Load() & (1<<allowanceUsedBits - 1))
@@ -52,9 +56,12 @@ func FailureName(s *Service, canonical string) string {
 	return failureName(s.failureMAC(), canonical)
 }
 
-// CurrentKeyActor runs the key-authority check inside tx.
+// CurrentKeyActor runs the key-authority check inside tx, for a run of its
+// own.
 func CurrentKeyActor(ctx context.Context, s *Service, tx Tx, op Operation, ref access.KeyRef, scope string) (Actor, *access.Key, error) {
-	return s.currentKeyActor(ctx, tx, op, ref, scope)
+	j := &journal{s: s}
+	j.reset(netip.Addr{})
+	return s.currentKeyActor(ctx, tx, j, op, ref, scope)
 }
 
 // Attribute appends one attribution record inside tx.
@@ -86,8 +93,8 @@ func RequireSession(p access.Principal) error { return requireSession(p) }
 // EventActorOf is a's identity as events carry it.
 func EventActorOf(a Actor) EventActor { return eventActor(a) }
 
-// Emit dispatches ev through s's OnEvent the way every operation does.
-func Emit(s *Service, ev Event) { s.emit(ev) }
+// Deliver hands ev to s's OnEvent the way every committed change does.
+func Deliver(s *Service, ev Event) { s.deliver(ev) }
 
 // Begin is the first call of every operation.
 func Begin(s *Service) (Rules, error) { return s.begin() }
@@ -109,12 +116,12 @@ const (
 func NewPendingCache(maxEntries int) PendingCache { return PendingCache{newPendingCache(maxEntries)} }
 
 // Put stores an entry for user and returns its ID.
-func (p PendingCache) Put(purpose PendingPurpose, user *access.User, now time.Time) string {
+func (p PendingCache) Put(purpose PendingPurpose, user access.User, now time.Time) string {
 	return p.c.put(purpose, pending{user: user}, now)
 }
 
 // Take returns the user stored under id.
-func (p PendingCache) Take(id string, purpose PendingPurpose, now time.Time) (*access.User, bool) {
+func (p PendingCache) Take(id string, purpose PendingPurpose, now time.Time) (access.User, bool) {
 	v, ok := p.c.take(id, purpose, now)
 	return v.user, ok
 }

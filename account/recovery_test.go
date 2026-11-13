@@ -199,6 +199,9 @@ func TestRecoveryCompletion(t *testing.T) {
 			if done := evs[0]; done.UserID != w.alice.ID || !slices.Equal(done.SessionIDs, ended) || done.KeyID != 0 || done.Actor.SessionID != w.rp.SessionID {
 				t.Errorf("EventRecoveryCompleted = %+v, want alice's with sessions %v and the recovery session as actor", done, ended)
 			}
+			if done := evs[0]; done.Method != c.method {
+				t.Errorf("EventRecoveryCompleted.Method = %q, want %q, the credential the completion installed", done.Method, c.method)
+			}
 			if got := []int64{evs[1].KeyID, evs[2].KeyID}; !slices.Equal(got, w.keys) {
 				t.Errorf("EventKeyRevoked keys = %v, want %v", got, w.keys)
 			}
@@ -473,6 +476,9 @@ func TestShellOnlyRepair(t *testing.T) {
 		if done := evs[0]; done.Actor.OutOfBand != "admin-socket" || done.UserID != w.alice.ID || !slices.Equal(done.SessionIDs, sessions) || done.KeyID != 0 {
 			t.Errorf("EventRecoveryCompleted = %+v, want alice's from admin-socket with sessions %v", done, sessions)
 		}
+		if done := evs[0]; done.Method != access.MethodPassword {
+			t.Errorf("EventRecoveryCompleted.Method = %q, want %q: the repair set a password", done.Method, access.MethodPassword)
+		}
 		if got := []int64{evs[1].KeyID, evs[2].KeyID}; !slices.Equal(got, keys) {
 			t.Errorf("EventKeyRevoked keys = %v, want %v", got, keys)
 		}
@@ -692,6 +698,28 @@ func TestDurableLockClears(t *testing.T) {
 				t.Error("the failed clear changed the password")
 			}
 		})
+	}
+}
+
+func TestStartRecoverySubjectDisabledBeforeUpdate(t *testing.T) {
+	t.Parallel()
+	w := newRecWorld(t, pwOptions{}, nil)
+	tok := w.issue(t, account.OutOfBand("socket"), w.alice.ID)
+	var once sync.Once
+	w.fs.onUpdate(func(ctx context.Context, _ int) {
+		once.Do(func() {
+			v := storedUser(t, w.mem, w.alice.ID)
+			v.Enabled = false
+			if err := w.mem.UpdateUser(ctx, v); err != nil {
+				t.Errorf("disable alice: %v", err)
+			}
+		})
+	})
+	if _, err := w.svc.StartRecovery(t.Context(), localClient, tok.Plaintext); !errors.Is(err, access.ErrTokenInvalid) {
+		t.Errorf("a start whose subject was disabled after the peek = %v, want access.ErrTokenInvalid", err)
+	}
+	if got := len(recoverySessions(t, w.mem, w.alice.ID)); got != 0 {
+		t.Errorf("recovery sessions = %d, want none", got)
 	}
 }
 

@@ -155,7 +155,7 @@ func newEnv(t testing.TB, o envOptions) *env {
 			return r
 		},
 		Logger:     logger,
-		FailureKey: []byte("authhttp-test-failure-key-32byte"),
+		FailureKey: []byte("accesshttp-test-failure-key-32by"),
 	}
 	if o.edit != nil {
 		o.edit(&cfg)

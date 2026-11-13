@@ -51,6 +51,7 @@ func StoreContract(t *testing.T, newStore func(t *testing.T) account.Store, cfg 
 		{c.absentRows, "rule_19_absent_rows"},
 		{c.fidelity, "rule_20_fidelity"},
 		{c.activity, "rule_21_activity"},
+		{c.securityLog, "rule_22_log"},
 	} {
 		t.Run(r.name, r.run)
 	}
@@ -61,14 +62,15 @@ func StoreContract(t *testing.T, newStore func(t *testing.T) account.Store, cfg 
 // run and skips the rest, each skip naming its rule.
 type ContractConfig struct {
 	// NewFaulty makes stores whose medium the returned DurabilityFaults can
-	// fail and count; rule 10's cases, rule 5's grouped-commit case, rule
-	// 14's re-run case and rule 16's direct-write case run on them. Nil
-	// skips those subtests.
+	// fail and count; rule 10's cases, rule 5's grouped-commit case, the
+	// re-run cases of rules 14 and 22 and rule 16's direct-write case run
+	// on them. Nil skips those subtests.
 	NewFaulty func(t *testing.T) (account.Store, DurabilityFaults)
 	// Reopen closes old, a store newStore made and the suite wrote to, and
 	// returns a store over the same medium; rule 20's fidelity case, rule
-	// 14's deleted-set case and rule 17's never-reused cases for users and
-	// keys run across it. Nil skips those subtests.
+	// 14's deleted-set case, rule 17's never-reused cases for users and
+	// keys and rule 22's Seq and stats cases run across it. Nil skips those
+	// subtests.
 	Reopen func(t *testing.T, old account.Store) account.Store
 }
 

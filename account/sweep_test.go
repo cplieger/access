@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -539,6 +540,18 @@ func TestSweepSessionsExpiredBounded(t *testing.T) {
 					t.Errorf("user %d keeps %d expired sessions", u, len(left))
 				}
 			}
+			var reported []int64
+			for _, rec := range f.logs.Records("account: sweep finished") {
+				rec.Attrs(func(a slog.Attr) bool {
+					if a.Key == "sessions" {
+						reported = append(reported, a.Value.Int64())
+					}
+					return true
+				})
+			}
+			if len(reported) == 0 || reported[len(reported)-1] != total {
+				t.Errorf("sweep finished reported sessions %v, want the tick's line naming all %d", reported, total)
+			}
 		})
 	})
 	t.Run("second_call_fails", func(t *testing.T) {
@@ -629,8 +642,8 @@ func TestEventPanicRecovered(t *testing.T) {
 			}
 		}
 	}})
-	account.Emit(f.svc, account.Event{Kind: account.EventKeyMinted})
-	account.Emit(f.svc, account.Event{Kind: account.EventKeyRevoked})
+	account.Deliver(f.svc, account.Event{Kind: account.EventKeyMinted})
+	account.Deliver(f.svc, account.Event{Kind: account.EventKeyRevoked})
 	if !slices.Equal(got, []account.EventKind{account.EventKeyMinted, account.EventKeyRevoked}) {
 		t.Errorf("hook saw %v, want key_minted then key_revoked", got)
 	}
@@ -638,7 +651,7 @@ func TestEventPanicRecovered(t *testing.T) {
 		t.Errorf("the panic logged %d ERROR lines, want 1", n)
 	}
 	none := newFixture(t, options{edit: func(c *account.Config) { c.OnEvent = nil }})
-	account.Emit(none.svc, account.Event{Kind: account.EventKeyMinted})
+	account.Deliver(none.svc, account.Event{Kind: account.EventKeyMinted})
 }
 
 type offlineStore struct {
@@ -682,7 +695,7 @@ func TestSweepPrunesPending(t *testing.T) {
 		f := newFixture(t, options{edit: withInterval})
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
 		cache := account.Pending(f.svc)
-		cache.Put(account.PurposeLogin, u, time.Now())
+		cache.Put(account.PurposeLogin, *u, time.Now())
 		time.Sleep(webauthn.CeremonyTimeout)
 		tick()
 		if n := cache.Len(); n != 0 {

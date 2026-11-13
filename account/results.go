@@ -112,6 +112,9 @@ type Me struct {
 	Current     CurrentSession
 	Methods     Methods
 	CanLinkOIDC bool // OIDCAvailable and not OIDCLinked
+	// SSOGoverned is Rules.SSOGoverned on a linked user: SetPassword and
+	// passkey registration answer ErrSSOGoverned.
+	SSOGoverned bool
 }
 
 // Recovery is a started recovery: the restricted session and what the

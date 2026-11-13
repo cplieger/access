@@ -62,6 +62,9 @@ func wireReasons(t *testing.T) []string {
 			errs = append(errs, &account.TextError{Field: f, Reason: r})
 		}
 	}
+	for _, r := range account.LogFilterReasons() {
+		errs = append(errs, &account.LogFilterError{Reason: r})
+	}
 	for _, r := range webauthn.OriginRejections() {
 		errs = append(errs, &webauthn.OriginError{Reason: r})
 	}
@@ -124,6 +127,7 @@ func TestReasonTable(t *testing.T) {
 		want = append(want, account.PolicyReasons()...)
 		want = append(want, account.UsernameReasons()...)
 		want = append(want, "label_disallowed_character", "label_too_long", "display_name_disallowed_character", "display_name_too_long")
+		want = append(want, "log_limit", "log_range", "log_kind", "log_id")
 		for _, r := range webauthn.OriginRejections() {
 			want = append(want, string(r))
 		}

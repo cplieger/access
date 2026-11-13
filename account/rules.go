@@ -76,9 +76,10 @@ type Rules struct {
 	// password or enrol a passkey (ErrSSOGoverned); unlinked users are
 	// unaffected.
 	SSOGoverned bool
-	// RevokeKeysOnCredentialChange deletes the user's API keys when the
-	// password is set or changed or an OIDC identity is linked. Disable and
-	// delete always delete keys, whatever this says.
+	// RevokeKeysOnCredentialChange deletes the user's API keys and their
+	// tokens when SetPassword sets or changes the password, and when an OIDC
+	// link migrates the account under SSOGoverned. Disable and delete always
+	// delete keys, whatever this says.
 	RevokeKeysOnCredentialChange bool
 }
 
@@ -112,9 +113,16 @@ const (
 	MaxKeyLineage = 8
 	// MaxSweepBatch is the most sessions one CleanupExpiredSessions call
 	// deletes, and so the most IDs one call's EventSessionsExpired events
-	// carry together; the sweep calls again within the tick until a call
-	// returns fewer.
+	// carry together, and the most entries one PruneLog call of New's log
+	// drain or the sweep removes; each calls again until a call removes
+	// fewer.
 	MaxSweepBatch = 1000
+	// DefaultLogMaxAge is Config.LogMaxAge's default.
+	DefaultLogMaxAge = 365 * 24 * time.Hour
+	// DefaultLogMaxChanges is Config.LogMaxChanges's default.
+	DefaultLogMaxChanges = 10000
+	// DefaultLogMaxSessions is Config.LogMaxSessions's default.
+	DefaultLogMaxSessions = 10000
 )
 
 const (

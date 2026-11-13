@@ -25,8 +25,10 @@ type Config struct {
 	RP            func() *webauthn.RelyingParty // nil func or nil result: passkeys off
 	OIDC          func() *oidc.Provider         // likewise for OIDC
 	Rules         func() Rules                  // read once per operation (hot reload)
-	// OnEvent receives every Event after its commit, synchronously in the
-	// committing goroutine. It must not block; a durable sink enqueues.
+	// OnEvent receives every Event after its commit, in Seq order,
+	// synchronously in the committing goroutine. It must not block. Delivery
+	// is at most once; the security log, appended in the same Update, is
+	// the durable record.
 	OnEvent func(Event)
 	// Breach is the client for the breached-password check. A Rules value
 	// whose Breach is not BreachOff is invalid while it is nil, at New and
@@ -34,9 +36,9 @@ type Config struct {
 	Breach *http.Client
 	Logger *slog.Logger     // nil: slog.Default() at each log call
 	Now    func() time.Time // nil: time.Now
-	// AdminScope, when set, lets a key of an admin user that carries this
-	// scope list users and every user's keys, and revoke any key. Empty:
-	// session only.
+	// AdminScope, when set, lets a key carrying it list users, every user's
+	// keys and the live invite and recovery tokens, read the security log and
+	// revoke any key, where Policy allows. Empty: session only.
 	AdminScope string
 	// ManageUsersScope, when set, lets a key carrying this scope create,
 	// update and delete RoleUser accounts, invite RoleUser accounts and
@@ -55,11 +57,23 @@ type Config struct {
 	// store's lifetime. New copies it and keeps no reference to the slice.
 	FailureKey []byte
 	// CleanupInterval is how often expired sessions, tokens, pending
-	// ceremonies and failure records of names that are not users are swept,
-	// and locks reported; zero means 5m.
+	// ceremonies, failure records of names that are not users and
+	// security-log entries past LogMaxAge are swept, and locks reported;
+	// zero means 5m.
 	CleanupInterval time.Duration
 	// MaxPending bounds the pending WebAuthn ceremonies; zero means 10000.
 	MaxPending int
+	// LogMaxAge is how long a security-log entry is kept; zero means
+	// DefaultLogMaxAge. Each sweep removes older entries, so one may stay up
+	// to a CleanupInterval longer.
+	LogMaxAge time.Duration
+	// LogMaxChanges and LogMaxSessions cap the entries of LogClassChange and
+	// LogClassSession; zero means DefaultLogMaxChanges and
+	// DefaultLogMaxSessions. Every append removes its class's oldest entries
+	// beyond the cap in the same Update, counted in LogClassStats.Evicted,
+	// and New first drains a log already past a cap.
+	LogMaxChanges  int
+	LogMaxSessions int
 }
 
 const (

@@ -44,11 +44,14 @@ type faultStore struct {
 	published    atomic.Int64           // durable commits; a grouped one counts once
 	updateNanos  atomic.Int64           // wall time spent inside Update calls
 	failNamed    atomic.Pointer[string] // the next write of this name inside an Update fails
+	namedSkip    atomic.Int64           // writes of failNamed's name that pass before it fails
 	refuseNamed  atomic.Pointer[namedRefusal]
 	failApplied  atomic.Bool // the next Update publishes, then returns errFault
 	honourCtx    atomic.Bool // an Update whose ctx has ended returns its error
 	grouping     atomic.Bool
-	msTimes      atomic.Bool // PutAuthFailure keeps LockedAt to the millisecond, as rule 11 allows
+	msTimes      atomic.Bool            // PutAuthFailure keeps LockedAt to the millisecond, as rule 11 allows
+	reRuns       atomic.Bool            // every Update runs fn once and rolls it back before the run it keeps
+	locksFirst   atomic.Pointer[string] // UnreportedLocks returns this name's records first; nil: the MemStore's order
 }
 
 var _ account.Store = (*faultStore)(nil)
@@ -84,7 +87,14 @@ func (s *faultStore) failWrite(n int) {
 
 // failCall makes the next write named name inside an Update return
 // errFault.
-func (s *faultStore) failCall(name string) { s.failNamed.Store(&name) }
+func (s *faultStore) failCall(name string) { s.failCallNth(name, 1) }
+
+// failCallNth makes the nth write named name inside an Update, counted from
+// now, return errFault.
+func (s *faultStore) failCallNth(name string, n int) {
+	s.namedSkip.Store(int64(n - 1))
+	s.failNamed.Store(&name)
+}
 
 // namedRefusal is the error the next write of name returns.
 type namedRefusal struct {
@@ -92,8 +102,8 @@ type namedRefusal struct {
 	name string
 }
 
-// refuseCall makes the next write named name, inside an Update or a single
-// call, return err.
+// refuseCall makes the next write, or the next read that goes through
+// refusableRead, named name, inside an Update or a single call, return err.
 func (s *faultStore) refuseCall(name string, err error) {
 	s.refuseNamed.Store(&namedRefusal{name: name, err: err})
 }
@@ -126,6 +136,13 @@ func (s *faultStore) delayReads(d time.Duration) { s.readDelay.Store(int64(d)) }
 // millisecondTimes makes the store keep FailureCount.LockedAt truncated to
 // the millisecond, the least precision StoreContract allows.
 func (s *faultStore) millisecondTimes() { s.msTimes.Store(true) }
+
+// reRun makes every Update run its callback twice and keep the second
+// run, as a store that retries a conflicting transaction does (rule 5).
+func (s *faultStore) reRun(on bool) { s.reRuns.Store(on) }
+
+// errRolledBack ends a re-run's discarded first run.
+var errRolledBack = errors.New("faultstore: first run rolled back")
 
 // onUpdate sets the hook every Update runs as it starts, with its ordinal.
 func (s *faultStore) onUpdate(f func(ctx context.Context, n int)) {
@@ -187,6 +204,15 @@ func (s *faultStore) read(ctx context.Context, update int, name, arg string) {
 	}
 }
 
+// refusableRead is read for a call refuseCall can fail.
+func (s *faultStore) refusableRead(ctx context.Context, update int, name string) error {
+	s.read(ctx, update, name, "")
+	if r := s.refuseNamed.Load(); r != nil && r.name == name && s.refuseNamed.CompareAndSwap(r, nil) {
+		return r.err
+	}
+	return nil
+}
+
 func (s *faultStore) write(ctx context.Context, update int, name, arg string) error {
 	s.record(ctx, update, name, arg)
 	if r := s.refuseNamed.Load(); r != nil && r.name == name && s.refuseNamed.CompareAndSwap(r, nil) {
@@ -195,7 +221,7 @@ func (s *faultStore) write(ctx context.Context, update int, name, arg string) er
 	if update == 0 {
 		return nil
 	}
-	if named := s.failNamed.Load(); named != nil && *named == name && s.failNamed.CompareAndSwap(named, nil) {
+	if named := s.failNamed.Load(); named != nil && *named == name && s.namedSkip.Add(-1) < 0 && s.failNamed.CompareAndSwap(named, nil) {
 		return errFault
 	}
 	n := s.writes.Add(1)
@@ -234,6 +260,17 @@ func (s *faultStore) Update(ctx context.Context, fn func(account.Tx) error) erro
 	}
 	if s.grouping.Load() {
 		return s.grouped(ctx, n, fn)
+	}
+	if s.reRuns.Load() {
+		err := s.mem.Update(ctx, func(tx account.Tx) error {
+			if err := fn(&faultTx{inner: tx, s: s, update: n}); err != nil {
+				return err
+			}
+			return errRolledBack
+		})
+		if !errors.Is(err, errRolledBack) {
+			return err
+		}
 	}
 	err := s.mem.Update(ctx, func(tx account.Tx) error { return s.run(fn, tx, n) })
 	if err != nil {
@@ -486,7 +523,9 @@ func (t *faultTx) SessionByHash(ctx context.Context, tokenHash access.Hash) (*ac
 }
 
 func (t *faultTx) SessionsByUserID(ctx context.Context, userID int64) ([]access.Session, error) {
-	t.s.read(ctx, t.update, "SessionsByUserID", "")
+	if err := t.s.refusableRead(ctx, t.update, "SessionsByUserID"); err != nil {
+		return nil, err
+	}
 	return t.inner.SessionsByUserID(ctx, userID)
 }
 
@@ -589,12 +628,16 @@ func (t *faultTx) APIKeyByHash(ctx context.Context, hash access.Hash) (*access.K
 }
 
 func (t *faultTx) ListAPIKeysByUserID(ctx context.Context, userID int64) ([]access.Key, error) {
-	t.s.read(ctx, t.update, "ListAPIKeysByUserID", "")
+	if err := t.s.refusableRead(ctx, t.update, "ListAPIKeysByUserID"); err != nil {
+		return nil, err
+	}
 	return t.scrubbed(t.inner.ListAPIKeysByUserID(ctx, userID))
 }
 
 func (t *faultTx) ListAPIKeys(ctx context.Context) ([]access.Key, error) {
-	t.s.read(ctx, t.update, "ListAPIKeys", "")
+	if err := t.s.refusableRead(ctx, t.update, "ListAPIKeys"); err != nil {
+		return nil, err
+	}
 	return t.scrubbed(t.inner.ListAPIKeys(ctx))
 }
 
@@ -693,7 +736,17 @@ func (t *faultTx) PutAuthFailure(ctx context.Context, f account.FailureCount) er
 
 func (t *faultTx) UnreportedLocks(ctx context.Context) ([]account.FailureCount, error) {
 	t.s.read(ctx, t.update, "UnreportedLocks", "")
-	return t.inner.UnreportedLocks(ctx)
+	locks, err := t.inner.UnreportedLocks(ctx)
+	if first := t.s.locksFirst.Load(); first != nil {
+		rank := func(c account.FailureCount) int {
+			if c.Name == *first {
+				return 0
+			}
+			return 1
+		}
+		slices.SortStableFunc(locks, func(a, b account.FailureCount) int { return rank(a) - rank(b) })
+	}
+	return locks, err
 }
 
 func (t *faultTx) DeleteAuthFailures(ctx context.Context, name string, methods []access.Method) error {
@@ -708,6 +761,34 @@ func (t *faultTx) PruneAuthFailures(ctx context.Context, keep []string) (int64, 
 		return 0, err
 	}
 	return t.inner.PruneAuthFailures(ctx, keep)
+}
+
+func (t *faultTx) AppendLog(ctx context.Context, e *account.LogEntry) error {
+	if err := t.s.write(ctx, t.update, "AppendLog", string(e.Event.Kind)); err != nil {
+		return err
+	}
+	return t.inner.AppendLog(ctx, e)
+}
+
+func (t *faultTx) ListLog(ctx context.Context, r account.LogRange) ([]account.LogEntry, error) {
+	if err := t.s.refusableRead(ctx, t.update, "ListLog"); err != nil {
+		return nil, err
+	}
+	return t.inner.ListLog(ctx, r)
+}
+
+func (t *faultTx) PruneLog(ctx context.Context, p account.LogPrune) (int, error) {
+	if err := t.s.write(ctx, t.update, "PruneLog", string(p.Class)); err != nil {
+		return 0, err
+	}
+	return t.inner.PruneLog(ctx, p)
+}
+
+func (t *faultTx) LogStats(ctx context.Context) ([]account.LogClassStats, error) {
+	if err := t.s.refusableRead(ctx, t.update, "LogStats"); err != nil {
+		return nil, err
+	}
+	return t.inner.LogStats(ctx)
 }
 
 func TestFaultStore(t *testing.T) {

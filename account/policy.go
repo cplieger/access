@@ -17,7 +17,7 @@ const (
 	OpSetEnabled    Operation = "set_enabled"
 	OpInvite        Operation = "invite"
 	OpIssueRecovery Operation = "issue_recovery"
-	OpListUsers     Operation = "list_users"      // the admin user list and the live invite and recovery tokens
+	OpListUsers     Operation = "list_users"      // the admin user list, the live invite and recovery tokens, and the security log
 	OpManageAllKeys Operation = "manage_all_keys" // list and revoke every user's keys
 	OpMigrateToSSO  Operation = "migrate_to_sso"  // an OIDC link under Rules.SSOGoverned
 	OpCreateKeyFor  Operation = "create_key_for"  // an out-of-band actor mints a key for Target

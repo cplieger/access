@@ -93,6 +93,7 @@ func TestRenameSession(t *testing.T) {
 	}{
 		{name: "at_cap", in: account.SessionLabel{ID: pr.SessionID, Label: strings.Repeat("é", 64)}, label: strings.Repeat("é", 64)},
 		{name: "cleared", in: account.SessionLabel{ID: pr.SessionID}},
+		{name: "emoji_joiner_kept", in: account.SessionLabel{ID: pr.SessionID, Label: "\U0001F469\u200d\U0001F4BB laptop"}, label: "\U0001F469\u200d\U0001F4BB laptop"},
 		{name: "over_cap", in: account.SessionLabel{ID: pr.SessionID, Label: strings.Repeat("a", 65)}, want: &account.TextError{Field: "label", Reason: "too_long"}},
 		{name: "newline", in: account.SessionLabel{ID: pr.SessionID, Label: "laptop\nphone"}, want: &account.TextError{Field: "label", Reason: "disallowed_character"}},
 		{name: "bidi_control", in: account.SessionLabel{ID: pr.SessionID, Label: "lap\u202etop"}, want: &account.TextError{Field: "label", Reason: "disallowed_character"}},

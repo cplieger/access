@@ -1,7 +1,7 @@
 package accesshttp
 
 import (
-	"net/http"
+	"fmt"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -19,11 +19,26 @@ func browserNormalised(loc string) string {
 	return strings.ReplaceAll(loc, `\`, "/")
 }
 
+// asciiLocation is target as an RFC 3986 URI-reference carries it: each byte
+// >= 0x80 written as %XX, every other byte unchanged.
+func asciiLocation(target string) string {
+	var b strings.Builder
+	for _, c := range []byte(target) {
+		if c >= 0x80 {
+			fmt.Fprintf(&b, "%%%02X", c)
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
 // FuzzCallbackLocation holds the callback's emission to the origin: for any
 // input, the Location written for ValidateRedirectURI's answer, with each
-// marker, is a path-absolute reference that resolves on the app's origin.
+// marker, is that target with only its non-ASCII bytes percent-escaped, and
+// a path-absolute reference that resolves on the app's origin.
 func FuzzCallbackLocation(f *testing.F) {
-	for _, seed := range []string{"/%2Fevil.com/|", "/%2f</@", "/%2F%2Fevil.com x", "/a#x?y"} {
+	for _, seed := range []string{"/%2Fevil.com/|", "/%2f</@", "/%2F%2Fevil.com x", "/a#x?y", "/settings#/../../admin", "/caf\u00e9#\u00e9", "/a\xff"} {
 		f.Add(seed)
 	}
 	app, err := url.Parse("https://app.example/")
@@ -39,8 +54,11 @@ func FuzzCallbackLocation(f *testing.F) {
 			withMarker(sealed, markerError, "x"),
 		} {
 			w := httptest.NewRecorder()
-			redirect(w, httptest.NewRequest(http.MethodGet, "https://app.example/api/auth/oidc/callback", nil), target)
+			redirect(w, target)
 			loc := w.Header().Get("Location")
+			if want := asciiLocation(target); loc != want {
+				t.Fatalf("input %q: Location %q, want %q", s, loc, want)
+			}
 			n := browserNormalised(loc)
 			if !strings.HasPrefix(n, "/") || strings.HasPrefix(n, "//") {
 				t.Fatalf("input %q: Location %q is not one path-absolute reference", s, loc)

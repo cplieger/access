@@ -46,22 +46,25 @@ func (s *Service) CreateUser(ctx context.Context, a Actor, in NewUser) (*access.
 		WebAuthnHandle: access.GenerateWebAuthnHandle(), CreatedAt: now, UpdatedAt: now,
 	}
 	var user access.User
-	err = s.update(ctx, func(tx Tx) error {
+	err = s.change(ctx, by(a), func(tx Tx, j *journal) error {
 		user = base
-		return s.createUserIn(ctx, tx, a, &user)
+		if createErr := s.createUserIn(ctx, tx, j, a, &user); createErr != nil {
+			return createErr
+		}
+		j.add(Event{Kind: EventUserCreated, At: now, UserID: user.ID, Role: user.Role, Actor: eventActor(a)})
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	s.emit(Event{Kind: EventUserCreated, At: now, UserID: user.ID, Actor: eventActor(a)})
 	return user.Clone(), nil
 }
 
 // createUserIn is CreateUser's Update: a's authority, the Policy on the
 // user set read in tx, the admin-target rule, the user, and a key's
 // created attribution.
-func (s *Service) createUserIn(ctx context.Context, tx Tx, a Actor, user *access.User) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
-	ua, err := s.userAdminIn(ctx, tx, OpCreateUser, a)
+func (s *Service) createUserIn(ctx context.Context, tx Tx, j *journal, a Actor, user *access.User) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
+	ua, err := s.userAdminIn(ctx, tx, j, OpCreateUser, a)
 	if err != nil {
 		return err
 	}

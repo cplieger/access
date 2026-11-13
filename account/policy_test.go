@@ -16,7 +16,7 @@ var (
 	userV  = access.User{ID: 4, Username: "v", Role: access.RoleUser, Enabled: false}
 )
 
-// actorKinds are the four kinds of actor every operation is tried with.
+// actorKinds are the kinds of actor every operation is tried with.
 func actorKinds() map[string]account.Actor {
 	a, u := adminA, userU
 	return map[string]account.Actor{
@@ -24,6 +24,7 @@ func actorKinds() map[string]account.Actor {
 		"out_of_band": account.OutOfBand("socket"),
 		"admin":       account.As(access.Principal{User: &a, Method: access.MethodPassword}),
 		"user":        account.As(access.Principal{User: &u, Method: access.MethodPassword}),
+		"no_user":     account.As(access.Principal{Method: access.MethodPassword}),
 	}
 }
 
@@ -156,6 +157,8 @@ func TestRolePolicyTable(t *testing.T) {
 		a, b := adminA, adminB
 		c := adminB
 		c.ID, c.PasswordHash = 5, access.NewHash("$argon2id$c")
+		aDisabled, u := adminA, userU
+		aDisabled.Enabled = false
 		actorA := account.As(access.Principal{User: &a, Method: access.MethodOIDC})
 		actorB := account.As(access.Principal{User: &b, Method: access.MethodOIDC})
 		for _, tc := range []struct {
@@ -168,6 +171,8 @@ func TestRolePolicyTable(t *testing.T) {
 			{name: "disable", d: account.Decision{Op: account.OpSetEnabled, Actor: actorB, Target: &a, Users: []access.User{a, b}}},
 			{name: "migrate", d: account.Decision{Op: account.OpMigrateToSSO, Actor: actorA, Target: &a, Users: []access.User{a, b}}},
 			{name: "migrate_another_local_left", keep: true, d: account.Decision{Op: account.OpMigrateToSSO, Actor: actorA, Target: &a, Users: []access.User{a, b, c}}},
+			{name: "delete_disabled_local_admin", keep: true, d: account.Decision{Op: account.OpDeleteUser, Actor: actorB, Target: &aDisabled, Users: []access.User{aDisabled, b}}},
+			{name: "delete_user_with_no_local_admin", keep: true, d: account.Decision{Op: account.OpDeleteUser, Actor: actorB, Target: &u, Users: []access.User{b, u}}},
 		} {
 			if err := (account.RolePolicy{}).Authorize(t.Context(), tc.d); err != nil {
 				t.Errorf("%s without KeepLocalAdmin = %v, want allowed", tc.name, err)

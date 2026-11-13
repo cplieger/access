@@ -251,3 +251,7 @@ func (s stubAccount) RevokeAnyAPIKey(ctx context.Context, p access.Principal, id
 func (s stubAccount) Tokens(ctx context.Context, p access.Principal) ([]account.ListedToken, error) {
 	return stubbed(s, "Tokens", func() ([]account.ListedToken, error) { return s.accountAPI.Tokens(ctx, p) })
 }
+
+func (s stubAccount) SecurityLog(ctx context.Context, p access.Principal, f account.LogFilter) (account.LogPage, error) {
+	return stubbed(s, "SecurityLog", func() (account.LogPage, error) { return s.accountAPI.SecurityLog(ctx, p, f) })
+}

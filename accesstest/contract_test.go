@@ -1,8 +1,10 @@
 package accesstest
 
 import (
+	"maps"
 	"os"
 	"os/exec"
+	"reflect"
 	"regexp"
 	"slices"
 	"testing"
@@ -31,9 +33,40 @@ func TestStoreContractMemStoreSkips(t *testing.T) {
 		"TestStoreContractMemStore/rule_17_ids_and_lineage/reopen_keys",
 		"TestStoreContractMemStore/rule_17_ids_and_lineage/reopen_users",
 		"TestStoreContractMemStore/rule_20_fidelity/reopen",
+		"TestStoreContractMemStore/rule_22_log/seq_never_reused_reopen",
+		"TestStoreContractMemStore/rule_22_log/seq_re_run",
+		"TestStoreContractMemStore/rule_22_log/stats_reopen",
 	}
 	if got := reported(out, "SKIP"); !slices.Equal(got, want) {
 		t.Errorf("skipped subtests = %v, want exactly %v", got, want)
+	}
+}
+
+// TestTxCallsCoverTx pins rule 18's hand list to account.Tx, so a Tx method
+// left out of txCalls fails here.
+func TestTxCallsCoverTx(t *testing.T) {
+	t.Parallel()
+	s := NewMemStore()
+	calls := map[string]bool{}
+	for _, call := range txCalls(s, seedRows(t, s)) {
+		if calls[call.name] {
+			t.Errorf("txCalls lists %s twice", call.name)
+		}
+		calls[call.name] = true
+	}
+	methods := map[string]bool{}
+	for m := range reflect.TypeFor[account.Tx]().Methods() {
+		methods[m.Name] = true
+	}
+	for _, name := range slices.Sorted(maps.Keys(methods)) {
+		if !calls[name] {
+			t.Errorf("txCalls has no call of Tx.%s", name)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(calls)) {
+		if !methods[name] {
+			t.Errorf("txCalls lists %s, which is not a Tx method", name)
+		}
 	}
 }
 

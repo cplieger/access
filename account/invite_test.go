@@ -112,6 +112,22 @@ func TestInviteRefusalsLeaveTokenUsable(t *testing.T) {
 	}
 }
 
+func TestAcceptInviteOtherPurposeToken(t *testing.T) {
+	t.Parallel()
+	w := newAdminWorld(t, options{}, nil)
+	rec, err := w.f.svc.IssueRecovery(t.Context(), account.OutOfBand("socket"), w.alice.ID, 0)
+	if err != nil {
+		t.Fatalf("IssueRecovery = %v", err)
+	}
+	in := account.AcceptInvite{Token: rec.Plaintext, Username: "newcomer", Password: access.NewSecret("short")}
+	if _, err := w.f.svc.AcceptInvitePassword(t.Context(), localClient, in); !errors.Is(err, access.ErrTokenInvalid) {
+		t.Errorf("a recovery token presented as an invite = %v, want access.ErrTokenInvalid before the password rules", err)
+	}
+	if usernameTaken(t, w.f, "newcomer") {
+		t.Error("a recovery token created a user")
+	}
+}
+
 // keyIssuer is a world whose admin root holds a session-minted parent P
 // (both permissions) and P's child K (manage_users) expiring in expiresIn,
 // with a second admin boss for the owner changes.
@@ -239,6 +255,20 @@ func TestKeyIssuedTokens(t *testing.T) {
 			}
 		})
 	}
+	t.Run("scope_emptied_reads_no_key", func(t *testing.T) {
+		t.Parallel()
+		ki := newKeyIssuer(t, time.Hour)
+		inv, err := ki.f.svc.CreateInvite(t.Context(), ki.k.p, access.RoleUser, 0)
+		if err != nil {
+			t.Fatalf("CreateInvite = %v", err)
+		}
+		svc := restart("")(t, ki)
+		ki.fs.refuseCall("ListAPIKeys", errFault)
+		_, err = svc.AcceptInvitePassword(t.Context(), localClient, account.AcceptInvite{Token: inv.Plaintext, Username: "joiner", Password: access.NewSecret(goodPassword)})
+		if !errors.Is(err, access.ErrTokenInvalid) {
+			t.Errorf("redeeming with no ManageUsersScope while key reads fail = %v, want access.ErrTokenInvalid with no key read", err)
+		}
+	})
 	t.Run("accepted", func(t *testing.T) {
 		t.Parallel()
 		ki := newKeyIssuer(t, time.Hour)

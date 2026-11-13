@@ -45,7 +45,7 @@ func serveOIDCStartSignIn(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	redirect(c.w, c.r, authURL)
+	redirect(c.w, authURL)
 	return nil
 }
 
@@ -111,19 +111,19 @@ func (h *Handler) land(c *call, out *account.OIDCOutcome) error {
 	case account.OutcomeSignedIn:
 		h.setSignedIn(c.w, c.r, out.SignedIn)
 		h.auditSuccess(c, out.SignedIn.User, out.SignedIn.Session)
-		redirect(c.w, c.r, out.Redirect)
+		redirect(c.w, out.Redirect)
 	case account.OutcomeLinked:
 		h.setIssued(c.w, c.r, out.Issued)
-		redirect(c.w, c.r, withMarker(out.Redirect, markerOIDC, "linked"))
+		redirect(c.w, withMarker(out.Redirect, markerOIDC, "linked"))
 	case account.OutcomeSteppedUp:
 		h.setIssued(c.w, c.r, out.Issued)
 		h.auditSuccess(c, nil, out.Issued.Session)
-		redirect(c.w, c.r, withMarker(out.Redirect, markerOIDC, "stepped_up"))
+		redirect(c.w, withMarker(out.Redirect, markerOIDC, "stepped_up"))
 	case account.OutcomeNotLinked:
 		if err := h.setPendingLink(c, out.Pending); err != nil {
 			return err
 		}
-		redirect(c.w, c.r, withMarker(h.signIn, markerOIDC, "not_linked"))
+		redirect(c.w, withMarker(h.signIn, markerOIDC, "not_linked"))
 	default:
 		return fmt.Errorf("accesshttp: unknown OIDC outcome %d", out.Kind)
 	}
@@ -138,7 +138,7 @@ func (h *Handler) redirectFailure(c *call, err error, flow oidc.Flow) { //nolint
 	if flow.Intent == oidc.IntentLink || flow.Intent == oidc.IntentStepUp {
 		target = flow.Redirect
 	}
-	redirect(c.w, c.r, withMarker(target, markerError, string(e.Code)))
+	redirect(c.w, withMarker(target, markerError, string(e.Code)))
 }
 
 // setPendingLink seals p into the pending cookie. A link whose payload Seal

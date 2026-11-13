@@ -181,7 +181,7 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 
 ## Account service
 
-`account.New(ctx, cfg)` takes an `account.Config`. It refuses a nil `Store`, `Policy`, `Authenticator`, `Hasher`, `Limiter` or `Rules`, a `FailureKey` that is not 32 bytes, two equal non-empty scopes, a negative `CleanupInterval` or `MaxPending`, and a `Rules()` value that `Rules.Validate` refuses or whose breach mode has no `Breach` client.
+`account.New(ctx, cfg)` takes an `account.Config`. It refuses a nil `Store`, `Policy`, `Authenticator`, `Hasher`, `Limiter` or `Rules`, a `FailureKey` that is not 32 bytes, two equal non-empty scopes, a negative `CleanupInterval`, `MaxPending`, `LogMaxAge`, `LogMaxChanges` or `LogMaxSessions`, and a `Rules()` value that `Rules.Validate` refuses or whose breach mode has no `Breach` client. Before it returns, it trims the [security log](security-log.md) to its caps and `LogMaxAge` and sweeps the failure records, and it returns a store error from either.
 
 | Field | What it sets | Default |
 | --- | --- | --- |
@@ -194,15 +194,20 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 | `FailureKey` | The 32-byte HMAC key that names failure records. Persist it beside the device-cookie key ring: a new key resets every count and clears every lock, with no event | required |
 | `RP` | A function returning the passkey relying party | nil: passkeys off |
 | `OIDC` | A function returning the OIDC provider | nil: OIDC off |
-| `OnEvent` | Receives every event after its commit, in the committing goroutine. It must not block | nil: none |
+| `OnEvent` | Receives every event after its commit, in the committing goroutine, with the `Seq` of its security-log entry, or 0 for `EventSessionsExpired`, which the log does not hold. It must not block. It is called at most once per event: a crash after the commit loses the call, never the log entry | nil: none |
 | `Breach` | The HTTP client for the breached-password check | nil: required only when `Rules.Breach` is not `BreachOff` |
-| `AdminScope` | The key scope that lets an admin's key list users and every user's keys, and revoke any key | empty: session only |
+| `AdminScope` | The key scope that lets an admin's key list users, every user's keys and the live invite and recovery tokens, read the security log, and revoke any key | empty: session only |
 | `ManageUsersScope` | The key scope that lets a key manage `RoleUser` accounts, described below | empty: session only, under recent sign-in |
 | `CreateKeysScope` | The key scope that lets a key mint keys for its own user, described below | empty: session only, under recent sign-in |
-| `CleanupInterval` | How often expired sessions, tokens, pending ceremonies and stale failure records are swept | 5m |
+| `CleanupInterval` | How often expired sessions, tokens, pending ceremonies, stale failure records and security-log entries past `LogMaxAge` are swept, and locks reported | 5m |
 | `MaxPending` | The most pending WebAuthn ceremonies held, oldest evicted first | 10000 |
+| `LogMaxAge` | How long a security-log entry is kept; the sweep removes older ones | `account.DefaultLogMaxAge`, 365 days |
+| `LogMaxChanges` | The most entries of the security log's change class; each append removes the oldest beyond it | `account.DefaultLogMaxChanges`, 10000 |
+| `LogMaxSessions` | The most entries of the security log's session class, with the same rule | `account.DefaultLogMaxSessions`, 10000 |
 | `Logger` | The `*slog.Logger` | `slog.Default()` at each call |
 | `Now` | The clock | `time.Now` |
+
+`Service.SecurityLog` returns `account.DefaultLogPage` (50) entries when `LogFilter.Limit` is zero, and at most `account.MaxLogPage` (500). [The security log](security-log.md) explains the classes, the caps and reading the log.
 
 `RP` and `OIDC` are read on every operation, so an app that swaps its provider at run time does so by returning the new value. A provider swapped in mid-flow fails that flow closed.
 
@@ -226,7 +231,7 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 | `MaxSessionsPerUser` | The most sessions per user; a new one past it ends the user's least recently active | 0: unlimited |
 | `DisablePasswordLogin` | Refuses password sign-in and step-up | false: allowed |
 | `SSOGoverned` | Makes linking an OIDC identity remove the password and passkeys; only recovery restores a local method | false |
-| `RevokeKeysOnCredentialChange` | Deletes the user's API keys when the password is set or changed or an OIDC identity is linked | false |
+| `RevokeKeysOnCredentialChange` | Deletes the user's API keys, and the tokens they issued, when `SetPassword` sets or changes the password, and when an OIDC link under `SSOGoverned` migrates the account. Disabling and deleting a user always delete the keys, and a recovery does unless `RecoverOptions.KeepKeys` is set | false |
 
 An app may refuse a sign-in method in its own gate before `account` sees the attempt. `Rules` has no sign-in hook for that, and `MethodUsable` keeps the last-method guard from counting a method the app refuses.
 
@@ -255,7 +260,7 @@ Every key-authorized write re-reads the key and its owner inside its own transac
 | `Audit` | Receives the request-level outcomes that change no state | nil: none |
 | `Prefix` | The path every route not under `OIDCPrefix` starts with, such as `/api/auth` | empty |
 | `OIDCPrefix` | The prefix of the OIDC start and callback routes | empty |
-| `SignInPath` | Where the OIDC callback sends a browser on any outcome other than success | empty |
+| `SignInPath` | Where the OIDC callback sends a browser on any outcome other than success. A value that is not a safe relative path, as `access.ValidateRedirectURI` judges it, is replaced by `/` | `/` |
 | `PendingSealer` | The `*access.Sealer` for the pending-link cookie | an ephemeral sealer, so a restart drops a pending link |
 | `Logger` | The `*slog.Logger` | `slog.Default()` at each call |
 

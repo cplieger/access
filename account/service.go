@@ -1,6 +1,7 @@
 package account
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -39,12 +40,15 @@ type Service struct {
 	hooks     testHooks
 	// failureKey is Config.FailureKey, masked; it is revealed only to build
 	// each failure-record HMAC, so no field holds the key or a keyed HMAC.
-	failureKey access.Secret
-	adminScope string
-	usersScope string
-	keysScope  string
-	interval   time.Duration
-	closed     atomic.Bool
+	failureKey  access.Secret
+	adminScope  string
+	usersScope  string
+	keysScope   string
+	interval    time.Duration
+	logMaxAge   time.Duration
+	logChanges  int
+	logSessions int
+	closed      atomic.Bool
 }
 
 // testHooks are set only from export_test.go; every nil hook is skipped.
@@ -68,11 +72,11 @@ type testHooks struct {
 // New refuses a nil Store, Policy, Authenticator, Hasher, Limiter or Rules,
 // a FailureKey that is not 32 bytes (naming the field, never the bytes), two
 // equal non-empty scopes among AdminScope, ManageUsersScope and
-// CreateKeysScope, a negative CleanupInterval or MaxPending, and a Rules()
-// value Rules.Validate refuses or whose breach mode lacks Config.Breach. It
-// runs the failure-record sweep once and returns its store error, then
-// starts the cleanup sweep on ctx's values, not its cancellation, until
-// Shutdown.
+// CreateKeysScope, a negative CleanupInterval, MaxPending or Log* field, and
+// a Rules() value Rules.Validate refuses or whose breach mode lacks
+// Config.Breach. It drains the security log to its caps and LogMaxAge and
+// runs the failure-record sweep, returning either's store error, then
+// sweeps on ctx's values, not its cancellation, until Shutdown.
 func New(ctx context.Context, cfg Config) (*Service, error) { //nolint:gocritic // hugeParam: a construction input, read once
 	return newService(ctx, cfg, testHooks{})
 }
@@ -82,26 +86,29 @@ func newService(ctx context.Context, cfg Config, hooks testHooks) (*Service, err
 		return nil, err
 	}
 	s := &Service{
-		store:      cfg.Store,
-		policy:     cfg.Policy,
-		authn:      cfg.Authenticator,
-		hasher:     hasherOf{cfg.Hasher},
-		limiter:    cfg.Limiter,
-		rp:         cfg.RP,
-		oidc:       cfg.OIDC,
-		rulesFn:    cfg.Rules,
-		onEvent:    cfg.OnEvent,
-		breach:     cfg.Breach,
-		log:        cfg.Logger,
-		clock:      cfg.Now,
-		hooks:      hooks,
-		adminScope: cfg.AdminScope,
-		usersScope: cfg.ManageUsersScope,
-		keysScope:  cfg.CreateKeysScope,
-		failureKey: access.NewSecret(string(cfg.FailureKey)),
-		interval:   cfg.CleanupInterval,
-		done:       make(chan struct{}),
-		allowance:  newAllowance(),
+		store:       cfg.Store,
+		policy:      cfg.Policy,
+		authn:       cfg.Authenticator,
+		hasher:      hasherOf{cfg.Hasher},
+		limiter:     cfg.Limiter,
+		rp:          cfg.RP,
+		oidc:        cfg.OIDC,
+		rulesFn:     cfg.Rules,
+		onEvent:     cfg.OnEvent,
+		breach:      cfg.Breach,
+		log:         cfg.Logger,
+		clock:       cfg.Now,
+		hooks:       hooks,
+		adminScope:  cfg.AdminScope,
+		usersScope:  cfg.ManageUsersScope,
+		keysScope:   cfg.CreateKeysScope,
+		failureKey:  access.NewSecret(string(cfg.FailureKey)),
+		interval:    cfg.CleanupInterval,
+		logMaxAge:   cmp.Or(cfg.LogMaxAge, DefaultLogMaxAge),
+		logChanges:  cmp.Or(cfg.LogMaxChanges, DefaultLogMaxChanges),
+		logSessions: cmp.Or(cfg.LogMaxSessions, DefaultLogMaxSessions),
+		done:        make(chan struct{}),
+		allowance:   newAllowance(),
 	}
 	if hooks.wrapHasher != nil {
 		s.hasher = hooks.wrapHasher(s.hasher)
@@ -115,6 +122,9 @@ func newService(ctx context.Context, cfg Config, hooks testHooks) (*Service, err
 	}
 	s.pending = newPendingCache(maxPending)
 	if err := s.checkRules(cfg.Rules()); err != nil {
+		return nil, err
+	}
+	if err := s.drainLog(ctx); err != nil {
 		return nil, err
 	}
 	if err := s.sweepFailures(ctx); err != nil {
@@ -164,6 +174,17 @@ func validateConfig(cfg Config) error { //nolint:gocritic // hugeParam: as New
 	}
 	if cfg.MaxPending < 0 {
 		return fmt.Errorf("account: Config.MaxPending must not be negative, got %d", cfg.MaxPending)
+	}
+	if cfg.LogMaxAge < 0 {
+		return fmt.Errorf("account: Config.LogMaxAge must not be negative, got %s", cfg.LogMaxAge)
+	}
+	for _, f := range []struct {
+		name string
+		v    int
+	}{{"LogMaxChanges", cfg.LogMaxChanges}, {"LogMaxSessions", cfg.LogMaxSessions}} {
+		if f.v < 0 {
+			return fmt.Errorf("account: Config.%s must not be negative, got %d", f.name, f.v)
+		}
 	}
 	return nil
 }
@@ -337,6 +358,18 @@ func (s *Service) now() time.Time {
 // with Equal is created here, or a millisecond store makes it unequal to
 // itself.
 func (s *Service) stamp() time.Time { return s.now().Truncate(time.Millisecond) }
+
+// logCap is class's entry cap; a class with none gets 0, a LogPrune every
+// store refuses, so a new class fails loudly until it has a cap.
+func (s *Service) logCap(class LogClass) int {
+	switch class {
+	case LogClassChange:
+		return s.logChanges
+	case LogClassSession:
+		return s.logSessions
+	}
+	return 0
+}
 
 func (s *Service) logger() *slog.Logger {
 	if s.log != nil {

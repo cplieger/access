@@ -27,6 +27,7 @@ type storeState struct {
 	tokens       []access.OneTimeToken
 	attributions []access.KeyAttribution
 	failures     []account.FailureCount
+	log          []account.LogEntry
 	hashes       []string
 }
 
@@ -87,6 +88,7 @@ func snapshot(t *testing.T, w *opWorld, names []string) storeState {
 	if st.attributions, err = w.mem.ListKeyAttributions(ctx); err != nil {
 		t.Fatalf("ListKeyAttributions: %v", err)
 	}
+	st.log = logOf(t, w.mem)
 	for _, name := range names {
 		for _, m := range []access.Method{access.MethodPassword, access.MethodPasskey} {
 			for _, trusted := range []bool{false, true} {
@@ -127,6 +129,7 @@ func stateDiff(a, b storeState) []string {
 	add("tokens", a.tokens, b.tokens)
 	add("attributions", a.attributions, b.attributions)
 	add("failures", a.failures, b.failures)
+	add("log", a.log, b.log)
 	add("hashes", a.hashes, b.hashes)
 	return out
 }
@@ -619,4 +622,70 @@ func mode(panics bool) string {
 		return "panicking"
 	}
 	return "failing"
+}
+
+func TestLogRollsBackWithChange(t *testing.T) {
+	t.Parallel()
+	rows := map[string]operation{}
+	for _, op := range operations() {
+		rows[op.name] = op
+	}
+	// run arranges the named catalogue call by root's recent session, with
+	// one more session of root's to revoke, arms fs and makes the call.
+	run := func(t *testing.T, name string, arm func(fs *faultStore)) (*opWorld, storeState, int, error) {
+		t.Helper()
+		w := newOpWorld(t, worldOptions{})
+		p := w.actorFor(t, rows[name].class)
+		putSession(t, w.mem, liveSession(t, w.root))
+		call := rows[name].prep(t, w, p)
+		before, mark := snapshot(t, w, nil), len(w.events.all())
+		w.fs.resetRecord()
+		arm(w.fs)
+		err := call.run(t.Context())
+		return w, before, mark, err
+	}
+	unchanged := func(t *testing.T, w *opWorld, before storeState, mark int, err error) {
+		t.Helper()
+		if !errors.Is(err, access.ErrAuthBackend) {
+			t.Errorf("call = %v, want access.ErrAuthBackend", err)
+		}
+		if diff := stateDiff(before, snapshot(t, w, nil)); len(diff) != 0 {
+			t.Errorf("the store changed: %v", diff)
+		}
+		if evs := w.events.all()[mark:]; len(evs) != 0 {
+			t.Errorf("%d events fired, first %s", len(evs), evs[0].Kind)
+		}
+	}
+	appends := func(fs *faultStore) int {
+		n := 0
+		for _, c := range fs.recorded() {
+			if c.name == "AppendLog" {
+				n++
+			}
+		}
+		return n
+	}
+	for _, name := range []string{"RevokeSession", "SetPassword", "CreateAPIKey"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			w, before, mark, err := run(t, name, func(fs *faultStore) { fs.failCall("AppendLog") })
+			unchanged(t, w, before, mark, err)
+		})
+	}
+	t.Run("second_append_of_SetPassword", func(t *testing.T) {
+		t.Parallel()
+		w, before, mark, err := run(t, "SetPassword", func(fs *faultStore) { fs.failCallNth("AppendLog", 2) })
+		unchanged(t, w, before, mark, err)
+		if n := appends(w.fs); n != 2 {
+			t.Errorf("AppendLog calls = %d, want password_changed's then the failing user_sessions_revoked's", n)
+		}
+	})
+	t.Run("own_write_fails", func(t *testing.T) {
+		t.Parallel()
+		w, before, mark, err := run(t, "RevokeSession", func(fs *faultStore) { fs.failCall("DeleteSession") })
+		unchanged(t, w, before, mark, err)
+		if n := appends(w.fs); n != 0 {
+			t.Errorf("AppendLog calls after fn's own write failed = %d, want 0", n)
+		}
+	})
 }

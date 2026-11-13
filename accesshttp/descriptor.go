@@ -161,6 +161,7 @@ var specs = []routeSpec{
 	{name: "authAdminKeys", method: http.MethodGet, path: "/admin/apikeys", scope: scopeAdmin, response: typeOf[KeyView](), array: true, op: "AllAPIKeys", serve: serveAdminKeys},
 	{name: "authAdminKeyRevoke", method: http.MethodDelete, path: "/admin/apikeys/{id}", scope: scopeAdmin, pathID: pathInt, op: "RevokeAnyAPIKey", serve: serveAdminKeyRevoke},
 	{name: "authAdminTokens", method: http.MethodGet, path: "/tokens", scope: scopeAdmin, response: typeOf[TokenView](), array: true, op: "Tokens", serve: serveAdminTokens},
+	{name: "authAdminSecurityLog", method: http.MethodGet, path: "/security-log", scope: scopeAdmin, query: typeOf[AdminSecurityLogQuery](), response: typeOf[SecurityLogView](), op: "SecurityLog", serve: serveAdminSecurityLog},
 }
 
 // opCodes is the codes each account operation's errors map to, the third
@@ -217,6 +218,7 @@ var opCodes = map[string][]Code{
 	"AllAPIKeys":            {CodeForbidden, CodeUnavailable},
 	"RevokeAnyAPIKey":       {CodeForbidden, CodeUnavailable, CodeNotFound},
 	"Tokens":                {CodeForbidden, CodeUnavailable},
+	"SecurityLog":           {CodeForbidden, CodeUnavailable, CodeBadRequest},
 }
 
 // guardCodes is what a class's guard can answer: the Authenticator's

@@ -1,4 +1,14 @@
 {
+  "authAdminSecurityLog": [
+    "actor",
+    "actor_key",
+    "after",
+    "before",
+    "kinds",
+    "limit",
+    "oldest_first",
+    "user"
+  ],
   "authAdminUsers": [
     "key"
   ],

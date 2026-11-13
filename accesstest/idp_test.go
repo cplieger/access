@@ -667,3 +667,112 @@ func TestNewIdPRefusals(t *testing.T) {
 		})
 	}
 }
+
+func TestIdPRotateKey(t *testing.T) {
+	kids := func(t *testing.T, idp *accesstest.IdP) []string {
+		t.Helper()
+		resp, err := idp.Client().Get(idp.Issuer() + "/jwks")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var set struct {
+			Keys []struct {
+				Kid string `json:"kid"`
+			} `json:"keys"`
+		}
+		if err := json.Unmarshal(body, &set); err != nil {
+			t.Fatalf("JWKS: %v", err)
+		}
+		out := make([]string, 0, len(set.Keys))
+		for _, k := range set.Keys {
+			out = append(out, k.Kid)
+		}
+		return out
+	}
+	kid := func(t *testing.T, raw string) string {
+		t.Helper()
+		header, _, _, _ := decodeJWS(t, raw)
+		s, _ := header["kid"].(string)
+		return s
+	}
+	// verify checks raw against a relying party that reads the JWKS for
+	// the first time now, so it sees exactly the keys served at this point.
+	verify := func(t *testing.T, idp *accesstest.IdP, raw string) error {
+		t.Helper()
+		ctx := gooidc.ClientContext(t.Context(), idp.Client())
+		provider, err := gooidc.NewProvider(ctx, idp.Issuer())
+		if err != nil {
+			t.Fatalf("NewProvider: %v", err)
+		}
+		_, err = provider.Verifier(&gooidc.Config{ClientID: idp.ClientID()}).Verify(ctx, raw)
+		return err
+	}
+	for _, alg := range []string{accesstest.AlgRS256, accesstest.AlgES256} {
+		t.Run(alg, func(t *testing.T) {
+			idp := accesstest.NewIdP(t, accesstest.IdPOptions{Algorithm: alg})
+			before := kids(t, idp)
+			old := issue(t, idp, nil)
+			oldKid := kid(t, old)
+			if !slices.Contains(before, oldKid) {
+				t.Fatalf("the first token's kid %q is not in the JWKS %v", oldKid, before)
+			}
+			idp.RotateKey()
+			rotated := issue(t, idp, nil)
+			newKid := kid(t, rotated)
+			if newKid == "" || slices.Contains(before, newKid) {
+				t.Fatalf("after RotateKey the token's kid is %q, want one the JWKS %v did not hold", newKid, before)
+			}
+			if got, want := kids(t, idp), append(slices.Clone(before), newKid); !slices.Equal(got, want) {
+				t.Errorf("JWKS after RotateKey = %v, want %v: the old keys stay until RetireOldKeys", got, want)
+			}
+			for name, raw := range map[string]string{"old": old, "rotated": rotated} {
+				if err := verify(t, idp, raw); err != nil {
+					t.Errorf("after RotateKey the %s token: Verify = %v, want nil", name, err)
+				}
+			}
+			idp.RetireOldKeys()
+			if got := kids(t, idp); !slices.Equal(got, []string{newKid}) {
+				t.Errorf("JWKS after RetireOldKeys = %v, want only %q", got, newKid)
+			}
+			if err := verify(t, idp, rotated); err != nil {
+				t.Errorf("after RetireOldKeys the rotated token: Verify = %v, want nil", err)
+			}
+			if err := verify(t, idp, old); err == nil {
+				t.Error("after RetireOldKeys a token under the retired kid verified")
+			}
+			if got := kid(t, issue(t, idp, nil)); got != newKid {
+				t.Errorf("after RetireOldKeys the token's kid = %q, want %q", got, newKid)
+			}
+		})
+	}
+	t.Run("idps_share_keys_until_rotated", func(t *testing.T) {
+		a, b := accesstest.NewIdP(t, accesstest.IdPOptions{}), accesstest.NewIdP(t, accesstest.IdPOptions{})
+		a.RotateKey()
+		if ka, kb := kids(t, a), kids(t, b); slices.Equal(ka, kb) {
+			t.Errorf("a rotated IdP serves the JWKS %v of one never rotated", ka)
+		}
+	})
+	for _, alg := range []string{accesstest.AlgNone, accesstest.AlgHS256} {
+		for op, call := range map[string]func(*accesstest.IdP){"RotateKey": (*accesstest.IdP).RotateKey, "RetireOldKeys": (*accesstest.IdP).RetireOldKeys} {
+			t.Run(alg+"_"+op, func(t *testing.T) {
+				rec := &fatalRecorder{TB: t}
+				idp := accesstest.NewIdP(rec, accesstest.IdPOptions{Algorithm: alg})
+				done := make(chan bool)
+				go func() {
+					returned := false
+					defer func() { done <- returned }()
+					call(idp)
+					returned = true
+				}()
+				if <-done || !strings.Contains(rec.msg, "signs with no JWKS key") {
+					t.Errorf("%s under %s recorded %q; want a fatal refusal", op, alg, rec.msg)
+				}
+			})
+		}
+	}
+}

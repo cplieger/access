@@ -54,7 +54,8 @@ const providerErrorPrefix = "provider_error:"
 
 // Reasons returns every fixed Error.Reason, each once, in a stable order:
 // accesshttp's own, then access's PasswordRejections, account's PolicyReasons,
-// UsernameReasons and TextError reasons, and webauthn's OriginRejections.
+// UsernameReasons, TextError reasons and LogFilterReasons, and webauthn's
+// OriginRejections.
 // Two families stay open and are not listed: "provider_error:" followed by
 // an IdP's error code on auth_oidc_failed, and on auth_bad_request the name
 // of the body field, path value or query key that was refused; the
@@ -71,6 +72,7 @@ func Reasons() []string {
 			all = append(all, textReason(field, r))
 		}
 	}
+	all = append(all, account.LogFilterReasons()...)
 	for _, r := range webauthn.OriginRejections() {
 		all = append(all, string(r))
 	}
