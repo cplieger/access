@@ -15,9 +15,10 @@ type Principal struct {
 	AuthTime time.Time
 	// IdleDeadline and AbsoluteDeadline are when this principal lapses if
 	// nothing else happens. A session's are its [SessionDeadlines]; a key's
-	// AbsoluteDeadline is its non-zero ExpiresAt and its IdleDeadline zero;
-	// both are zero for a key with no expiry and for every other principal.
-	// A stream ends itself at the earlier non-zero one without a store read.
+	// AbsoluteDeadline is its non-zero ExpiresAt, or for a previous secret
+	// the earlier of that and PreviousUntil, and its IdleDeadline zero; both
+	// are zero for a key with no expiry and for every other principal. A
+	// stream ends itself at the earlier non-zero one without a store read.
 	IdleDeadline     time.Time
 	AbsoluteDeadline time.Time
 	// IP is the client address of the request Authenticate verified,
@@ -32,6 +33,9 @@ type Principal struct {
 	// SessionID and SessionKind name the session; session principals only.
 	SessionID   string
 	SessionKind SessionKind
+	// KeyLabel is the authenticating key's Label; built-in API-key
+	// principals only, and empty for a key stored with no label.
+	KeyLabel string
 	// Scopes are a key's or a custom verifier's scopes; nil for sessions.
 	Scopes []string
 	// KeyID is the authenticating key; MethodAPIKey only.
@@ -62,6 +66,16 @@ func (p Principal) HasScope(scope string) bool { //nolint:gocritic // hugeParam:
 // or the zero Hash for any other principal.
 func (p Principal) SessionTokenHash() Hash { //nolint:gocritic // hugeParam: a value receiver applies it to a Principal value too
 	if p.source != sourceSession {
+		return Hash{}
+	}
+	return p.credential
+}
+
+// KeyHash returns the hash of the key secret that produced p, the previous
+// secret's for a principal verified during a rotation's overlap, or the zero
+// Hash for any other principal.
+func (p Principal) KeyHash() Hash { //nolint:gocritic // hugeParam: a value receiver applies it to a Principal value too
+	if p.source != sourceAPIKey {
 		return Hash{}
 	}
 	return p.credential
@@ -120,9 +134,11 @@ type (
 	allowRecoveryKey struct{}
 )
 
-// Passive marks a request whose verification must not count as session
-// activity: presence receipts, polling, stream reconnects. The session is
-// still fully verified; only the activity write is skipped.
+// Passive marks a request whose verification must not count as activity:
+// presence receipts, polling, stream reconnects. The credential is still
+// fully verified; only the session's activity write and the key's touch are
+// skipped. A key's first use, LastUsedAt zero, is still touched, because it
+// ends a rotation's overlap.
 func Passive(ctx context.Context) context.Context {
 	return context.WithValue(ctx, passiveKey{}, true)
 }

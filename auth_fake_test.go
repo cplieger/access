@@ -117,6 +117,35 @@ func (f *fakeSessionStore) CreateAPIKey(_ context.Context, k *Key) error {
 	return nil
 }
 
+// updateAPIKeySecret writes s over the key with id and zeroes its
+// LastUsedAt in one step, as account's rotation does through
+// Tx.UpdateAPIKeySecret.
+func (f *fakeSessionStore) updateAPIKeySecret(id int64, s KeySecret) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for hash, k := range f.apiKeys {
+		if k.ID == id {
+			delete(f.apiKeys, hash)
+			k.KeyHash, k.KeyPrefix, k.KeySuffix = s.KeyHash, s.KeyPrefix, s.KeySuffix
+			k.PreviousHash, k.PreviousUntil, k.LastUsedAt = s.PreviousHash, s.PreviousUntil, time.Time{}
+			f.apiKeys[k.KeyHash.Key()] = k
+			return
+		}
+	}
+}
+
+// apiKey returns a copy of the stored key with id, or nil.
+func (f *fakeSessionStore) apiKey(id int64) *Key {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, k := range f.apiKeys {
+		if k.ID == id {
+			return new(*k)
+		}
+	}
+	return nil
+}
+
 // deleteUserSessions revokes every session of userID, as an app's own
 // store write would.
 func (f *fakeSessionStore) deleteUserSessions(userID int64) {

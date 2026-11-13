@@ -95,18 +95,21 @@ func validKeyPrefix(prefix string) bool {
 	return true
 }
 
-// VerifyAPIKey hashes the provided key, looks it up in the store, and
-// returns the matching record. It returns ErrInvalidAPIKey when the store
-// finds no key, answers found with a nil key, holds a key whose stored hash
-// is not the computed one, or holds a key whose ExpiresAt is set and not
-// after now: the [Authenticator] refuses a key from the same instant. A store
-// error is returned as is.
+// VerifyAPIKey hashes key, looks it up in the store, and returns the
+// matching record. It returns ErrInvalidAPIKey when the store finds no key,
+// answers found with a nil key, or holds a key with neither the computed
+// hash as its KeyHash nor as its PreviousHash; for a key whose ExpiresAt is
+// set and not after now, as the [Authenticator] does; and for a previous
+// secret unless now is before PreviousUntil and LastUsedAt is zero. It never
+// touches, so a previous secret lasts until PreviousUntil. A store error is
+// returned as is.
 func VerifyAPIKey(ctx context.Context, store APIKeyReader, key string) (*Key, error) {
-	k, err := findAPIKey(ctx, store, APIKeyHash(key))
+	k, previous, err := findAPIKey(ctx, store, APIKeyHash(key))
 	if err != nil {
 		return nil, err
 	}
-	if keyExpired(k, time.Now()) {
+	now := time.Now()
+	if keyExpired(k, now) || (previous && !previousUsable(k, now)) {
 		return nil, ErrInvalidAPIKey
 	}
 	return k, nil

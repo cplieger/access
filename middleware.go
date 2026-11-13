@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/cplieger/access/internal/failreason"
 )
 
 // AuthenticatorStore is the store [New] takes: the session, user and API-key
@@ -39,13 +41,12 @@ type Authenticator struct {
 
 // New builds the one session configuration (cookie, timeouts, throttle) and
 // the chain: the session verifier, cfg.Verifier if set, then the API-key
-// verifier. Every zero field of cfg means its default (see [Config]). A nil
-// store, or an interface holding a nil pointer, map, slice, func or chan, is
-// refused, and so is such a cfg.Verifier, before any verifier is built, so a
-// miswired app fails at startup and not at its first request. So are a
+// verifier. Every zero field of cfg means its default (see [Config]). It
+// refuses, before building any verifier, a nil store, a store or
+// cfg.Verifier holding a nil pointer, map, slice, func or chan, a
 // negative timeout or throttle, a throttle not below the idle timeout, a
 // Realm holding '"', '\' or a control character, and a Cookie
-// [CookieConfig.Validate] refuses.
+// [CookieConfig.Validate] refuses, so a miswired app fails at startup.
 func New(store AuthenticatorStore, cfg Config) (*Authenticator, error) { //nolint:gocritic // hugeParam: by-value Config is the public signature, so a caller builds it inline
 	if isNilInterface(store) {
 		return nil, errors.New("access: New: nil AuthenticatorStore")
@@ -198,7 +199,7 @@ func (a *Authenticator) bypassed() bool {
 func refuseGrant(p *Principal) error {
 	switch {
 	case p.User == nil, !p.User.Enabled:
-		return &InvalidCredentialError{Method: p.Method, Err: ErrAccountDisabled}
+		return failreason.Wrap(&InvalidCredentialError{Method: p.Method, Err: ErrAccountDisabled}, failreason.AccountDisabled)
 	case p.Method == "":
 		return &InvalidCredentialError{Method: p.Method}
 	default:

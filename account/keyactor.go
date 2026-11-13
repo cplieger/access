@@ -63,6 +63,7 @@ func (s *Service) keyAuthority(ctx context.Context, tx Tx, op Operation, ref acc
 		User:             owner,
 		Method:           access.MethodAPIKey,
 		KeyID:            key.ID,
+		KeyLabel:         key.Label,
 		Scopes:           slices.Clone(key.Scopes),
 		AbsoluteDeadline: key.ExpiresAt,
 	}), &key, nil

@@ -57,6 +57,7 @@ func TestPrincipalPrinting(t *testing.T) {
 // secret: its own identifiers and enums, and its user's (recordFields).
 var principalFields = []string{
 	"access.Principal.Method", "access.Principal.SessionID", "access.Principal.SessionKind", "access.Principal.Scopes",
+	"access.Principal.KeyLabel",
 	"access.User.Username", "access.User.Email", "access.User.DisplayName", "access.User.Role",
 	"access.User.WebAuthnHandle", "access.OIDCIdentity.Issuer", "access.OIDCIdentity.Subject",
 }
@@ -140,10 +141,14 @@ func (v labelVerifier) Recheck(context.Context, Principal) (Principal, bool, err
 	return v.p, true, nil
 }
 
-func TestPrincipalIsAPIKey(t *testing.T) {
+// TestPrincipalKeyIdentity pins what marks a built-in API-key principal:
+// IsAPIKey, the presented key's hash from KeyHash and the key's Label as
+// KeyLabel. A session, the bypass and a custom verifier's principal that
+// fills the key fields carry neither the mark nor the hash.
+func TestPrincipalKeyIdentity(t *testing.T) {
 	t.Parallel()
 	f := newChainFixture(t)
-	label := Principal{User: &User{ID: 900, Enabled: true}, Method: MethodAPIKey, KeyID: f.keyID, Scopes: []string{"read"}}
+	label := Principal{User: &User{ID: 900, Enabled: true}, Method: MethodAPIKey, KeyID: f.keyID, Scopes: []string{"read"}, credential: APIKeyHash(f.key)}
 	a := mustAuthenticator(t, f.store, Config{Verifier: labelVerifier{p: label}})
 	key := mustAuthenticate(t, a, bearerRequest(f.key))
 	session := mustAuthenticate(t, a, withSession(bearerRequest(""), f.session))
@@ -158,13 +163,20 @@ func TestPrincipalIsAPIKey(t *testing.T) {
 		if got := tc.p.IsAPIKey(); got != tc.want {
 			t.Errorf("%s: IsAPIKey() = %v, want %v", name, got, tc.want)
 		}
+		if got := tc.p.KeyHash(); got.Equal(APIKeyHash(f.key)) != tc.want || got.IsZero() == tc.want {
+			t.Errorf("%s: KeyHash() zero = %v, want the presented key's hash %v", name, got.IsZero(), tc.want)
+		}
 	}
-	if q, err := a.Recheck(t.Context(), key); err != nil || !q.IsAPIKey() || q.KeyID != f.keyID {
+	if key.KeyLabel != "ci" {
+		t.Errorf("key principal KeyLabel = %q, want the stored label ci", key.KeyLabel)
+	}
+	q, err := a.Recheck(t.Context(), key)
+	if err != nil || !q.IsAPIKey() || q.KeyID != f.keyID || q.KeyLabel != "ci" || !q.KeyHash().Equal(APIKeyHash(f.key)) {
 		t.Errorf("Recheck(key) = %+v, %v, want the key principal again", q, err)
 	}
 	reads := f.store.keyReads.Load()
-	q, err := a.Recheck(t.Context(), custom)
-	if err != nil || q.IsAPIKey() || q.User.ID != 900 {
+	q, err = a.Recheck(t.Context(), custom)
+	if err != nil || q.IsAPIKey() || !q.KeyHash().IsZero() || q.User.ID != 900 {
 		t.Errorf("Recheck(custom labelled key) = %+v, %v, want its own verifier's principal", q, err)
 	}
 	if n := f.store.keyReads.Load() - reads; n != 0 {

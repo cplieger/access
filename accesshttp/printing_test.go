@@ -108,6 +108,7 @@ func inventoryAllow(t *testing.T) printcheck.Allow {
 			"access.OneTimeToken.Purpose", "access.OneTimeToken.Role",
 			// A session ID names a session; using one still needs its token.
 			"access.Principal.SessionID", "access.Principal.SessionKind", "access.Principal.Method", "access.Principal.Scopes",
+			"access.Principal.KeyLabel",
 			"access.OIDCIdentity.Issuer", "access.OIDCIdentity.Subject",
 			"oidc.Config.IssuerURL", "oidc.Config.ClientID", "oidc.Config.RedirectURL", "oidc.Config.Scopes",
 			// The discovered public endpoints, and go-oidc's verifier: the

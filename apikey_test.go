@@ -83,104 +83,95 @@ func TestProperty_APIKeyFormatAndUniqueness(t *testing.T) {
 	})
 }
 
-func TestVerifyAPIKey_error_paths(t *testing.T) {
+// answerReader is an app's own minimal APIKeyReader: it answers every
+// lookup with key, found and err, as a store doing a loose lookup would.
+type answerReader struct {
+	err   error
+	key   *Key
+	found bool
+}
+
+func (r answerReader) APIKeyByHash(context.Context, Hash) (*Key, bool, error) {
+	return r.key, r.found, r.err
+}
+
+// TestGuardVerifyAPIKeyMinimalReader pins VerifyAPIKey over an app's own
+// reader whose keys carry no PreviousHash: a key is returned only when its
+// stored hash is the presented key's and it is unexpired.
+func TestGuardVerifyAPIKeyMinimalReader(t *testing.T) {
 	t.Parallel()
-	db := newFakeSessionStore()
-	ctx := t.Context()
-
-	user := &User{Username: "keyuser", PasswordHash: NewHash("dummy"), Role: "admin", Enabled: true}
-	if err := db.CreateUser(ctx, user); err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-
-	plaintext, hash, prefix, suffix := mustAPIKey(t)
-	if err := db.CreateAPIKey(ctx, &Key{
-		UserID: user.ID, KeyHash: hash, KeyPrefix: prefix, KeySuffix: suffix, Label: "test",
-	}); err != nil {
-		t.Fatalf("CreateAPIKey: %v", err)
-	}
-
-	for _, tc := range []struct {
-		name string
-		key  string
+	plaintext, hash, _, _ := mustAPIKey(t)
+	other, _, _, _ := mustAPIKey(t)
+	errDown := errors.New("db down")
+	for _, tt := range []struct {
+		want   error
+		reader answerReader
+		name   string
 	}{
-		{"nonexistent", "ak_0000000000000000000000000000000000000000000000000000000000000000"},
-		{"wrong key", plaintext + "x"},
-		{"empty", ""},
+		{name: "found", reader: answerReader{key: &Key{ID: 7, KeyHash: hash}, found: true}},
+		{name: "found with a future expiry", reader: answerReader{key: &Key{ID: 7, KeyHash: hash, ExpiresAt: time.Now().Add(time.Hour)}, found: true}},
+		{name: "expired", reader: answerReader{key: &Key{ID: 7, KeyHash: hash, ExpiresAt: time.Now().Add(-time.Hour)}, found: true}, want: ErrInvalidAPIKey},
+		{name: "missing", want: ErrInvalidAPIKey},
+		{name: "found with a nil key", reader: answerReader{found: true}, want: ErrInvalidAPIKey},
+		{name: "another key's hash", reader: answerReader{key: &Key{ID: 7, KeyHash: APIKeyHash(other)}, found: true}, want: ErrInvalidAPIKey},
+		{name: "store error", reader: answerReader{err: errDown}, want: errDown},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := VerifyAPIKey(ctx, db, tc.key)
-			if !errors.Is(err, ErrInvalidAPIKey) {
-				t.Errorf("error = %v, want ErrInvalidAPIKey", err)
+			got, err := VerifyAPIKey(t.Context(), tt.reader, plaintext)
+			if tt.want == nil {
+				if err != nil || got == nil || got.ID != 7 {
+					t.Errorf("VerifyAPIKey = (%+v, %v), want key 7", got, err)
+				}
+				return
 			}
-			if got != nil {
-				t.Errorf("got = %+v, want nil", got)
+			if err != tt.want || got != nil { //nolint:errorlint // the sentinel or the store's error, returned as is
+				t.Errorf("VerifyAPIKey = (%+v, %v), want (nil, %v)", got, err, tt.want)
 			}
 		})
 	}
-
-	got, err := VerifyAPIKey(ctx, db, plaintext)
-	if err != nil {
-		t.Fatalf("VerifyAPIKey(valid) error: %v", err)
-	}
-	if got == nil {
-		t.Fatal("VerifyAPIKey(valid) = nil")
-	}
 }
 
-func TestVerifyAPIKey_expired(t *testing.T) {
+// TestVerifyAPIKeyPreviousSecret pins design 2.4's previous-secret rule
+// over an app's own reader: the previous secret verifies while PreviousUntil
+// is ahead and LastUsedAt is zero.
+func TestVerifyAPIKeyPreviousSecret(t *testing.T) {
 	t.Parallel()
-	db := newFakeSessionStore()
-	ctx := t.Context()
-
-	user := &User{Username: "keyuser", PasswordHash: NewHash("dummy"), Role: "admin", Enabled: true}
-	if err := db.CreateUser(ctx, user); err != nil {
-		t.Fatalf("CreateUser: %v", err)
+	current, hash, _, _ := mustAPIKey(t)
+	old, oldHash, _, _ := mustAPIKey(t)
+	rotated := func(edit func(*Key)) answerReader {
+		k := &Key{ID: 7, KeyHash: hash, PreviousHash: oldHash, PreviousUntil: time.Now().Add(time.Hour)}
+		if edit != nil {
+			edit(k)
+		}
+		return answerReader{key: k, found: true}
 	}
-
-	plaintext, hash, prefix, suffix := mustAPIKey(t)
-
-	past := time.Now().Add(-time.Hour)
-	if err := db.CreateAPIKey(ctx, &Key{
-		UserID: user.ID, KeyHash: hash, KeyPrefix: prefix, KeySuffix: suffix,
-		Label: "expired", ExpiresAt: past,
-	}); err != nil {
-		t.Fatalf("CreateAPIKey: %v", err)
-	}
-
-	_, err := VerifyAPIKey(ctx, db, plaintext)
-	if !errors.Is(err, ErrInvalidAPIKey) {
-		t.Fatalf("VerifyAPIKey(expired) = %v, want ErrInvalidAPIKey", err)
-	}
-}
-
-func TestVerifyAPIKey_not_expired(t *testing.T) {
-	t.Parallel()
-	db := newFakeSessionStore()
-	ctx := t.Context()
-
-	user := &User{Username: "keyuser", PasswordHash: NewHash("dummy"), Role: "admin", Enabled: true}
-	if err := db.CreateUser(ctx, user); err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-
-	plaintext, hash, prefix, suffix := mustAPIKey(t)
-
-	future := time.Now().Add(time.Hour)
-	if err := db.CreateAPIKey(ctx, &Key{
-		UserID: user.ID, KeyHash: hash, KeyPrefix: prefix, KeySuffix: suffix,
-		Label: "valid", ExpiresAt: future,
-	}); err != nil {
-		t.Fatalf("CreateAPIKey: %v", err)
-	}
-
-	got, err := VerifyAPIKey(ctx, db, plaintext)
-	if err != nil {
-		t.Fatalf("VerifyAPIKey(valid) error: %v", err)
-	}
-	if got == nil {
-		t.Fatal("VerifyAPIKey(valid) = nil")
+	for _, tt := range []struct {
+		reader answerReader
+		name   string
+		key    string
+		ok     bool
+	}{
+		{name: "current secret", reader: rotated(nil), key: current, ok: true},
+		{name: "previous before first use", reader: rotated(nil), key: old, ok: true},
+		{name: "previous after first use", reader: rotated(func(k *Key) { k.LastUsedAt = time.Now() }), key: old},
+		{name: "previous past its bound", reader: rotated(func(k *Key) { k.PreviousUntil = time.Now().Add(-time.Second) }), key: old},
+		{name: "previous of an expired key", reader: rotated(func(k *Key) { k.ExpiresAt = time.Now().Add(-time.Second) }), key: old},
+		{name: "current after first use", reader: rotated(func(k *Key) { k.LastUsedAt = time.Now() }), key: current, ok: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := VerifyAPIKey(t.Context(), tt.reader, tt.key)
+			if tt.ok {
+				if err != nil || got == nil || got.ID != 7 {
+					t.Errorf("VerifyAPIKey = (%+v, %v), want key 7", got, err)
+				}
+				return
+			}
+			if err != ErrInvalidAPIKey || got != nil { //nolint:errorlint // the bare sentinel
+				t.Errorf("VerifyAPIKey = (%+v, %v), want (nil, ErrInvalidAPIKey)", got, err)
+			}
+		})
 	}
 }
 
@@ -279,48 +270,6 @@ func TestGenerateAPIKeyPrinting(t *testing.T) {
 		checkTypes(t, printcheck.Allow{Fields: []string{"access.GeneratedKey.DisplayPrefix", "access.GeneratedKey.DisplaySuffix"}},
 			reflect.TypeFor[*GeneratedKey]())
 	})
-}
-
-// nilKeyStore answers found with a nil key, a store bug VerifyAPIKey must
-// not dereference.
-type nilKeyStore struct{}
-
-func (nilKeyStore) APIKeyByHash(context.Context, Hash) (*Key, bool, error) {
-	return nil, true, nil
-}
-
-func TestVerifyAPIKeyNilKey(t *testing.T) {
-	t.Parallel()
-	plaintext, _, _, _ := mustAPIKey(t)
-	got, err := VerifyAPIKey(t.Context(), nilKeyStore{}, plaintext)
-	if !errors.Is(err, ErrInvalidAPIKey) {
-		t.Errorf("VerifyAPIKey(found, nil key) error = %v, want ErrInvalidAPIKey", err)
-	}
-	if got != nil {
-		t.Errorf("VerifyAPIKey(found, nil key) = %+v, want nil", got)
-	}
-}
-
-// looseAPIKeyStore returns its key for any hash, simulating a store that
-// performs a loose or buggy lookup not anchored to an exact hash match.
-type looseAPIKeyStore struct {
-	key *Key
-}
-
-func (s *looseAPIKeyStore) APIKeyByHash(_ context.Context, _ Hash) (*Key, bool, error) {
-	return s.key, s.key != nil, nil
-}
-
-func TestVerifyAPIKey_rejects_hash_mismatch(t *testing.T) {
-	t.Parallel()
-	plaintext, _, _, _ := mustAPIKey(t)
-	// The store returns a record whose stored hash does NOT match the hash of
-	// the presented key. VerifyAPIKey must reject it rather than trust the
-	// store's lookup.
-	store := &looseAPIKeyStore{key: &Key{KeyHash: NewHash("not-the-right-hash"), UserID: 7}}
-	if _, err := VerifyAPIKey(t.Context(), store, plaintext); !errors.Is(err, ErrInvalidAPIKey) {
-		t.Fatalf("VerifyAPIKey(hash mismatch) = %v, want ErrInvalidAPIKey", err)
-	}
 }
 
 func TestProperty_APIKeyRoleInheritance(t *testing.T) {

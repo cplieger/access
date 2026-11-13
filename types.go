@@ -301,8 +301,9 @@ type KeyRef struct {
 type Key struct {
 	CreatedAt time.Time `json:"created_at"`
 	ExpiresAt time.Time `json:"expires_at,omitzero"` // zero = never
-	// LastUsedAt is the current secret's last use, written through a
-	// throttled touch; a rotation zeroes it.
+	// LastUsedAt is the current secret's last use, as the Authenticator's
+	// touch records it; a rotation zeroes it, so zero after a rotation means
+	// the new secret is unused.
 	LastUsedAt time.Time `json:"last_used_at,omitzero"`
 	// PreviousUntil bounds the overlap in which PreviousHash still verifies.
 	PreviousUntil time.Time `json:"previous_until,omitzero"`

@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/cplieger/access/internal/failreason"
 )
 
 // stubVerifier answers every request with p, ok and err, and counts its
@@ -151,7 +153,7 @@ func (s *recordingStore) TouchAPIKey(ctx context.Context, keyID int64, hash Hash
 func (s *recordingStore) writes() int32 { return s.activities.Load() + s.touches.Load() }
 
 // chainFixture is a store holding one enabled user with a live session and
-// a persisted key.
+// a persisted key labelled "ci".
 type chainFixture struct {
 	store   *recordingStore
 	user    *User
@@ -181,7 +183,7 @@ func newChainFixture(t *testing.T) chainFixture {
 		t.Fatal(err)
 	}
 	if err := store.CreateAPIKey(ctx, &Key{
-		ID: 77, UserID: user.ID, KeyHash: key.Hash, KeyPrefix: key.DisplayPrefix, Scopes: []string{"read"},
+		ID: 77, UserID: user.ID, KeyHash: key.Hash, KeyPrefix: key.DisplayPrefix, Label: "ci", Scopes: []string{"read"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -551,10 +553,11 @@ func TestCustomPrincipalRefused(t *testing.T) {
 	for _, tt := range []struct {
 		wantErr error
 		name    string
+		reason  string
 		p       Principal
 	}{
-		{name: "nil user", p: Principal{Method: "custom", Scopes: []string{"all"}}, wantErr: ErrAccountDisabled},
-		{name: "disabled user", p: Principal{User: &User{ID: 5, Enabled: false}, Method: "custom"}, wantErr: ErrAccountDisabled},
+		{name: "nil user", p: Principal{Method: "custom", Scopes: []string{"all"}}, wantErr: ErrAccountDisabled, reason: failreason.AccountDisabled},
+		{name: "disabled user", p: Principal{User: &User{ID: 5, Enabled: false}, Method: "custom"}, wantErr: ErrAccountDisabled, reason: failreason.AccountDisabled},
 		{name: "empty method", p: Principal{User: &User{ID: 5, Enabled: true}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -571,6 +574,9 @@ func TestCustomPrincipalRefused(t *testing.T) {
 			}
 			if ice.Method != tt.p.Method || !errors.Is(ice.Err, tt.wantErr) || (tt.wantErr == nil && ice.Err != nil) {
 				t.Errorf("detail = {Method: %q, Err: %v}, want {Method: %q, Err: %v}", ice.Method, ice.Err, tt.p.Method, tt.wantErr)
+			}
+			if got := failreason.Of(err); got != tt.reason {
+				t.Errorf("reason = %q, want %q", got, tt.reason)
 			}
 		})
 	}

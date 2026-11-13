@@ -76,13 +76,13 @@ type Config struct {
 	// AbsTimeout is how long a session may live at most.
 	AbsTimeout time.Duration
 	// ActivityThrottle is how old a key's stored LastUsedAt must be before a
-	// request writes it again through [APIKeyToucher.TouchAPIKey]. A session's
-	// activity is written once its stored LastActivity is the lesser of it and
-	// half the session's idle limit old, that limit lowered by its IdleCap
-	// and, for a recovery session, by [RecoverySessionLifetime], so a session
-	// in use never expires between two writes. A failed write is logged,
-	// never fatal, and the next request retries it. [New] refuses a negative
-	// throttle and one at or above the idle timeout.
+	// request writes it again through [APIKeyToucher.TouchAPIKey]; a key's
+	// first use, LastUsedAt zero, is written whatever the throttle. A
+	// session's activity is written once its stored LastActivity is the
+	// lesser of it and half the session's idle limit old (that limit lowered
+	// by its IdleCap and, for a recovery session, [RecoverySessionLifetime]),
+	// so a session in use never expires between two writes. [New] refuses a
+	// negative throttle and one at or above the idle timeout.
 	ActivityThrottle time.Duration
 }
 

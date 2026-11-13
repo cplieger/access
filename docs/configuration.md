@@ -15,7 +15,7 @@ Every setting is a field of a configuration struct or a function argument. The l
 | `Cookie` | The session cookie, described below | the zero `CookieConfig`, which behaves as `DefaultCookieConfig()` |
 | `IdleTimeout` | How long a session may sit unused | 1h |
 | `AbsTimeout` | How long a session may live at most | 24h |
-| `ActivityThrottle` | Writes an API key's last use once the stored one is this old, and a session's activity once the stored one is as old as the lesser of this and half that session's idle limit | `0`, a write on every request |
+| `ActivityThrottle` | Writes an API key's last use once the stored one is this old, and always on its first use, and a session's activity once the stored one is as old as the lesser of this and half that session's idle limit | `0`, a write on every request |
 | `TimeoutSource` | Reads the two timeouts from a callback on every verification, for settings you reload at run time | _(unset)_ |
 | `Unauthorized` | Replaces the response `RequireAuth` writes for a request that is not signed in, and receives the error | _(unset)_ |
 | `Verifier` | Adds your own `CredentialVerifier` between the session cookie and the API key | _(unset)_ |
