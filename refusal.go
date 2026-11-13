@@ -34,6 +34,7 @@ const (
 	CodeRecentAuthRequired     Code = "auth_recent_auth_required"
 	CodeSessionRequired        Code = "auth_session_required"
 	CodeScopeRequired          Code = "auth_scope_required"
+	CodeKeyRequired            Code = "auth_key_required"
 	CodeForbidden              Code = "auth_forbidden"
 	CodeRateLimited            Code = "auth_rate_limited"
 	CodeBusy                   Code = "auth_busy"
@@ -83,6 +84,7 @@ var codeTable = [...]codeRow{
 	{CodeRecentAuthRequired, "Confirm it is you to continue.", http.StatusForbidden},
 	{CodeSessionRequired, "A signed-in session is required.", http.StatusForbidden},
 	{CodeScopeRequired, "The key lacks the required scope.", http.StatusForbidden},
+	{CodeKeyRequired, "This route needs an API key.", http.StatusForbidden},
 	{CodeForbidden, "This action is not allowed.", http.StatusForbidden},
 	{CodeRateLimited, "Too many attempts. Try again later.", http.StatusTooManyRequests},
 	{CodeBusy, "The server is busy. Try again shortly.", http.StatusServiceUnavailable},

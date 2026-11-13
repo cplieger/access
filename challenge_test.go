@@ -42,6 +42,7 @@ func TestChallenge(t *testing.T) {
 		{"rfc6750_3_1_insufficient_scope", "auth_scope_required", "admin", `Bearer realm="access", error="insufficient_scope", scope="admin"`},
 		{"rfc6750_3_1_insufficient_scope_unnamed", "auth_scope_required", "", `Bearer realm="access", error="insufficient_scope"`},
 		{"rfc6750_3_no_credential", "auth_required", "", bare},
+		{"rfc6750_3_no_bearer_token", "auth_key_required", "", bare},
 		{"rfc6750_3_session_cookie_expired", "auth_session_expired", "", bare},
 		{"rfc6750_3_other_credential_refused", "auth_invalid_credentials", "", bare},
 		{"rfc6750_3_setup_token", "auth_setup_token_required", "", bare},

@@ -24,6 +24,7 @@ var specCodes = []struct {
 	{"auth_recent_auth_required", "Confirm it is you to continue.", 403},
 	{"auth_session_required", "A signed-in session is required.", 403},
 	{"auth_scope_required", "The key lacks the required scope.", 403},
+	{"auth_key_required", "This route needs an API key.", 403},
 	{"auth_forbidden", "This action is not allowed.", 403},
 	{"auth_rate_limited", "Too many attempts. Try again later.", 429},
 	{"auth_busy", "The server is busy. Try again shortly.", 503},

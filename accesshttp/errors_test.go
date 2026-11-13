@@ -112,8 +112,10 @@ func TestErrorCodeTable(t *testing.T) {
 			}
 		})
 	}
+	// auth_key_required is the gate's Key class refusal; no auth route is
+	// key-only, so no error classify sees answers it.
 	for _, c := range access.Codes() {
-		if !reached[c] {
+		if !reached[c] && c != access.CodeKeyRequired {
 			t.Errorf("no row maps to %s", c)
 		}
 	}

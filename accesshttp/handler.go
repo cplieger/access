@@ -4,12 +4,11 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
-	"strconv"
-	"time"
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/internal/crossorigin"
+	"github.com/cplieger/access/internal/refusal"
 )
 
 // The transport's own refusals.
@@ -96,14 +95,9 @@ func (h *Handler) prepare(c *call) error {
 	return nil
 }
 
-// fail answers err through the ErrorWriter, after the challenge for its code.
+// fail answers err through the ErrorWriter.
 func (h *Handler) fail(c *call, err error) {
-	e := h.refusal(c, err)
-	h.acct.Authenticator().Challenge(c.w.Header(), e.Code, c.desc.Scope)
-	if e.RetryAfter > 0 {
-		c.w.Header().Set("Retry-After", strconv.FormatInt(int64((e.RetryAfter+time.Second-1)/time.Second), 10))
-	}
-	h.errors(c.w, c.r, e)
+	refusal.Write(c.w, c.r, h.acct.Authenticator(), h.errors, h.refusal(c, err), c.desc.Scope)
 }
 
 // refusal maps err for c's route through routeError and audits it; a
