@@ -56,7 +56,6 @@ func TestCodes(t *testing.T) {
 	f := newFixture(t)
 	g := mustGate(t, gate.Config{Authenticator: f.authn}, classRoutes, &served{})
 	bg := mustGate(t, gate.Config{Authenticator: f.bypass}, classRoutes, &served{})
-	crossSite := func(_ *fixture, r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }
 	type scenario struct {
 		g      *gate.Gate
 		method string // "" is the row's own

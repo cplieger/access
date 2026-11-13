@@ -46,6 +46,11 @@ type Config struct {
 	// Allow decides a Scoped row, and a Key row with a Scope. Nil is
 	// p.IsSession() || (p.IsAPIKey() && p.HasScope(scope)).
 	Allow func(p access.Principal, scope string) bool
+	// Audit receives one event for each refusal of a presented credential,
+	// synchronously, before Errors runs: gate.failure for a 401 and
+	// gate.forbidden for a 403. A request with no credential and a 503 send
+	// none. Nil is none.
+	Audit func(r *http.Request, e access.AuditEvent)
 	// Logger receives the gate's log lines; nil is slog.Default() at each
 	// call.
 	Logger *slog.Logger
@@ -113,6 +118,7 @@ func (g *Gate) row(rt *Route, next http.Handler) *row {
 	}
 	if crossChecked(rt) {
 		rw.serve = crossorigin.Guard(rw.serve, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			g.audit(r, &access.AuditEvent{Kind: kindForbidden, Reason: reasonCrossOrigin})
 			g.refuse(w, r, "", access.NewError(access.CodeCrossOrigin, "", errCrossOrigin))
 		}))
 	}
@@ -188,6 +194,7 @@ func (rw *row) admit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if code := g.decide(rt, p); code != "" {
+		g.auditForbidden(r, code, &p)
 		g.refuse(w, r, rt.Scope, access.NewError(code, "", errClass))
 		return
 	}
@@ -238,6 +245,8 @@ func (g *Gate) unauthenticated(w http.ResponseWriter, r *http.Request, rt *Route
 	}
 	if !mapped {
 		e = access.NewError(access.CodeUnavailable, "", err)
+	} else {
+		g.auditUnauthenticated(r, err, e.Code)
 	}
 	g.refuse(w, r, rt.Scope, e)
 }

@@ -26,7 +26,8 @@ Consider [Authboss](https://github.com/aarondl/authboss) if you want ready-made 
 
 | Package | What it does |
 | --- | --- |
-| `access` | The building blocks: the `Authenticator` that guards a route, the password hasher, session and API-key tokens, cookies, `Secret`, `Hash` and `Sealer` |
+| `access` | The building blocks: the `Authenticator` that verifies a request, the refusal codes, the password hasher, session and API-key tokens, cookies, `Secret`, `Hash` and `Sealer` |
+| `access/gate` | Guards your own routes: one table of routes, each with the class of caller it admits, answered through your error writer. It needs nothing of passkeys or OIDC |
 | `account` | Sign-in, sessions, passkeys, OIDC, keys, invites, recovery, the user set and the [security log](docs/security-log.md), run over your `account.Store` |
 | `accesshttp` | Every `account` operation as a JSON route with a descriptor, for your own mux |
 | `ratelimit` | Per-IP, per-account and per-device limits on failed attempts, with trusted-device cookies |
@@ -66,6 +67,7 @@ import (
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/accesshttp"
 	"github.com/cplieger/access/accesstest"
+	"github.com/cplieger/access/gate"
 	"github.com/cplieger/access/ratelimit"
 )
 
@@ -123,13 +125,16 @@ func main() {
 	for _, rt := range routes.Routes() {
 		mux.Handle(rt.Method+" "+rt.Path, rt.Handler)
 	}
-	mux.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) {
-		p, ok := authn.RequireAuth(w, r)
-		if !ok {
-			return // RequireAuth has already answered
-		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"user": p.User.Username})
-	})
+	app, err := gate.New(gate.Config{Authenticator: authn, Errors: writeError},
+		[]gate.Route{{Name: "me", Method: http.MethodGet, Path: "/api/me", Class: gate.Session}},
+		map[string]http.Handler{"me": http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, _ := gate.Principal(r.Context()) // the session the gate admitted
+			_ = json.NewEncoder(w).Encode(map[string]string{"user": p.User.Username})
+		})})
+	if err != nil {
+		log.Fatal(err)
+	}
+	mux.Handle("/api/", app)
 	log.Fatal(http.ListenAndServe(":8080", mux))
 }
 
@@ -150,9 +155,9 @@ func loadKey(path string) []byte {
 }
 ```
 
-`RequireAuth` returns the request's `Principal`, which names the user, the method that authenticated it, and the session or key behind it. It reads the session cookie first, then a verifier you add as `Config.Verifier`, then an `Authorization: Bearer` API key. A request it refuses gets a 401 JSON body, or a 503 when the store fails, and `Config.Unauthorized` replaces that answer.
+The gate serves `/api/me` to a signed-in session only, and answers every other request under `/api/` itself. The handler reads the request's `Principal`, which names the user, the method that authenticated it, and the session or key behind it. The `Authenticator` reads the session cookie first, then a verifier you add as `Config.Verifier`, then an `Authorization: Bearer` API key. [Guarding your own routes](docs/gate.md) explains the route classes, the codes and how to mount the gate.
 
-`accesshttp` writes no error body itself: every refusal reaches your `ErrorWriter` with a stable `Code` and `Reason`, so the envelope is yours. You may mount any subset of the routes. [Configuration](docs/configuration.md#http-handlers) explains both.
+Neither `accesshttp` nor the gate writes an error body itself: every refusal reaches your `ErrorWriter` as an `access.Error` with a stable `Code` and `Reason`, so the envelope is yours. You may mount any subset of the auth routes. [Configuration](docs/configuration.md#http-handlers) explains both.
 
 ## The limits on guessing
 
@@ -170,7 +175,7 @@ access hardens the building blocks, and the security of your service depends on 
 - Every unsafe-method route applies Go's `http.CrossOriginProtection` itself, whatever your own middleware does.
 - `Config.Bypass` grants a synthetic admin user, whose ID is 0 and names no stored user, to every request while its callback returns true. `account` refuses every write made under it. Keep it off in production.
 - When hosts you do not control share your relying-party domain, keep the default exact origin. [Passkeys](docs/webauthn.md#the-origin-policy) explains `AllowSubdomains` and `Origins`.
-- Three rules stay with you. Guard every route of your own with `RequireAuth`, match your [cookie settings](docs/configuration.md#session-cookie) to where TLS ends, and keep the store contract. [Implementing the store](docs/storage.md) states the contract, and `accesstest.StoreContract` checks it.
+- Three rules stay with you. Guard every route of your own with `access/gate`, match your [cookie settings](docs/configuration.md#session-cookie) to where TLS ends, and keep the store contract. [Implementing the store](docs/storage.md) states the contract, and `accesstest.StoreContract` checks it.
 - Fuzz targets cover password hashes and checks, cookie settings, API keys, opaque tokens, sealed values, redirect paths, the JSON body decoder, OIDC claims, the rate limiter, and WebAuthn origins and stored credentials.
 - The cryptography has had no independent third-party audit.
 
@@ -192,6 +197,7 @@ The library has no TOTP or SMS second factor. A custom `CredentialVerifier` pass
 
 ## Documentation
 
+- [Guarding your own routes](docs/gate.md) explains the gate's route classes, matching, codes, challenge and audit events.
 - [Configuration](docs/configuration.md) lists every setting and default, the cookie postures, the rate limiter's limits, the key permissions and the HTTP handlers' error contract.
 - [Passwords, sessions and tokens](docs/primitives.md) covers each building block in detail.
 - [Implementing the store](docs/storage.md) explains the transaction boundary, the store contract and what each write costs.

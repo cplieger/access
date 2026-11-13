@@ -3,11 +3,14 @@ package access_test
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/accesstest"
 )
 
 // specCodes is the specified code table, in Codes order, each code with its
@@ -161,5 +164,66 @@ func TestErrorFor(t *testing.T) {
 				t.Errorf("ErrorFor(%v) = %+v, true; want false", err, e)
 			}
 		})
+	}
+}
+
+// TestGuardErrorForHidesKeyReason: the refusals of an unknown key, an
+// expired key and a previous secret past its overlap, as Authenticate
+// returns them, map to one Error with an empty Reason; the audit reason
+// they carry never reaches the answer.
+func TestGuardErrorForHidesKeyReason(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	store := accesstest.NewMemStore()
+	u := &access.User{Username: "alice", Role: access.RoleUser, Enabled: true}
+	if err := store.CreateUser(ctx, u); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	addKey := func(expires time.Time) (string, int64) {
+		g, err := access.GenerateAPIKey("ak_")
+		if err != nil {
+			t.Fatal(err)
+		}
+		k := &access.Key{UserID: u.ID, KeyHash: g.Hash, KeyPrefix: g.DisplayPrefix, KeySuffix: g.DisplaySuffix, Label: "k", CreatedAt: now, ExpiresAt: expires}
+		if err := store.CreateAPIKey(ctx, k); err != nil {
+			t.Fatal(err)
+		}
+		return g.Plaintext.Reveal(), k.ID
+	}
+	expired, _ := addKey(now.Add(-time.Minute))
+	retired, id := addKey(time.Time{})
+	next, err := access.GenerateAPIKey("ak_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sec := access.KeySecret{KeyHash: next.Hash, KeyPrefix: next.DisplayPrefix, KeySuffix: next.DisplaySuffix, PreviousHash: access.APIKeyHash(retired), PreviousUntil: now.Add(-time.Minute)}
+	if err := store.UpdateAPIKeySecret(ctx, access.KeyRef{ID: id, UserID: u.ID}, sec); err != nil {
+		t.Fatal(err)
+	}
+	unknown, err := access.GenerateAPIKey("ak_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authn, err := access.New(store, access.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var first access.Error
+	for i, key := range []string{unknown.Plaintext.Reveal(), expired, retired} {
+		r := httptest.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
+		r.Header.Set("Authorization", "Bearer "+key)
+		_, authErr := authn.Authenticate(r)
+		e, ok := access.ErrorFor(authErr)
+		if !ok {
+			t.Fatalf("key %d: ErrorFor(%v) is unmapped", i, authErr)
+		}
+		e.Err = nil
+		if i == 0 {
+			first = e
+		}
+		if e != first || e.Reason != "" || e.Code != access.CodeKeyInvalid {
+			t.Errorf("key %d: ErrorFor = %+v, want %+v with an empty Reason", i, e, first)
+		}
 	}
 }

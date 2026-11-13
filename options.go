@@ -22,12 +22,11 @@ const DefaultRealm = "access"
 
 // Config configures an [Authenticator]. Every zero value is the default: a
 // nil Logger is slog.Default() at call time, a nil Bypass is none, a nil
-// Unauthorized is the default 401 or 503 writer, a nil TimeoutSource is the
-// static timeouts, a nil ClientAddr is the default resolver, a nil Verifier
-// is none, the zero Cookie is the default session cookie, an empty Realm is
-// [DefaultRealm], zero IdleTimeout and AbsTimeout are [DefaultIdleTimeout]
-// and [DefaultAbsTimeout], and a zero ActivityThrottle writes activity on
-// every request.
+// TimeoutSource is the static timeouts, a nil ClientAddr is the default
+// resolver, a nil Verifier is none, the zero Cookie is the default session
+// cookie, an empty Realm is [DefaultRealm], zero IdleTimeout and AbsTimeout
+// are [DefaultIdleTimeout] and [DefaultAbsTimeout], and a zero
+// ActivityThrottle writes activity on every request.
 type Config struct {
 	// Logger receives the warnings and debug lines.
 	Logger *slog.Logger
@@ -42,13 +41,6 @@ type Config struct {
 	// that finds it on after one that found it off, the first included, logs
 	// a WARN.
 	Bypass func() bool
-	// Unauthorized writes [Authenticator.RequireAuth]'s answer to a request
-	// that is not authenticated, given [Authenticator.Authenticate]'s error.
-	// Nil answers 503 with Retry-After: 5 for [ErrAuthBackend], and otherwise
-	// 401 with WWW-Authenticate: Bearer and a JSON body whose code is
-	// auth_session_expired when the error wraps [ErrSessionExpired] or
-	// [ErrSessionNotFound], and auth_required otherwise.
-	Unauthorized func(w http.ResponseWriter, r *http.Request, err error)
 	// TimeoutSource is read on every verification, so a hot-reloaded value
 	// applies without a new Authenticator. Each non-positive field it
 	// returns falls back to IdleTimeout or AbsTimeout, and ActivityThrottle's

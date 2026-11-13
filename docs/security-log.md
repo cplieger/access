@@ -66,6 +66,8 @@ A lock that `ReenableMethod` or a recovery clears before the sweep reports it ge
 
 To see failed attempts, and bursts that lock nothing, set `accesshttp.Config.Audit`. It reports each refusal with its IP address and reason, and you keep those records as long as you choose.
 
+`gate.Config.Audit` does the same for your own routes. It reports `gate.failure`, a refused credential, and `gate.forbidden`, a principal a route's class refuses, each with its reason ([Guarding your own routes](gate.md#the-audit)). They are request-level kinds, like the auth routes' audit events: neither is written to the security log.
+
 ## App entries
 
 `Service.AppendLog(ctx, tx, account.AppEntry{...})` appends your app's own entry inside your own `Store.Update` callback, through that callback's `tx`, so the entry commits and rolls back with your change. Return its error from the callback.

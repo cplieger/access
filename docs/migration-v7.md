@@ -12,7 +12,7 @@ Functional options are gone. Each constructor takes one struct whose zero values
 | --- | --- |
 | `New(store, opts...)` and `Option` | `New(store, access.Config{...})`. `New` refuses a nil store and a `Verifier` holding a nil value |
 | `WithLogger`, `WithIdleTimeout`, `WithAbsTimeout`, `WithActivityThrottle`, `WithTimeoutSource` | `Config.Logger`, `IdleTimeout`, `AbsTimeout`, `ActivityThrottle`, `TimeoutSource`. The throttle also covers API-key touches |
-| `WithUnauthorizedResponse(func(w, r))` and `WithLoginPath` | `Config.Unauthorized func(w, r, err error)`. `RequireAuth` no longer redirects; the hook can, with `IsBrowserRequest` |
+| `WithUnauthorizedResponse(func(w, r))` and `WithLoginPath` | none. `access/gate` answers a refused request through your `ErrorWriter`, which can redirect a browser itself with `IsBrowserRequest` |
 | `WithVerifiers([]CredentialVerifier)` | `Config.Verifier`, one verifier run between the session cookie and the API key |
 | `WithBypass` | `Config.Bypass` |
 | `WithCookie` | `Config.Cookie` |
@@ -39,7 +39,8 @@ Every plaintext credential is an `access.Secret` and every stored hash an `acces
 
 | auth v6 | access |
 | --- | --- |
-| `Authenticate` and `RequireAuth` returning the user and the session hash | return a `Principal`: the user, the method, the session or key behind it, its scopes and its deadlines |
+| `Authenticate` returning the user and the session hash | returns a `Principal`: the user, the method, the session or key behind it, its scopes and its deadlines |
+| `RequireAuth` | `access/gate`, which guards a table of your routes and answers each refusal through your `ErrorWriter` ([Guarding your own routes](gate.md)); for a route you guard yourself, `Authenticate` and `ErrorFor` |
 | `CredentialVerifier.Verify` | returns `(Principal, bool, error)`. `ok` false with a nil error means "not my credential". An error wrapping `ErrUnauthenticated` lets the chain continue |
 | `ErrUnauthenticated` for every refusal | only "no usable credential". A presented key that is refused, or whose user is missing or disabled, returns `ErrInvalidCredential` with an `*InvalidCredentialError`, which names the key's ID when the store found the key |
 | `HeaderXAPIKey`, the `X-Api-Key` header | `Authorization: Bearer` only |
@@ -48,7 +49,7 @@ Every plaintext credential is an `access.Secret` and every stored hash an `acces
 
 New in the root package: `Principal`, `Rechecker`, `Authenticator.Recheck`, `RequireRecentAuth`, `Passive`, `AllowRecoverySession`, `ErrAuthBackend`, `ErrInvalidCredential`, `MethodAPIKey`, `MethodBypass`, `MethodRecovery`, `SessionKind`, `SessionRef`, `RecoverySessionLifetime`, `OIDCIdentity`, `OneTimeToken`, `TokenPurpose`, `KeyAttribution`, `Sealer`, `ClientAddr`, `Config.ClientAddr`, `RequestIsHTTPS` and `CookieConfig.Derive`. `Via` is new too, with its constants `ViaUnknown`, `ViaDirect`, `ViaUntrustedForwarding`, `ViaProxy` and `ViaProxyNoClient`.
 
-The refusal vocabulary is in the root package as well, so an app that guards its own routes imports neither `accesshttp` nor the passkey and OIDC packages behind it: `Code`, every `Code…` constant and `Codes`, `Error`, `ErrorWriter`, `AuditEvent`, `NewError`, `ErrorFor`, and `Authenticator.Challenge` with its `Config.Realm`. A service built on an earlier access dev tag renames `accesshttp.Code…`, `accesshttp.Codes`, `accesshttp.Error`, `accesshttp.ErrorWriter` and `accesshttp.AuditEvent` to these `access.` names. The wire strings are unchanged. Every 401 the auth routes answer now carries a `WWW-Authenticate` challenge, and `account.New` and `Rules.Validate` refuse a key scope that is not one RFC 6750 scope-token (printable ASCII other than space, `"` and `\`).
+The refusal vocabulary is in the root package as well, so an app that guards its own routes imports neither `accesshttp` nor the passkey and OIDC packages behind it: `Code`, every `Code…` constant and `Codes`, `Error`, `ErrorWriter`, `AuditEvent`, `NewError`, `ErrorFor`, and `Authenticator.Challenge` with its `Config.Realm`. A service built on an earlier access dev tag renames `accesshttp.Code…`, `accesshttp.Codes`, `accesshttp.Error`, `accesshttp.ErrorWriter` and `accesshttp.AuditEvent` to these `access.` names. The wire strings are unchanged. A service built on an earlier dev tag also replaces `Authenticator.RequireAuth` with `access/gate`, and drops `Config.Unauthorized`, which is gone with it. Every 401 the auth routes answer now carries a `WWW-Authenticate` challenge, and `account.New` and `Rules.Validate` refuse a key scope that is not one RFC 6750 scope-token (printable ASCII other than space, `"` and `\`).
 
 ## Records
 

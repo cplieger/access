@@ -144,20 +144,15 @@ func TestSessionStoreErrorIs503(t *testing.T) {
 			f := newChainFixture(t)
 			tt.fail(f.store)
 			a := mustAuthenticator(t, f.store, Config{})
-			r := func() *http.Request { return withSession(bearerRequest(f.key), f.session) }
-			_, err := a.Authenticate(r())
+			_, err := a.Authenticate(withSession(bearerRequest(f.key), f.session))
 			if !errors.Is(err, ErrAuthBackend) || !errors.Is(err, down) || errors.Is(err, ErrUnauthenticated) {
 				t.Errorf("Authenticate error = %v, want ErrAuthBackend wrapping the store's error", err)
 			}
 			if n := f.store.keyReads.Load(); n != 0 {
 				t.Errorf("store saw %d key reads after the outage, want 0 (the chain stops)", n)
 			}
-			rec := httptest.NewRecorder()
-			if _, ok := a.RequireAuth(rec, r()); ok {
-				t.Fatal("RequireAuth ok = true, want false")
-			}
-			if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") != "5" {
-				t.Errorf("RequireAuth = %d with Retry-After %q, want 503 with Retry-After 5", rec.Code, rec.Header().Get("Retry-After"))
+			if e, ok := ErrorFor(err); !ok || e.Status != http.StatusServiceUnavailable || e.RetryAfter != 5*time.Second {
+				t.Errorf("ErrorFor = %+v, %t, want 503 with RetryAfter 5s", e, ok)
 			}
 		})
 	}

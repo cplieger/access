@@ -234,7 +234,6 @@ func TestCrossOrigin(t *testing.T) {
 	f := newFixture(t)
 	s := &served{}
 	g := mustGate(t, gate.Config{Authenticator: f.authn}, classRoutes, s)
-	crossSite := func(_ *fixture, r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }
 	for _, path := range []string{"/sess", "/scoped"} {
 		a := do(t, f, g, http.MethodPost, path, sessionCred, crossSite)
 		if a.status != http.StatusForbidden || a.code != access.CodeCrossOrigin {

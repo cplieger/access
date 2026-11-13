@@ -17,7 +17,6 @@ Every setting is a field of a configuration struct or a function argument. The l
 | `AbsTimeout` | How long a session may live at most | 24h |
 | `ActivityThrottle` | Writes an API key's last use once the stored one is this old, and always on its first use, and a session's activity once the stored one is as old as the lesser of this and half that session's idle limit | `0`, a write on every request |
 | `TimeoutSource` | Reads the two timeouts from a callback on every verification, for settings you reload at run time | _(unset)_ |
-| `Unauthorized` | Replaces the response `RequireAuth` writes for a request that is not signed in, and receives the error | _(unset)_ |
 | `Verifier` | Adds your own `CredentialVerifier` between the session cookie and the API key | _(unset)_ |
 | `ClientAddr` | Your resolver for how a request reached you and from which address, behind `Authenticator.ClientAddr`, the rate limiter, each session's last IP and the setup rule | the socket peer, with no proxy trusted |
 | `Bypass` | A development hook that grants a synthetic admin user while it returns true | _(unset)_ |
@@ -28,7 +27,7 @@ The activity throttle exists to cut store writes. An API key's last use is writt
 
 With `TimeoutSource`, a value at or below zero from the callback falls back to the matching static field. The same cap on the throttle window applies to the idle timeout the callback returns.
 
-By default `RequireAuth` answers 503 with `Retry-After: 5` when the store fails (`ErrAuthBackend`). Every other refusal gets a 401 with `WWW-Authenticate: Bearer` and a JSON body whose `code` is `auth_session_expired` for a session cookie whose session has expired or is gone, and `auth_required` otherwise. It never redirects. An `Unauthorized` hook replaces the answer and receives the error, so it can redirect browsers itself with `IsBrowserRequest`.
+The `Authenticator` writes no response itself. `access/gate` answers a request it refuses through your `ErrorWriter`, as [Guarding your own routes](gate.md) describes, and `access.ErrorFor` maps an `Authenticate` error to the same answer for a route you guard yourself.
 
 `Authenticator.Challenge` writes the [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3) `WWW-Authenticate` header for a refusal, from its code alone, where `R` is `Realm` and `S` the scope the route requires. A refused API key (`auth_key_invalid`) gets `Bearer realm="R", error="invalid_token"`, a key that lacks the route's scope (`auth_scope_required`) gets `Bearer realm="R", error="insufficient_scope", scope="S"`, every other 401, and `auth_key_required` (a route that needs an API key the request does not carry), gets `Bearer realm="R"`, and every other code gets none. A failed password sign-in or an expired session cookie is not a refused Bearer token, so it never tells a client to discard its token. accesshttp and `access/gate` call it before your `ErrorWriter`, so every 401 they answer carries a challenge, as [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110#section-15.5.2) requires.
 
@@ -304,7 +303,7 @@ Every key-authorized write re-reads the key and its owner inside its own transac
 
 `Handler.Routes()` returns every route as a `Descriptor` and an `http.Handler`. accesshttp registers nothing itself: mount the routes on your own mux, behind your own gate. You may mount any subset, and no route depends on another being mounted. An unmounted pending-link pair leaves only an unread 10-minute cookie. Each handler applies its own class guard, its own body cap on a route that reads a body, and, on an unsafe (non-GET) method, its own cross-origin protection. Your gate adds to them and never replaces them.
 
-accesshttp writes no error body itself. Every refusal reaches your `access.ErrorWriter` as an `access.Error`, with `Cache-Control`, the `WWW-Authenticate` challenge `Authenticator.Challenge` sets for its code, and, when `RetryAfter` is set, `Retry-After` already on the response. Render it in your own envelope:
+accesshttp and `access/gate` write no error body themselves. Every refusal reaches your `access.ErrorWriter` as an `access.Error`, with `Cache-Control`, the `WWW-Authenticate` challenge `Authenticator.Challenge` sets for its code, and, when `RetryAfter` is set, `Retry-After` already on the response. Render it in your own envelope:
 
 - `Status` is the HTTP status, and `Code` is the stable code a client branches on.
 - `Reason` is a stable sub-reason a client may branch on, such as `label_too_long`.

@@ -19,8 +19,8 @@ import (
 )
 
 // agentHeader carries the custom verifier's credential: "ok" grants its
-// principal, "bad" is its refusal, "boom" an error access does not map, and
-// "ctx" the request's own context error.
+// principal, "bad" is its refusal, "down" a store failure, "boom" an error
+// access does not map, and "ctx" the request's own context error.
 const agentHeader = "X-Agent"
 
 const agentMethod access.Method = "agent"
@@ -33,6 +33,8 @@ func (agentVerifier) Verify(ctx context.Context, r *http.Request) (access.Princi
 		return access.Principal{User: &access.User{ID: 900, Username: "agent", Role: access.RoleAdmin, Enabled: true}, Method: agentMethod, Scopes: []string{"read"}}, true, nil
 	case "bad":
 		return access.Principal{}, false, &access.InvalidCredentialError{Method: agentMethod}
+	case "down":
+		return access.Principal{}, false, fmt.Errorf("%w: agent store down", access.ErrAuthBackend)
 	case "boom":
 		return access.Principal{}, false, errors.New("agent: verifier broke")
 	case "ctx":
@@ -54,9 +56,20 @@ type fixture struct {
 	stale    string // a full session last active ten minutes ago
 	keyRead  string // a key with scope "read"
 	keyNone  string // a key with no scope
-	userID   int64
-	keyID    int64
-	logs     *syncBuffer
+	// keyExpired is past its ExpiresAt, keyRetired a rotated key's previous
+	// secret past its overlap, and keyDisabled and disabledSession belong
+	// to a disabled user.
+	keyExpired      string
+	keyRetired      string
+	keyDisabled     string
+	disabledSession string
+	logs            *syncBuffer
+	userID          int64
+	keyID           int64
+	keyNoneID       int64
+	keyExpiredID    int64
+	keyRetiredID    int64
+	keyDisabledID   int64
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -73,8 +86,17 @@ func newFixture(t *testing.T) *fixture {
 	f.recovery = f.addSession(t, &access.Session{ID: "recovery", Kind: access.SessionRecovery, AuthMethod: access.MethodRecovery, CreatedAt: now, LastActivity: now, AuthTime: now})
 	f.expired = f.addSession(t, &access.Session{ID: "expired", AuthMethod: access.MethodPassword, CreatedAt: now.Add(-3 * time.Hour), LastActivity: now.Add(-2 * time.Hour), AuthTime: now.Add(-3 * time.Hour)})
 	f.stale = f.addSession(t, &access.Session{ID: "stale", AuthMethod: access.MethodPassword, CreatedAt: now.Add(-time.Hour), LastActivity: now.Add(-10 * time.Minute), AuthTime: now.Add(-time.Hour)})
-	f.keyRead, f.keyID = f.addKey(t, "reader", []string{"read"})
-	f.keyNone, _ = f.addKey(t, "plain", nil)
+	f.keyRead, f.keyID = f.addKey(t, &access.Key{Label: "reader", Scopes: []string{"read"}})
+	f.keyNone, f.keyNoneID = f.addKey(t, &access.Key{Label: "plain"})
+	f.keyExpired, f.keyExpiredID = f.addKey(t, &access.Key{Label: "expired", ExpiresAt: now.Add(-time.Minute)})
+	f.keyRetired, f.keyRetiredID = f.addKey(t, &access.Key{Label: "rotated"})
+	f.retire(t, f.keyRetiredID, f.keyRetired, now.Add(-time.Minute))
+	off := &access.User{Username: "bob", Role: access.RoleUser}
+	if err := f.store.CreateUser(ctx, off); err != nil {
+		t.Fatal(err)
+	}
+	f.keyDisabled, f.keyDisabledID = f.addKey(t, &access.Key{UserID: off.ID, Label: "bob's"})
+	f.disabledSession = f.addSession(t, &access.Session{ID: "bob", UserID: off.ID, AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: now})
 	logger := f.logger()
 	var err error
 	if f.authn, err = access.New(f.store, access.Config{Verifier: agentVerifier{}, Logger: logger}); err != nil {
@@ -106,24 +128,46 @@ func (f *fixture) lastActivity(t *testing.T) time.Time {
 func (f *fixture) addSession(t *testing.T, s *access.Session) string {
 	t.Helper()
 	plaintext, hash := access.GenerateSessionToken()
-	s.TokenHash, s.UserID = hash, f.userID
+	s.TokenHash = hash
+	if s.UserID == 0 {
+		s.UserID = f.userID
+	}
 	if err := f.store.CreateSession(t.Context(), s); err != nil {
 		t.Fatal(err)
 	}
 	return plaintext.Reveal()
 }
 
-func (f *fixture) addKey(t *testing.T, label string, scopes []string) (string, int64) {
+// addKey stores k with a fresh secret, for alice when k names no user, and
+// returns the plaintext and the key's ID.
+func (f *fixture) addKey(t *testing.T, k *access.Key) (string, int64) {
 	t.Helper()
 	g, err := access.GenerateAPIKey("ak_")
 	if err != nil {
 		t.Fatal(err)
 	}
-	k := &access.Key{UserID: f.userID, KeyHash: g.Hash, KeyPrefix: g.DisplayPrefix, KeySuffix: g.DisplaySuffix, Label: label, Scopes: scopes, CreatedAt: time.Now()}
+	k.KeyHash, k.KeyPrefix, k.KeySuffix, k.CreatedAt = g.Hash, g.DisplayPrefix, g.DisplaySuffix, time.Now()
+	if k.UserID == 0 {
+		k.UserID = f.userID
+	}
 	if err := f.store.CreateAPIKey(t.Context(), k); err != nil {
 		t.Fatal(err)
 	}
 	return g.Plaintext.Reveal(), k.ID
+}
+
+// retire rotates alice's key id to a fresh secret, keeping old as its
+// previous secret until until.
+func (f *fixture) retire(t *testing.T, id int64, old string, until time.Time) {
+	t.Helper()
+	g, err := access.GenerateAPIKey("ak_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sec := access.KeySecret{KeyHash: g.Hash, KeyPrefix: g.DisplayPrefix, KeySuffix: g.DisplaySuffix, PreviousHash: access.APIKeyHash(old), PreviousUntil: until}
+	if err := f.store.UpdateAPIKeySecret(t.Context(), access.KeyRef{ID: id, UserID: f.userID}, sec); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // cred is one credential a request presents.
@@ -152,6 +196,11 @@ var (
 	keyNoneCred  = withBearer(func(f *fixture) string { return f.keyNone })
 	unknownKey   = withBearer(func(*fixture) string { return "ak_test-key-unknown" })
 	agentCred    = withAgent("ok")
+	expiredKey   = withBearer(func(f *fixture) string { return f.keyExpired })
+	retiredKey   = withBearer(func(f *fixture) string { return f.keyRetired })
+	disabledKey  = withBearer(func(f *fixture) string { return f.keyDisabled })
+	disabledCred = withCookie(func(f *fixture) string { return f.disabledSession })
+	crossSite    = cred(func(_ *fixture, r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") })
 )
 
 // answer is one response: its status, the code the ErrorWriter wrote and

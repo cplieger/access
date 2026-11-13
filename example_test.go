@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/accesstest"
@@ -80,28 +79,6 @@ func ExampleGenerateAPIKey() {
 	shown := key.Plaintext.Reveal() // reveal only into the one-time display
 	fmt.Println(key.Plaintext, shown[:3], len(key.Hash.Reveal()) == 64, key.DisplayPrefix == shown[:8], len(key.DisplaySuffix) == 4)
 	// Output: [redacted] ak_ true true true
-}
-
-func ExampleAuthenticator_RequireAuth() {
-	store := accesstest.NewMemStore()
-	if err := store.CreateUser(context.Background(), &access.User{
-		Username: "alice",
-		Role:     access.RoleAdmin,
-		Enabled:  true,
-	}); err != nil {
-		panic(err)
-	}
-
-	authn, err := access.New(store, access.Config{
-		IdleTimeout: time.Hour,
-		AbsTimeout:  24 * time.Hour,
-	})
-	if err != nil {
-		panic(err)
-	}
-	_ = authn
-	fmt.Println("authenticator configured")
-	// Output: authenticator configured
 }
 
 func ExampleVerifyAPIKey() {

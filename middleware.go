@@ -2,7 +2,6 @@ package access
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -207,25 +206,6 @@ func refuseGrant(p *Principal) error {
 	}
 }
 
-// RequireAuth authenticates r and returns its principal. If r is not
-// authenticated, it writes the Config.Unauthorized response, or the
-// default one that field describes, and returns ok=false.
-func (a *Authenticator) RequireAuth(w http.ResponseWriter, r *http.Request) (Principal, bool) {
-	p, err := a.Authenticate(r)
-	if err == nil {
-		return p, true
-	}
-	if !errors.Is(err, ErrUnauthenticated) && !errors.Is(err, ErrInvalidCredential) {
-		a.cfg.log().Warn("access: authentication failed", "error", err)
-	}
-	if a.cfg.Unauthorized != nil {
-		a.cfg.Unauthorized(w, r, err)
-	} else {
-		writeUnauthorized(w, err)
-	}
-	return Principal{}, false
-}
-
 // Cookie returns the session cookie configuration the session verifier
 // reads.
 func (a *Authenticator) Cookie() CookieConfig { return a.cfg.Cookie }
@@ -312,24 +292,4 @@ func CanDisableMethod(method Method, avail MethodAvailability) bool {
 		remaining++
 	}
 	return remaining > 0
-}
-
-// writeUnauthorized writes the default unauthorized response for err; see
-// Config.Unauthorized.
-func writeUnauthorized(w http.ResponseWriter, err error) {
-	w.Header().Set("Content-Type", "application/json")
-	body := map[string]string{"error": ErrUnauthenticated.Error(), "code": "auth_required"}
-	switch {
-	case errors.Is(err, ErrAuthBackend):
-		w.Header().Set("Retry-After", "5")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		body = map[string]string{"error": "unavailable", "code": "auth_unavailable"}
-	case errors.Is(err, ErrSessionExpired), errors.Is(err, ErrSessionNotFound):
-		body["code"] = "auth_session_expired"
-		fallthrough
-	default:
-		w.Header().Set("WWW-Authenticate", "Bearer")
-		w.WriteHeader(http.StatusUnauthorized)
-	}
-	_ = json.NewEncoder(w).Encode(body)
 }
