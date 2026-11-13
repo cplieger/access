@@ -29,7 +29,7 @@ func by(a Actor) origin { //nolint:gocritic // hugeParam: as Principal
 
 // byClient is a change a makes from c's address.
 func byClient(a Actor, c Client) origin { //nolint:gocritic // hugeParam: as Principal and the request's Client
-	return origin{actor: a, ip: c.IP}
+	return origin{actor: a, ip: c.IP()}
 }
 
 // shown is an actor's display data, as an entry snapshots it.

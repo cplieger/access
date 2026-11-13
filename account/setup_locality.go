@@ -14,26 +14,30 @@ import (
 // an app that passes TokenRequired as Rules.SetupTokenRequired. A nil
 // SetupTokenRequired still means a token is always required.
 type SetupLocality struct {
-	// Local reports whether the resolved client counts as local. Nil means
-	// no client is local, so the zero SetupLocality always requires a token:
-	// which peers are local depends on a proxy topology only the app knows,
-	// and behind a same-host reverse proxy that adds no forwarding header
-	// the app's resolver sees, every client arrives as a loopback peer.
+	// Local reports whether the resolved client counts as local; nil means
+	// none is. TokenRequired calls it only for a known client, so a listed
+	// proxy that forwarded nothing ([access.ViaProxyNoClient]) never reaches
+	// it; the same rule reused at another site starts with ClientKnown(). A
+	// forwarded address is only the peer the proxy saw, and a direct peer can
+	// itself relay (a port proxy, a tunnel, a NAT): only a rule that requires
+	// ViaDirect, excludes the host's own forwarders and then accepts a loopback
+	// or private IP() bounds token-free setup to the host's own networks.
 	Local func(access.ClientAddr) bool
 	// Hosts lists the host names, besides IP literals and "localhost",
 	// that a token-free setup may send as its Host.
 	Hosts []string
 }
 
-// TokenRequired requires a setup token unless Local is set,
-// Local(c.ClientAddr) holds and c.Host, with its port removed, ASCII
-// lower-cased and one trailing dot dropped, is an IP literal with no zone,
-// "localhost", or a Hosts entry canonicalised the same way. An empty or
-// unparsable Host requires one. The Host rule closes DNS rebinding: a page
-// that rebinds its own name to the server sends that name from a local
-// peer.
+// TokenRequired requires a setup token when c's client is unknown
+// (!c.ClientKnown()), before it consults Local. Otherwise it requires one
+// unless Local is set, Local(c.ClientAddr) holds and c.Host, with its port
+// removed, ASCII lower-cased and one trailing dot dropped, is an IP literal
+// with no zone, "localhost", or a Hosts entry canonicalised the same way.
+// An empty or unparsable Host requires one. The Host rule closes DNS
+// rebinding: a page that rebinds its own name to the server sends that
+// name from a local peer.
 func (l SetupLocality) TokenRequired(_ context.Context, c Client) bool { //nolint:gocritic // hugeParam: Rules.SetupTokenRequired's signature
-	if l.Local == nil || !l.Local(c.ClientAddr) {
+	if !c.ClientKnown() || l.Local == nil || !l.Local(c.ClientAddr) {
 		return true
 	}
 	host, ok := canonicalHost(c.Host)

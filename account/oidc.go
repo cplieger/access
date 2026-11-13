@@ -23,7 +23,7 @@ func (s *Service) AdmitOIDC(c Client) (*oidc.Provider, error) { //nolint:gocriti
 	if p == nil {
 		return nil, ErrOIDCUnavailable
 	}
-	if err := s.limiter.Request(ratelimit.IPKey(c.IP)); err != nil {
+	if err := s.limiter.Request(ratelimit.IPKey(c.IP())); err != nil {
 		return nil, err
 	}
 	return p, nil

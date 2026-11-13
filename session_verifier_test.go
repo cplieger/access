@@ -153,7 +153,7 @@ func TestSessionStoreErrorIs503(t *testing.T) {
 func TestSessionActivityWrite(t *testing.T) {
 	t.Parallel()
 	client := netip.MustParseAddr("192.0.2.7")
-	a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: sessionT0, LastActivity: sessionT0}, Config{ClientAddr: func(*http.Request) ClientAddr { return ClientAddr{IP: client} }})
+	a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: sessionT0, LastActivity: sessionT0}, Config{ClientAddr: func(*http.Request) ClientAddr { return ClientAddr{Peer: client, Via: ViaDirect} }})
 	now := sessionT0.Add(10 * time.Minute)
 	clock.Set(now)
 	p, err := a.Authenticate(sessionRequest(t.Context(), token))

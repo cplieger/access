@@ -32,7 +32,7 @@ func TestDeviceCookieEveryFullSessionPath(t *testing.T) {
 			if in.DeviceCookie.IsZero() {
 				t.Fatal("no device cookie returned")
 			}
-			res, err := f.limiter.Attempt(ratelimit.Attempt{IP: ratelimit.IPKey(localClient.IP), Account: ratelimit.AccountKey(in.User.Username), Device: in.DeviceCookie})
+			res, err := f.limiter.Attempt(ratelimit.Attempt{IP: ratelimit.IPKey(localClient.IP()), Account: ratelimit.AccountKey(in.User.Username), Device: in.DeviceCookie})
 			if err != nil {
 				t.Fatalf("Attempt: %v", err)
 			}

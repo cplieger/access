@@ -43,8 +43,8 @@ func (s *Service) newDraft(ctx context.Context, r Rules, c Client, op *sessionOp
 		LastActivity: now,
 		AuthTime:     now,
 	}}
-	if c.IP.IsValid() {
-		d.session.LastIP = c.IP.String()
+	if ip := c.IP(); ip.IsValid() {
+		d.session.LastIP = ip.String()
 	}
 	if r.SessionCaps != nil {
 		idle, absolute := r.SessionCaps(ctx, c)
@@ -107,13 +107,13 @@ func (a *admission) admit() (*ratelimit.Reservation, error) {
 
 // requestLimit charges c's IP request limit.
 func (s *Service) requestLimit(c Client) func() (*ratelimit.Reservation, error) { //nolint:gocritic // hugeParam: the request's Client
-	return func() (*ratelimit.Reservation, error) { return nil, s.limiter.Request(ratelimit.IPKey(c.IP)) }
+	return func() (*ratelimit.Reservation, error) { return nil, s.limiter.Request(ratelimit.IPKey(c.IP())) }
 }
 
 // ipAttempt reserves an IP-only attempt for c.
 func (s *Service) ipAttempt(c Client) func() (*ratelimit.Reservation, error) { //nolint:gocritic // hugeParam: the request's Client
 	return func() (*ratelimit.Reservation, error) {
-		return s.limiter.Attempt(ratelimit.Attempt{IP: ratelimit.IPKey(c.IP)})
+		return s.limiter.Attempt(ratelimit.Attempt{IP: ratelimit.IPKey(c.IP())})
 	}
 }
 

@@ -770,7 +770,7 @@ func TestRefusedAdmissionNoHash(t *testing.T) {
 	fs := newFaultStore()
 	p := newPW(t, pwOptions{store: fs, limiter: ipLimit(1)})
 	passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
-	res, err := p.limiter.Attempt(ratelimit.Attempt{IP: ratelimit.IPKey(localClient.IP)})
+	res, err := p.limiter.Attempt(ratelimit.Attempt{IP: ratelimit.IPKey(localClient.IP())})
 	if err != nil {
 		t.Fatalf("Attempt: %v", err)
 	}

@@ -47,10 +47,11 @@ type Config struct {
 	// clamp applies to the idle timeout it returns.
 	TimeoutSource func() SessionTimeouts
 	// ClientAddr is the app's one client resolver, served by
-	// [Authenticator.ClientAddr]. Nil treats no peer as a proxy: IP and Peer
-	// are the socket peer of r.RemoteAddr, unmapped, Proxied is false, and
-	// UntrustedForwarding is true when Forwarded, X-Forwarded-For or
-	// X-Real-IP is present.
+	// [Authenticator.ClientAddr]. Its answer's Via says how the request
+	// arrived, and one left zero ([ViaUnknown]) is no known client. Nil
+	// treats no peer as a proxy: Peer is r.RemoteAddr's address, unmapped,
+	// and Via is [ViaDirect], or [ViaUntrustedForwarding] when Forwarded,
+	// X-Forwarded-For or X-Real-IP is present.
 	ClientAddr func(*http.Request) ClientAddr
 	// Verifier runs between the built-in session and API-key verifiers. The
 	// API-key verifier refuses every Bearer value it cannot find, so a

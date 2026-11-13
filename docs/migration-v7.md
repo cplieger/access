@@ -46,7 +46,7 @@ Every plaintext credential is an `access.Secret` and every stored hash an `acces
 | `AuthenticatorStore` | adds `APIKeyToucher`; activity takes a `SessionActivity` |
 | `SessionActivityUpdater.UpdateSessionActivity(ctx, hash, now)` | `(ctx, access.Hash, SessionActivity)`. An older or equal time writes nothing |
 
-New in the root package: `Principal`, `Rechecker`, `Authenticator.Recheck`, `RequireRecentAuth`, `Passive`, `AllowRecoverySession`, `ErrAuthBackend`, `ErrInvalidCredential`, `MethodAPIKey`, `MethodBypass`, `MethodRecovery`, `SessionKind`, `SessionRef`, `RecoverySessionLifetime`, `OIDCIdentity`, `OneTimeToken`, `TokenPurpose`, `KeyAttribution`, `Sealer`, `ClientAddr`, `Config.ClientAddr`, `RequestIsHTTPS` and `CookieConfig.Derive`.
+New in the root package: `Principal`, `Rechecker`, `Authenticator.Recheck`, `RequireRecentAuth`, `Passive`, `AllowRecoverySession`, `ErrAuthBackend`, `ErrInvalidCredential`, `MethodAPIKey`, `MethodBypass`, `MethodRecovery`, `SessionKind`, `SessionRef`, `RecoverySessionLifetime`, `OIDCIdentity`, `OneTimeToken`, `TokenPurpose`, `KeyAttribution`, `Sealer`, `ClientAddr`, `Config.ClientAddr`, `RequestIsHTTPS` and `CookieConfig.Derive`. `Via` is new too, with its constants `ViaUnknown`, `ViaDirect`, `ViaUntrustedForwarding`, `ViaProxy` and `ViaProxyNoClient`.
 
 ## Records
 
