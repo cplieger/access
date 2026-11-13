@@ -38,6 +38,7 @@ func (o owned) ops(t *testing.T, s account.Store, tg target) map[string]func() e
 	ctx := t.Context()
 	sref := access.SessionRef{ID: tg.sessionID, UserID: tg.userID}
 	pref := access.PasskeyRef{ID: tg.passkeyID, UserID: tg.userID}
+	kref := access.KeyRef{ID: tg.keyID, UserID: tg.userID}
 	return map[string]func() error{
 		"DeletePasskey": func() error { return s.DeletePasskey(ctx, pref) },
 		"RenamePasskey": func() error { return s.RenamePasskey(ctx, pref, "renamed") },
@@ -46,7 +47,11 @@ func (o owned) ops(t *testing.T, s account.Store, tg target) map[string]func() e
 		},
 		"DeleteSession":      func() error { return s.DeleteSession(ctx, sref) },
 		"UpdateSessionLabel": func() error { return s.UpdateSessionLabel(ctx, sref, "renamed") },
-		"DeleteAPIKey":       func() error { return s.DeleteAPIKey(ctx, access.KeyRef{ID: tg.keyID, UserID: tg.userID}) },
+		opDeleteKey:          func() error { return s.DeleteAPIKey(ctx, kref) },
+		"UpdateAPIKeyLabel":  func() error { return s.UpdateAPIKeyLabel(ctx, kref, "renamed") },
+		"UpdateAPIKeySecret": func() error {
+			return s.UpdateAPIKeySecret(ctx, kref, access.KeySecret{KeyHash: access.NewHash(fresh("scoped")), PreviousHash: o.key.KeyHash, PreviousUntil: epoch.Add(time.Hour)})
+		},
 		"RotateSession": func() error {
 			next := *o.session
 			next.ID, next.UserID, next.TokenHash = tg.sessionID, tg.userID, access.NewHash(fresh("scoped"))
@@ -65,7 +70,7 @@ func (o owned) unchanged(t *testing.T, s account.Store) []string {
 	if got, found := sessionFound(t, s, o.session.TokenHash); !found || got.Label != o.session.Label {
 		changed = append(changed, "session")
 	}
-	if _, found, err := s.APIKeyByHash(ctx, o.key.KeyHash); err != nil || !found {
+	if k, found, err := s.APIKeyByHash(ctx, o.key.KeyHash); err != nil || !found || !k.KeyHash.Equal(o.key.KeyHash) || k.Label != o.key.Label {
 		changed = append(changed, "key")
 	}
 	return changed

@@ -82,15 +82,25 @@ type KeyStore interface {
 	// account sets to the minting key's path, or leaves empty for a key a
 	// session or an out-of-band actor mints (rule 17).
 	CreateAPIKey(ctx context.Context, key *access.Key) error
+	// APIKeyByHash finds the key whose KeyHash, or whose non-zero
+	// PreviousHash, equals hash; a zero hash finds nothing (rule 23).
 	APIKeyByHash(ctx context.Context, hash access.Hash) (key *access.Key, found bool, err error)
 	ListAPIKeysByUserID(ctx context.Context, userID int64) ([]access.Key, error)
 	ListAPIKeys(ctx context.Context) ([]access.Key, error) // every user's
 	DeleteAPIKey(ctx context.Context, ref access.KeyRef) error
 	DeleteUserAPIKeys(ctx context.Context, userID int64) ([]int64, error) // the IDs removed
-	// TouchAPIKey sets LastUsedAt to at only when at is after the stored
-	// value, atomically; an older or equal at, or an unknown key, writes
-	// nothing and returns nil (rules 19 and 21).
-	TouchAPIKey(ctx context.Context, keyID int64, at time.Time) error
+	// TouchAPIKey sets LastUsedAt to at only when the stored KeyHash equals
+	// hash and at is after the stored LastUsedAt, atomically; otherwise, an
+	// unknown key included, it writes nothing and returns nil (rules 19
+	// and 21).
+	TouchAPIKey(ctx context.Context, keyID int64, hash access.Hash, at time.Time) error
+	// UpdateAPIKeySecret writes s's five fields over the key ref names and
+	// zeroes its LastUsedAt, in one atomic write (rules 21 and 23).
+	// ErrNotFound when no key of ref.UserID has ref.ID (rule 6).
+	UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, s access.KeySecret) error
+	// UpdateAPIKeyLabel writes label over the key ref names and nothing
+	// else. ErrNotFound when no key of ref.UserID has ref.ID (rule 6).
+	UpdateAPIKeyLabel(ctx context.Context, ref access.KeyRef, label string) error
 }
 
 // TokenStore holds the one-time tokens.
@@ -214,7 +224,7 @@ type Tx interface {
 	LogStore
 }
 
-// Sweeper holds the two expiry cleanups the background sweep calls, each a
+// Sweeper holds the three cleanups the background sweep calls, each a
 // single-call write outside Update. They are not on Tx: inside a
 // transaction, "exactly the refs it deleted, in one atomic step" cannot
 // hold, since the Update may roll back or run again.
@@ -228,6 +238,14 @@ type Sweeper interface {
 	// CleanupExpiredOneTimeTokens deletes every token whose ExpiresAt is not
 	// after now and returns how many it deleted.
 	CleanupExpiredOneTimeTokens(ctx context.Context, now time.Time) (int64, error)
+	// ClearRetiredAPIKeySecrets zeroes PreviousHash and PreviousUntil, in
+	// one atomic step, on at most limit keys whose previous secret no
+	// longer verifies: PreviousHash set, and PreviousUntil not after now or
+	// LastUsedAt non-zero. It evaluates that predicate in its own write,
+	// never writes KeyHash, and returns how many keys it cleared; fewer
+	// than limit means none such is left (rule 23). A store may refuse a
+	// limit below 1 with an error.
+	ClearRetiredAPIKeySecrets(ctx context.Context, now time.Time, limit int) (int, error)
 }
 
 // Store is everything account reads and writes.

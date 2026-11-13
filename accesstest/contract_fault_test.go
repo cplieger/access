@@ -251,6 +251,18 @@ func (f *faultStore) CleanupExpiredOneTimeTokens(_ context.Context, now time.Tim
 	return int64(n), err
 }
 
+func (f *faultStore) ClearRetiredAPIKeySecrets(_ context.Context, now time.Time, limit int) (int, error) {
+	if limit < 1 {
+		return 0, errLimit
+	}
+	var n int
+	err := f.commit(func(tx *memTx) error {
+		n = tx.clearRetired(now, limit)
+		return nil
+	})
+	return n, err
+}
+
 func (f *faultStore) CreateUser(ctx context.Context, u *access.User) error {
 	return f.commit(func(tx *memTx) error { return tx.CreateUser(ctx, u) })
 }
@@ -379,8 +391,16 @@ func (f *faultStore) DeleteUserAPIKeys(ctx context.Context, id int64) ([]int64, 
 	return ids, err
 }
 
-func (f *faultStore) TouchAPIKey(ctx context.Context, id int64, at time.Time) error {
-	return f.commit(func(tx *memTx) error { return tx.TouchAPIKey(ctx, id, at) })
+func (f *faultStore) TouchAPIKey(ctx context.Context, id int64, h access.Hash, at time.Time) error {
+	return f.commit(func(tx *memTx) error { return tx.TouchAPIKey(ctx, id, h, at) })
+}
+
+func (f *faultStore) UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, sec access.KeySecret) error {
+	return f.commit(func(tx *memTx) error { return tx.UpdateAPIKeySecret(ctx, ref, sec) })
+}
+
+func (f *faultStore) UpdateAPIKeyLabel(ctx context.Context, ref access.KeyRef, label string) error {
+	return f.commit(func(tx *memTx) error { return tx.UpdateAPIKeyLabel(ctx, ref, label) })
 }
 
 func (f *faultStore) CreateOneTimeToken(ctx context.Context, tok access.OneTimeToken) error {

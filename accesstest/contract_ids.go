@@ -327,7 +327,8 @@ func (w *worker) touchKey() error {
 		}
 		return err
 	}
-	return w.s.TouchAPIKey(w.ctx, w.keys[w.rng.IntN(len(w.keys))].ID, w.now())
+	k := w.keys[w.rng.IntN(len(w.keys))]
+	return w.s.TouchAPIKey(w.ctx, k.ID, k.KeyHash, w.now())
 }
 
 func (w *worker) checkCounts() error {
@@ -419,6 +420,7 @@ func sweeperCalls(s account.Store) []namedCall {
 			return err
 		}, "CleanupExpiredSessions"},
 		{func(ctx context.Context) error { _, err := s.CleanupExpiredOneTimeTokens(ctx, epoch); return err }, "CleanupExpiredOneTimeTokens"},
+		{func(ctx context.Context) error { _, err := s.ClearRetiredAPIKeySecrets(ctx, epoch, 10); return err }, "ClearRetiredAPIKeySecrets"},
 	}
 }
 
@@ -467,6 +469,7 @@ func sessionCalls(tx account.Tx, sd *seeded) []namedCall {
 
 func credentialCalls(tx account.Tx, sd *seeded) []namedCall {
 	pref := access.PasskeyRef{ID: sd.passkey.ID, UserID: sd.user.ID}
+	kref := access.KeyRef{ID: sd.key.ID, UserID: sd.user.ID}
 	return []namedCall{
 		{func(ctx context.Context) error { return tx.CreatePasskey(ctx, newPasskey(sd.user.ID)) }, "CreatePasskey"},
 		{func(ctx context.Context) error { _, err := tx.PasskeysByUserID(ctx, sd.user.ID); return err }, "PasskeysByUserID"},
@@ -478,7 +481,13 @@ func credentialCalls(tx account.Tx, sd *seeded) []namedCall {
 		{func(ctx context.Context) error { _, _, err := tx.APIKeyByHash(ctx, sd.key.KeyHash); return err }, "APIKeyByHash"},
 		{func(ctx context.Context) error { _, err := tx.ListAPIKeysByUserID(ctx, sd.user.ID); return err }, opListUserKeys},
 		{func(ctx context.Context) error { _, err := tx.ListAPIKeys(ctx); return err }, opListAllKeys},
-		{func(ctx context.Context) error { return tx.TouchAPIKey(ctx, sd.key.ID, epoch.Add(time.Minute)) }, "TouchAPIKey"},
+		{func(ctx context.Context) error {
+			return tx.TouchAPIKey(ctx, sd.key.ID, sd.key.KeyHash, epoch.Add(time.Minute))
+		}, "TouchAPIKey"},
+		{func(ctx context.Context) error { return tx.UpdateAPIKeyLabel(ctx, kref, "ctx") }, "UpdateAPIKeyLabel"},
+		{func(ctx context.Context) error {
+			return tx.UpdateAPIKeySecret(ctx, kref, access.KeySecret{KeyHash: access.NewHash(fresh("ctx-key")), PreviousHash: sd.key.KeyHash, PreviousUntil: epoch.Add(time.Hour)})
+		}, "UpdateAPIKeySecret"},
 	}
 }
 
@@ -527,7 +536,7 @@ func deleteCalls(tx account.Tx, sd *seeded) []namedCall {
 		{func(ctx context.Context) error { _, err := tx.DeleteUserPasskeys(ctx, sd.user.ID); return err }, "DeleteUserPasskeys"},
 		{func(ctx context.Context) error {
 			return tx.DeleteAPIKey(ctx, access.KeyRef{ID: sd.key.ID, UserID: sd.user.ID})
-		}, "DeleteAPIKey"},
+		}, opDeleteKey},
 		{func(ctx context.Context) error { _, err := tx.DeleteUserAPIKeys(ctx, sd.user.ID); return err }, "DeleteUserAPIKeys"},
 		{func(ctx context.Context) error { return tx.DeleteUser(ctx, sd.user.ID) }, "DeleteUser"},
 	}

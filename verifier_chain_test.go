@@ -136,7 +136,7 @@ func (s *recordingStore) UpdateSessionActivity(ctx context.Context, h Hash, act 
 	return s.fakeSessionStore.UpdateSessionActivity(ctx, h, act)
 }
 
-func (s *recordingStore) TouchAPIKey(ctx context.Context, keyID int64, at time.Time) error {
+func (s *recordingStore) TouchAPIKey(ctx context.Context, keyID int64, hash Hash, at time.Time) error {
 	s.touches.Add(1)
 	if s.beforeWrite != nil {
 		s.beforeWrite()
@@ -144,7 +144,7 @@ func (s *recordingStore) TouchAPIKey(ctx context.Context, keyID int64, at time.T
 	if s.failWrite() {
 		return errWriteFailed
 	}
-	return s.fakeSessionStore.TouchAPIKey(ctx, keyID, at)
+	return s.fakeSessionStore.TouchAPIKey(ctx, keyID, hash, at)
 }
 
 // writes is the number of activity writes and key touches s has seen.

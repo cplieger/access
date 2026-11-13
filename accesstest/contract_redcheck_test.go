@@ -171,6 +171,50 @@ var variants = map[string]variant{
 		make:  memVariant(func(m *MemStore) account.Store { return &unconditionalTouchStore{m} }),
 		fails: []string{"rule_21_activity/key"},
 	},
+	"touch-ignores-hash": {
+		make:  memVariant(func(m *MemStore) account.Store { return &hashlessTouchStore{m} }),
+		fails: []string{"rule_23_key_secrets/stale_touch"}, only: true,
+	},
+	"lookup-ignores-previous": {
+		make:  memVariant(func(m *MemStore) account.Store { return &currentOnlyLookupStore{m} }),
+		fails: []string{"rule_23_key_secrets/lookup_either_hash", "rule_23_key_secrets/clear_retired", "rule_23_key_secrets/label_write"},
+	},
+	"secret-keeps-last-used": {
+		make:  memVariant(func(m *MemStore) account.Store { return &secretKeepsUseStore{m} }),
+		fails: []string{"rule_23_key_secrets/secret_write"},
+	},
+	"secret-keeps-first-previous": {
+		make:  memVariant(func(m *MemStore) account.Store { return &firstPreviousStore{m} }),
+		fails: []string{"rule_23_key_secrets/rotate_during_overlap"},
+	},
+	"secret-keeps-superseded-index": {
+		make:  memVariant(func(m *MemStore) account.Store { return &staleIndexStore{m} }),
+		fails: []string{"rule_23_key_secrets/rotation_chain"}, only: true,
+	},
+	"secret-ignores-owner": {
+		make:  memVariant(func(m *MemStore) account.Store { return &ownerlessSecretStore{m} }),
+		fails: []string{"rule_06_scoping/wrong_owner", "rule_23_key_secrets/secret_scoped_in_update"}, only: true,
+	},
+	"delete-keeps-previous-hash": {
+		make:  memVariant(func(m *MemStore) account.Store { return &deleteKeepsPreviousStore{m} }),
+		fails: []string{"rule_23_key_secrets/revoke_during_overlap"}, only: true,
+	},
+	"clear-ignores-use": {
+		make:  memVariant(func(m *MemStore) account.Store { return &clearIgnoresUseStore{m} }),
+		fails: []string{"rule_23_key_secrets/clear_retired"}, only: true,
+	},
+	"clear-every-previous": {
+		make:  memVariant(func(m *MemStore) account.Store { return &clearEveryPreviousStore{m} }),
+		fails: []string{"rule_23_key_secrets/clear_retired"}, only: true,
+	},
+	"clear-ignores-limit": {
+		make:  memVariant(func(m *MemStore) account.Store { return &clearUnlimitedStore{m} }),
+		fails: []string{"rule_23_key_secrets/clear_bound"}, only: true,
+	},
+	"label-rewrites-secret": {
+		make:  memVariant(func(m *MemStore) account.Store { return &labelDropsPreviousStore{m} }),
+		fails: []string{"rule_23_key_secrets/label_write"}, only: true,
+	},
 	"rotate-overwrites-activity": {
 		make:  memVariant(func(m *MemStore) account.Store { return &rotationOverwritesStore{m} }),
 		fails: []string{"rule_21_activity/rotation"},
@@ -694,7 +738,7 @@ func (s *unconditionalActivityStore) UpdateSessionActivity(_ context.Context, h 
 // unconditionalTouchStore writes every touch, older ones included.
 type unconditionalTouchStore struct{ *MemStore }
 
-func (s *unconditionalTouchStore) TouchAPIKey(_ context.Context, id int64, at time.Time) error {
+func (s *unconditionalTouchStore) TouchAPIKey(_ context.Context, id int64, _ access.Hash, at time.Time) error {
 	return s.write(func(tx *memTx) (bool, error) {
 		k, ok := tx.s.keys[id]
 		if ok {
@@ -719,4 +763,155 @@ func (s *rotationOverwritesStore) RotateSession(ctx context.Context, rot account
 		tx.s.sessions[key] = sess
 		return true, nil
 	})
+}
+
+// hashlessTouchStore keeps rule 21's time order but ignores the hash.
+type hashlessTouchStore struct{ *MemStore }
+
+func (s *hashlessTouchStore) TouchAPIKey(ctx context.Context, id int64, _ access.Hash, at time.Time) error {
+	k, ok := s.snap.Load().keys[id]
+	if !ok {
+		return nil
+	}
+	return s.MemStore.TouchAPIKey(ctx, id, k.KeyHash, at)
+}
+
+// currentOnlyLookupStore finds a key by its KeyHash alone.
+type currentOnlyLookupStore struct{ *MemStore }
+
+func (s *currentOnlyLookupStore) APIKeyByHash(ctx context.Context, h access.Hash) (*access.Key, bool, error) {
+	k, found, err := s.MemStore.APIKeyByHash(ctx, h)
+	if err != nil || !found || !k.KeyHash.Equal(h) {
+		return nil, false, err
+	}
+	return k, true, nil
+}
+
+// restoreKey runs write on s and then puts back what keep copies from the
+// key as it was before.
+func restoreKey(s *MemStore, id int64, write func() error, keep func(before access.Key, after *access.Key)) error {
+	before := s.snap.Load().keys[id]
+	if err := write(); err != nil {
+		return err
+	}
+	return s.write(func(tx *memTx) (bool, error) {
+		k, ok := tx.s.keys[id]
+		if ok {
+			tx.unindexKey(id)
+			keep(before, &k)
+			tx.putKey(&k)
+		}
+		return ok, nil
+	})
+}
+
+// secretKeepsUseStore leaves LastUsedAt as it was across a rotation.
+type secretKeepsUseStore struct{ *MemStore }
+
+func (s *secretKeepsUseStore) UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, sec access.KeySecret) error {
+	return restoreKey(s.MemStore, ref.ID, func() error { return s.MemStore.UpdateAPIKeySecret(ctx, ref, sec) },
+		func(before access.Key, after *access.Key) { after.LastUsedAt = before.LastUsedAt })
+}
+
+// firstPreviousStore keeps an existing previous secret through a second
+// rotation.
+type firstPreviousStore struct{ *MemStore }
+
+func (s *firstPreviousStore) UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, sec access.KeySecret) error {
+	return restoreKey(s.MemStore, ref.ID, func() error { return s.MemStore.UpdateAPIKeySecret(ctx, ref, sec) },
+		func(before access.Key, after *access.Key) {
+			if !before.PreviousHash.IsZero() {
+				after.PreviousHash = before.PreviousHash
+			}
+		})
+}
+
+// staleIndexStore leaves the superseded previous hash in the index.
+type staleIndexStore struct{ *MemStore }
+
+func (s *staleIndexStore) UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, sec access.KeySecret) error {
+	before := s.snap.Load().keys[ref.ID]
+	if err := s.MemStore.UpdateAPIKeySecret(ctx, ref, sec); err != nil || before.PreviousHash.IsZero() {
+		return err
+	}
+	return edit(s.MemStore, func(st *state) { st.keyHashes[before.PreviousHash.Key()] = ref.ID })
+}
+
+// ownerlessSecretStore rotates a key whatever ref.UserID names, in a
+// single call and inside an Update.
+type ownerlessSecretStore struct{ *MemStore }
+
+type ownerlessSecretTx struct{ *memTx }
+
+func (t ownerlessSecretTx) UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, sec access.KeySecret) error {
+	ref.UserID = t.s.keys[ref.ID].UserID
+	return t.memTx.UpdateAPIKeySecret(ctx, ref, sec)
+}
+
+func (s *ownerlessSecretStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.MemStore.Update(ctx, func(tx account.Tx) error { return fn(ownerlessSecretTx{tx.(*memTx)}) })
+}
+
+func (s *ownerlessSecretStore) UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, sec access.KeySecret) error {
+	return s.write(func(tx *memTx) (bool, error) { return true, ownerlessSecretTx{tx}.UpdateAPIKeySecret(ctx, ref, sec) })
+}
+
+// deleteKeepsPreviousStore leaves a deleted key's previous hash indexed.
+type deleteKeepsPreviousStore struct{ *MemStore }
+
+func (s *deleteKeepsPreviousStore) DeleteAPIKey(ctx context.Context, ref access.KeyRef) error {
+	before := s.snap.Load().keys[ref.ID]
+	if err := s.MemStore.DeleteAPIKey(ctx, ref); err != nil || before.PreviousHash.IsZero() {
+		return err
+	}
+	return edit(s.MemStore, func(st *state) { st.keyHashes[before.PreviousHash.Key()] = ref.ID })
+}
+
+// clearWhere clears, in one write, the previous secret of up to limit keys
+// retired reports.
+func clearWhere(s *MemStore, limit int, retired func(k access.Key) bool) (int, error) {
+	n := 0
+	err := s.write(func(tx *memTx) (bool, error) {
+		for _, id := range slices.Sorted(maps.Keys(tx.s.keys)) {
+			if k := tx.s.keys[id]; n < limit && !k.PreviousHash.IsZero() && retired(k) {
+				tx.unindexKey(id)
+				k.PreviousHash, k.PreviousUntil = access.Hash{}, time.Time{}
+				tx.putKey(&k)
+				n++
+			}
+		}
+		return n > 0, nil
+	})
+	return n, err
+}
+
+// clearIgnoresUseStore clears only on the bound, never on a use.
+type clearIgnoresUseStore struct{ *MemStore }
+
+func (s *clearIgnoresUseStore) ClearRetiredAPIKeySecrets(_ context.Context, now time.Time, limit int) (int, error) {
+	return clearWhere(s.MemStore, limit, func(k access.Key) bool { return !k.PreviousUntil.After(now) })
+}
+
+// clearEveryPreviousStore clears every previous secret, live ones included.
+type clearEveryPreviousStore struct{ *MemStore }
+
+func (s *clearEveryPreviousStore) ClearRetiredAPIKeySecrets(_ context.Context, _ time.Time, limit int) (int, error) {
+	return clearWhere(s.MemStore, limit, func(access.Key) bool { return true })
+}
+
+// clearUnlimitedStore ignores the limit.
+type clearUnlimitedStore struct{ *MemStore }
+
+func (s *clearUnlimitedStore) ClearRetiredAPIKeySecrets(_ context.Context, now time.Time, _ int) (int, error) {
+	return clearWhere(s.MemStore, math.MaxInt, func(k access.Key) bool { return !now.Before(k.PreviousUntil) || !k.LastUsedAt.IsZero() })
+}
+
+// labelDropsPreviousStore drops the previous secret when it renames.
+type labelDropsPreviousStore struct{ *MemStore }
+
+func (s *labelDropsPreviousStore) UpdateAPIKeyLabel(ctx context.Context, ref access.KeyRef, label string) error {
+	return restoreKey(s.MemStore, ref.ID, func() error { return s.MemStore.UpdateAPIKeyLabel(ctx, ref, label) },
+		func(_ access.Key, after *access.Key) {
+			after.PreviousHash, after.PreviousUntil = access.Hash{}, time.Time{}
+		})
 }

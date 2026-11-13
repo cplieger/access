@@ -535,13 +535,48 @@ func (t *memTx) DeleteUserPasskeys(_ context.Context, userID int64) ([]int64, er
 
 // --- API keys ---
 
-func (t *memTx) CreateAPIKey(_ context.Context, key *access.Key) error {
-	if key.KeyHash.IsZero() {
+// keyHashesFree reports whether current and a non-zero previous are distinct
+// and name no key but self in the one index of rule 23.
+func (t *memTx) keyHashesFree(current, previous access.Hash, self int64) error {
+	if current.IsZero() {
 		return errNoHash
 	}
-	hk := key.KeyHash.Key()
-	if _, ok := t.s.keyHashes[hk]; ok {
-		return errHashTaken
+	hashes := []access.Hash{current}
+	if !previous.IsZero() {
+		if previous.Equal(current) {
+			return errHashTaken
+		}
+		hashes = append(hashes, previous)
+	}
+	for _, h := range hashes {
+		if id, ok := t.s.keyHashes[h.Key()]; ok && id != self {
+			return errHashTaken
+		}
+	}
+	return nil
+}
+
+// putKey stores k and indexes its KeyHash and a non-zero PreviousHash.
+func (t *memTx) putKey(k *access.Key) {
+	t.s.keys[k.ID] = *k
+	t.s.keyHashes[k.KeyHash.Key()] = k.ID
+	if !k.PreviousHash.IsZero() {
+		t.s.keyHashes[k.PreviousHash.Key()] = k.ID
+	}
+}
+
+// unindexKey removes both of id's hashes from the index.
+func (t *memTx) unindexKey(id int64) {
+	k := t.s.keys[id]
+	delete(t.s.keyHashes, k.KeyHash.Key())
+	if !k.PreviousHash.IsZero() {
+		delete(t.s.keyHashes, k.PreviousHash.Key())
+	}
+}
+
+func (t *memTx) CreateAPIKey(_ context.Context, key *access.Key) error {
+	if err := t.keyHashesFree(key.KeyHash, key.PreviousHash, 0); err != nil {
+		return err
 	}
 	id, err := nextID(&t.s.lastKey)
 	if err != nil {
@@ -550,13 +585,15 @@ func (t *memTx) CreateAPIKey(_ context.Context, key *access.Key) error {
 	cp := key.Clone()
 	cp.ID = id
 	cp.LineageIDs = append(cp.LineageIDs, id)
-	t.s.keys[id] = *cp
-	t.s.keyHashes[hk] = id
+	t.putKey(cp)
 	key.ID, key.LineageIDs = id, slices.Clone(cp.LineageIDs)
 	return nil
 }
 
 func (t *memTx) APIKeyByHash(_ context.Context, hash access.Hash) (*access.Key, bool, error) {
+	if hash.IsZero() {
+		return nil, false, nil
+	}
 	id, ok := t.s.keyHashes[hash.Key()]
 	if !ok {
 		return nil, false, nil
@@ -583,13 +620,18 @@ func (t *memTx) ListAPIKeys(context.Context) ([]access.Key, error) {
 }
 
 func (t *memTx) deleteKey(id int64) {
-	delete(t.s.keyHashes, t.s.keys[id].KeyHash.Key())
+	t.unindexKey(id)
 	delete(t.s.keys, id)
 }
 
-func (t *memTx) DeleteAPIKey(_ context.Context, ref access.KeyRef) error {
+func (t *memTx) ownedKey(ref access.KeyRef) (access.Key, bool) {
 	k, ok := t.s.keys[ref.ID]
-	if !ok || ref.UserID == 0 || k.UserID != ref.UserID {
+	return k, ok && ref.UserID != 0 && k.UserID == ref.UserID
+}
+
+func (t *memTx) DeleteAPIKey(_ context.Context, ref access.KeyRef) error {
+	k, ok := t.ownedKey(ref)
+	if !ok {
 		return account.ErrNotFound
 	}
 	t.deleteKey(k.ID)
@@ -612,9 +654,9 @@ func (t *memTx) DeleteUserAPIKeys(_ context.Context, userID int64) ([]int64, err
 }
 
 // touch applies rule 21 to a key and reports whether it wrote.
-func (t *memTx) touch(keyID int64, at time.Time) bool {
+func (t *memTx) touch(keyID int64, hash access.Hash, at time.Time) bool {
 	k, ok := t.s.keys[keyID]
-	if !ok || !at.After(k.LastUsedAt) {
+	if !ok || !k.KeyHash.Equal(hash) || !at.After(k.LastUsedAt) {
 		return false
 	}
 	k.LastUsedAt = at
@@ -622,8 +664,33 @@ func (t *memTx) touch(keyID int64, at time.Time) bool {
 	return true
 }
 
-func (t *memTx) TouchAPIKey(_ context.Context, keyID int64, at time.Time) error {
-	t.touch(keyID, at)
+func (t *memTx) TouchAPIKey(_ context.Context, keyID int64, hash access.Hash, at time.Time) error {
+	t.touch(keyID, hash, at)
+	return nil
+}
+
+func (t *memTx) UpdateAPIKeySecret(_ context.Context, ref access.KeyRef, sec access.KeySecret) error {
+	k, ok := t.ownedKey(ref)
+	if !ok {
+		return account.ErrNotFound
+	}
+	if err := t.keyHashesFree(sec.KeyHash, sec.PreviousHash, k.ID); err != nil {
+		return err
+	}
+	t.unindexKey(k.ID)
+	k.KeyHash, k.KeyPrefix, k.KeySuffix = sec.KeyHash, sec.KeyPrefix, sec.KeySuffix
+	k.PreviousHash, k.PreviousUntil, k.LastUsedAt = sec.PreviousHash, sec.PreviousUntil, time.Time{}
+	t.putKey(&k)
+	return nil
+}
+
+func (t *memTx) UpdateAPIKeyLabel(_ context.Context, ref access.KeyRef, label string) error {
+	k, ok := t.ownedKey(ref)
+	if !ok {
+		return account.ErrNotFound
+	}
+	k.Label = label
+	t.s.keys[k.ID] = k
 	return nil
 }
 
@@ -909,6 +976,41 @@ func (m *MemStore) CleanupExpiredOneTimeTokens(_ context.Context, now time.Time)
 	return int64(n), err
 }
 
+// clearRetired zeroes the previous secret of up to limit keys, in key ID
+// order, whose previous secret no longer verifies at now, and returns how
+// many it cleared.
+func (t *memTx) clearRetired(now time.Time, limit int) int {
+	n := 0
+	for _, id := range slices.Sorted(maps.Keys(t.s.keys)) {
+		if n == limit {
+			break
+		}
+		k := t.s.keys[id]
+		if k.PreviousHash.IsZero() || (now.Before(k.PreviousUntil) && k.LastUsedAt.IsZero()) {
+			continue
+		}
+		t.unindexKey(id)
+		k.PreviousHash, k.PreviousUntil = access.Hash{}, time.Time{}
+		t.putKey(&k)
+		n++
+	}
+	return n
+}
+
+// ClearRetiredAPIKeySecrets clears at most limit retired previous secrets in
+// one snapshot swap. It refuses a limit below 1.
+func (m *MemStore) ClearRetiredAPIKeySecrets(_ context.Context, now time.Time, limit int) (int, error) {
+	if limit < 1 {
+		return 0, errLimit
+	}
+	var n int
+	err := m.write(func(tx *memTx) (bool, error) {
+		n = tx.clearRetired(now, limit)
+		return n > 0, nil
+	})
+	return n, err
+}
+
 // --- MemStore: reads load the snapshot, writes go through write ---
 
 // CreateUser implements [account.UserStore].
@@ -1080,10 +1182,20 @@ func (m *MemStore) DeleteUserAPIKeys(_ context.Context, userID int64) ([]int64, 
 	return ids, err
 }
 
-// TouchAPIKey keeps rule 21: an at not after the stored LastUsedAt, or an
-// unknown key, publishes nothing.
-func (m *MemStore) TouchAPIKey(_ context.Context, keyID int64, at time.Time) error {
-	return m.write(func(tx *memTx) (bool, error) { return tx.touch(keyID, at), nil })
+// TouchAPIKey keeps rule 21: an at not after the stored LastUsedAt, a hash
+// other than the stored KeyHash, or an unknown key publishes nothing.
+func (m *MemStore) TouchAPIKey(_ context.Context, keyID int64, hash access.Hash, at time.Time) error {
+	return m.write(func(tx *memTx) (bool, error) { return tx.touch(keyID, hash, at), nil })
+}
+
+// UpdateAPIKeySecret implements [account.KeyStore].
+func (m *MemStore) UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, sec access.KeySecret) error {
+	return m.write(func(tx *memTx) (bool, error) { return true, tx.UpdateAPIKeySecret(ctx, ref, sec) })
+}
+
+// UpdateAPIKeyLabel implements [account.KeyStore].
+func (m *MemStore) UpdateAPIKeyLabel(ctx context.Context, ref access.KeyRef, label string) error {
+	return m.write(func(tx *memTx) (bool, error) { return true, tx.UpdateAPIKeyLabel(ctx, ref, label) })
 }
 
 // CreateOneTimeToken implements [account.TokenStore].

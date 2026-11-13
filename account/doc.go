@@ -65,7 +65,8 @@
 //     compares those bytes exactly, and never normalises again.
 //  4. Uniqueness. Username ([ErrUsernameTaken]); a non-zero OIDCIdentity
 //     ([ErrOIDCIdentityTaken]); WebAuthnHandle; credential ID across all
-//     users ([ErrDuplicateCredential]); key hash; session hash and session
+//     users ([ErrDuplicateCredential]); key hash, a KeyHash and a non-zero
+//     PreviousHash sharing one index (rule 23); session hash and session
 //     ID; token hash. Two hashes are the same key exactly when Hash.Equal
 //     holds, and a hash read back is Equal to the one written.
 //  5. Atomicity. RotateSession, ConsumeOneTimeToken and CreateInitialUser
@@ -86,7 +87,8 @@
 //     not match, and they report [ErrNotFound] as for an absent row, so
 //     there is no ownership oracle. The operations: DeletePasskey,
 //     RenamePasskey, UpdatePasskeyAfterLogin, DeleteSession,
-//     UpdateSessionLabel, DeleteAPIKey and RotateSession. A zero or partial
+//     UpdateSessionLabel, DeleteAPIKey, UpdateAPIKeySecret,
+//     UpdateAPIKeyLabel and RotateSession. A zero or partial
 //     ref ([access.PasskeyRef], [access.KeyRef], [access.SessionRef]) matches
 //     nothing. DeleteOneTimeTokensIssuedBy removes exactly the tokens whose
 //     IssuedByKey it lists, and an empty list or a 0 matches nothing.
@@ -211,9 +213,13 @@
 //     older or equal At writes nothing, LastIP included, and returns nil.
 //     LastIP therefore always belongs to the newest LastActivity; UserAgent
 //     is set at creation and no activity write touches it. TouchAPIKey does
-//     the same for LastUsedAt, and RotateSession keeps the stored
-//     LastActivity and LastIP when the stored LastActivity is after Next's,
-//     so no write path lowers either. Two verified requests can reach the
+//     the same for LastUsedAt, and writes only when the stored KeyHash is
+//     the hash it carries, so a touch for a superseded secret writes
+//     nothing. RotateSession keeps the stored LastActivity and LastIP when
+//     the stored LastActivity is after Next's. No activity write lowers
+//     either; UpdateAPIKeySecret alone sets LastUsedAt to zero, in the same
+//     atomic write as the new KeyHash, because after a rotation LastUsedAt
+//     records only the new secret's use. Two verified requests can reach the
 //     store in the reverse order of their clocks: without the rule a late,
 //     older write would move a session's idle deadline back. A store
 //     implements it as a conditional update (UPDATE … WHERE last_activity <
@@ -251,4 +257,16 @@
 //     A store keeps the log with the durability of its users and keys: a
 //     store that resets derived data on a format change classifies its log
 //     records as durable, never derived.
+//  23. Key secrets. APIKeyByHash finds a key by its KeyHash or by its
+//     non-zero PreviousHash, and a zero hash finds nothing.
+//     UpdateAPIKeySecret writes KeyHash, KeyPrefix, KeySuffix, PreviousHash
+//     and PreviousUntil and zeroes LastUsedAt in one atomic write (rule
+//     21); the hash it supersedes as PreviousHash leaves the index in that
+//     write, so after rotations A to B to C only B and C find the key. A
+//     delete removes both hashes. ClearRetiredAPIKeySecrets zeroes
+//     PreviousHash and PreviousUntil where its predicate holds, evaluated
+//     inside its own atomic write and never from a list read before it, so
+//     a rotation committed meanwhile keeps its new previous secret. It
+//     clears at most limit keys, never writes KeyHash, and a count below
+//     limit left no key to clear at now.
 package account

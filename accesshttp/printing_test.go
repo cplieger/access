@@ -315,7 +315,9 @@ func (failingActivity) UpdateSessionActivity(context.Context, access.Hash, acces
 	return errActivityWrite
 }
 
-func (failingActivity) TouchAPIKey(context.Context, int64, time.Time) error { return errActivityWrite }
+func (failingActivity) TouchAPIKey(context.Context, int64, access.Hash, time.Time) error {
+	return errActivityWrite
+}
 
 // checkRequestLogs sends requests carrying a known password, session
 // token, API key and OIDC client secret, refused and accepted, through

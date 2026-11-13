@@ -118,6 +118,13 @@ The store interfaces move to `account`, and the store contract changes ([Impleme
 
 New roles: `account.FailureStore` for the durable failure cap, `account.AttributionStore` for key attribution and `account.LogStore` for the security log.
 
+Key rotation adds to the key store, under contract rule 23 ([Key secrets](storage.md#key-secrets)). A store built on an earlier access dev tag adds these:
+
+- `access.Key` gains `PreviousHash` and `PreviousUntil`, and `APIKeyByHash` finds a key by its `KeyHash` or its non-zero `PreviousHash`, so the store indexes both.
+- `TouchAPIKey(ctx, keyID, at)` becomes `TouchAPIKey(ctx, keyID, hash, at)`, on `access.APIKeyToucher` and `account.KeyStore`, and writes only when the stored `KeyHash` equals `hash`.
+- `account.KeyStore` gains `UpdateAPIKeySecret(ctx, access.KeyRef, access.KeySecret)`, which writes the new secret and zeroes `LastUsedAt` in one write, and `UpdateAPIKeyLabel(ctx, access.KeyRef, label)`.
+- `account.Sweeper` gains `ClearRetiredAPIKeySecrets(ctx, now, limit) (int, error)`.
+
 ## The security log
 
 `account` keeps an append-only [security log](security-log.md), written in the same `Update` as each change it records.

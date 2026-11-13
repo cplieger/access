@@ -44,7 +44,7 @@ func (v *apiKeyVerifier) Verify(ctx context.Context, r *http.Request) (Principal
 	// The stored LastUsedAt is the throttle's only state, so a failed touch
 	// is retried by the next request.
 	if !IsPassive(ctx) && now.Sub(k.LastUsedAt) >= v.cfg.ActivityThrottle {
-		if err := v.store.TouchAPIKey(ctx, k.ID, now); err != nil {
+		if err := v.store.TouchAPIKey(ctx, k.ID, hash, now); err != nil {
 			v.warn.log(v.cfg.log(), "access: API key touch failed", "key_id", k.ID, "error", err)
 		}
 	}

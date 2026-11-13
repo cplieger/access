@@ -46,6 +46,11 @@ func (s *countingStore) Update(ctx context.Context, fn func(account.Tx) error) e
 	})
 }
 
+func (s *countingStore) ClearRetiredAPIKeySecrets(ctx context.Context, a1 time.Time, a2 int) (int, error) {
+	s.count(ctx, "ClearRetiredAPIKeySecrets")
+	return s.store.ClearRetiredAPIKeySecrets(ctx, a1, a2)
+}
+
 func (s *countingStore) CleanupExpiredOneTimeTokens(ctx context.Context, a1 time.Time) (int64, error) {
 	s.count(ctx, "CleanupExpiredOneTimeTokens")
 	return s.store.CleanupExpiredOneTimeTokens(ctx, a1)
@@ -246,9 +251,9 @@ func (s *countingStore) SessionsByUserID(ctx context.Context, a1 int64) ([]acces
 	return s.next.SessionsByUserID(ctx, a1)
 }
 
-func (s *countingStore) TouchAPIKey(ctx context.Context, a1 int64, a2 time.Time) error {
+func (s *countingStore) TouchAPIKey(ctx context.Context, a1 int64, a2 access.Hash, a3 time.Time) error {
 	s.count(ctx, "TouchAPIKey")
-	return s.next.TouchAPIKey(ctx, a1, a2)
+	return s.next.TouchAPIKey(ctx, a1, a2, a3)
 }
 
 func (s *countingStore) UnreportedLocks(ctx context.Context) ([]account.FailureCount, error) {
@@ -264,6 +269,16 @@ func (s *countingStore) UpdatePasskeyAfterLogin(ctx context.Context, a1 int64, a
 func (s *countingStore) UpdateSessionActivity(ctx context.Context, a1 access.Hash, a2 access.SessionActivity) error {
 	s.count(ctx, "UpdateSessionActivity")
 	return s.next.UpdateSessionActivity(ctx, a1, a2)
+}
+
+func (s *countingStore) UpdateAPIKeyLabel(ctx context.Context, a1 access.KeyRef, a2 string) error {
+	s.count(ctx, "UpdateAPIKeyLabel")
+	return s.next.UpdateAPIKeyLabel(ctx, a1, a2)
+}
+
+func (s *countingStore) UpdateAPIKeySecret(ctx context.Context, a1 access.KeyRef, a2 access.KeySecret) error {
+	s.count(ctx, "UpdateAPIKeySecret")
+	return s.next.UpdateAPIKeySecret(ctx, a1, a2)
 }
 
 func (s *countingStore) UpdateSessionLabel(ctx context.Context, a1 access.SessionRef, a2 string) error {

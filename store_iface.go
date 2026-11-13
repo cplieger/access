@@ -37,12 +37,17 @@ type UserReader interface {
 
 // APIKeyReader validates API keys (looked up by hash).
 type APIKeyReader interface {
+	// APIKeyByHash finds the key whose KeyHash, or whose non-zero
+	// PreviousHash, equals hash; a zero hash finds nothing.
 	APIKeyByHash(ctx context.Context, hash Hash) (key *Key, found bool, err error)
 }
 
-// APIKeyToucher records a key's use as its LastUsedAt. It sets LastUsedAt to
-// at only when at is after the stored value, atomically; an older or equal
-// at, or an ID no key has, writes nothing and returns nil.
+// APIKeyToucher records a use of a key's current secret as its LastUsedAt.
 type APIKeyToucher interface {
-	TouchAPIKey(ctx context.Context, keyID int64, at time.Time) error
+	// TouchAPIKey sets LastUsedAt to at only when the stored KeyHash equals
+	// hash and at is after the stored LastUsedAt, comparing and writing in
+	// one atomic step. Otherwise, an ID no key has included, it writes
+	// nothing and returns nil, so a touch sampled before a rotation, which
+	// carries the superseded hash, never ends the new overlap.
+	TouchAPIKey(ctx context.Context, keyID int64, hash Hash, at time.Time) error
 }

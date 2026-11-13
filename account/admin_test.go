@@ -16,7 +16,8 @@ var writeCalls = []string{
 	"CreateUser", "CreateInitialUser", "UpdateUser", "DeleteUser", "CreateSession", "UpdateSessionActivity",
 	"RotateSession", "UpdateSessionLabel", "DeleteSession", "DeleteSessionByHash", "DeleteUserSessions",
 	"CreatePasskey", "UpdatePasskeyAfterLogin", "RenamePasskey", "DeletePasskey", "DeleteUserPasskeys",
-	"CreateAPIKey", "DeleteAPIKey", "DeleteUserAPIKeys", "TouchAPIKey", "CreateOneTimeToken",
+	"CreateAPIKey", "DeleteAPIKey", "DeleteUserAPIKeys", "TouchAPIKey", "UpdateAPIKeySecret", "UpdateAPIKeyLabel",
+	"CreateOneTimeToken",
 	"ConsumeOneTimeToken", "DeleteOneTimeTokens", "DeleteOneTimeTokensIssuedBy", "CreateKeyAttribution",
 	"PutAuthFailure", "DeleteAuthFailures", "PruneAuthFailures", "Descope",
 }

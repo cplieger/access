@@ -443,6 +443,11 @@ func (s *faultStore) CleanupExpiredOneTimeTokens(ctx context.Context, now time.T
 	return s.mem.CleanupExpiredOneTimeTokens(ctx, now)
 }
 
+func (s *faultStore) ClearRetiredAPIKeySecrets(ctx context.Context, now time.Time, limit int) (int, error) {
+	s.record(ctx, 0, "ClearRetiredAPIKeySecrets", "")
+	return s.mem.ClearRetiredAPIKeySecrets(ctx, now, limit)
+}
+
 // faultTx records every call and applies the store's write faults inside
 // an Update; inner is the Update's Tx, or the MemStore for a single call.
 type faultTx struct {
@@ -662,11 +667,25 @@ func (t *faultTx) DeleteUserAPIKeys(ctx context.Context, userID int64) ([]int64,
 	return t.inner.DeleteUserAPIKeys(ctx, userID)
 }
 
-func (t *faultTx) TouchAPIKey(ctx context.Context, keyID int64, at time.Time) error {
+func (t *faultTx) TouchAPIKey(ctx context.Context, keyID int64, hash access.Hash, at time.Time) error {
 	if err := t.s.write(ctx, t.update, "TouchAPIKey", ""); err != nil {
 		return err
 	}
-	return t.inner.TouchAPIKey(ctx, keyID, at)
+	return t.inner.TouchAPIKey(ctx, keyID, hash, at)
+}
+
+func (t *faultTx) UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, sec access.KeySecret) error {
+	if err := t.s.write(ctx, t.update, "UpdateAPIKeySecret", ""); err != nil {
+		return err
+	}
+	return t.inner.UpdateAPIKeySecret(ctx, ref, sec)
+}
+
+func (t *faultTx) UpdateAPIKeyLabel(ctx context.Context, ref access.KeyRef, label string) error {
+	if err := t.s.write(ctx, t.update, "UpdateAPIKeyLabel", ""); err != nil {
+		return err
+	}
+	return t.inner.UpdateAPIKeyLabel(ctx, ref, label)
 }
 
 func (t *faultTx) CreateOneTimeToken(ctx context.Context, tok access.OneTimeToken) error {

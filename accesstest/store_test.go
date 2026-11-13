@@ -125,7 +125,7 @@ func TestMemStoreActivityMonotonic(t *testing.T) {
 		t.Fatalf("APIKeyByHash: %v", err)
 	}
 	for _, at := range []time.Time{later, t0} {
-		if err := store.TouchAPIKey(ctx, key.ID, at); err != nil {
+		if err := store.TouchAPIKey(ctx, key.ID, key.KeyHash, at); err != nil {
 			t.Fatalf("TouchAPIKey(%v) = %v, want nil", at, err)
 		}
 	}
@@ -463,7 +463,7 @@ func TestMemStoreAbsentRows(t *testing.T) {
 	if err := store.UpdateSessionActivity(ctx, access.NewHash("absent"), access.SessionActivity{At: t0}); err != nil {
 		t.Errorf("UpdateSessionActivity(absent) = %v, want nil", err)
 	}
-	if err := store.TouchAPIKey(ctx, 8, t0); err != nil {
+	if err := store.TouchAPIKey(ctx, 8, access.NewHash("absent"), t0); err != nil {
 		t.Errorf("TouchAPIKey(unknown ID) = %v, want nil", err)
 	}
 	if found := sessionFound(t, store, access.NewHash("absent")); found {

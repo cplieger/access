@@ -252,7 +252,7 @@ func TestAPIKeyStoreGuards(t *testing.T) {
 // failingTouchStore fails every key touch.
 type failingTouchStore struct{ *recordingStore }
 
-func (failingTouchStore) TouchAPIKey(context.Context, int64, time.Time) error {
+func (failingTouchStore) TouchAPIKey(context.Context, int64, Hash, time.Time) error {
 	return context.DeadlineExceeded
 }
 
