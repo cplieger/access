@@ -695,7 +695,7 @@ func TestAuthenticatorPrinting(t *testing.T) {
 	checkTypes(t, printcheck.Allow{Fields: []string{
 		"access.Authenticator.chain",
 		"access.sessionVerifier.store", "access.apiKeyVerifier.store",
-		"access.Config.Logger", "access.Config.Verifier",
+		"access.Config.Logger", "access.Config.Verifier", "access.Config.Realm",
 		"access.CookieConfig.Name", "access.CookieConfig.Path", "access.CookieConfig.Domain",
 	}, Types: []string{"time.Time"}}, reflect.TypeFor[*Authenticator]())
 }

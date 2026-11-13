@@ -9,6 +9,7 @@ import (
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
+	"github.com/cplieger/access/internal/crossorigin"
 )
 
 // The transport's own refusals.
@@ -45,18 +46,16 @@ func queryOf[T any](c *call) T {
 }
 
 // mount wraps s.serve with Cache-Control: no-store on every response and,
-// on an unsafe method, its own CrossOriginProtection, so the route does
-// not rely on the app's.
+// on an unsafe method, its own cross-origin check, so the route does not
+// rely on the app's.
 func (h *Handler) mount(s *routeSpec, d *Descriptor) http.Handler {
 	var next http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.serve(&call{w: w, r: r, spec: s, desc: d, client: h.client(r)})
 	})
 	if s.method != http.MethodGet {
-		cop := http.NewCrossOriginProtection()
-		cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next = crossorigin.Guard(next, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h.fail(&call{w: w, r: r, spec: s, desc: d, client: h.client(r)}, errCrossOrigin)
 		}))
-		next = cop.Handler(next)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -97,9 +96,10 @@ func (h *Handler) prepare(c *call) error {
 	return nil
 }
 
-// fail answers err through the ErrorWriter.
+// fail answers err through the ErrorWriter, after the challenge for its code.
 func (h *Handler) fail(c *call, err error) {
 	e := h.refusal(c, err)
+	h.acct.Authenticator().Challenge(c.w.Header(), e.Code, c.desc.Scope)
 	if e.RetryAfter > 0 {
 		c.w.Header().Set("Retry-After", strconv.FormatInt(int64((e.RetryAfter+time.Second-1)/time.Second), 10))
 	}

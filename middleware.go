@@ -43,8 +43,9 @@ type Authenticator struct {
 // store, or an interface holding a nil pointer, map, slice, func or chan, is
 // refused, and so is such a cfg.Verifier, before any verifier is built, so a
 // miswired app fails at startup and not at its first request. So are a
-// negative timeout or throttle, a throttle not below the idle timeout, and a
-// Cookie [CookieConfig.Validate] refuses.
+// negative timeout or throttle, a throttle not below the idle timeout, a
+// Realm holding '"', '\' or a control character, and a Cookie
+// [CookieConfig.Validate] refuses.
 func New(store AuthenticatorStore, cfg Config) (*Authenticator, error) { //nolint:gocritic // hugeParam: by-value Config is the public signature, so a caller builds it inline
 	if isNilInterface(store) {
 		return nil, errors.New("access: New: nil AuthenticatorStore")

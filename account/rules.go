@@ -2,9 +2,11 @@ package account
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/internal/scopetoken"
 	"github.com/cplieger/access/oidc"
 )
 
@@ -54,6 +56,7 @@ type Rules struct {
 	// ForbiddenWords join the username in the password context check.
 	ForbiddenWords []string
 	// Scopes is the key-scope vocabulary; CreateAPIKey refuses any other.
+	// Each is one RFC 6750 scope-token: printable ASCII but space, '"' and '\'.
 	Scopes []string
 	// Provisioning gates just-in-time creation on an OIDC sign-in with no
 	// linked account. The zero value is off.
@@ -130,8 +133,9 @@ const (
 	minRecentAuth     = time.Minute
 )
 
-// Validate checks every bounded field, KeyPrefix and Provisioning. The error is a
-// *RulesError naming the field, which matches ErrRulesInvalid.
+// Validate checks every bounded field, KeyPrefix, Scopes and Provisioning.
+// The error is a *RulesError naming the field, which matches
+// ErrRulesInvalid.
 func (r Rules) Validate() error { //nolint:gocritic // hugeParam: Rules is the value Config.Rules returns
 	switch {
 	case r.RecentAuth != 0 && r.RecentAuth < minRecentAuth:
@@ -143,6 +147,11 @@ func (r Rules) Validate() error { //nolint:gocritic // hugeParam: Rules is the v
 	}
 	if err := access.ValidateKeyPrefix(r.KeyPrefix); err != nil {
 		return &RulesError{Field: "KeyPrefix", Reason: err.Error(), Err: err}
+	}
+	for _, scope := range r.Scopes {
+		if !scopetoken.Valid(scope) {
+			return &RulesError{Field: "Scopes", Reason: fmt.Sprintf("%q is not an RFC 6750 scope-token", scope)}
+		}
 	}
 	if err := r.Provisioning.Validate(); err != nil {
 		return &RulesError{Field: "Provisioning", Reason: err.Error(), Err: err}

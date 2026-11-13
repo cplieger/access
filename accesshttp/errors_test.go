@@ -134,7 +134,9 @@ func TestErrorCodeTable(t *testing.T) {
 			{access.ErrBreachCheckUnavailable, "5"},
 		} {
 			var got access.Error
-			h := &Handler{errors: func(w http.ResponseWriter, _ *http.Request, e access.Error) { got = e; w.WriteHeader(e.Status) }}
+			h := newEnv(t, envOptions{writer: func(*env) access.ErrorWriter {
+				return func(w http.ResponseWriter, _ *http.Request, e access.Error) { got = e; w.WriteHeader(e.Status) }
+			}}).h
 			w := httptest.NewRecorder()
 			s := &routeSpec{name: "test"}
 			h.fail(&call{w: w, r: httptest.NewRequest(http.MethodPost, "/", nil), spec: s, desc: &Descriptor{Name: "test", Codes: access.Codes()}}, tc.err)

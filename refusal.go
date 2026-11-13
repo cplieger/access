@@ -7,7 +7,8 @@ import (
 )
 
 // ErrorWriter renders one refusal in the app's own envelope. The library
-// writes no error body itself: Cache-Control and, when RetryAfter is set,
+// writes no error body itself: Cache-Control, the WWW-Authenticate
+// [Authenticator.Challenge] sets for e.Code and, when RetryAfter is set,
 // Retry-After are already on w when it is called.
 type ErrorWriter func(w http.ResponseWriter, r *http.Request, e Error)
 
@@ -123,6 +124,14 @@ var codeIndex = func() map[Code]int {
 	}
 	return m
 }()
+
+// codeStatus is code's status in the code table, 0 for a code it lacks.
+func codeStatus(code Code) int {
+	if i, ok := codeIndex[code]; ok {
+		return codeTable[i].status
+	}
+	return 0
+}
 
 // Codes returns every code the library answers, in its table's order.
 func Codes() []Code {

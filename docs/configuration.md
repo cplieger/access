@@ -11,6 +11,7 @@ Every setting is a field of a configuration struct or a function argument. The l
 | Field | What it sets | Default |
 | --- | --- | --- |
 | `Logger` | The `*slog.Logger` for warnings and debug lines | `slog.Default()` |
+| `Realm` | The realm of every `WWW-Authenticate` challenge, described below | `access` |
 | `Cookie` | The session cookie, described below | the zero `CookieConfig`, which behaves as `DefaultCookieConfig()` |
 | `IdleTimeout` | How long a session may sit unused | 1h |
 | `AbsTimeout` | How long a session may live at most | 24h |
@@ -21,13 +22,15 @@ Every setting is a field of a configuration struct or a function argument. The l
 | `ClientAddr` | Your resolver for how a request reached you and from which address, behind `Authenticator.ClientAddr`, the rate limiter, each session's last IP and the setup rule | the socket peer, with no proxy trusted |
 | `Bypass` | A development hook that grants a synthetic admin user while it returns true | _(unset)_ |
 
-`New` returns an error for a configuration that cannot work. That is a timeout or throttle below zero, an activity throttle at or above the idle timeout, or a cookie configuration that `CookieConfig.Validate` refuses. `New` also refuses a nil store, and a `Verifier` that holds a nil pointer, map, slice, func or chan; a nil `Verifier` means none.
+`New` returns an error for a configuration that cannot work. That is a timeout or throttle below zero, an activity throttle at or above the idle timeout, a realm holding `"`, `\` or a control character, or a cookie configuration that `CookieConfig.Validate` refuses. `New` also refuses a nil store, and a `Verifier` that holds a nil pointer, map, slice, func or chan; a nil `Verifier` means none.
 
 The activity throttle exists to cut store writes. An API key's last use is written once the stored time is `d` old. A session's activity is written once the stored time is one window old. That window is the lesser of `d` and half the session's idle limit, which the session's own `IdleCap` and the 15-minute limit of a recovery session can lower, so a session in use never expires between two writes. The window runs from the time the store holds, so it holds across restarts, and requests that arrive together as a window ends may each write once. A failed write leaves the stored time old, so the next request tries it again. A failed write logs a warning at most once a minute for sessions and once a minute for keys. The next warning after that minute carries `suppressed`, the count of failures held back, when there were any. The stored last-activity time lags real activity by up to that window, which is why the throttle must stay below the idle timeout.
 
 With `TimeoutSource`, a value at or below zero from the callback falls back to the matching static field. The same cap on the throttle window applies to the idle timeout the callback returns.
 
 By default `RequireAuth` answers 503 with `Retry-After: 5` when the store fails (`ErrAuthBackend`). Every other refusal gets a 401 with `WWW-Authenticate: Bearer` and a JSON body whose `code` is `auth_session_expired` for a session cookie whose session has expired or is gone, and `auth_required` otherwise. It never redirects. An `Unauthorized` hook replaces the answer and receives the error, so it can redirect browsers itself with `IsBrowserRequest`.
+
+`Authenticator.Challenge` writes the [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3) `WWW-Authenticate` header for a refusal, from its code alone, where `R` is `Realm` and `S` the scope the route requires. A refused API key (`auth_key_invalid`) gets `Bearer realm="R", error="invalid_token"`, a key that lacks the route's scope (`auth_scope_required`) gets `Bearer realm="R", error="insufficient_scope", scope="S"`, every other 401 gets `Bearer realm="R"`, and every other code gets none. A failed password sign-in or an expired session cookie is not a refused Bearer token, so it never tells a client to discard its token. accesshttp calls it before your `ErrorWriter`, so every 401 it answers carries a challenge, as [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110#section-15.5.2) requires.
 
 The `Verifier` runs after the session cookie and before the API-key verifier, which refuses every Bearer value it cannot find. A verifier for another Bearer credential answers `ok` false and a nil error for every value that is not its own. Its principal may carry a user your app made up with no stored row. That user must be non-nil and enabled, the `Method` must be non-empty, and the `Authenticator` never looks the user up in the store.
 
@@ -216,7 +219,7 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 
 ## Account service
 
-`account.New(ctx, cfg)` takes an `account.Config`. It refuses a nil `Store`, `Policy`, `Authenticator`, `Hasher`, `Limiter` or `Rules`, a `FailureKey` that is not 32 bytes, two equal non-empty scopes, a negative `CleanupInterval`, `MaxPending`, `LogMaxAge`, `LogMaxChanges` or `LogMaxSessions`, and a `Rules()` value that `Rules.Validate` refuses or whose breach mode has no `Breach` client. Before it returns, it trims the [security log](security-log.md) to its caps and `LogMaxAge` and sweeps the failure records, and it returns a store error from either.
+`account.New(ctx, cfg)` takes an `account.Config`. It refuses a nil `Store`, `Policy`, `Authenticator`, `Hasher`, `Limiter` or `Rules`, a `FailureKey` that is not 32 bytes, a non-empty `AdminScope`, `ManageUsersScope` or `CreateKeysScope` that is not one [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3) scope-token (printable ASCII other than space, `"` and `\`), two equal non-empty scopes, a negative `CleanupInterval`, `MaxPending`, `LogMaxAge`, `LogMaxChanges` or `LogMaxSessions`, and a `Rules()` value that `Rules.Validate` refuses or whose breach mode has no `Breach` client. Before it returns, it trims the [security log](security-log.md) to its caps and `LogMaxAge` and sweeps the failure records, and it returns a store error from either.
 
 | Field | What it sets | Default |
 | --- | --- | --- |
@@ -259,7 +262,7 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 | `SessionCaps` | Per-session idle and absolute limits for a new session; a positive value lowers that limit for the session's life | nil: no cap |
 | `KeyPrefix` | The prefix of every minted key's plaintext | empty |
 | `ForbiddenWords` | Words refused in a password, beside the username | none |
-| `Scopes` | The key-scope vocabulary; `CreateAPIKey` refuses any other scope | none |
+| `Scopes` | The key-scope vocabulary; `CreateAPIKey` refuses any other scope. `Validate` refuses a scope that is not one scope-token | none |
 | `Provisioning` | Just-in-time account creation on an OIDC sign-in with no linked account | off |
 | `RecentAuth` | How recent a sign-in or step-up must be for a sensitive operation; below 1m is invalid | 10m |
 | `Breach` | The breached-password check: `BreachOff`, `BreachFailOpen` or `BreachFailClosed` | `BreachOff` |
@@ -301,7 +304,7 @@ Every key-authorized write re-reads the key and its owner inside its own transac
 
 `Handler.Routes()` returns every route as a `Descriptor` and an `http.Handler`. accesshttp registers nothing itself: mount the routes on your own mux, behind your own gate. You may mount any subset, and no route depends on another being mounted. An unmounted pending-link pair leaves only an unread 10-minute cookie. Each handler applies its own class guard, its own body cap on a route that reads a body, and, on an unsafe (non-GET) method, its own cross-origin protection. Your gate adds to them and never replaces them.
 
-accesshttp writes no error body itself. Every refusal reaches your `access.ErrorWriter` as an `access.Error`, with `Cache-Control` and, when `RetryAfter` is set, `Retry-After` already on the response. Render it in your own envelope:
+accesshttp writes no error body itself. Every refusal reaches your `access.ErrorWriter` as an `access.Error`, with `Cache-Control`, the `WWW-Authenticate` challenge `Authenticator.Challenge` sets for its code, and, when `RetryAfter` is set, `Retry-After` already on the response. Render it in your own envelope:
 
 - `Status` is the HTTP status, and `Code` is the stable code a client branches on.
 - `Reason` is a stable sub-reason a client may branch on, such as `label_too_long`.
