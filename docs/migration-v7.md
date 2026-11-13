@@ -48,6 +48,8 @@ Every plaintext credential is an `access.Secret` and every stored hash an `acces
 
 New in the root package: `Principal`, `Rechecker`, `Authenticator.Recheck`, `RequireRecentAuth`, `Passive`, `AllowRecoverySession`, `ErrAuthBackend`, `ErrInvalidCredential`, `MethodAPIKey`, `MethodBypass`, `MethodRecovery`, `SessionKind`, `SessionRef`, `RecoverySessionLifetime`, `OIDCIdentity`, `OneTimeToken`, `TokenPurpose`, `KeyAttribution`, `Sealer`, `ClientAddr`, `Config.ClientAddr`, `RequestIsHTTPS` and `CookieConfig.Derive`. `Via` is new too, with its constants `ViaUnknown`, `ViaDirect`, `ViaUntrustedForwarding`, `ViaProxy` and `ViaProxyNoClient`.
 
+The refusal vocabulary is in the root package as well, so an app that guards its own routes imports neither `accesshttp` nor the passkey and OIDC packages behind it: `Code`, every `Code…` constant and `Codes`, `Error`, `ErrorWriter`, `AuditEvent`, `NewError` and `ErrorFor`. A service built on an earlier access dev tag renames `accesshttp.Code…`, `accesshttp.Codes`, `accesshttp.Error`, `accesshttp.ErrorWriter` and `accesshttp.AuditEvent` to these `access.` names. The wire strings are unchanged.
+
 ## Records
 
 | auth v6 | access |

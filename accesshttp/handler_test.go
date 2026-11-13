@@ -142,7 +142,7 @@ func TestCrossOriginRefused(t *testing.T) {
 			before := len(e.errs.all())
 			w := do(rt, r)
 			errs := e.errs.all()[before:]
-			if w.Code != http.StatusForbidden || len(errs) != 1 || errs[0].Code != CodeCrossOrigin {
+			if w.Code != http.StatusForbidden || len(errs) != 1 || errs[0].Code != access.CodeCrossOrigin {
 				t.Errorf("status %d errors %+v, want 403 auth_cross_origin", w.Code, errs)
 			}
 			if n := counting.calls.Load(); n != 0 {

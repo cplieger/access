@@ -19,70 +19,14 @@ import (
 	"github.com/cplieger/access/webauthn"
 )
 
-// designCodes is the specified code table, each code with its status, in
-// Codes order; it is written from the spec, not from codeTable.
-var designCodes = []struct {
-	code   Code
-	status int
-}{
-	{"auth_required", 401},
-	{"auth_session_expired", 401},
-	{"auth_invalid_credentials", 401},
-	{"auth_key_invalid", 401},
-	{"auth_recent_auth_required", 403},
-	{"auth_session_required", 403},
-	{"auth_scope_required", 403},
-	{"auth_forbidden", 403},
-	{"auth_rate_limited", 429},
-	{"auth_busy", 503},
-	{"auth_unavailable", 503},
-	{"auth_bad_request", 400},
-	{"auth_body_too_large", 413},
-	{"auth_username_invalid", 400},
-	{"auth_username_taken", 409},
-	{"auth_password_rejected", 400},
-	{"auth_breach_check_unavailable", 503},
-	{"auth_password_login_disabled", 403},
-	{"auth_setup_complete", 409},
-	{"auth_setup_token_required", 401},
-	{"auth_token_invalid", 401},
-	{"auth_last_method", 409},
-	{"auth_identity_taken", 409},
-	{"auth_already_linked", 409},
-	{"auth_method_not_locked", 409},
-	{"auth_cross_origin", 403},
-	{"auth_duplicate_credential", 409},
-	{"auth_unknown_scope", 400},
-	{"auth_passkeys_unavailable", 400},
-	{"auth_origin_refused", 400},
-	{"auth_ceremony_invalid", 401},
-	{"auth_not_discoverable", 400},
-	{"auth_unknown_credential", 401},
-	{"auth_assertion_failed", 401},
-	{"auth_registration_failed", 400},
-	{"auth_oidc_unavailable", 400},
-	{"auth_oidc_failed", 401},
-	{"auth_not_found", 404},
-	{"auth_method_not_allowed", 405},
-}
-
-func designStatus(t *testing.T, c Code) int {
-	t.Helper()
-	for _, d := range designCodes {
-		if d.code == c {
-			return d.status
-		}
-	}
-	t.Fatalf("code %s is not in section 7.2", c)
-	return 0
-}
-
+// TestErrorCodeTable is classify over every error an account call or the
+// transport returns; access's own tests pin each code's status and detail.
 func TestErrorCodeTable(t *testing.T) {
 	wrapped := func(err error) error { return fmt.Errorf("context: %w", err) }
 	rows := []struct {
 		err    error
 		name   string
-		code   Code
+		code   access.Code
 		reason string
 		cer    ceremony
 	}{
@@ -152,7 +96,7 @@ func TestErrorCodeTable(t *testing.T) {
 		{name: "not_found", err: account.ErrNotFound, code: "auth_not_found"},
 		{name: "method_not_allowed", err: errMethodNotAllowed, code: "auth_method_not_allowed"},
 	}
-	reached := map[Code]bool{}
+	reached := map[access.Code]bool{}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
 			e, ok := classify(row.err, row.cer)
@@ -160,31 +104,22 @@ func TestErrorCodeTable(t *testing.T) {
 				t.Fatalf("classify(%v) is unmapped", row.err)
 			}
 			reached[e.Code] = true
-			if e.Code != row.code || e.Reason != row.reason || e.Status != designStatus(t, row.code) {
-				t.Errorf("classify(%v) = %s %q %d, want %s %q %d", row.err, e.Code, e.Reason, e.Status, row.code, row.reason, designStatus(t, row.code))
+			if want := access.NewError(row.code, row.reason, row.err); e.Code != want.Code || e.Reason != want.Reason || e.Status != want.Status {
+				t.Errorf("classify(%v) = %s %q %d, want %s %q %d", row.err, e.Code, e.Reason, e.Status, want.Code, want.Reason, want.Status)
 			}
 			if !errors.Is(e.Err, row.err) {
 				t.Errorf("Err = %v, want the mapped error", e.Err)
 			}
 		})
 	}
-	for _, d := range designCodes {
-		if !reached[d.code] {
-			t.Errorf("no row maps to %s", d.code)
+	for _, c := range access.Codes() {
+		if !reached[c] {
+			t.Errorf("no row maps to %s", c)
 		}
 	}
 	t.Run("unmapped_error", func(t *testing.T) {
 		if _, ok := classify(errors.New("foreign"), ceremonyNone); ok {
 			t.Error("a foreign error on a non-ceremony route is mapped, want a contract break")
-		}
-	})
-	t.Run("codes_equal_the_table", func(t *testing.T) {
-		var want []Code
-		for _, d := range designCodes {
-			want = append(want, d.code)
-		}
-		if got := Codes(); !slices.Equal(got, want) {
-			t.Errorf("Codes() = %v, want %v", got, want)
 		}
 	})
 	t.Run("retry_after_and_no_body", func(t *testing.T) {
@@ -198,11 +133,11 @@ func TestErrorCodeTable(t *testing.T) {
 			{access.ErrAuthBackend, "5"},
 			{access.ErrBreachCheckUnavailable, "5"},
 		} {
-			var got Error
-			h := &Handler{errors: func(w http.ResponseWriter, _ *http.Request, e Error) { got = e; w.WriteHeader(e.Status) }}
+			var got access.Error
+			h := &Handler{errors: func(w http.ResponseWriter, _ *http.Request, e access.Error) { got = e; w.WriteHeader(e.Status) }}
 			w := httptest.NewRecorder()
 			s := &routeSpec{name: "test"}
-			h.fail(&call{w: w, r: httptest.NewRequest(http.MethodPost, "/", nil), spec: s, desc: &Descriptor{Name: "test", Codes: Codes()}}, tc.err)
+			h.fail(&call{w: w, r: httptest.NewRequest(http.MethodPost, "/", nil), spec: s, desc: &Descriptor{Name: "test", Codes: access.Codes()}}, tc.err)
 			if w.Header().Get("Retry-After") != tc.want || w.Code != got.Status || w.Body.Len() != 0 {
 				t.Errorf("%v: Retry-After %q status %d body %q, want %q, the writer's status and no body", tc.err, w.Header().Get("Retry-After"), w.Code, w.Body.String(), tc.want)
 			}
@@ -226,11 +161,11 @@ func TestErrorCodeTable(t *testing.T) {
 
 func TestCodeFilter(t *testing.T) {
 	var logged int
-	run := func(t *testing.T, codes []Code, err error) Error {
+	run := func(t *testing.T, codes []access.Code, err error) access.Error {
 		t.Helper()
 		e := newEnv(t, envOptions{})
-		var got Error
-		e.h.errors = func(w http.ResponseWriter, _ *http.Request, er Error) { got = er; w.WriteHeader(er.Status) }
+		var got access.Error
+		e.h.errors = func(w http.ResponseWriter, _ *http.Request, er access.Error) { got = er; w.WriteHeader(er.Status) }
 		s := &routeSpec{name: "testRoute", method: http.MethodPost, class: ClassPublic, serve: func(*Handler, *call) error { return err }}
 		d := &Descriptor{Name: "testRoute", Method: http.MethodPost, Path: "/test", Class: ClassPublic, Codes: codes}
 		before := e.logs.CountMsg("contract break")
@@ -240,20 +175,20 @@ func TestCodeFilter(t *testing.T) {
 		return got
 	}
 	t.Run("unlisted_sentinel", func(t *testing.T) {
-		got := run(t, []Code{CodeMethodNotAllowed, CodeCrossOrigin}, account.ErrLastMethod)
-		if got.Code != CodeUnavailable || logged != 1 || !errors.Is(got.Err, account.ErrLastMethod) {
+		got := run(t, []access.Code{access.CodeMethodNotAllowed, access.CodeCrossOrigin}, account.ErrLastMethod)
+		if got.Code != access.CodeUnavailable || logged != 1 || !errors.Is(got.Err, account.ErrLastMethod) {
 			t.Errorf("got %s with %d ERROR logs, want auth_unavailable and one", got.Code, logged)
 		}
 	})
 	t.Run("listed_sentinel", func(t *testing.T) {
-		got := run(t, []Code{CodeLastMethod}, account.ErrLastMethod)
-		if got.Code != CodeLastMethod || logged != 0 {
+		got := run(t, []access.Code{access.CodeLastMethod}, account.ErrLastMethod)
+		if got.Code != access.CodeLastMethod || logged != 0 {
 			t.Errorf("got %s with %d ERROR logs, want auth_last_method and none", got.Code, logged)
 		}
 	})
 	t.Run("foreign_error", func(t *testing.T) {
-		got := run(t, Codes(), errors.New("foreign"))
-		if got.Code != CodeUnavailable || logged != 1 {
+		got := run(t, access.Codes(), errors.New("foreign"))
+		if got.Code != access.CodeUnavailable || logged != 1 {
 			t.Errorf("got %s with %d ERROR logs, want auth_unavailable and one", got.Code, logged)
 		}
 	})
@@ -266,17 +201,17 @@ func TestSessionGoneCodes(t *testing.T) {
 	for _, name := range []string{"authStepUpPassword", "authPasswordSet", "authPasswordRemove", "authRecoveryPassword", "authRecoveryPasskeyBegin", "authRecoveryPasskeyFinish", "authOIDCLinkPending", "authOIDCUnlink"} {
 		t.Run(name, func(t *testing.T) {
 			rt := e.route(t, name)
-			if !slices.Contains(opCodes[specNamed(t, name).op], CodeSessionExpired) {
+			if !slices.Contains(opCodes[specNamed(t, name).op], access.CodeSessionExpired) {
 				t.Errorf("operation codes %v lack auth_session_expired", opCodes[specNamed(t, name).op])
 			}
-			if slices.Contains(rt.Codes, CodeOIDCFailed) {
+			if slices.Contains(rt.Codes, access.CodeOIDCFailed) {
 				t.Errorf("Codes %v hold auth_oidc_failed", rt.Codes)
 			}
 			errsBefore, breaksBefore := len(e.errs.all()), e.logs.CountMsg("contract break")
 			w := httptest.NewRecorder()
 			e.h.fail(&call{w: w, r: httptest.NewRequest(rt.Method, rt.Path, nil), spec: specNamed(t, name), desc: &rt.Descriptor}, fmt.Errorf("rotate: %w", account.ErrSessionGone))
 			errs := e.errs.all()[errsBefore:]
-			if len(errs) != 1 || errs[0].Code != CodeSessionExpired || errs[0].Status != http.StatusUnauthorized || errs[0].Reason != "session_gone" {
+			if len(errs) != 1 || errs[0].Code != access.CodeSessionExpired || errs[0].Status != http.StatusUnauthorized || errs[0].Reason != "session_gone" {
 				t.Errorf("errors %+v, want one 401 auth_session_expired session_gone", errs)
 			}
 			if n := e.logs.CountMsg("contract break") - breaksBefore; n != 0 {
@@ -288,7 +223,7 @@ func TestSessionGoneCodes(t *testing.T) {
 	// for the oidc errors.
 	t.Run("authOIDCCallback", func(t *testing.T) {
 		rt := e.route(t, "authOIDCCallback")
-		if !slices.Contains(rt.Codes, CodeSessionExpired) {
+		if !slices.Contains(rt.Codes, access.CodeSessionExpired) {
 			t.Errorf("Codes %v lack auth_session_expired", rt.Codes)
 		}
 		errsBefore, breaksBefore := len(e.errs.all()), e.logs.CountMsg("contract break")
@@ -335,11 +270,11 @@ func TestClientGoneIsNotContractBreak(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv(t, envOptions{})
 			s := &routeSpec{name: "testRoute", method: http.MethodPost, class: ClassPublic, serve: func(*Handler, *call) error { return tc.err }}
-			d := &Descriptor{Name: "testRoute", Method: http.MethodPost, Path: "/test", Class: ClassPublic, Codes: Codes()}
+			d := &Descriptor{Name: "testRoute", Method: http.MethodPost, Path: "/test", Class: ClassPublic, Codes: access.Codes()}
 			rt := Route{Descriptor: *d, Handler: e.h.mount(s, d)}
 			w := do(rt, tc.ctx(request(rt, "")))
 			errs := e.errs.all()
-			if w.Code != http.StatusServiceUnavailable || len(errs) != 1 || errs[0].Code != CodeUnavailable {
+			if w.Code != http.StatusServiceUnavailable || len(errs) != 1 || errs[0].Code != access.CodeUnavailable {
 				t.Errorf("status %d errors %+v, want 503 auth_unavailable", w.Code, errs)
 			}
 			if n := e.logs.CountMsg("contract break"); n != tc.breaks {

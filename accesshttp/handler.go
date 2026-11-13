@@ -108,11 +108,11 @@ func (h *Handler) fail(c *call, err error) {
 
 // refusal maps err for c's route through routeError and audits it; a
 // contract break is logged at ERROR and answered auth_unavailable.
-func (h *Handler) refusal(c *call, err error) Error {
+func (h *Handler) refusal(c *call, err error) access.Error {
 	e, broken := routeError(err, c.spec.cer, c.desc.Codes)
 	if broken {
 		h.logBreak(c, err, e.Code)
-		e = newError(CodeUnavailable, "", err)
+		e = access.NewError(access.CodeUnavailable, "", err)
 	}
 	h.auditFailure(c, err, e)
 	return e
@@ -121,7 +121,7 @@ func (h *Handler) refusal(c *call, err error) Error {
 // logBreak logs an unmapped or unlisted err. An error carrying the
 // request's own ended context is the client walking away, not a break:
 // only r.Context().Err() tells it from account's own timeout.
-func (h *Handler) logBreak(c *call, err error, code Code) {
+func (h *Handler) logBreak(c *call, err error, code access.Code) {
 	ctx := c.r.Context()
 	if ctxErr := ctx.Err(); ctxErr != nil && errors.Is(err, ctxErr) {
 		h.log().DebugContext(ctx, "accesshttp: request ended", "route", c.desc.Name, "err", err.Error())

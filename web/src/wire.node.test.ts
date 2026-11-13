@@ -475,7 +475,7 @@ describe("CeremonyResponse.public_key", () => {
 });
 
 describe("AuthCode", () => {
-  it("is codes.json, in Codes() order", () => {
+  it("is codes.json, in access.Codes() order", () => {
     expect([...CODES]).toEqual(codes);
   });
 
@@ -499,7 +499,7 @@ describe("AuthCode", () => {
 });
 
 describe("AuthReason", () => {
-  it("is reasons.json, in Reasons() order", () => {
+  it("is reasons.json, in accesshttp.Reasons() order", () => {
     expect([...REASONS]).toEqual(reasons);
   });
 

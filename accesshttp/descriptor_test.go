@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
 )
 
@@ -108,15 +109,15 @@ func TestDescriptorQueryTable(t *testing.T) {
 }
 
 func TestCodesOrder(t *testing.T) {
-	authCodes := []Code{CodeAuthRequired, CodeSessionExpired, CodeInvalidCredentials, CodeKeyInvalid, CodeUnavailable}
-	refusals := map[Class][]Code{
-		ClassSession:       {CodeSessionRequired},
-		ClassRecentAuth:    {CodeSessionRequired, CodeRecentAuthRequired},
-		ClassKeyScope:      {CodeScopeRequired, CodeSessionRequired},
-		ClassKeyPermission: {CodeRecentAuthRequired, CodeScopeRequired, CodeSessionRequired},
-		ClassRecovery:      {CodeSessionRequired},
+	authCodes := []access.Code{access.CodeAuthRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeKeyInvalid, access.CodeUnavailable}
+	refusals := map[Class][]access.Code{
+		ClassSession:       {access.CodeSessionRequired},
+		ClassRecentAuth:    {access.CodeSessionRequired, access.CodeRecentAuthRequired},
+		ClassKeyScope:      {access.CodeScopeRequired, access.CodeSessionRequired},
+		ClassKeyPermission: {access.CodeRecentAuthRequired, access.CodeScopeRequired, access.CodeSessionRequired},
+		ClassRecovery:      {access.CodeSessionRequired},
 	}
-	order := Codes()
+	order := access.Codes()
 	for _, dc := range []DescriptorConfig{{}, {Prefix: "/p", OIDCPrefix: "/o", AdminScope: "a", ManageUsersScope: "u", CreateKeysScope: "k"}} {
 		for i := range specs {
 			s := &specs[i]
@@ -130,20 +131,20 @@ func TestCodesOrder(t *testing.T) {
 				}
 				last = idx
 			}
-			var want []Code
+			var want []access.Code
 			if d.Class != ClassPublic {
 				want = append(slices.Clone(authCodes), refusals[d.Class]...)
 			}
-			want = append(want, CodeMethodNotAllowed)
+			want = append(want, access.CodeMethodNotAllowed)
 			if d.Method != http.MethodGet {
-				want = append(want, CodeCrossOrigin)
+				want = append(want, access.CodeCrossOrigin)
 			}
 			body := d.Request != nil || s.cer != ceremonyNone
 			if body {
-				want = append(want, CodeBodyTooLarge, CodeBadRequest)
+				want = append(want, access.CodeBodyTooLarge, access.CodeBadRequest)
 			}
 			if s.pathID != pathNone || (d.Query != nil && d.Kind == KindJSON) {
-				want = append(want, CodeBadRequest)
+				want = append(want, access.CodeBadRequest)
 			}
 			for _, c := range want {
 				if !slices.Contains(d.Codes, c) {
@@ -155,13 +156,13 @@ func TestCodesOrder(t *testing.T) {
 	noBody := []string{"authAdminUsers", "authLoginPasskeyBegin", "authMethodReenable", "authPasskeyRemove", "authSessionRevoke", "authKeyRevoke", "authAdminUserDelete", "authAdminKeyRevoke", "authOIDCStartSignIn", "authOIDCCallback"}
 	for _, name := range noBody {
 		d := specNamed(t, name).descriptor(&DescriptorConfig{Prefix: "/p", OIDCPrefix: "/o"})
-		if slices.Contains(d.Codes, CodeBodyTooLarge) {
+		if slices.Contains(d.Codes, access.CodeBodyTooLarge) {
 			t.Errorf("%s lists auth_body_too_large with no body", name)
 		}
 	}
 	for _, name := range []string{"authOIDCStartSignIn", "authOIDCCallback"} {
 		d := specNamed(t, name).descriptor(&DescriptorConfig{Prefix: "/p", OIDCPrefix: "/o"})
-		if slices.Contains(d.Codes, CodeBadRequest) || !slices.Contains(d.Codes, CodeRateLimited) {
+		if slices.Contains(d.Codes, access.CodeBadRequest) || !slices.Contains(d.Codes, access.CodeRateLimited) {
 			t.Errorf("%s Codes %v: want no auth_bad_request and auth_rate_limited", name, d.Codes)
 		}
 	}
@@ -196,7 +197,7 @@ func TestDescriptorsEqualsNewRoutes(t *testing.T) {
 				c.AdminScope, c.ManageUsersScope, c.CreateKeysScope = tc.dc.AdminScope, tc.dc.ManageUsersScope, tc.dc.CreateKeysScope
 			}})
 			h, err := New(Config{
-				Account: e.svc, Errors: func(http.ResponseWriter, *http.Request, Error) {},
+				Account: e.svc, Errors: func(http.ResponseWriter, *http.Request, access.Error) {},
 				Prefix: tc.dc.Prefix, OIDCPrefix: tc.dc.OIDCPrefix,
 			})
 			if err != nil {

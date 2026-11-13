@@ -29,58 +29,58 @@ import (
 var accountSentinels = []struct {
 	err  error
 	name string
-	code Code
+	code access.Code
 }{
-	{name: "invalid_credentials", err: account.ErrInvalidCredentials, code: CodeInvalidCredentials},
-	{name: "recent_auth", err: access.ErrRecentAuthRequired, code: CodeRecentAuthRequired},
-	{name: "session_required", err: account.ErrSessionRequired, code: CodeSessionRequired},
-	{name: "scope_required", err: account.ErrScopeRequired, code: CodeScopeRequired},
-	{name: "policy", err: &account.PolicyError{Op: account.OpCreateUser, Reason: account.ReasonAdminTarget}, code: CodeForbidden},
-	{name: "sso_governed", err: account.ErrSSOGoverned, code: CodeForbidden},
-	{name: "rate_limited", err: &ratelimit.RefusedError{Dimension: "ip", RetryAfter: time.Second}, code: CodeRateLimited},
-	{name: "hash_busy", err: access.ErrHashBusy, code: CodeBusy},
-	{name: "backend", err: access.ErrAuthBackend, code: CodeUnavailable},
-	{name: "service_closed", err: account.ErrServiceClosed, code: CodeUnavailable},
-	{name: "rules_invalid", err: &account.RulesError{Field: "Breach", Reason: "no client"}, code: CodeUnavailable},
-	{name: "ttl_too_long", err: account.ErrTTLTooLong, code: CodeBadRequest},
-	{name: "ttl_negative", err: account.ErrTTLNegative, code: CodeBadRequest},
-	{name: "no_change", err: account.ErrNoChange, code: CodeBadRequest},
-	{name: "expiry_invalid", err: account.ErrKeyExpiryInvalid, code: CodeBadRequest},
-	{name: "redirect_too_long", err: oidc.ErrRedirectTooLong, code: CodeBadRequest},
-	{name: "current_password_required", err: account.ErrCurrentPasswordRequired, code: CodeBadRequest},
-	{name: "text", err: &account.TextError{Field: account.TextFieldLabel, Reason: account.ReasonTooLong}, code: CodeBadRequest},
-	{name: "log_filter", err: &account.LogFilterError{Reason: account.ReasonLogKind}, code: CodeBadRequest},
-	{name: "username_invalid", err: &account.UsernameError{Reason: account.ReasonTooLong}, code: CodeUsernameInvalid},
-	{name: "username_taken", err: account.ErrUsernameTaken, code: CodeUsernameTaken},
-	{name: "password_rejected", err: &access.PasswordError{Reason: access.PasswordCommon}, code: CodePasswordRejected},
-	{name: "breach_unavailable", err: account.ErrBreachCheckUnavailable, code: CodeBreachCheckUnavailable},
-	{name: "password_login_disabled", err: account.ErrPasswordLoginDisabled, code: CodePasswordLoginDisabled},
-	{name: "setup_complete", err: account.ErrSetupComplete, code: CodeSetupComplete},
-	{name: "setup_token_required", err: account.ErrSetupTokenRequired, code: CodeSetupTokenRequired},
-	{name: "token_invalid", err: access.ErrTokenInvalid, code: CodeTokenInvalid},
-	{name: "last_method", err: account.ErrLastMethod, code: CodeLastMethod},
-	{name: "identity_taken", err: account.ErrOIDCIdentityTaken, code: CodeIdentityTaken},
-	{name: "already_linked", err: account.ErrAlreadyLinked, code: CodeAlreadyLinked},
-	{name: "method_not_locked", err: account.ErrMethodNotLocked, code: CodeMethodNotLocked},
-	{name: "duplicate_credential", err: account.ErrDuplicateCredential, code: CodeDuplicateCredential},
-	{name: "unknown_scope", err: account.ErrUnknownScope, code: CodeUnknownScope},
-	{name: "passkeys_unavailable", err: account.ErrPasskeysUnavailable, code: CodePasskeysUnavailable},
-	{name: "origin_refused", err: &webauthn.OriginError{Reason: webauthn.RejectNotAllowlisted}, code: CodeOriginRefused},
-	{name: "ceremony_invalid", err: account.ErrCeremonyInvalid, code: CodeCeremonyInvalid},
-	{name: "not_discoverable", err: webauthn.ErrNotDiscoverable, code: CodeNotDiscoverable},
-	{name: "unknown_credential", err: webauthn.ErrUnknownCredential, code: CodeUnknownCredential},
+	{name: "invalid_credentials", err: account.ErrInvalidCredentials, code: access.CodeInvalidCredentials},
+	{name: "recent_auth", err: access.ErrRecentAuthRequired, code: access.CodeRecentAuthRequired},
+	{name: "session_required", err: account.ErrSessionRequired, code: access.CodeSessionRequired},
+	{name: "scope_required", err: account.ErrScopeRequired, code: access.CodeScopeRequired},
+	{name: "policy", err: &account.PolicyError{Op: account.OpCreateUser, Reason: account.ReasonAdminTarget}, code: access.CodeForbidden},
+	{name: "sso_governed", err: account.ErrSSOGoverned, code: access.CodeForbidden},
+	{name: "rate_limited", err: &ratelimit.RefusedError{Dimension: "ip", RetryAfter: time.Second}, code: access.CodeRateLimited},
+	{name: "hash_busy", err: access.ErrHashBusy, code: access.CodeBusy},
+	{name: "backend", err: access.ErrAuthBackend, code: access.CodeUnavailable},
+	{name: "service_closed", err: account.ErrServiceClosed, code: access.CodeUnavailable},
+	{name: "rules_invalid", err: &account.RulesError{Field: "Breach", Reason: "no client"}, code: access.CodeUnavailable},
+	{name: "ttl_too_long", err: account.ErrTTLTooLong, code: access.CodeBadRequest},
+	{name: "ttl_negative", err: account.ErrTTLNegative, code: access.CodeBadRequest},
+	{name: "no_change", err: account.ErrNoChange, code: access.CodeBadRequest},
+	{name: "expiry_invalid", err: account.ErrKeyExpiryInvalid, code: access.CodeBadRequest},
+	{name: "redirect_too_long", err: oidc.ErrRedirectTooLong, code: access.CodeBadRequest},
+	{name: "current_password_required", err: account.ErrCurrentPasswordRequired, code: access.CodeBadRequest},
+	{name: "text", err: &account.TextError{Field: account.TextFieldLabel, Reason: account.ReasonTooLong}, code: access.CodeBadRequest},
+	{name: "log_filter", err: &account.LogFilterError{Reason: account.ReasonLogKind}, code: access.CodeBadRequest},
+	{name: "username_invalid", err: &account.UsernameError{Reason: account.ReasonTooLong}, code: access.CodeUsernameInvalid},
+	{name: "username_taken", err: account.ErrUsernameTaken, code: access.CodeUsernameTaken},
+	{name: "password_rejected", err: &access.PasswordError{Reason: access.PasswordCommon}, code: access.CodePasswordRejected},
+	{name: "breach_unavailable", err: account.ErrBreachCheckUnavailable, code: access.CodeBreachCheckUnavailable},
+	{name: "password_login_disabled", err: account.ErrPasswordLoginDisabled, code: access.CodePasswordLoginDisabled},
+	{name: "setup_complete", err: account.ErrSetupComplete, code: access.CodeSetupComplete},
+	{name: "setup_token_required", err: account.ErrSetupTokenRequired, code: access.CodeSetupTokenRequired},
+	{name: "token_invalid", err: access.ErrTokenInvalid, code: access.CodeTokenInvalid},
+	{name: "last_method", err: account.ErrLastMethod, code: access.CodeLastMethod},
+	{name: "identity_taken", err: account.ErrOIDCIdentityTaken, code: access.CodeIdentityTaken},
+	{name: "already_linked", err: account.ErrAlreadyLinked, code: access.CodeAlreadyLinked},
+	{name: "method_not_locked", err: account.ErrMethodNotLocked, code: access.CodeMethodNotLocked},
+	{name: "duplicate_credential", err: account.ErrDuplicateCredential, code: access.CodeDuplicateCredential},
+	{name: "unknown_scope", err: account.ErrUnknownScope, code: access.CodeUnknownScope},
+	{name: "passkeys_unavailable", err: account.ErrPasskeysUnavailable, code: access.CodePasskeysUnavailable},
+	{name: "origin_refused", err: &webauthn.OriginError{Reason: webauthn.RejectNotAllowlisted}, code: access.CodeOriginRefused},
+	{name: "ceremony_invalid", err: account.ErrCeremonyInvalid, code: access.CodeCeremonyInvalid},
+	{name: "not_discoverable", err: webauthn.ErrNotDiscoverable, code: access.CodeNotDiscoverable},
+	{name: "unknown_credential", err: webauthn.ErrUnknownCredential, code: access.CodeUnknownCredential},
 	{name: "unclassified", err: errStubbed},
-	{name: "oidc_unavailable", err: account.ErrOIDCUnavailable, code: CodeOIDCUnavailable},
-	{name: "oidc_exchange", err: oidc.ErrExchange, code: CodeOIDCFailed},
-	{name: "oidc_provider_error", err: &oidc.ProviderError{Code: "access_denied"}, code: CodeOIDCFailed},
-	{name: "oidc_stale", err: oidc.ErrStaleAuthentication, code: CodeOIDCFailed},
-	{name: "session_gone", err: account.ErrSessionGone, code: CodeSessionExpired},
-	{name: "not_found", err: account.ErrNotFound, code: CodeNotFound},
+	{name: "oidc_unavailable", err: account.ErrOIDCUnavailable, code: access.CodeOIDCUnavailable},
+	{name: "oidc_exchange", err: oidc.ErrExchange, code: access.CodeOIDCFailed},
+	{name: "oidc_provider_error", err: &oidc.ProviderError{Code: "access_denied"}, code: access.CodeOIDCFailed},
+	{name: "oidc_stale", err: oidc.ErrStaleAuthentication, code: access.CodeOIDCFailed},
+	{name: "session_gone", err: account.ErrSessionGone, code: access.CodeSessionExpired},
+	{name: "not_found", err: account.ErrNotFound, code: access.CodeNotFound},
 }
 
 // finishFailure is §7.2's code for a WebAuthn finish failure the table does
 // not otherwise name.
-var finishFailure = map[ceremony]Code{ceremonyAssertion: CodeAssertionFailed, ceremonyRegistration: CodeRegistrationFailed}
+var finishFailure = map[ceremony]access.Code{ceremonyAssertion: access.CodeAssertionFailed, ceremonyRegistration: access.CodeRegistrationFailed}
 
 // TestAccountSentinelsCoverAccount parses account's non-test files for its
 // exported Err* values and the types whose Is method matches one, and this
@@ -177,7 +177,7 @@ func TestAccountSentinelsCoverAccount(t *testing.T) {
 			continue
 		}
 		row := accountSentinels[i]
-		if !slices.Contains(Codes(), row.code) {
+		if !slices.Contains(access.Codes(), row.code) {
 			t.Errorf("account.%s: row %s names code %q, not a §7.2 code", name, row.name, row.code)
 			continue
 		}
@@ -198,7 +198,7 @@ func accountSelector(e ast.Expr) (string, bool) {
 
 // answer serves r on rt and returns the code it refused with, from the
 // ErrorWriter or a redirect's auth_error, and the contract breaks it logged.
-func (e *env) answer(t *testing.T, rt Route, r *http.Request) (code Code, breaks int) {
+func (e *env) answer(t *testing.T, rt Route, r *http.Request) (code access.Code, breaks int) {
 	t.Helper()
 	errsBefore, breaksBefore := len(e.errs.all()), e.logs.CountMsg("contract break")
 	w := do(rt, r)
@@ -221,12 +221,12 @@ type boundaryCase struct {
 	// build returns the env and route that serve the case and its request.
 	build func(t *testing.T) (*env, Route, *http.Request)
 	name  string
-	want  Code
+	want  access.Code
 }
 
 // run serves the case and returns the code it answered and the contract
 // breaks it logged.
-func (bc *boundaryCase) run(t *testing.T) (got Code, breaks int) {
+func (bc *boundaryCase) run(t *testing.T) (got access.Code, breaks int) {
 	t.Helper()
 	e, rt, r := bc.build(t)
 	return e.answer(t, rt, r)
@@ -243,7 +243,7 @@ func (c *census) boundaryCases(t *testing.T, rt Route) []boundaryCase {
 	s := specNamed(t, rt.Name)
 	path, body := censusPathValue(t, rt), censusBody(t, rt)
 	var cases []boundaryCase
-	add := func(name string, want Code, build func() *http.Request) {
+	add := func(name string, want access.Code, build func() *http.Request) {
 		cases = append(cases, boundaryCase{name: name, want: want, build: func(*testing.T) (*env, Route, *http.Request) {
 			return c.env, rt, build()
 		}})
@@ -259,13 +259,13 @@ func (c *census) boundaryCases(t *testing.T, rt Route) []boundaryCase {
 		}
 	}
 	pass := c.passing(t, rt)
-	add("wrong_method", CodeMethodNotAllowed, func() *http.Request {
+	add("wrong_method", access.CodeMethodNotAllowed, func() *http.Request {
 		r := as(pass, path, body)
 		r.Method = http.MethodPatch
 		return r
 	})
 	if rt.Method != http.MethodGet {
-		add("cross_origin", CodeCrossOrigin, func() *http.Request {
+		add("cross_origin", access.CodeCrossOrigin, func() *http.Request {
 			r := as(pass, path, body)
 			r.Header.Set("Origin", evilOrigin)
 			r.Header.Set("Sec-Fetch-Site", "cross-site")
@@ -273,18 +273,18 @@ func (c *census) boundaryCases(t *testing.T, rt Route) []boundaryCase {
 		})
 	}
 	if limit := bodyLimit(s); limit > 0 {
-		add("body_not_json", CodeBadRequest, func() *http.Request {
+		add("body_not_json", access.CodeBadRequest, func() *http.Request {
 			r := as(pass, path, body)
 			r.Header.Set("Content-Type", "text/plain")
 			return r
 		})
-		add("body_too_large", CodeBodyTooLarge, func() *http.Request { return as(pass, path, longBody(limit+1)) })
+		add("body_too_large", access.CodeBodyTooLarge, func() *http.Request { return as(pass, path, longBody(limit+1)) })
 	}
 	if bad, ok := malformedPathValue[s.pathID]; ok {
-		add("path_value", CodeBadRequest, func() *http.Request { return as(pass, bad, body) })
+		add("path_value", access.CodeBadRequest, func() *http.Request { return as(pass, bad, body) })
 	}
 	if s.tokenBody {
-		add("token_in_query", CodeBadRequest, func() *http.Request {
+		add("token_in_query", access.CodeBadRequest, func() *http.Request {
 			r := as(pass, path, body)
 			r.URL.RawQuery = "token=" + "not-a-token"
 			return r
@@ -292,14 +292,14 @@ func (c *census) boundaryCases(t *testing.T, rt Route) []boundaryCase {
 	}
 	if rt.Query != nil && rt.Kind == KindJSON {
 		key, _, _ := strings.Cut(rt.Query.Field(0).Tag.Get("json"), ",")
-		add("query_repeated", CodeBadRequest, func() *http.Request {
+		add("query_repeated", access.CodeBadRequest, func() *http.Request {
 			r := as(pass, path, body)
 			r.URL.RawQuery = key + "=1&" + key + "=2"
 			return r
 		})
 	}
 	if s.limited {
-		cases = append(cases, boundaryCase{name: "limiter", want: CodeRateLimited, build: func(t *testing.T) (*env, Route, *http.Request) {
+		cases = append(cases, boundaryCase{name: "limiter", want: access.CodeRateLimited, build: func(t *testing.T) (*env, Route, *http.Request) {
 			e := newEnv(t, limited)
 			e.useIdP(t, accesstest.IdPOptions{}, nil)
 			e.spendRequest(t)
@@ -355,8 +355,8 @@ func TestDescriptorCodes(t *testing.T) {
 			bypass.stub.Store(true)
 			for i, rt := range c.h.Routes() {
 				t.Run(rt.Name, func(t *testing.T) {
-					answered := map[Code]bool{}
-					expect := func(t *testing.T, want, got Code, breaks int) {
+					answered := map[access.Code]bool{}
+					expect := func(t *testing.T, want, got access.Code, breaks int) {
 						t.Helper()
 						if breaks == 0 {
 							answered[got] = true
@@ -394,7 +394,7 @@ func TestDescriptorCodes(t *testing.T) {
 // adds what rt answers with no contract break to answered. A route whose
 // only account call is OIDCProvider has one failure, a nil provider, and
 // one that makes no account call answers from its own state.
-func (c *census) sweepSentinels(t *testing.T, rt Route, answered map[Code]bool) {
+func (c *census) sweepSentinels(t *testing.T, rt Route, answered map[access.Code]bool) {
 	t.Helper()
 	s := specNamed(t, rt.Name)
 	pass := c.passing(t, rt)
@@ -416,7 +416,7 @@ func (c *census) sweepSentinels(t *testing.T, rt Route, answered map[Code]bool) 
 			}
 			return
 		case *c.lastOp.Load() == "OIDCProvider":
-			if got != CodeOIDCUnavailable || breaks != 0 {
+			if got != access.CodeOIDCUnavailable || breaks != 0 {
 				t.Errorf("with a nil provider: answered %s with %d contract-break logs, want auth_oidc_unavailable and none", got, breaks)
 			}
 			return
@@ -431,7 +431,7 @@ func (c *census) sweepSentinels(t *testing.T, rt Route, answered map[Code]bool) 
 			if got != want || breaks != 0 {
 				t.Errorf("%s: answered %s with %d contract-break logs, want %s and none", sentinel.name, got, breaks, want)
 			}
-		case got != CodeUnavailable || breaks != 1:
+		case got != access.CodeUnavailable || breaks != 1:
 			t.Errorf("%s (unlisted %q): answered %s with %d contract-break logs, want auth_unavailable and one", sentinel.name, want, got, breaks)
 		default:
 		}
@@ -453,7 +453,7 @@ func TestDescriptorCodesReached(t *testing.T) {
 			c := newCensus(t, set, false)
 			for _, rt := range c.h.Routes() {
 				t.Run(rt.Name, func(t *testing.T) {
-					boundary := map[Code]boundaryCase{}
+					boundary := map[access.Code]boundaryCase{}
 					for _, bc := range c.boundaryCases(t, rt) {
 						if _, written := ops[scenarioKey{rt.Name, bc.want}]; !written && boundary[bc.want].build == nil {
 							boundary[bc.want] = bc
@@ -481,7 +481,7 @@ func TestDescriptorCodesReached(t *testing.T) {
 		})
 	}
 	t.Run("operation", func(t *testing.T) {
-		byRoute := map[string][]Code{}
+		byRoute := map[string][]access.Code{}
 		for k := range ops {
 			byRoute[k.route] = append(byRoute[k.route], k.code)
 		}
@@ -492,7 +492,7 @@ func TestDescriptorCodesReached(t *testing.T) {
 			}
 			delete(byRoute, route)
 			t.Run(route, func(t *testing.T) {
-				for _, code := range Codes() {
+				for _, code := range access.Codes() {
 					if sc, ok := ops[scenarioKey{route, code}]; ok {
 						t.Run(string(code), func(t *testing.T) {
 							t.Parallel()
@@ -510,7 +510,7 @@ func TestDescriptorCodesReached(t *testing.T) {
 
 // runScenario runs sc on its own env: route answers exactly code, at its
 // table status or as a redirect's auth_error, with no contract break.
-func runScenario(t *testing.T, route string, code Code, sc scenario) {
+func runScenario(t *testing.T, route string, code access.Code, sc scenario) {
 	t.Helper()
 	e := newEnv(t, sc.opts)
 	r := sc.arrange(t, e)
@@ -521,7 +521,7 @@ func runScenario(t *testing.T, route string, code Code, sc scenario) {
 		if got := redirectedCode(t, w); len(errs) != 0 || got != code {
 			t.Errorf("redirect auth_error %q, errors %+v, want %s and no ErrorWriter call", got, errs, code)
 		}
-	} else if len(errs) != 1 || errs[0].Code != code || w.Code != codeTable[codeIndex[code]].status {
+	} else if len(errs) != 1 || errs[0].Code != code || w.Code != access.NewError(code, "", nil).Status {
 		t.Errorf("status %d, errors %+v, want one %s", w.Code, errs, code)
 	}
 	if n := e.logs.CountMsg("contract break") - breaksBefore; n != 0 {

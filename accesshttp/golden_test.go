@@ -393,7 +393,7 @@ func wireFiles(t *testing.T, routes []Route) map[string][]byte {
 	slices.Sort(types)
 	out["index.json"] = indexedJSON(t, types)
 	out["queries.json"] = indexedJSON(t, queries)
-	out["codes.json"] = indexedJSON(t, Codes())
+	out["codes.json"] = indexedJSON(t, access.Codes())
 	out["reasons.json"] = indexedJSON(t, Reasons())
 	out["routes.json"] = indexedJSON(t, wireRoutes(t, routes))
 	out["types.json"] = indexedJSON(t, fields)

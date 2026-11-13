@@ -301,11 +301,11 @@ Every key-authorized write re-reads the key and its owner inside its own transac
 
 `Handler.Routes()` returns every route as a `Descriptor` and an `http.Handler`. accesshttp registers nothing itself: mount the routes on your own mux, behind your own gate. You may mount any subset, and no route depends on another being mounted. An unmounted pending-link pair leaves only an unread 10-minute cookie. Each handler applies its own class guard, its own body cap on a route that reads a body, and, on an unsafe (non-GET) method, its own cross-origin protection. Your gate adds to them and never replaces them.
 
-accesshttp writes no error body itself. Every refusal reaches your `ErrorWriter` as an `accesshttp.Error`, with `Cache-Control` and, when `RetryAfter` is set, `Retry-After` already on the response. Render it in your own envelope:
+accesshttp writes no error body itself. Every refusal reaches your `access.ErrorWriter` as an `access.Error`, with `Cache-Control` and, when `RetryAfter` is set, `Retry-After` already on the response. Render it in your own envelope:
 
 - `Status` is the HTTP status, and `Code` is the stable code a client branches on.
 - `Reason` is a stable sub-reason a client may branch on, such as `label_too_long`.
 - `Detail` is safe to show and never holds a secret or a raw cause.
 - `Err` is for your log only. Never send it.
 
-`accesshttp.Codes()` returns every code accesshttp answers, and each route's `Descriptor.Codes` lists the subset that route can answer, in the same order. `accesshttp.Reasons()` returns every fixed `Reason`, each once. Two families stay open and are not listed: `provider_error:` followed by the identity provider's error code on `auth_oidc_failed`, and, on `auth_bad_request`, the name of the body field, path value or query key that was refused. A client that labels each code and reason can check its table against both lists.
+`access.Codes()` returns every code the library answers, and each route's `Descriptor.Codes` lists the subset that route can answer, in the same order. `accesshttp.Reasons()` returns every fixed `Reason`, each once. Two families stay open and are not listed: `provider_error:` followed by the identity provider's error code on `auth_oidc_failed`, and, on `auth_bad_request`, the name of the body field, path value or query key that was refused. A client that labels each code and reason can check its table against both lists.

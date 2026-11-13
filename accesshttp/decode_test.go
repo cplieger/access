@@ -66,8 +66,8 @@ func TestDecodeStrict(t *testing.T) {
 	t.Run("password_as_number", func(t *testing.T) {
 		const literal = "123456789012345"
 		var body strings.Builder
-		e := newEnv(t, envOptions{writer: func(e *env) ErrorWriter {
-			return func(w http.ResponseWriter, _ *http.Request, er Error) {
+		e := newEnv(t, envOptions{writer: func(e *env) access.ErrorWriter {
+			return func(w http.ResponseWriter, _ *http.Request, er access.Error) {
 				e.errs.add(er)
 				w.WriteHeader(er.Status)
 				_ = json.NewEncoder(w).Encode(map[string]string{"code": string(er.Code), "detail": er.Detail, "reason": er.Reason, "err": er.Err.Error()})
@@ -78,7 +78,7 @@ func TestDecodeStrict(t *testing.T) {
 		w := do(rt, request(rt, `{"username":"alice","password":`+literal+`}`))
 		body.WriteString(w.Body.String())
 		errs := e.errs.all()
-		if w.Code != http.StatusBadRequest || len(errs) != 1 || errs[0].Code != CodeBadRequest || errs[0].Reason != "password" {
+		if w.Code != http.StatusBadRequest || len(errs) != 1 || errs[0].Code != access.CodeBadRequest || errs[0].Reason != "password" {
 			t.Fatalf("status %d errors %+v, want 400 auth_bad_request naming password", w.Code, errs)
 		}
 		for _, rec := range e.logs.Records("") {

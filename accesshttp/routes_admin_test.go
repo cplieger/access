@@ -186,7 +186,7 @@ func TestRouteAuthAdminRecovery(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		cookie := e.rootSession(t)
 		w := do(e.route(t, "authAdminRecovery"), e.at(t, "authAdminRecovery", e.userID(t, "alice"), `{"hours":-1}`, cookie))
-		if got := e.requireRefused(t, w, CodeBadRequest); got.Reason != ReasonTTLNegative || len(e.liveTokens(t)) != 0 {
+		if got := e.requireRefused(t, w, access.CodeBadRequest); got.Reason != ReasonTTLNegative || len(e.liveTokens(t)) != 0 {
 			t.Errorf("reason %q, %d live tokens; want %s and none", got.Reason, len(e.liveTokens(t)), ReasonTTLNegative)
 		}
 	})
@@ -198,7 +198,7 @@ func TestAdminRecoverySelfRefused(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	cookie := e.rootSession(t)
 	w := do(e.route(t, "authAdminRecovery"), e.at(t, "authAdminRecovery", e.userID(t, "root"), `{}`, cookie))
-	if got := e.requireRefused(t, w, CodeForbidden); got.Reason != account.ReasonSelfRecovery {
+	if got := e.requireRefused(t, w, access.CodeForbidden); got.Reason != account.ReasonSelfRecovery {
 		t.Errorf("reason %q, want %s", got.Reason, account.ReasonSelfRecovery)
 	}
 	if strings.Contains(w.Body.String(), "token") || len(e.liveTokens(t)) != 0 {
@@ -222,7 +222,7 @@ func TestRouteAuthAdminInvite(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		cookie := e.rootSession(t)
 		w := do(e.route(t, "authAdminInvite"), e.post(t, "authAdminInvite", `{"role":"user","hours":-1}`, cookie))
-		if got := e.requireRefused(t, w, CodeBadRequest); got.Reason != ReasonTTLNegative || len(e.liveTokens(t)) != 0 {
+		if got := e.requireRefused(t, w, access.CodeBadRequest); got.Reason != ReasonTTLNegative || len(e.liveTokens(t)) != 0 {
 			t.Errorf("reason %q, %d live tokens; want %s and none", got.Reason, len(e.liveTokens(t)), ReasonTTLNegative)
 		}
 	})
@@ -357,8 +357,8 @@ func TestAdminTokensListsLiveTokens(t *testing.T) {
 		alice := e.sessionCookie(t, "alice")
 		for _, name := range []string{"authAdminTokens", "authAdminUsers"} {
 			keyW := do(e.route(t, name), bearer(e.post(t, name, ""), k3.Plaintext))
-			e.requireRefused(t, keyW, CodeScopeRequired)
-			e.requireRefused(t, do(e.route(t, name), e.post(t, name, "", alice)), CodeForbidden)
+			e.requireRefused(t, keyW, access.CodeScopeRequired)
+			e.requireRefused(t, do(e.route(t, name), e.post(t, name, "", alice)), access.CodeForbidden)
 		}
 	})
 	t.Run("issuer_revoked", func(t *testing.T) {
@@ -383,7 +383,7 @@ func TestKeyNeverMints(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := do(e.route(t, name), bearer(e.post(t, name, body), key.Plaintext))
-			e.requireRefused(t, w, CodeSessionRequired)
+			e.requireRefused(t, w, access.CodeSessionRequired)
 		})
 	}
 	keys, err := e.mem.ListAPIKeys(t.Context())
@@ -420,10 +420,10 @@ func TestKeyPermissionRoutes(t *testing.T) {
 	})
 	t.Run("other_scopes_refused", func(t *testing.T) {
 		for _, scope := range []string{scopeAdminName, scopeUsersName} {
-			e.requireRefused(t, mint(scope), CodeScopeRequired)
+			e.requireRefused(t, mint(scope), access.CodeScopeRequired)
 		}
 		for _, scope := range []string{scopeAdminName, scopeKeysName} {
-			e.requireRefused(t, create(scope, "dave"), CodeScopeRequired)
+			e.requireRefused(t, create(scope, "dave"), access.CodeScopeRequired)
 		}
 		if _, found, err := e.mem.UserByUsername(t.Context(), "dave"); err != nil || found {
 			t.Errorf("dave stored (%v, %v)", found, err)
@@ -454,7 +454,7 @@ func TestKeyAdminTargetRoutes(t *testing.T) {
 			{"recover_admin", "authAdminRecovery", rootID, `{}`},
 		} {
 			t.Run(c.label, func(t *testing.T) {
-				e.requireRefused(t, send(c.name, c.id, c.body), CodeForbidden)
+				e.requireRefused(t, send(c.name, c.id, c.body), access.CodeForbidden)
 			})
 		}
 		n, err := e.mem.UserCount(t.Context())
@@ -488,7 +488,7 @@ func TestKeyAdminTargetRoutes(t *testing.T) {
 			"authRecoveryStart":        jsonBody(t, TokenRequest{Token: aliceRecovery.Token}),
 		} {
 			w := do(e.route(t, name), e.post(t, name, body))
-			e.requireRefused(t, w, CodeTokenInvalid)
+			e.requireRefused(t, w, access.CodeTokenInvalid)
 			if c := w.Result().Cookies(); len(c) != 0 {
 				t.Errorf("%s set cookies %v", name, c)
 			}
@@ -527,7 +527,7 @@ func TestKeyAdminTargetRoutes(t *testing.T) {
 	})
 	t.Run("bad_key_query", func(t *testing.T) {
 		for _, q := range []string{"key=0", "key=-1", "key=x", "key=1&key=2"} {
-			if got := e.requireRefused(t, users(q), CodeBadRequest); got.Reason != "key" {
+			if got := e.requireRefused(t, users(q), access.CodeBadRequest); got.Reason != "key" {
 				t.Errorf("%s: reason %q, want key", q, got.Reason)
 			}
 		}
@@ -542,7 +542,7 @@ func TestKeysAdminOnlyRoute(t *testing.T) {
 	// refused checks a refused mint: the code, no key and no rotation.
 	refused := func(t *testing.T, e *env, w *httptest.ResponseRecorder, reason string) {
 		t.Helper()
-		if got := e.requireRefused(t, w, CodeForbidden); reason != "" && got.Reason != reason {
+		if got := e.requireRefused(t, w, access.CodeForbidden); reason != "" && got.Reason != reason {
 			t.Errorf("reason %q, want %s", got.Reason, reason)
 		}
 		keys, err := e.mem.ListAPIKeysByUserID(t.Context(), e.user(t, "alice").ID)
@@ -637,7 +637,7 @@ func TestRulesReloadInvalidHTTP(t *testing.T) {
 	errorsBefore := countLevel(e, slog.LevelError)
 	failOpen.Store(true)
 	w := do(e.route(t, "authPasswordSet"), e.post(t, "authPasswordSet", passwordSetBody(t, testPassword, newPassword), cookie))
-	e.requireRefused(t, w, CodeUnavailable)
+	e.requireRefused(t, w, access.CodeUnavailable)
 	if n := countLevel(e, slog.LevelError) - errorsBefore; n != 1 {
 		t.Errorf("%d ERROR logs, want one", n)
 	}
@@ -797,11 +797,11 @@ func TestAdminSecurityLog(t *testing.T) {
 			refusals[raw] = "oldest_first"
 		}
 		for raw, reason := range refusals {
-			if got := e.requireRefused(t, do(e.route(t, "authAdminSecurityLog"), e.securityLog(t, raw, root)), CodeBadRequest); got.Reason != reason {
+			if got := e.requireRefused(t, do(e.route(t, "authAdminSecurityLog"), e.securityLog(t, raw, root)), access.CodeBadRequest); got.Reason != reason {
 				t.Errorf("%s: reason %q, want %q", raw, got.Reason, reason)
 			}
 		}
-		e.requireRefused(t, do(e.route(t, "authAdminSecurityLog"), e.securityLog(t, "", e.sessionCookie(t, "alice"))), CodeForbidden)
+		e.requireRefused(t, do(e.route(t, "authAdminSecurityLog"), e.securityLog(t, "", e.sessionCookie(t, "alice"))), access.CodeForbidden)
 	})
 	t.Run("evicted", func(t *testing.T) {
 		e := newEnv(t, envOptions{edit: func(c *account.Config) { c.LogMaxChanges = 2 }})
@@ -820,11 +820,11 @@ func TestAdminSecurityLog(t *testing.T) {
 		admin := scopedEnv.mintKey(t, "root", account.NewKey{Label: "admin", Scopes: []string{scopeAdminName}})
 		read := scopedEnv.mintKey(t, "root", account.NewKey{Label: "read", Scopes: []string{"read"}})
 		decoded[SecurityLogView](t, scopedEnv, do(scopedEnv.route(t, "authAdminSecurityLog"), bearer(scopedEnv.securityLog(t, ""), admin.Plaintext)), http.StatusOK)
-		scopedEnv.requireRefused(t, do(scopedEnv.route(t, "authAdminSecurityLog"), bearer(scopedEnv.securityLog(t, ""), read.Plaintext)), CodeScopeRequired)
+		scopedEnv.requireRefused(t, do(scopedEnv.route(t, "authAdminSecurityLog"), bearer(scopedEnv.securityLog(t, ""), read.Plaintext)), access.CodeScopeRequired)
 
 		open := newEnv(t, envOptions{})
 		open.rootSession(t)
 		k := open.mintKey(t, "root", account.NewKey{Label: "ci"})
-		open.requireRefused(t, do(open.route(t, "authAdminSecurityLog"), bearer(open.securityLog(t, ""), k.Plaintext)), CodeSessionRequired)
+		open.requireRefused(t, do(open.route(t, "authAdminSecurityLog"), bearer(open.securityLog(t, ""), k.Plaintext)), access.CodeSessionRequired)
 	})
 }

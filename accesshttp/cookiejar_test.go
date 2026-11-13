@@ -414,10 +414,10 @@ func (e *env) requireUntrustedLocked(t *testing.T, b *browser, limiter bool) {
 	last, audit := errs[len(errs)-1], audits[len(audits)-1]
 	switch {
 	case limiter:
-		if w.Code != http.StatusTooManyRequests || last.Code != CodeRateLimited {
+		if w.Code != http.StatusTooManyRequests || last.Code != access.CodeRateLimited {
 			t.Errorf("an untrusted sign-in answered %d %+v, want the limiter's 429", w.Code, last)
 		}
-	case w.Code != http.StatusUnauthorized || last.Code != CodeInvalidCredentials || audit.Reason != "method_locked":
+	case w.Code != http.StatusUnauthorized || last.Code != access.CodeInvalidCredentials || audit.Reason != "method_locked":
 		t.Errorf("an untrusted sign-in answered %d %+v, audit %+v; want 401 from the persisted lock (method_locked)", w.Code, last, audit)
 	}
 	if locks := e.meOf(t, b).Methods.Locks; !slices.Equal(locks, []MethodLockView{{Method: access.MethodPassword, Untrusted: true}}) {

@@ -38,10 +38,10 @@ func (e *env) requireStatus(t testing.TB, w *httptest.ResponseRecorder, status i
 }
 
 // requireRefused checks that w answered exactly one code.
-func (e *env) requireRefused(t testing.TB, w *httptest.ResponseRecorder, code Code) Error {
+func (e *env) requireRefused(t testing.TB, w *httptest.ResponseRecorder, code access.Code) access.Error {
 	t.Helper()
 	errs := e.errs.all()
-	if len(errs) == 0 || errs[len(errs)-1].Code != code || w.Code != codeTable[codeIndex[code]].status {
+	if len(errs) == 0 || errs[len(errs)-1].Code != code || w.Code != access.NewError(code, "", nil).Status {
 		t.Fatalf("status %d, errors %+v, want %s", w.Code, errs, code)
 	}
 	return errs[len(errs)-1]
@@ -132,7 +132,7 @@ func TestProfileViewReadFails(t *testing.T) {
 	e := newEnv(t, envOptions{edit: func(c *account.Config) { c.Store = passkeyReadFails{c.Store} }})
 	cookie := e.aliceSession(t)
 	w := do(e.route(t, "authProfile"), e.post(t, "authProfile", jsonBody(t, ProfileRequest{DisplayName: "Alice A."}), cookie))
-	e.requireRefused(t, w, CodeUnavailable)
+	e.requireRefused(t, w, access.CodeUnavailable)
 	if got := e.user(t, "alice").DisplayName; got != "" {
 		t.Errorf("stored display name %q after the failed update, want it unchanged", got)
 	}
@@ -250,7 +250,7 @@ func TestPasswordSetCurrentHTTP(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		cookie := e.aliceSession(t)
 		before := e.user(t, "alice").PasswordHash
-		if got := e.requireRefused(t, send(e, cookie, ""), CodeBadRequest); got.Reason != ReasonCurrentPasswordRequired {
+		if got := e.requireRefused(t, send(e, cookie, ""), access.CodeBadRequest); got.Reason != ReasonCurrentPasswordRequired {
 			t.Errorf("reason %q, want %s", got.Reason, ReasonCurrentPasswordRequired)
 		}
 		if !e.user(t, "alice").PasswordHash.Equal(before) {
@@ -261,7 +261,7 @@ func TestPasswordSetCurrentHTTP(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		cookie := e.aliceSession(t)
 		w := send(e, cookie, "not-"+testPassword)
-		e.requireRefused(t, w, CodeInvalidCredentials)
+		e.requireRefused(t, w, access.CodeInvalidCredentials)
 		if len(w.Result().Cookies()) != 0 || !e.authenticates(t, cookie) || !e.signsIn(t, "alice", testPassword) {
 			t.Errorf("cookies %v, want none, the session kept and the password unchanged", w.Result().Cookies())
 		}
@@ -315,20 +315,20 @@ func TestPasswordRemoveCurrentHTTP(t *testing.T) {
 	}
 	t.Run("missing", func(t *testing.T) {
 		e, cookie := setup(t)
-		if got := e.requireRefused(t, remove(t, e, cookie, ""), CodeBadRequest); got.Reason != ReasonCurrentPasswordRequired {
+		if got := e.requireRefused(t, remove(t, e, cookie, ""), access.CodeBadRequest); got.Reason != ReasonCurrentPasswordRequired {
 			t.Errorf("reason %q, want %s", got.Reason, ReasonCurrentPasswordRequired)
 		}
 		if e.user(t, "alice").PasswordHash.IsZero() {
 			t.Fatal("the password was removed")
 		}
 		w := do(e.route(t, "authPasswordSet"), e.post(t, "authPasswordSet", passwordSetBody(t, "", newPassword), cookie))
-		if got := e.requireRefused(t, w, CodeBadRequest); got.Reason != ReasonCurrentPasswordRequired {
+		if got := e.requireRefused(t, w, access.CodeBadRequest); got.Reason != ReasonCurrentPasswordRequired {
 			t.Errorf("set after the refused removal: reason %q, want %s", got.Reason, ReasonCurrentPasswordRequired)
 		}
 	})
 	t.Run("wrong", func(t *testing.T) {
 		e, cookie := setup(t)
-		e.requireRefused(t, remove(t, e, cookie, "not-"+testPassword), CodeInvalidCredentials)
+		e.requireRefused(t, remove(t, e, cookie, "not-"+testPassword), access.CodeInvalidCredentials)
 		if !e.signsIn(t, "alice", testPassword) {
 			t.Error("the password no longer signs in")
 		}

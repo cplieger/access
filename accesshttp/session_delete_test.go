@@ -61,7 +61,7 @@ func TestDirectSessionDeleteHTTP(t *testing.T) {
 		cookie := e.sessionCookie(t, "alice")
 		e.deleteSession(t, cookie)
 		rt := e.route(t, "authSessions")
-		e.requireRefused(t, do(rt, request(rt, "", cookie)), CodeSessionExpired)
+		e.requireRefused(t, do(rt, request(rt, "", cookie)), access.CodeSessionExpired)
 	})
 	t.Run("paused_verification", func(t *testing.T) {
 		paused := &pausingStore{read: make(chan struct{}), release: make(chan struct{})}
@@ -89,7 +89,7 @@ func TestDirectSessionDeleteHTTP(t *testing.T) {
 		cookie := e.sessionCookie(t, "alice")
 		r := e.stepUpFinish(t, cookie, dev, nil, func() { e.deleteSession(t, cookie) })
 		w := do(e.route(t, "authStepUpPasskeyFinish"), r)
-		e.requireRefused(t, w, CodeSessionExpired)
+		e.requireRefused(t, w, access.CodeSessionExpired)
 		if c := cookieNamed(w, e.jarNames(testOrigin).session); c != nil {
 			t.Errorf("Set-Cookie %q on a deleted session's step-up", c.Raw)
 		}

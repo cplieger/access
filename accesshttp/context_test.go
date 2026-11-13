@@ -67,7 +67,7 @@ type passthroughCase struct {
 	run   func(t *testing.T, e *env) *httptest.ResponseRecorder
 	name  string
 	route string
-	want  Code
+	want  access.Code
 	opts  envOptions
 }
 
@@ -105,7 +105,7 @@ func passthroughCases() []passthroughCase {
 			e.createUser(t, "alice", access.RoleUser)
 			return serve(t, e, "authLoginPassword", e.post(t, "authLoginPassword", signInBody(t, "alice")))
 		}},
-		{name: "login_password_counted_failure", route: "authLoginPassword", want: CodeInvalidCredentials, run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+		{name: "login_password_counted_failure", route: "authLoginPassword", want: access.CodeInvalidCredentials, run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
 			e.createUser(t, "alice", access.RoleUser)
 			return serve(t, e, "authLoginPassword", e.post(t, "authLoginPassword", jsonBody(t, LoginRequest{Username: "alice", Password: "not-" + testPassword})))
 		}},

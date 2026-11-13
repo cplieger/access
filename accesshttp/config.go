@@ -15,9 +15,9 @@ type Config struct {
 	// and timeouts; accesshttp holds no copy of either. Required.
 	Account *account.Service
 	// Errors renders every refusal. Required.
-	Errors ErrorWriter
+	Errors access.ErrorWriter
 	// Audit receives the request-level outcomes that change no state. Optional.
-	Audit         func(r *http.Request, e AuditEvent)
+	Audit         func(r *http.Request, e access.AuditEvent)
 	PendingSealer *access.Sealer // seals the pending-link cookie; nil: an ephemeral sealer
 	Logger        *slog.Logger   // nil: slog.Default() at each log call
 	Prefix        string         // e.g. "/api/auth"; every path not under OIDCPrefix starts with it
@@ -30,8 +30,8 @@ type Config struct {
 // Handler serves the access routes. Build it with New.
 type Handler struct {
 	acct    accountAPI
-	errors  ErrorWriter
-	audit   func(r *http.Request, e AuditEvent)
+	errors  access.ErrorWriter
+	audit   func(r *http.Request, e access.AuditEvent)
 	pending *access.Sealer
 	logger  *slog.Logger
 	signIn  string
@@ -87,7 +87,7 @@ func (h *Handler) Routes() []Route {
 	out := make([]Route, len(h.routes))
 	for i := range h.routes {
 		out[i] = h.routes[i]
-		out[i].Codes = append([]Code(nil), h.routes[i].Codes...)
+		out[i].Codes = append([]access.Code(nil), h.routes[i].Codes...)
 	}
 	return out
 }

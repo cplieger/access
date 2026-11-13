@@ -7,7 +7,7 @@ import (
 	"github.com/cplieger/access/webauthn"
 )
 
-// The Error.Reason values accesshttp assigns itself, in Reasons order.
+// The access.Error Reason values accesshttp assigns itself, in Reasons order.
 const (
 	ReasonSSOGoverned              = "sso_governed"
 	ReasonTTLTooLong               = "ttl_too_long"
@@ -52,7 +52,7 @@ var ownReasons = []string{
 // carries the IdP's error code after it.
 const providerErrorPrefix = "provider_error:"
 
-// Reasons returns every fixed Error.Reason, each once, in a stable order:
+// Reasons returns every fixed access.Error Reason, each once, in a stable order:
 // accesshttp's own, then access's PasswordRejections, account's PolicyReasons,
 // UsernameReasons, TextError reasons and LogFilterReasons, and webauthn's
 // OriginRejections.

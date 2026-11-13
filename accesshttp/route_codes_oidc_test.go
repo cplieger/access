@@ -69,14 +69,14 @@ func oidcScenarios() map[scenarioKey]scenario {
 func addCallbackScenarios(out map[scenarioKey]scenario) {
 	const route = "authOIDCCallback"
 	recent := &skewed{}
-	out[scenarioKey{route, CodeSessionExpired}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{route, access.CodeSessionExpired}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.linkCallback(t, func(alice *access.User) {
 			if _, err := e.mem.DeleteUserSessions(t.Context(), alice.ID, ""); err != nil {
 				t.Fatalf("DeleteUserSessions: %v", err)
 			}
 		})
 	}}
-	out[scenarioKey{route, CodeInvalidCredentials}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{route, access.CodeInvalidCredentials}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		idp := e.useIdP(t, accesstest.IdPOptions{}, nil)
 		e.createUser(t, "alice", access.RoleUser)
 		e.linkUser(t, "alice", idpIdentity(testIssuer))
@@ -88,34 +88,34 @@ func addCallbackScenarios(out map[scenarioKey]scenario) {
 		b := newBrowser(t)
 		return b.with(authorize(t, idp, e.startSignIn(t, b, "")))
 	}}
-	out[scenarioKey{route, CodeRecentAuthRequired}] = scenario{opts: recent.opts(), arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{route, access.CodeRecentAuthRequired}] = scenario{opts: recent.opts(), arrange: func(t *testing.T, e *env) *http.Request {
 		return e.linkCallback(t, func(*access.User) { recent.by.Store(int64(11 * time.Minute)) })
 	}}
-	out[scenarioKey{route, CodeForbidden}] = scenario{opts: ssoRefused, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{route, access.CodeForbidden}] = scenario{opts: ssoRefused, arrange: func(t *testing.T, e *env) *http.Request {
 		return e.linkCallback(t, nil)
 	}}
-	out[scenarioKey{route, CodeRateLimited}] = scenario{opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{route, access.CodeRateLimited}] = scenario{opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
 		e.useIdP(t, accesstest.IdPOptions{}, nil)
 		e.spendRequest(t)
 		return e.bareCallback(t)
 	}}
-	out[scenarioKey{route, CodeUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{route, access.CodeUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		e.useIdP(t, accesstest.IdPOptions{}, nil)
 		e.shutdown(t)
 		return e.bareCallback(t)
 	}}
-	out[scenarioKey{route, CodeIdentityTaken}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{route, access.CodeIdentityTaken}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		e.createUser(t, "bob", access.RoleUser)
 		e.linkUser(t, "bob", idpIdentity(testIssuer))
 		return e.linkCallback(t, nil)
 	}}
-	out[scenarioKey{route, CodeAlreadyLinked}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{route, access.CodeAlreadyLinked}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.linkCallback(t, func(*access.User) { e.linkUser(t, "alice", otherIdentity) })
 	}}
-	out[scenarioKey{route, CodeOIDCUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{route, access.CodeOIDCUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.bareCallback(t)
 	}}
-	out[scenarioKey{route, CodeOIDCFailed}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{route, access.CodeOIDCFailed}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		e.useIdP(t, accesstest.IdPOptions{}, nil)
 		return e.bareCallback(t)
 	}}
@@ -124,37 +124,37 @@ func addCallbackScenarios(out map[scenarioKey]scenario) {
 func addStartScenarios(out map[scenarioKey]scenario) {
 	const signIn = "authOIDCStartSignIn"
 	signInGet := func(t *testing.T, e *env) *http.Request { return get(e.route(t, signIn), "") }
-	out[scenarioKey{signIn, CodeRateLimited}] = scenario{opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{signIn, access.CodeRateLimited}] = scenario{opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
 		e.useIdP(t, accesstest.IdPOptions{}, nil)
 		e.spendRequest(t)
 		return signInGet(t, e)
 	}}
-	out[scenarioKey{signIn, CodeUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{signIn, access.CodeUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		e.useIdP(t, accesstest.IdPOptions{}, nil)
 		e.shutdown(t)
 		return signInGet(t, e)
 	}}
-	out[scenarioKey{signIn, CodeOIDCUnavailable}] = scenario{arrange: signInGet}
+	out[scenarioKey{signIn, access.CodeOIDCUnavailable}] = scenario{arrange: signInGet}
 	for _, route := range []string{"authOIDCStartLink", "authOIDCStartStepUp"} {
 		start := func(t *testing.T, e *env, body string) *http.Request {
 			b := e.signedInBrowser(t, "alice")
 			return b.with(request(e.route(t, route), body))
 		}
-		out[scenarioKey{route, CodeBadRequest}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		out[scenarioKey{route, access.CodeBadRequest}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 			e.useIdP(t, accesstest.IdPOptions{}, nil)
 			return start(t, e, jsonBody(t, RedirectRequest{Redirect: "/" + strings.Repeat("a", 512)}))
 		}}
-		out[scenarioKey{route, CodeCrossOrigin}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		out[scenarioKey{route, access.CodeCrossOrigin}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 			e.useIdP(t, accesstest.IdPOptions{}, nil)
 			r := start(t, e, jsonBody(t, RedirectRequest{}))
 			r.Header.Set("Sec-Fetch-Site", "none")
 			return r
 		}}
-		out[scenarioKey{route, CodeOIDCUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		out[scenarioKey{route, access.CodeOIDCUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 			return start(t, e, jsonBody(t, RedirectRequest{}))
 		}}
 	}
-	out[scenarioKey{"authOIDCPending", CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{"authOIDCPending", access.CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return get(e.route(t, "authOIDCPending"), "")
 	}}
 }
@@ -172,36 +172,36 @@ func addLinkScenarios(out map[scenarioKey]scenario) {
 		return r
 	}
 	withIdP := func(t *testing.T, e *env) { e.useIdP(t, accesstest.IdPOptions{}, nil) }
-	out[scenarioKey{linkRoute, CodeSessionExpired}] = scenario{opts: vanishes, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{linkRoute, access.CodeSessionExpired}] = scenario{opts: vanishes, arrange: func(t *testing.T, e *env) *http.Request {
 		withIdP(t, e)
 		return link(t, e, true)
 	}}
-	out[scenarioKey{linkRoute, CodeForbidden}] = scenario{opts: ssoRefused, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{linkRoute, access.CodeForbidden}] = scenario{opts: ssoRefused, arrange: func(t *testing.T, e *env) *http.Request {
 		withIdP(t, e)
 		return link(t, e, true)
 	}}
-	out[scenarioKey{linkRoute, CodeUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{linkRoute, access.CodeUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		withIdP(t, e)
 		r := link(t, e, true)
 		e.shutdown(t)
 		return r
 	}}
-	out[scenarioKey{linkRoute, CodeIdentityTaken}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{linkRoute, access.CodeIdentityTaken}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		withIdP(t, e)
 		e.createUser(t, "bob", access.RoleUser)
 		e.linkUser(t, "bob", idpIdentity(testIssuer))
 		return link(t, e, true)
 	}}
-	out[scenarioKey{linkRoute, CodeAlreadyLinked}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{linkRoute, access.CodeAlreadyLinked}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		withIdP(t, e)
 		r := link(t, e, true)
 		e.linkUser(t, "alice", otherIdentity)
 		return r
 	}}
-	out[scenarioKey{linkRoute, CodeOIDCUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{linkRoute, access.CodeOIDCUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return link(t, e, true)
 	}}
-	out[scenarioKey{linkRoute, CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{linkRoute, access.CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		withIdP(t, e)
 		return link(t, e, false)
 	}}
@@ -213,18 +213,18 @@ func addLinkScenarios(out map[scenarioKey]scenario) {
 		}
 		return b.with(request(e.route(t, unlinkRoute), ""))
 	}
-	out[scenarioKey{unlinkRoute, CodeSessionExpired}] = scenario{opts: vanishes, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{unlinkRoute, access.CodeSessionExpired}] = scenario{opts: vanishes, arrange: func(t *testing.T, e *env) *http.Request {
 		return unlink(t, e, true)
 	}}
-	out[scenarioKey{unlinkRoute, CodeUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{unlinkRoute, access.CodeUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		r := unlink(t, e, true)
 		e.shutdown(t)
 		return r
 	}}
-	out[scenarioKey{unlinkRoute, CodeLastMethod}] = scenario{opts: passwordUnusable, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{unlinkRoute, access.CodeLastMethod}] = scenario{opts: passwordUnusable, arrange: func(t *testing.T, e *env) *http.Request {
 		return unlink(t, e, true)
 	}}
-	out[scenarioKey{unlinkRoute, CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{unlinkRoute, access.CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return unlink(t, e, false)
 	}}
 }

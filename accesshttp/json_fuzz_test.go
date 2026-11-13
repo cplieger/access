@@ -44,7 +44,7 @@ func newJSONFuzz(tb testing.TB) *jsonFuzz {
 			}}
 		},
 		handler: func(c *Config) {
-			c.Errors = func(w http.ResponseWriter, _ *http.Request, er Error) {
+			c.Errors = func(w http.ResponseWriter, _ *http.Request, er access.Error) {
 				w.Header().Set(fuzzCodeHeader, string(er.Code))
 				w.WriteHeader(er.Status)
 			}
@@ -77,7 +77,7 @@ func (z *jsonFuzz) mint(tb testing.TB) {
 
 // serve sends body on rt and returns the status, the code the ErrorWriter
 // answered ("" for none) and whether an account operation ran.
-func (z *jsonFuzz) serve(t *testing.T, rt Route, body []byte) (status int, code Code, reached bool) {
+func (z *jsonFuzz) serve(t *testing.T, rt Route, body []byte) (status int, code access.Code, reached bool) {
 	t.Helper()
 	if time.Since(z.minted) > time.Minute {
 		z.mint(t)
@@ -88,16 +88,16 @@ func (z *jsonFuzz) serve(t *testing.T, rt Route, body []byte) (status int, code 
 	}
 	before := z.reached.Load()
 	w := do(rt, requestFor(rt, censusPathValue(t, rt), string(body), cookie))
-	return w.Code, Code(w.Header().Get(fuzzCodeHeader)), z.reached.Load() != before
+	return w.Code, access.Code(w.Header().Get(fuzzCodeHeader)), z.reached.Load() != before
 }
 
 // wantRefused fails t unless rt refuses body before its operation: 413
 // auth_body_too_large past 4 KiB, 400 auth_bad_request otherwise.
 func (z *jsonFuzz) wantRefused(t *testing.T, arm string, rt Route, body []byte) {
 	t.Helper()
-	want, wantCode := http.StatusBadRequest, CodeBadRequest
+	want, wantCode := http.StatusBadRequest, access.CodeBadRequest
 	if len(body) > specBodyCap {
-		want, wantCode = http.StatusRequestEntityTooLarge, CodeBodyTooLarge
+		want, wantCode = http.StatusRequestEntityTooLarge, access.CodeBodyTooLarge
 	}
 	if status, code, reached := z.serve(t, rt, body); status != want || code != wantCode || reached {
 		t.Fatalf("%s on %s: %d %q, operation called %v; want %d %s before the operation; body %q", arm, rt.Name, status, code, reached, want, wantCode, body)
@@ -149,8 +149,8 @@ func FuzzAccesshttpJSON(f *testing.F) {
 
 		padded := body
 		if len(body) <= specBodyCap {
-			if status, code, reached := z.serve(t, rt, body); !reached && (status != http.StatusBadRequest || code != CodeBadRequest) {
-				t.Fatalf("on %s: %d %q with no operation called, want 400 %s; body %q", rt.Name, status, code, CodeBadRequest, body)
+			if status, code, reached := z.serve(t, rt, body); !reached && (status != http.StatusBadRequest || code != access.CodeBadRequest) {
+				t.Fatalf("on %s: %d %q with no operation called, want 400 %s; body %q", rt.Name, status, code, access.CodeBadRequest, body)
 			}
 			padded = append(slices.Clone(body), strings.Repeat(" ", specBodyCap+1-len(body))...)
 		}

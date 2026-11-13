@@ -155,7 +155,7 @@ func TestRecoveryCookieRefusedElsewhere(t *testing.T) {
 			before := len(e.errs.all())
 			w := do(rt, request(rt, "", cookie))
 			errs := e.errs.all()[before:]
-			if w.Code != http.StatusForbidden || len(errs) != 1 || errs[0].Code != CodeSessionRequired {
+			if w.Code != http.StatusForbidden || len(errs) != 1 || errs[0].Code != access.CodeSessionRequired {
 				t.Errorf("status %d errors %+v, want 403 auth_session_required", w.Code, errs)
 			}
 		})

@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"slices"
 
+	"github.com/cplieger/access"
 	"github.com/cplieger/access/webauthn"
 )
 
@@ -45,9 +46,9 @@ type Descriptor struct {
 	Scope    string // ClassKeyScope and ClassKeyPermission only
 	Kind     Kind
 	Doc      string
-	// Codes is every code this route can answer, in Codes() order: its
+	// Codes is every code this route can answer, in [access.Codes] order: its
 	// class guard's, its transport's and its account operation's.
-	Codes   []Code
+	Codes   []access.Code
 	Passive bool // verification does not count as activity
 	Array   bool // Response is a JSON array of Response
 }
@@ -88,7 +89,7 @@ type routeSpec struct {
 	serve                    serveFunc
 	name, method, path, doc  string
 	op                       string // the account operation, a key of opCodes
-	audit                    string // the AuditEvent kind prefix; "" audits nothing
+	audit                    string // the access.AuditEvent kind prefix; "" audits nothing
 	class                    Class
 	scope                    scopeRule
 	pathID                   pathID
@@ -168,73 +169,73 @@ var specs = []routeSpec{
 // part of a route's Codes; the class guard and the transport add theirs.
 // An operation that rereads its caller's session or user answers
 // ErrSessionGone, which maps to CodeSessionExpired.
-var opCodes = map[string][]Code{
-	"State":                 {CodeUnavailable},
-	"SetupWithPassword":     {CodeForbidden, CodeRateLimited, CodeBusy, CodeUnavailable, CodeUsernameInvalid, CodePasswordRejected, CodeBreachCheckUnavailable, CodeSetupComplete, CodeSetupTokenRequired, CodeTokenInvalid},
-	"SetupPasskeyBegin":     {CodeRateLimited, CodeUnavailable, CodeUsernameInvalid, CodeSetupComplete, CodeSetupTokenRequired, CodeTokenInvalid, CodePasskeysUnavailable, CodeOriginRefused},
-	"SetupPasskeyFinish":    {CodeForbidden, CodeUnavailable, CodeSetupComplete, CodeTokenInvalid, CodePasskeysUnavailable, CodeCeremonyInvalid, CodeNotDiscoverable, CodeRegistrationFailed},
-	"PasswordLogin":         {CodeInvalidCredentials, CodeRateLimited, CodeBusy, CodeUnavailable, CodeUsernameInvalid, CodePasswordLoginDisabled},
-	"PasskeyLoginBegin":     {CodeRateLimited, CodeUnavailable, CodePasskeysUnavailable, CodeOriginRefused},
-	"PasskeyLoginFinish":    {CodeInvalidCredentials, CodeUnavailable, CodePasskeysUnavailable, CodeCeremonyInvalid, CodeUnknownCredential, CodeAssertionFailed},
-	"Logout":                {CodeUnavailable},
-	"StartRecovery":         {CodeRateLimited, CodeUnavailable, CodeTokenInvalid},
-	"RecoverWithPassword":   {CodeSessionExpired, CodeBusy, CodeUnavailable, CodePasswordRejected, CodeBreachCheckUnavailable, CodeTokenInvalid},
-	"RecoverPasskeyBegin":   {CodeSessionExpired, CodeUnavailable, CodePasskeysUnavailable, CodeOriginRefused},
-	"RecoverPasskeyFinish":  {CodeSessionExpired, CodeUnavailable, CodeTokenInvalid, CodeDuplicateCredential, CodePasskeysUnavailable, CodeCeremonyInvalid, CodeNotDiscoverable, CodeRegistrationFailed},
-	"AcceptInvitePassword":  {CodeForbidden, CodeRateLimited, CodeBusy, CodeUnavailable, CodeUsernameInvalid, CodeUsernameTaken, CodePasswordRejected, CodeBreachCheckUnavailable, CodeTokenInvalid},
-	"AdmitOIDC":             {CodeRateLimited, CodeUnavailable, CodeOIDCUnavailable},
-	opOIDCBegin:             {CodeBadRequest, CodeCrossOrigin, CodeOIDCUnavailable},
-	"OIDCComplete":          {CodeSessionExpired, CodeInvalidCredentials, CodeRecentAuthRequired, CodeForbidden, CodeRateLimited, CodeUnavailable, CodeIdentityTaken, CodeAlreadyLinked, CodeOIDCUnavailable, CodeOIDCFailed},
-	"OIDCPending":           {CodeNotFound},
-	"LinkPendingOIDC":       {CodeSessionExpired, CodeForbidden, CodeUnavailable, CodeIdentityTaken, CodeAlreadyLinked, CodeOIDCUnavailable, CodeNotFound},
-	"UnlinkOIDC":            {CodeSessionExpired, CodeUnavailable, CodeLastMethod, CodeNotFound},
-	"StepUpPassword":        {CodeInvalidCredentials, CodeRateLimited, CodeBusy, CodeUnavailable, CodePasswordLoginDisabled, CodeSessionExpired},
-	"SetPassword":           {CodeInvalidCredentials, CodeForbidden, CodeRateLimited, CodeBusy, CodeUnavailable, CodeBadRequest, CodePasswordRejected, CodeBreachCheckUnavailable, CodeSessionExpired},
-	"RemovePassword":        {CodeInvalidCredentials, CodeRateLimited, CodeBusy, CodeUnavailable, CodeBadRequest, CodeLastMethod, CodeNotFound, CodeSessionExpired},
-	"Me":                    {CodeSessionExpired, CodeUnavailable},
-	"UpdateProfile":         {CodeSessionExpired, CodeUnavailable, CodeBadRequest},
-	"ReenableMethod":        {CodeRecentAuthRequired, CodeUnavailable, CodeMethodNotLocked},
-	"StepUpPasskeyBegin":    {CodeSessionExpired, CodeUnavailable, CodePasskeysUnavailable, CodeOriginRefused, CodeNotFound},
-	"StepUpPasskeyFinish":   {CodeSessionExpired, CodeUnavailable, CodePasskeysUnavailable, CodeCeremonyInvalid, CodeUnknownCredential, CodeAssertionFailed},
-	"Passkeys":              {CodeUnavailable},
-	"PasskeyRegisterBegin":  {CodeSessionExpired, CodeForbidden, CodeUnavailable, CodePasskeysUnavailable, CodeOriginRefused},
-	"PasskeyRegisterFinish": {CodeSessionExpired, CodeForbidden, CodeUnavailable, CodeDuplicateCredential, CodePasskeysUnavailable, CodeCeremonyInvalid, CodeNotDiscoverable, CodeRegistrationFailed},
-	"RenamePasskey":         {CodeUnavailable, CodeBadRequest, CodeNotFound},
-	"RemovePasskey":         {CodeSessionExpired, CodeUnavailable, CodeLastMethod, CodeNotFound},
-	"WebAuthnSignals":       {CodeSessionExpired, CodeUnavailable, CodePasskeysUnavailable},
-	"Sessions":              {CodeUnavailable},
-	"RenameSession":         {CodeUnavailable, CodeBadRequest, CodeNotFound},
-	"RevokeSession":         {CodeUnavailable, CodeNotFound},
-	"RevokeOtherSessions":   {CodeUnavailable},
-	"APIKeys":               {CodeUnavailable},
-	"CreateAPIKey":          {CodeSessionExpired, CodeForbidden, CodeUnavailable, CodeBadRequest, CodeUnknownScope},
-	"RevokeAPIKey":          {CodeUnavailable, CodeNotFound},
-	"Users":                 {CodeForbidden, CodeUnavailable},
-	"CreateUser":            {CodeForbidden, CodeBusy, CodeUnavailable, CodeUsernameInvalid, CodeUsernameTaken, CodePasswordRejected, CodeBreachCheckUnavailable},
-	"UpdateUser":            {CodeForbidden, CodeUnavailable, CodeBadRequest, CodeNotFound},
-	"DeleteUser":            {CodeForbidden, CodeUnavailable, CodeNotFound},
-	"IssueRecovery":         {CodeForbidden, CodeUnavailable, CodeBadRequest, CodeNotFound},
-	"CreateInvite":          {CodeForbidden, CodeUnavailable, CodeBadRequest},
-	"AllAPIKeys":            {CodeForbidden, CodeUnavailable},
-	"RevokeAnyAPIKey":       {CodeForbidden, CodeUnavailable, CodeNotFound},
-	"Tokens":                {CodeForbidden, CodeUnavailable},
-	"SecurityLog":           {CodeForbidden, CodeUnavailable, CodeBadRequest},
+var opCodes = map[string][]access.Code{
+	"State":                 {access.CodeUnavailable},
+	"SetupWithPassword":     {access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeSetupComplete, access.CodeSetupTokenRequired, access.CodeTokenInvalid},
+	"SetupPasskeyBegin":     {access.CodeRateLimited, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeSetupComplete, access.CodeSetupTokenRequired, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeOriginRefused},
+	"SetupPasskeyFinish":    {access.CodeForbidden, access.CodeUnavailable, access.CodeSetupComplete, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed},
+	"PasswordLogin":         {access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodePasswordLoginDisabled},
+	"PasskeyLoginBegin":     {access.CodeRateLimited, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused},
+	"PasskeyLoginFinish":    {access.CodeInvalidCredentials, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeUnknownCredential, access.CodeAssertionFailed},
+	"Logout":                {access.CodeUnavailable},
+	"StartRecovery":         {access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid},
+	"RecoverWithPassword":   {access.CodeSessionExpired, access.CodeBusy, access.CodeUnavailable, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeTokenInvalid},
+	"RecoverPasskeyBegin":   {access.CodeSessionExpired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused},
+	"RecoverPasskeyFinish":  {access.CodeSessionExpired, access.CodeUnavailable, access.CodeTokenInvalid, access.CodeDuplicateCredential, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed},
+	"AcceptInvitePassword":  {access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeUsernameTaken, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeTokenInvalid},
+	"AdmitOIDC":             {access.CodeRateLimited, access.CodeUnavailable, access.CodeOIDCUnavailable},
+	opOIDCBegin:             {access.CodeBadRequest, access.CodeCrossOrigin, access.CodeOIDCUnavailable},
+	"OIDCComplete":          {access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeRecentAuthRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeUnavailable, access.CodeIdentityTaken, access.CodeAlreadyLinked, access.CodeOIDCUnavailable, access.CodeOIDCFailed},
+	"OIDCPending":           {access.CodeNotFound},
+	"LinkPendingOIDC":       {access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeIdentityTaken, access.CodeAlreadyLinked, access.CodeOIDCUnavailable, access.CodeNotFound},
+	"UnlinkOIDC":            {access.CodeSessionExpired, access.CodeUnavailable, access.CodeLastMethod, access.CodeNotFound},
+	"StepUpPassword":        {access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodePasswordLoginDisabled, access.CodeSessionExpired},
+	"SetPassword":           {access.CodeInvalidCredentials, access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeBadRequest, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeSessionExpired},
+	"RemovePassword":        {access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeBadRequest, access.CodeLastMethod, access.CodeNotFound, access.CodeSessionExpired},
+	"Me":                    {access.CodeSessionExpired, access.CodeUnavailable},
+	"UpdateProfile":         {access.CodeSessionExpired, access.CodeUnavailable, access.CodeBadRequest},
+	"ReenableMethod":        {access.CodeRecentAuthRequired, access.CodeUnavailable, access.CodeMethodNotLocked},
+	"StepUpPasskeyBegin":    {access.CodeSessionExpired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused, access.CodeNotFound},
+	"StepUpPasskeyFinish":   {access.CodeSessionExpired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeUnknownCredential, access.CodeAssertionFailed},
+	"Passkeys":              {access.CodeUnavailable},
+	"PasskeyRegisterBegin":  {access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused},
+	"PasskeyRegisterFinish": {access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeDuplicateCredential, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed},
+	"RenamePasskey":         {access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
+	"RemovePasskey":         {access.CodeSessionExpired, access.CodeUnavailable, access.CodeLastMethod, access.CodeNotFound},
+	"WebAuthnSignals":       {access.CodeSessionExpired, access.CodeUnavailable, access.CodePasskeysUnavailable},
+	"Sessions":              {access.CodeUnavailable},
+	"RenameSession":         {access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
+	"RevokeSession":         {access.CodeUnavailable, access.CodeNotFound},
+	"RevokeOtherSessions":   {access.CodeUnavailable},
+	"APIKeys":               {access.CodeUnavailable},
+	"CreateAPIKey":          {access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeUnknownScope},
+	"RevokeAPIKey":          {access.CodeUnavailable, access.CodeNotFound},
+	"Users":                 {access.CodeForbidden, access.CodeUnavailable},
+	"CreateUser":            {access.CodeForbidden, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeUsernameTaken, access.CodePasswordRejected, access.CodeBreachCheckUnavailable},
+	"UpdateUser":            {access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
+	"DeleteUser":            {access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
+	"IssueRecovery":         {access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
+	"CreateInvite":          {access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest},
+	"AllAPIKeys":            {access.CodeForbidden, access.CodeUnavailable},
+	"RevokeAnyAPIKey":       {access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
+	"Tokens":                {access.CodeForbidden, access.CodeUnavailable},
+	"SecurityLog":           {access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest},
 }
 
 // guardCodes is what a class's guard can answer: the Authenticator's
 // refusals on every class that authenticates, then the class predicate's.
-func guardCodes(c Class) []Code {
+func guardCodes(c Class) []access.Code {
 	if c == ClassPublic {
 		return nil
 	}
-	codes := []Code{CodeAuthRequired, CodeSessionExpired, CodeInvalidCredentials, CodeKeyInvalid, CodeUnavailable, CodeSessionRequired}
+	codes := []access.Code{access.CodeAuthRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeKeyInvalid, access.CodeUnavailable, access.CodeSessionRequired}
 	switch c {
 	case ClassRecentAuth:
-		codes = append(codes, CodeRecentAuthRequired)
+		codes = append(codes, access.CodeRecentAuthRequired)
 	case ClassKeyScope:
-		codes = append(codes, CodeScopeRequired)
+		codes = append(codes, access.CodeScopeRequired)
 	case ClassKeyPermission:
-		codes = append(codes, CodeRecentAuthRequired, CodeScopeRequired)
+		codes = append(codes, access.CodeRecentAuthRequired, access.CodeScopeRequired)
 	default:
 	}
 	return codes
@@ -242,20 +243,20 @@ func guardCodes(c Class) []Code {
 
 // transportCodes is what the transport can answer before or around the
 // operation: method, origin, body, path, query and limiter refusals.
-func (s *routeSpec) transportCodes() []Code {
-	codes := []Code{CodeMethodNotAllowed}
+func (s *routeSpec) transportCodes() []access.Code {
+	codes := []access.Code{access.CodeMethodNotAllowed}
 	if s.method != http.MethodGet {
-		codes = append(codes, CodeCrossOrigin)
+		codes = append(codes, access.CodeCrossOrigin)
 	}
 	body := s.request != nil || s.cer != ceremonyNone
 	if body {
-		codes = append(codes, CodeBodyTooLarge)
+		codes = append(codes, access.CodeBodyTooLarge)
 	}
 	if body || s.pathID != pathNone || s.tokenBody || (s.query != nil && !s.redirect) {
-		codes = append(codes, CodeBadRequest)
+		codes = append(codes, access.CodeBadRequest)
 	}
 	if s.limited {
-		codes = append(codes, CodeRateLimited)
+		codes = append(codes, access.CodeRateLimited)
 	}
 	return codes
 }
@@ -332,9 +333,19 @@ func (s *routeSpec) descriptor(dc *DescriptorConfig) Descriptor {
 	}
 }
 
-// inCodesOrder dedupes codes and orders them as Codes() does.
-func inCodesOrder(codes []Code) []Code {
+// codeRank is each code's position in access.Codes().
+var codeRank = func() map[access.Code]int {
+	codes := access.Codes()
+	m := make(map[access.Code]int, len(codes))
+	for i, c := range codes {
+		m[c] = i
+	}
+	return m
+}()
+
+// inCodesOrder dedupes codes and orders them as access.Codes() does.
+func inCodesOrder(codes []access.Code) []access.Code {
 	out := slices.Clone(codes)
-	slices.SortFunc(out, func(a, b Code) int { return codeIndex[a] - codeIndex[b] })
+	slices.SortFunc(out, func(a, b access.Code) int { return codeRank[a] - codeRank[b] })
 	return slices.Compact(out)
 }

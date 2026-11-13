@@ -35,7 +35,7 @@ if (passkey.kind === "signed-in") {
 }
 ```
 
-Every call returns an `ApiResult`: `ok` with the decoded `data`, or the refusal. `authCode` and `authReason` read the refusal's code and reason as the `AuthCode` and `AuthReason` unions, which mirror the server's `Codes()` and `Reasons()`.
+Every call returns an `ApiResult`: `ok` with the decoded `data`, or the refusal. `authCode` and `authReason` read the refusal's code and reason as the `AuthCode` and `AuthReason` unions, which mirror the server's `access.Codes()` and `accesshttp.Reasons()`.
 
 `withStepUp` runs an action that needs a recent sign-in. On an `auth_recent_auth_required` refusal with no reason, it asks your `prompt` which method to use, re-authenticates with it and retries the action once. A refusal that carries a reason, such as `reenable_needs_other_method`, is returned as it is, because a step-up cannot cure it:
 

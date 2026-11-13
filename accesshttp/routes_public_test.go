@@ -186,7 +186,7 @@ func TestRouteAuthInviteAcceptPassword(t *testing.T) {
 			t.Fatalf("CreateOneTimeToken: %v", err)
 		}
 		w := do(e.route(t, "authInviteAcceptPassword"), e.post(t, "authInviteAcceptPassword", inviteBody(t, token, "invitee", testPassword)))
-		if errs := e.errs.all(); w.Code != http.StatusForbidden || len(errs) != 1 || errs[0].Code != CodeForbidden {
+		if errs := e.errs.all(); w.Code != http.StatusForbidden || len(errs) != 1 || errs[0].Code != access.CodeForbidden {
 			t.Errorf("status %d errors %+v, want 403 auth_forbidden", w.Code, errs)
 		}
 	})
@@ -224,7 +224,7 @@ func TestFinishBodyTooLarge(t *testing.T) {
 			before, calls := len(e.errs.all()), counting.calls.Load()
 			w := do(e.route(t, name), finish(e.route(t, name), "any", tooLarge, recovery))
 			errs := e.errs.all()[before:]
-			if w.Code != http.StatusRequestEntityTooLarge || len(errs) != 1 || errs[0].Code != CodeBodyTooLarge {
+			if w.Code != http.StatusRequestEntityTooLarge || len(errs) != 1 || errs[0].Code != access.CodeBodyTooLarge {
 				t.Errorf("status %d errors %+v, want 413 auth_body_too_large", w.Code, errs)
 			}
 			if n := counting.calls.Load() - calls; n != 0 {
@@ -307,7 +307,7 @@ func TestTokenOnlyInBody(t *testing.T) {
 			before, calls := len(e.errs.all()), counting.calls.Load()
 			w := do(rt, r)
 			errs := e.errs.all()[before:]
-			if w.Code != http.StatusBadRequest || len(errs) != 1 || errs[0].Code != CodeBadRequest || errs[0].Reason != "token_in_query" {
+			if w.Code != http.StatusBadRequest || len(errs) != 1 || errs[0].Code != access.CodeBadRequest || errs[0].Reason != "token_in_query" {
 				t.Errorf("status %d errors %+v, want 400 auth_bad_request token_in_query", w.Code, errs)
 			}
 			if n := counting.calls.Load() - calls; n != 0 {
@@ -333,15 +333,15 @@ func TestRefusedAdmissionHashesNothing(t *testing.T) {
 		route   string
 		body    func(t *testing.T, e *env) string
 		refused bool
-		want    Code
+		want    access.Code
 	}{
-		{"login_rate_limited", limited, "authLoginPassword", func(t *testing.T, e *env) string { e.spendAttempt(t); return signInBody(t, "alice") }, true, CodeRateLimited},
-		{"login_admitted", limited, "authLoginPassword", func(t *testing.T, _ *env) string { return signInBody(t, "alice") }, false, CodeBusy},
-		{"setup_token_missing", tokenRequired, "authSetupPassword", func(t *testing.T, _ *env) string { return setupPasswordBody(t, "") }, true, CodeSetupTokenRequired},
-		{"setup_rate_limited", limited, "authSetupPassword", func(t *testing.T, e *env) string { e.spendAttempt(t); return setupPasswordBody(t, "") }, true, CodeRateLimited},
+		{"login_rate_limited", limited, "authLoginPassword", func(t *testing.T, e *env) string { e.spendAttempt(t); return signInBody(t, "alice") }, true, access.CodeRateLimited},
+		{"login_admitted", limited, "authLoginPassword", func(t *testing.T, _ *env) string { return signInBody(t, "alice") }, false, access.CodeBusy},
+		{"setup_token_missing", tokenRequired, "authSetupPassword", func(t *testing.T, _ *env) string { return setupPasswordBody(t, "") }, true, access.CodeSetupTokenRequired},
+		{"setup_rate_limited", limited, "authSetupPassword", func(t *testing.T, e *env) string { e.spendAttempt(t); return setupPasswordBody(t, "") }, true, access.CodeRateLimited},
 		{"invite_token_invalid", envOptions{}, "authInviteAcceptPassword", func(t *testing.T, _ *env) string {
 			return inviteBody(t, access.NewSecret("not-an-invite"), "invitee", testPassword)
-		}, true, CodeTokenInvalid},
+		}, true, access.CodeTokenInvalid},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -352,7 +352,7 @@ func TestRefusedAdmissionHashesNothing(t *testing.T) {
 			body := tc.body(t, e)
 			e.holdBudget(t)
 			w := do(e.route(t, tc.route), e.post(t, tc.route, body))
-			if errs := e.errs.all(); len(errs) != 1 || errs[0].Code != tc.want || w.Code != codeTable[codeIndex[tc.want]].status {
+			if errs := e.errs.all(); len(errs) != 1 || errs[0].Code != tc.want || w.Code != access.NewError(tc.want, "", nil).Status {
 				t.Errorf("status %d errors %+v, want %s (refused: %t)", w.Code, errs, tc.want, tc.refused)
 			}
 		})

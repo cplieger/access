@@ -75,7 +75,7 @@ func TestOneSessionConfiguration(t *testing.T) {
 					e.requireStatus(t, do(me, request(me, "", c)), http.StatusOK)
 				}
 				src.set(mv.to)
-				e.requireRefused(t, do(me, request(me, "", idle90)), CodeSessionExpired)
+				e.requireRefused(t, do(me, request(me, "", idle90)), access.CodeSessionExpired)
 				e.requireStatus(t, do(me, request(me, "", idle30)), http.StatusOK)
 				time.Sleep(time.Minute)
 				synctest.Wait()

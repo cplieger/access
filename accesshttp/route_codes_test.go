@@ -17,7 +17,7 @@ import (
 // scenarioKey names one operation code of one route.
 type scenarioKey struct {
 	route string
-	code  Code
+	code  access.Code
 }
 
 // scenario drives its route to its code over the real Service: arrange
@@ -195,150 +195,150 @@ func publicScenarios() map[scenarioKey]scenario {
 		}}
 	}
 	return map[scenarioKey]scenario{
-		{"authState", CodeUnavailable}: shut("authState", ""),
-		{"authLogout", CodeUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authState", access.CodeUnavailable}: shut("authState", ""),
+		{"authLogout", access.CodeUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
 			e.createUser(t, "alice", access.RoleUser)
 			r := e.post(t, "authLogout", "", e.sessionCookie(t, "alice"))
 			e.shutdown(t)
 			return r
 		}},
 
-		{"authSetupPassword", CodeForbidden}: {opts: envOptions{edit: refuse(account.OpCreateUser)}, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPassword", access.CodeForbidden}: {opts: envOptions{edit: refuse(account.OpCreateUser)}, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authSetupPassword", setupPasswordBody(t, ""))
 		}},
-		{"authSetupPassword", CodeRateLimited}: {opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPassword", access.CodeRateLimited}: {opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
 			e.spendAttempt(t)
 			return e.post(t, "authSetupPassword", setupPasswordBody(t, ""))
 		}},
-		{"authSetupPassword", CodeBusy}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPassword", access.CodeBusy}: {arrange: func(t *testing.T, e *env) *http.Request {
 			e.holdBudget(t)
 			return e.post(t, "authSetupPassword", setupPasswordBody(t, ""))
 		}},
-		{"authSetupPassword", CodeUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPassword", access.CodeUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
 			r := e.post(t, "authSetupPassword", setupPasswordBody(t, ""))
 			e.shutdown(t)
 			return r
 		}},
-		{"authSetupPassword", CodeUsernameInvalid}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPassword", access.CodeUsernameInvalid}: {arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authSetupPassword", jsonBody(t, SetupPasswordRequest{Username: "", Password: testPassword}))
 		}},
-		{"authSetupPassword", CodePasswordRejected}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPassword", access.CodePasswordRejected}: {arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authSetupPassword", jsonBody(t, SetupPasswordRequest{Username: "owner", Password: "short"}))
 		}},
-		{"authSetupPassword", CodeBreachCheckUnavailable}: {opts: breachDown, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPassword", access.CodeBreachCheckUnavailable}: {opts: breachDown, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authSetupPassword", setupPasswordBody(t, ""))
 		}},
-		{"authSetupPassword", CodeSetupComplete}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPassword", access.CodeSetupComplete}: {arrange: func(t *testing.T, e *env) *http.Request {
 			e.createUser(t, "first", access.RoleAdmin)
 			return e.post(t, "authSetupPassword", setupPasswordBody(t, ""))
 		}},
-		{"authSetupPassword", CodeSetupTokenRequired}: {opts: tokenRequired, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPassword", access.CodeSetupTokenRequired}: {opts: tokenRequired, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authSetupPassword", setupPasswordBody(t, ""))
 		}},
-		{"authSetupPassword", CodeTokenInvalid}: {opts: tokenRequired, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPassword", access.CodeTokenInvalid}: {opts: tokenRequired, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authSetupPassword", setupPasswordBody(t, "not-a-setup-token"))
 		}},
 
-		{"authSetupPasskeyBegin", CodeRateLimited}: {opts: with(passkeys, limited), arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyBegin", access.CodeRateLimited}: {opts: with(passkeys, limited), arrange: func(t *testing.T, e *env) *http.Request {
 			e.spendRequest(t)
 			return e.post(t, "authSetupPasskeyBegin", setupPasskeyBody(t, ""))
 		}},
-		{"authSetupPasskeyBegin", CodeUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyBegin", access.CodeUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			r := e.post(t, "authSetupPasskeyBegin", setupPasskeyBody(t, ""))
 			e.shutdown(t)
 			return r
 		}},
-		{"authSetupPasskeyBegin", CodeUsernameInvalid}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyBegin", access.CodeUsernameInvalid}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authSetupPasskeyBegin", jsonBody(t, SetupPasskeyBeginRequest{Username: ""}))
 		}},
-		{"authSetupPasskeyBegin", CodeSetupComplete}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyBegin", access.CodeSetupComplete}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			e.createUser(t, "first", access.RoleAdmin)
 			return e.post(t, "authSetupPasskeyBegin", setupPasskeyBody(t, ""))
 		}},
-		{"authSetupPasskeyBegin", CodeSetupTokenRequired}: {opts: with(passkeys, tokenRequired), arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyBegin", access.CodeSetupTokenRequired}: {opts: with(passkeys, tokenRequired), arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authSetupPasskeyBegin", setupPasskeyBody(t, ""))
 		}},
-		{"authSetupPasskeyBegin", CodeTokenInvalid}: {opts: with(passkeys, tokenRequired), arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyBegin", access.CodeTokenInvalid}: {opts: with(passkeys, tokenRequired), arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authSetupPasskeyBegin", setupPasskeyBody(t, "not-a-setup-token"))
 		}},
-		{"authSetupPasskeyBegin", CodePasskeysUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyBegin", access.CodePasskeysUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authSetupPasskeyBegin", setupPasskeyBody(t, ""))
 		}},
-		{"authSetupPasskeyBegin", CodeOriginRefused}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyBegin", access.CodeOriginRefused}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return fromOrigin(e.post(t, "authSetupPasskeyBegin", setupPasskeyBody(t, "")), evilOrigin)
 		}},
 
-		{"authSetupPasskeyFinish", CodeForbidden}: {opts: with(passkeys, envOptions{edit: refuse(account.OpCreateUser)}), arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyFinish", access.CodeForbidden}: {opts: with(passkeys, envOptions{edit: refuse(account.OpCreateUser)}), arrange: func(t *testing.T, e *env) *http.Request {
 			return e.setupFinish(t, "", nil, nil)
 		}},
-		{"authSetupPasskeyFinish", CodeUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyFinish", access.CodeUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.setupFinish(t, "", nil, func() { e.shutdown(t) })
 		}},
-		{"authSetupPasskeyFinish", CodeSetupComplete}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyFinish", access.CodeSetupComplete}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.setupFinish(t, "", nil, func() { e.createUser(t, "first", access.RoleAdmin) })
 		}},
-		{"authSetupPasskeyFinish", CodeTokenInvalid}: {opts: with(passkeys, tokenRequired), arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyFinish", access.CodeTokenInvalid}: {opts: with(passkeys, tokenRequired), arrange: func(t *testing.T, e *env) *http.Request {
 			return e.setupFinish(t, e.setupToken(t), nil, func() { e.setupToken(t) })
 		}},
-		{"authSetupPasskeyFinish", CodePasskeysUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyFinish", access.CodePasskeysUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.setupFinish(t, "", nil, func() { e.rp.Store(nil) })
 		}},
-		{"authSetupPasskeyFinish", CodeCeremonyInvalid}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyFinish", access.CodeCeremonyInvalid}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			r := e.setupFinish(t, "", nil, nil)
 			r.Header.Set(ceremonyHeader, "not-a-ceremony")
 			return r
 		}},
-		{"authSetupPasskeyFinish", CodeNotDiscoverable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyFinish", access.CodeNotDiscoverable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.setupFinish(t, "", func(b []byte) []byte { return notDiscoverable(t, b) }, nil)
 		}},
-		{"authSetupPasskeyFinish", CodeRegistrationFailed}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authSetupPasskeyFinish", access.CodeRegistrationFailed}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.setupFinish(t, "", func([]byte) []byte { return []byte(`{}`) }, nil)
 		}},
 
-		{"authLoginPassword", CodeInvalidCredentials}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPassword", access.CodeInvalidCredentials}: {arrange: func(t *testing.T, e *env) *http.Request {
 			e.createUser(t, "alice", access.RoleUser)
 			return e.post(t, "authLoginPassword", jsonBody(t, LoginRequest{Username: "alice", Password: "wrong-horse-battery-staple-9"})) // gitleaks:allow (test fixture password)
 		}},
-		{"authLoginPassword", CodeRateLimited}: {opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPassword", access.CodeRateLimited}: {opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
 			e.createUser(t, "alice", access.RoleUser)
 			e.spendAttempt(t)
 			return e.post(t, "authLoginPassword", signInBody(t, "alice"))
 		}},
-		{"authLoginPassword", CodeBusy}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPassword", access.CodeBusy}: {arrange: func(t *testing.T, e *env) *http.Request {
 			e.createUser(t, "alice", access.RoleUser)
 			e.holdBudget(t)
 			return e.post(t, "authLoginPassword", signInBody(t, "alice"))
 		}},
-		{"authLoginPassword", CodeUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPassword", access.CodeUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
 			r := e.post(t, "authLoginPassword", signInBody(t, "alice"))
 			e.shutdown(t)
 			return r
 		}},
-		{"authLoginPassword", CodeUsernameInvalid}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPassword", access.CodeUsernameInvalid}: {arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authLoginPassword", signInBody(t, ""))
 		}},
-		{"authLoginPassword", CodePasswordLoginDisabled}: {opts: envOptions{rules: func(r *account.Rules) { r.DisablePasswordLogin = true }}, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPassword", access.CodePasswordLoginDisabled}: {opts: envOptions{rules: func(r *account.Rules) { r.DisablePasswordLogin = true }}, arrange: func(t *testing.T, e *env) *http.Request {
 			e.createUser(t, "alice", access.RoleUser)
 			return e.post(t, "authLoginPassword", signInBody(t, "alice"))
 		}},
 
-		{"authLoginPasskeyBegin", CodeRateLimited}: {opts: with(passkeys, limited), arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPasskeyBegin", access.CodeRateLimited}: {opts: with(passkeys, limited), arrange: func(t *testing.T, e *env) *http.Request {
 			e.spendRequest(t)
 			return e.post(t, "authLoginPasskeyBegin", "")
 		}},
-		{"authLoginPasskeyBegin", CodeUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPasskeyBegin", access.CodeUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			r := e.post(t, "authLoginPasskeyBegin", "")
 			e.shutdown(t)
 			return r
 		}},
-		{"authLoginPasskeyBegin", CodePasskeysUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPasskeyBegin", access.CodePasskeysUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authLoginPasskeyBegin", "")
 		}},
-		{"authLoginPasskeyBegin", CodeOriginRefused}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPasskeyBegin", access.CodeOriginRefused}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return fromOrigin(e.post(t, "authLoginPasskeyBegin", ""), evilOrigin)
 		}},
 
-		{"authLoginPasskeyFinish", CodeInvalidCredentials}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPasskeyFinish", access.CodeInvalidCredentials}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.loginFinish(t, func(*accesstest.PasskeyDevice) {
 				u := e.user(t, "alice")
 				u.Enabled = false
@@ -347,18 +347,18 @@ func publicScenarios() map[scenarioKey]scenario {
 				}
 			})
 		}},
-		{"authLoginPasskeyFinish", CodeUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPasskeyFinish", access.CodeUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.loginFinish(t, func(*accesstest.PasskeyDevice) { e.shutdown(t) })
 		}},
-		{"authLoginPasskeyFinish", CodePasskeysUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPasskeyFinish", access.CodePasskeysUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.loginFinish(t, func(*accesstest.PasskeyDevice) { e.rp.Store(nil) })
 		}},
-		{"authLoginPasskeyFinish", CodeCeremonyInvalid}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPasskeyFinish", access.CodeCeremonyInvalid}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			r := e.loginFinish(t, nil)
 			r.Header.Set(ceremonyHeader, "not-a-ceremony")
 			return r
 		}},
-		{"authLoginPasskeyFinish", CodeUnknownCredential}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPasskeyFinish", access.CodeUnknownCredential}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.loginFinish(t, func(*accesstest.PasskeyDevice) {
 				u := e.user(t, "alice")
 				creds, err := e.mem.PasskeysByUserID(t.Context(), u.ID)
@@ -370,44 +370,44 @@ func publicScenarios() map[scenarioKey]scenario {
 				}
 			})
 		}},
-		{"authLoginPasskeyFinish", CodeAssertionFailed}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authLoginPasskeyFinish", access.CodeAssertionFailed}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			r := e.loginFinish(t, nil)
 			return finish(e.route(t, "authLoginPasskeyFinish"), r.Header.Get(ceremonyHeader), []byte(`{}`))
 		}},
 
-		{"authInviteAcceptPassword", CodeForbidden}: {opts: envOptions{edit: refuse(account.OpCreateUser)}, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authInviteAcceptPassword", access.CodeForbidden}: {opts: envOptions{edit: refuse(account.OpCreateUser)}, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authInviteAcceptPassword", inviteBody(t, e.invite(t), "invitee", testPassword))
 		}},
-		{"authInviteAcceptPassword", CodeRateLimited}: {opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authInviteAcceptPassword", access.CodeRateLimited}: {opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
 			body := inviteBody(t, e.invite(t), "invitee", testPassword)
 			e.spendAttempt(t)
 			return e.post(t, "authInviteAcceptPassword", body)
 		}},
-		{"authInviteAcceptPassword", CodeBusy}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authInviteAcceptPassword", access.CodeBusy}: {arrange: func(t *testing.T, e *env) *http.Request {
 			body := inviteBody(t, e.invite(t), "invitee", testPassword)
 			e.holdBudget(t)
 			return e.post(t, "authInviteAcceptPassword", body)
 		}},
-		{"authInviteAcceptPassword", CodeUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authInviteAcceptPassword", access.CodeUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
 			r := e.post(t, "authInviteAcceptPassword", inviteBody(t, e.invite(t), "invitee", testPassword))
 			e.shutdown(t)
 			return r
 		}},
-		{"authInviteAcceptPassword", CodeUsernameInvalid}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authInviteAcceptPassword", access.CodeUsernameInvalid}: {arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authInviteAcceptPassword", inviteBody(t, e.invite(t), "", testPassword))
 		}},
-		{"authInviteAcceptPassword", CodeUsernameTaken}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authInviteAcceptPassword", access.CodeUsernameTaken}: {arrange: func(t *testing.T, e *env) *http.Request {
 			body := inviteBody(t, e.invite(t), "alice", testPassword)
 			e.createUser(t, "alice", access.RoleUser)
 			return e.post(t, "authInviteAcceptPassword", body)
 		}},
-		{"authInviteAcceptPassword", CodePasswordRejected}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authInviteAcceptPassword", access.CodePasswordRejected}: {arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authInviteAcceptPassword", inviteBody(t, e.invite(t), "invitee", "short"))
 		}},
-		{"authInviteAcceptPassword", CodeBreachCheckUnavailable}: {opts: breachDown, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authInviteAcceptPassword", access.CodeBreachCheckUnavailable}: {opts: breachDown, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authInviteAcceptPassword", inviteBody(t, e.invite(t), "invitee", testPassword))
 		}},
-		{"authInviteAcceptPassword", CodeTokenInvalid}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authInviteAcceptPassword", access.CodeTokenInvalid}: {arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authInviteAcceptPassword", inviteBody(t, access.NewSecret("not-an-invite"), "invitee", testPassword))
 		}},
 	}
@@ -435,7 +435,7 @@ func recoveryScenarios() map[scenarioKey]scenario {
 		return jsonBody(t, TokenRequest{Token: token})
 	}
 	return map[scenarioKey]scenario{
-		{"authRecoveryStart", CodeRateLimited}: {opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryStart", access.CodeRateLimited}: {opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
 			e.createUser(t, "alice", access.RoleUser)
 			issued, err := e.svc.IssueRecovery(t.Context(), account.OutOfBand("test"), e.user(t, "alice").ID, 0)
 			if err != nil {
@@ -444,93 +444,93 @@ func recoveryScenarios() map[scenarioKey]scenario {
 			e.spendAttempt(t)
 			return e.post(t, "authRecoveryStart", tokenBody(t, issued.Plaintext.Reveal()))
 		}},
-		{"authRecoveryStart", CodeUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryStart", access.CodeUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
 			r := e.post(t, "authRecoveryStart", tokenBody(t, "some-token"))
 			e.shutdown(t)
 			return r
 		}},
-		{"authRecoveryStart", CodeTokenInvalid}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryStart", access.CodeTokenInvalid}: {arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authRecoveryStart", tokenBody(t, "not-a-recovery-token"))
 		}},
 
-		{"authRecoveryPassword", CodeSessionExpired}: {opts: vanishes, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPassword", access.CodeSessionExpired}: {opts: vanishes, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authRecoveryPassword", recoveryPasswordBody(t, testPassword), alice(t, e))
 		}},
-		{"authRecoveryPassword", CodeBusy}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPassword", access.CodeBusy}: {arrange: func(t *testing.T, e *env) *http.Request {
 			r := e.post(t, "authRecoveryPassword", recoveryPasswordBody(t, testPassword), alice(t, e))
 			e.holdBudget(t)
 			return r
 		}},
-		{"authRecoveryPassword", CodeUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPassword", access.CodeUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
 			r := e.post(t, "authRecoveryPassword", recoveryPasswordBody(t, testPassword), alice(t, e))
 			e.shutdown(t)
 			return r
 		}},
-		{"authRecoveryPassword", CodePasswordRejected}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPassword", access.CodePasswordRejected}: {arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authRecoveryPassword", recoveryPasswordBody(t, "short"), alice(t, e))
 		}},
-		{"authRecoveryPassword", CodeBreachCheckUnavailable}: {opts: breachDown, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPassword", access.CodeBreachCheckUnavailable}: {opts: breachDown, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authRecoveryPassword", recoveryPasswordBody(t, testPassword), alice(t, e))
 		}},
-		{"authRecoveryPassword", CodeTokenInvalid}: {opts: keyScopes, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPassword", access.CodeTokenInvalid}: {opts: keyScopes, arrange: func(t *testing.T, e *env) *http.Request {
 			cookie, revoke := e.keyIssuedRecovery(t)
 			revoke()
 			return e.post(t, "authRecoveryPassword", recoveryPasswordBody(t, testPassword), cookie)
 		}},
 
-		{"authRecoveryPasskeyBegin", CodeSessionExpired}: {opts: with(passkeys, vanishes), arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPasskeyBegin", access.CodeSessionExpired}: {opts: with(passkeys, vanishes), arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authRecoveryPasskeyBegin", "", alice(t, e))
 		}},
-		{"authRecoveryPasskeyBegin", CodeUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPasskeyBegin", access.CodeUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			r := e.post(t, "authRecoveryPasskeyBegin", "", alice(t, e))
 			e.shutdown(t)
 			return r
 		}},
-		{"authRecoveryPasskeyBegin", CodePasskeysUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPasskeyBegin", access.CodePasskeysUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authRecoveryPasskeyBegin", "", alice(t, e))
 		}},
-		{"authRecoveryPasskeyBegin", CodeOriginRefused}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPasskeyBegin", access.CodeOriginRefused}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return fromOrigin(e.post(t, "authRecoveryPasskeyBegin", "", alice(t, e)), evilOrigin)
 		}},
 
-		{"authRecoveryPasskeyFinish", CodeSessionExpired}: {opts: with(passkeys, vanishes), arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPasskeyFinish", access.CodeSessionExpired}: {opts: with(passkeys, vanishes), arrange: func(t *testing.T, e *env) *http.Request {
 			return e.recoveryFinish(t, alice(t, e), nil, nil, nil)
 		}},
-		{"authRecoveryPasskeyFinish", CodeUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPasskeyFinish", access.CodeUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.recoveryFinish(t, alice(t, e), nil, nil, func() { e.shutdown(t) })
 		}},
-		{"authRecoveryPasskeyFinish", CodeTokenInvalid}: {opts: with(passkeys, keyScopes), arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPasskeyFinish", access.CodeTokenInvalid}: {opts: with(passkeys, keyScopes), arrange: func(t *testing.T, e *env) *http.Request {
 			cookie, revoke := e.keyIssuedRecovery(t)
 			return e.recoveryFinish(t, cookie, nil, nil, revoke)
 		}},
-		{"authRecoveryPasskeyFinish", CodeDuplicateCredential}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPasskeyFinish", access.CodeDuplicateCredential}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			e.createUser(t, "root", access.RoleAdmin)
 			held := e.enrol(t, "root")
 			return e.recoveryFinish(t, alice(t, e), held, nil, nil)
 		}},
-		{"authRecoveryPasskeyFinish", CodePasskeysUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPasskeyFinish", access.CodePasskeysUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.recoveryFinish(t, alice(t, e), nil, nil, func() { e.rp.Store(nil) })
 		}},
-		{"authRecoveryPasskeyFinish", CodeCeremonyInvalid}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPasskeyFinish", access.CodeCeremonyInvalid}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			r := e.recoveryFinish(t, alice(t, e), nil, nil, nil)
 			r.Header.Set(ceremonyHeader, "not-a-ceremony")
 			return r
 		}},
-		{"authRecoveryPasskeyFinish", CodeNotDiscoverable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPasskeyFinish", access.CodeNotDiscoverable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.recoveryFinish(t, alice(t, e), nil, func(b []byte) []byte { return notDiscoverable(t, b) }, nil)
 		}},
-		{"authRecoveryPasskeyFinish", CodeRegistrationFailed}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		{"authRecoveryPasskeyFinish", access.CodeRegistrationFailed}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.recoveryFinish(t, alice(t, e), nil, func([]byte) []byte { return []byte(`{}`) }, nil)
 		}},
 	}
 }
 
 // redirectedCode is the auth_error a redirect answer carries.
-func redirectedCode(t *testing.T, w *httptest.ResponseRecorder) Code {
+func redirectedCode(t *testing.T, w *httptest.ResponseRecorder) access.Code {
 	t.Helper()
 	loc, err := url.Parse(w.Header().Get("Location"))
 	if err != nil {
 		t.Fatalf("Location %q: %v", w.Header().Get("Location"), err)
 	}
-	return Code(loc.Query().Get(markerError))
+	return access.Code(loc.Query().Get(markerError))
 }

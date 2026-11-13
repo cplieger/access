@@ -37,8 +37,8 @@ type env struct {
 	hasher  *access.Hasher
 	limiter *ratelimit.Limiter
 	logs    *capture.Recorder
-	errs    *recorded[Error]
-	audits  *recorded[AuditEvent]
+	errs    *recorded[access.Error]
+	audits  *recorded[access.AuditEvent]
 	// rp is what Config.RP returns; nil turns passkeys off mid-test.
 	rp atomic.Pointer[webauthn.RelyingParty]
 	// provider is what Config.OIDC returns; nil is OIDC off.
@@ -57,7 +57,7 @@ type envOptions struct {
 	limits func(*ratelimit.Config)
 	// writer replaces the ErrorWriter, which by default writes the status
 	// and nothing else.
-	writer func(e *env) ErrorWriter
+	writer func(e *env) access.ErrorWriter
 	// wrap substitutes the account the Handler calls.
 	wrap func(e *env, s *account.Service) accountAPI
 	// store wraps the MemStore both the Authenticator and the Service use.
@@ -97,7 +97,7 @@ func (r *recorded[T]) all() []T {
 
 func newEnv(t testing.TB, o envOptions) *env {
 	t.Helper()
-	e := &env{mem: o.mem, errs: &recorded[Error]{}, audits: &recorded[AuditEvent]{}}
+	e := &env{mem: o.mem, errs: &recorded[access.Error]{}, audits: &recorded[access.AuditEvent]{}}
 	if e.mem == nil {
 		e.mem = accesstest.NewMemStore()
 	}
@@ -170,7 +170,7 @@ func newEnv(t testing.TB, o envOptions) *env {
 	if o.wrap != nil {
 		acct = o.wrap(e, svc)
 	}
-	writer := ErrorWriter(func(w http.ResponseWriter, _ *http.Request, er Error) {
+	writer := access.ErrorWriter(func(w http.ResponseWriter, _ *http.Request, er access.Error) {
 		e.errs.add(er)
 		w.WriteHeader(er.Status)
 	})
@@ -179,7 +179,7 @@ func newEnv(t testing.TB, o envOptions) *env {
 	}
 	hcfg := Config{
 		Errors:     writer,
-		Audit:      func(_ *http.Request, ev AuditEvent) { e.audits.add(ev) },
+		Audit:      func(_ *http.Request, ev access.AuditEvent) { e.audits.add(ev) },
 		Logger:     logger,
 		Prefix:     "/api/auth",
 		OIDCPrefix: "/api/auth/oidc",

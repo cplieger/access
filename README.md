@@ -134,7 +134,7 @@ func main() {
 }
 
 // writeError renders every refusal in the app's own JSON envelope.
-func writeError(w http.ResponseWriter, _ *http.Request, e accesshttp.Error) {
+func writeError(w http.ResponseWriter, _ *http.Request, e access.Error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(e.Status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"code": string(e.Code), "reason": e.Reason, "detail": e.Detail})

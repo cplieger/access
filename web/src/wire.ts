@@ -743,7 +743,7 @@ export const parseWebAuthnSignals: Validator<WebAuthnSignals> = object({
 
 // Error codes and reasons.
 
-/** accesshttp.Codes(), in its order. @internal */
+/** access.Codes(), in its order. @internal */
 export const CODES = [
   "auth_required",
   "auth_session_expired",
@@ -786,7 +786,7 @@ export const CODES = [
   "auth_method_not_allowed",
 ] as const;
 
-/** Every code accesshttp answers, as accesshttp.Codes() lists them. */
+/** Every code the server answers, as access.Codes() lists them. */
 export type AuthCode = (typeof CODES)[number];
 
 /** accesshttp.Reasons(), in its order. @internal */

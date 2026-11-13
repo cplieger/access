@@ -161,31 +161,31 @@ func addAccountScenarios(out map[scenarioKey]scenario) {
 		t.Helper()
 		return jsonBody(t, ProfileRequest{DisplayName: name})
 	}
-	out[scenarioKey{"authMe", CodeSessionExpired}] = scenario{opts: vanishes, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{"authMe", access.CodeSessionExpired}] = scenario{opts: vanishes, arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, "authMe", "", e.aliceSession(t))
 	}}
-	out[scenarioKey{"authMe", CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{"authMe", access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		return e.post(t, "authMe", "", e.aliceSession(t))
 	})
 
-	out[scenarioKey{"authProfile", CodeSessionExpired}] = scenario{opts: vanishes, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{"authProfile", access.CodeSessionExpired}] = scenario{opts: vanishes, arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, "authProfile", profile(t, "Alice"), e.aliceSession(t))
 	}}
-	out[scenarioKey{"authProfile", CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{"authProfile", access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		return e.post(t, "authProfile", profile(t, "Alice"), e.aliceSession(t))
 	})
-	out[scenarioKey{"authProfile", CodeBadRequest}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{"authProfile", access.CodeBadRequest}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, "authProfile", profile(t, "two\nlines"), e.aliceSession(t))
 	}}
 
 	const reenable = "authMethodReenable"
-	out[scenarioKey{reenable, CodeRecentAuthRequired}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{reenable, access.CodeRecentAuthRequired}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.at(t, reenable, string(access.MethodPassword), "", e.aliceSession(t))
 	}}
-	out[scenarioKey{reenable, CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{reenable, access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		return e.at(t, reenable, string(access.MethodPasskey), "", e.aliceSession(t))
 	})
-	out[scenarioKey{reenable, CodeMethodNotLocked}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{reenable, access.CodeMethodNotLocked}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.at(t, reenable, string(access.MethodPasskey), "", e.aliceSession(t))
 	}}
 
@@ -195,23 +195,23 @@ func addAccountScenarios(out map[scenarioKey]scenario) {
 		return jsonBody(t, PasswordRequest{Password: password})
 	}
 	disabled := &atomic.Bool{}
-	out[scenarioKey{stepUp, CodeInvalidCredentials}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{stepUp, access.CodeInvalidCredentials}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, stepUp, stepUpBody(t, "not-"+testPassword), e.aliceSession(t))
 	}}
-	out[scenarioKey{stepUp, CodeRateLimited}] = scenario{opts: trustLimits, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{stepUp, access.CodeRateLimited}] = scenario{opts: trustLimits, arrange: func(t *testing.T, e *env) *http.Request {
 		r := e.post(t, stepUp, stepUpBody(t, testPassword), e.aliceSession(t))
 		e.spendAccount(t, "alice")
 		return r
 	}}
-	out[scenarioKey{stepUp, CodeBusy}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{stepUp, access.CodeBusy}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		r := e.post(t, stepUp, stepUpBody(t, testPassword), e.aliceSession(t))
 		e.holdBudget(t)
 		return r
 	}}
-	out[scenarioKey{stepUp, CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{stepUp, access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		return e.post(t, stepUp, stepUpBody(t, testPassword), e.aliceSession(t))
 	})
-	out[scenarioKey{stepUp, CodePasswordLoginDisabled}] = scenario{
+	out[scenarioKey{stepUp, access.CodePasswordLoginDisabled}] = scenario{
 		opts: envOptions{rules: func(r *account.Rules) { r.DisablePasswordLogin = disabled.Load() }},
 		arrange: func(t *testing.T, e *env) *http.Request {
 			r := e.post(t, stepUp, stepUpBody(t, testPassword), e.aliceSession(t))
@@ -219,7 +219,7 @@ func addAccountScenarios(out map[scenarioKey]scenario) {
 			return r
 		},
 	}
-	out[scenarioKey{stepUp, CodeSessionExpired}] = scenario{opts: ends, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{stepUp, access.CodeSessionExpired}] = scenario{opts: ends, arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, stepUp, stepUpBody(t, testPassword), e.aliceSession(t))
 	}}
 }
@@ -239,33 +239,33 @@ func addPasswordScenarios(out map[scenarioKey]scenario) {
 	change := func(t *testing.T, e *env) *http.Request {
 		return e.post(t, set, passwordSetBody(t, testPassword, newPassword), e.aliceSession(t))
 	}
-	out[scenarioKey{set, CodeInvalidCredentials}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{set, access.CodeInvalidCredentials}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, set, passwordSetBody(t, "not-"+testPassword, newPassword), e.aliceSession(t))
 	}}
-	out[scenarioKey{set, CodeForbidden}] = scenario{opts: ssoGoverned, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{set, access.CodeForbidden}] = scenario{opts: ssoGoverned, arrange: func(t *testing.T, e *env) *http.Request {
 		r := change(t, e)
 		e.linkUser(t, "alice", idpIdentity(testIssuer))
 		return r
 	}}
-	out[scenarioKey{set, CodeRateLimited}] = scenario{opts: trustLimits, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{set, access.CodeRateLimited}] = scenario{opts: trustLimits, arrange: func(t *testing.T, e *env) *http.Request {
 		r := change(t, e)
 		e.spendAccount(t, "alice")
 		return r
 	}}
-	out[scenarioKey{set, CodeBusy}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{set, access.CodeBusy}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		r := change(t, e)
 		e.holdBudget(t)
 		return r
 	}}
-	out[scenarioKey{set, CodeUnavailable}] = closing(envOptions{}, change)
-	out[scenarioKey{set, CodeBadRequest}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{set, access.CodeUnavailable}] = closing(envOptions{}, change)
+	out[scenarioKey{set, access.CodeBadRequest}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, set, passwordSetBody(t, "", newPassword), e.aliceSession(t))
 	}}
-	out[scenarioKey{set, CodePasswordRejected}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{set, access.CodePasswordRejected}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, set, passwordSetBody(t, testPassword, "short"), e.aliceSession(t))
 	}}
-	out[scenarioKey{set, CodeBreachCheckUnavailable}] = scenario{opts: breachDown, arrange: change}
-	out[scenarioKey{set, CodeSessionExpired}] = scenario{opts: vanishes, arrange: change}
+	out[scenarioKey{set, access.CodeBreachCheckUnavailable}] = scenario{opts: breachDown, arrange: change}
+	out[scenarioKey{set, access.CodeSessionExpired}] = scenario{opts: vanishes, arrange: change}
 
 	const remove = "authPasswordRemove"
 	// withPasskey is alice's removal with a passkey left to sign in with.
@@ -275,27 +275,27 @@ func addPasswordScenarios(out map[scenarioKey]scenario) {
 		return e.post(t, remove, passwordRemoveBody(t, current), cookie)
 	}
 	right := func(t *testing.T, e *env) *http.Request { return withPasskey(t, e, testPassword) }
-	out[scenarioKey{remove, CodeInvalidCredentials}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{remove, access.CodeInvalidCredentials}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 		return withPasskey(t, e, "not-"+testPassword)
 	}}
-	out[scenarioKey{remove, CodeRateLimited}] = scenario{opts: with(passkeys, trustLimits), arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{remove, access.CodeRateLimited}] = scenario{opts: with(passkeys, trustLimits), arrange: func(t *testing.T, e *env) *http.Request {
 		r := right(t, e)
 		e.spendAccount(t, "alice")
 		return r
 	}}
-	out[scenarioKey{remove, CodeBusy}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{remove, access.CodeBusy}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 		r := right(t, e)
 		e.holdBudget(t)
 		return r
 	}}
-	out[scenarioKey{remove, CodeUnavailable}] = closing(passkeys, right)
-	out[scenarioKey{remove, CodeBadRequest}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{remove, access.CodeUnavailable}] = closing(passkeys, right)
+	out[scenarioKey{remove, access.CodeBadRequest}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 		return withPasskey(t, e, "")
 	}}
-	out[scenarioKey{remove, CodeLastMethod}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{remove, access.CodeLastMethod}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, remove, passwordRemoveBody(t, testPassword), e.aliceSession(t))
 	}}
-	out[scenarioKey{remove, CodeNotFound}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{remove, access.CodeNotFound}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 		r := right(t, e)
 		u := e.user(t, "alice")
 		u.PasswordHash = access.Hash{}
@@ -304,7 +304,7 @@ func addPasswordScenarios(out map[scenarioKey]scenario) {
 		}
 		return r
 	}}
-	out[scenarioKey{remove, CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: right}
+	out[scenarioKey{remove, access.CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: right}
 }
 
 func addPasskeyScenarios(out map[scenarioKey]scenario) {
@@ -318,15 +318,15 @@ func addPasskeyScenarios(out map[scenarioKey]scenario) {
 		cookie, _ := enrolled(t, e)
 		return e.post(t, stepUpBegin, "", cookie)
 	}
-	out[scenarioKey{stepUpBegin, CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: beginWith}
-	out[scenarioKey{stepUpBegin, CodeUnavailable}] = closing(passkeys, beginWith)
-	out[scenarioKey{stepUpBegin, CodePasskeysUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{stepUpBegin, access.CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: beginWith}
+	out[scenarioKey{stepUpBegin, access.CodeUnavailable}] = closing(passkeys, beginWith)
+	out[scenarioKey{stepUpBegin, access.CodePasskeysUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, stepUpBegin, "", e.aliceSession(t))
 	}}
-	out[scenarioKey{stepUpBegin, CodeOriginRefused}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{stepUpBegin, access.CodeOriginRefused}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 		return fromOrigin(beginWith(t, e), evilOrigin)
 	}}
-	out[scenarioKey{stepUpBegin, CodeNotFound}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{stepUpBegin, access.CodeNotFound}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, stepUpBegin, "", e.aliceSession(t))
 	}}
 
@@ -340,21 +340,21 @@ func addPasskeyScenarios(out map[scenarioKey]scenario) {
 			})
 		}
 	}
-	out[scenarioKey{stepUpFinish, CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: finishWith(nil, nil)}
-	out[scenarioKey{stepUpFinish, CodeUnavailable}] = scenario{opts: passkeys, arrange: finishWith(nil, func(t *testing.T, e *env) { e.shutdown(t) })}
-	out[scenarioKey{stepUpFinish, CodePasskeysUnavailable}] = scenario{opts: passkeys, arrange: finishWith(nil, func(_ *testing.T, e *env) { e.rp.Store(nil) })}
-	out[scenarioKey{stepUpFinish, CodeCeremonyInvalid}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{stepUpFinish, access.CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: finishWith(nil, nil)}
+	out[scenarioKey{stepUpFinish, access.CodeUnavailable}] = scenario{opts: passkeys, arrange: finishWith(nil, func(t *testing.T, e *env) { e.shutdown(t) })}
+	out[scenarioKey{stepUpFinish, access.CodePasskeysUnavailable}] = scenario{opts: passkeys, arrange: finishWith(nil, func(_ *testing.T, e *env) { e.rp.Store(nil) })}
+	out[scenarioKey{stepUpFinish, access.CodeCeremonyInvalid}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 		r := finishWith(nil, nil)(t, e)
 		r.Header.Set(ceremonyHeader, "not-a-ceremony")
 		return r
 	}}
-	out[scenarioKey{stepUpFinish, CodeUnknownCredential}] = scenario{opts: passkeys, arrange: finishWith(nil, func(t *testing.T, e *env) {
+	out[scenarioKey{stepUpFinish, access.CodeUnknownCredential}] = scenario{opts: passkeys, arrange: finishWith(nil, func(t *testing.T, e *env) {
 		u := e.user(t, "alice")
 		if err := e.mem.DeletePasskey(t.Context(), access.PasskeyRef{ID: e.passkeyID(t, "alice"), UserID: u.ID}); err != nil {
 			t.Fatalf("DeletePasskey: %v", err)
 		}
 	})}
-	out[scenarioKey{stepUpFinish, CodeAssertionFailed}] = scenario{opts: passkeys, arrange: finishWith(func([]byte) []byte { return []byte(`{}`) }, nil)}
+	out[scenarioKey{stepUpFinish, access.CodeAssertionFailed}] = scenario{opts: passkeys, arrange: finishWith(func([]byte) []byte { return []byte(`{}`) }, nil)}
 
 	addEnrolmentScenarios(out)
 
@@ -367,9 +367,9 @@ func addPasskeyScenarios(out map[scenarioKey]scenario) {
 		cookie, _ := enrolled(t, e)
 		return e.at(t, rename, strconv.FormatInt(e.passkeyID(t, "alice"), 10), nameBody(t, name), cookie)
 	}
-	out[scenarioKey{rename, CodeUnavailable}] = closing(passkeys, func(t *testing.T, e *env) *http.Request { return renameOwn(t, e, "laptop") })
-	out[scenarioKey{rename, CodeBadRequest}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request { return renameOwn(t, e, "two\nlines") }}
-	out[scenarioKey{rename, CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{rename, access.CodeUnavailable}] = closing(passkeys, func(t *testing.T, e *env) *http.Request { return renameOwn(t, e, "laptop") })
+	out[scenarioKey{rename, access.CodeBadRequest}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request { return renameOwn(t, e, "two\nlines") }}
+	out[scenarioKey{rename, access.CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.at(t, rename, "1", nameBody(t, "laptop"), e.aliceSession(t))
 	}}
 
@@ -377,19 +377,19 @@ func addPasskeyScenarios(out map[scenarioKey]scenario) {
 		cookie, _ := enrolled(t, e)
 		return e.at(t, removeKey, strconv.FormatInt(e.passkeyID(t, "alice"), 10), "", cookie)
 	}
-	out[scenarioKey{removeKey, CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: removeOwn}
-	out[scenarioKey{removeKey, CodeUnavailable}] = closing(passkeys, removeOwn)
-	out[scenarioKey{removeKey, CodeLastMethod}] = scenario{opts: with(passkeys, passwordUnusable), arrange: removeOwn}
-	out[scenarioKey{removeKey, CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{removeKey, access.CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: removeOwn}
+	out[scenarioKey{removeKey, access.CodeUnavailable}] = closing(passkeys, removeOwn)
+	out[scenarioKey{removeKey, access.CodeLastMethod}] = scenario{opts: with(passkeys, passwordUnusable), arrange: removeOwn}
+	out[scenarioKey{removeKey, access.CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.at(t, removeKey, "1", "", e.aliceSession(t))
 	}}
 
 	signalsOf := func(t *testing.T, e *env) *http.Request { return e.post(t, signals, "", e.aliceSession(t)) }
-	out[scenarioKey{signals, CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: signalsOf}
-	out[scenarioKey{signals, CodeUnavailable}] = closing(passkeys, signalsOf)
-	out[scenarioKey{signals, CodePasskeysUnavailable}] = scenario{arrange: signalsOf}
+	out[scenarioKey{signals, access.CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: signalsOf}
+	out[scenarioKey{signals, access.CodeUnavailable}] = closing(passkeys, signalsOf)
+	out[scenarioKey{signals, access.CodePasskeysUnavailable}] = scenario{arrange: signalsOf}
 
-	out[scenarioKey{"authPasskeys", CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{"authPasskeys", access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		return e.post(t, "authPasskeys", "", e.aliceSession(t))
 	})
 }
@@ -397,15 +397,15 @@ func addPasskeyScenarios(out map[scenarioKey]scenario) {
 func addEnrolmentScenarios(out map[scenarioKey]scenario) {
 	const begin, finishRoute = "authPasskeyRegisterBegin", "authPasskeyRegisterFinish"
 	beginOwn := func(t *testing.T, e *env) *http.Request { return e.post(t, begin, "", e.aliceSession(t)) }
-	out[scenarioKey{begin, CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: beginOwn}
-	out[scenarioKey{begin, CodeForbidden}] = scenario{opts: with(passkeys, ssoGoverned), arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{begin, access.CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: beginOwn}
+	out[scenarioKey{begin, access.CodeForbidden}] = scenario{opts: with(passkeys, ssoGoverned), arrange: func(t *testing.T, e *env) *http.Request {
 		r := beginOwn(t, e)
 		e.linkUser(t, "alice", idpIdentity(testIssuer))
 		return r
 	}}
-	out[scenarioKey{begin, CodeUnavailable}] = closing(passkeys, beginOwn)
-	out[scenarioKey{begin, CodePasskeysUnavailable}] = scenario{arrange: beginOwn}
-	out[scenarioKey{begin, CodeOriginRefused}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{begin, access.CodeUnavailable}] = closing(passkeys, beginOwn)
+	out[scenarioKey{begin, access.CodePasskeysUnavailable}] = scenario{arrange: beginOwn}
+	out[scenarioKey{begin, access.CodeOriginRefused}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 		return fromOrigin(beginOwn(t, e), evilOrigin)
 	}}
 
@@ -427,23 +427,23 @@ func addEnrolmentScenarios(out map[scenarioKey]scenario) {
 			})
 		}
 	}
-	out[scenarioKey{finishRoute, CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: finishOwn(nil, nil, nil)}
-	out[scenarioKey{finishRoute, CodeForbidden}] = scenario{opts: with(passkeys, ssoGoverned), arrange: finishOwn(nil, nil, func(t *testing.T, e *env) {
+	out[scenarioKey{finishRoute, access.CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: finishOwn(nil, nil, nil)}
+	out[scenarioKey{finishRoute, access.CodeForbidden}] = scenario{opts: with(passkeys, ssoGoverned), arrange: finishOwn(nil, nil, func(t *testing.T, e *env) {
 		e.linkUser(t, "alice", idpIdentity(testIssuer))
 	})}
-	out[scenarioKey{finishRoute, CodeUnavailable}] = scenario{opts: passkeys, arrange: finishOwn(nil, nil, func(t *testing.T, e *env) { e.shutdown(t) })}
-	out[scenarioKey{finishRoute, CodeDuplicateCredential}] = scenario{opts: passkeys, arrange: finishOwn(func(t *testing.T, e *env) *accesstest.PasskeyDevice {
+	out[scenarioKey{finishRoute, access.CodeUnavailable}] = scenario{opts: passkeys, arrange: finishOwn(nil, nil, func(t *testing.T, e *env) { e.shutdown(t) })}
+	out[scenarioKey{finishRoute, access.CodeDuplicateCredential}] = scenario{opts: passkeys, arrange: finishOwn(func(t *testing.T, e *env) *accesstest.PasskeyDevice {
 		e.createUser(t, "root", access.RoleAdmin)
 		return e.enrol(t, "root")
 	}, nil, nil)}
-	out[scenarioKey{finishRoute, CodePasskeysUnavailable}] = scenario{opts: passkeys, arrange: finishOwn(nil, nil, func(_ *testing.T, e *env) { e.rp.Store(nil) })}
-	out[scenarioKey{finishRoute, CodeCeremonyInvalid}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{finishRoute, access.CodePasskeysUnavailable}] = scenario{opts: passkeys, arrange: finishOwn(nil, nil, func(_ *testing.T, e *env) { e.rp.Store(nil) })}
+	out[scenarioKey{finishRoute, access.CodeCeremonyInvalid}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 		r := finishOwn(nil, nil, nil)(t, e)
 		r.Header.Set(ceremonyHeader, "not-a-ceremony")
 		return r
 	}}
-	out[scenarioKey{finishRoute, CodeNotDiscoverable}] = scenario{opts: passkeys, arrange: finishOwn(nil, func(t *testing.T, b []byte) []byte { return notDiscoverable(t, b) }, nil)}
-	out[scenarioKey{finishRoute, CodeRegistrationFailed}] = scenario{opts: passkeys, arrange: finishOwn(nil, func(*testing.T, []byte) []byte { return []byte(`{}`) }, nil)}
+	out[scenarioKey{finishRoute, access.CodeNotDiscoverable}] = scenario{opts: passkeys, arrange: finishOwn(nil, func(t *testing.T, b []byte) []byte { return notDiscoverable(t, b) }, nil)}
+	out[scenarioKey{finishRoute, access.CodeRegistrationFailed}] = scenario{opts: passkeys, arrange: finishOwn(nil, func(*testing.T, []byte) []byte { return []byte(`{}`) }, nil)}
 }
 
 func addSessionScenarios(out map[scenarioKey]scenario) {
@@ -452,22 +452,22 @@ func addSessionScenarios(out map[scenarioKey]scenario) {
 		cookie := e.aliceSession(t)
 		return e.at(t, rename, e.sessionIDOf(t, cookie), jsonBody(t, NameRequest{Name: label}), cookie)
 	}
-	out[scenarioKey{rename, CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request { return nameOwn(t, e, "laptop") })
-	out[scenarioKey{rename, CodeBadRequest}] = scenario{arrange: func(t *testing.T, e *env) *http.Request { return nameOwn(t, e, "two\nlines") }}
-	out[scenarioKey{rename, CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{rename, access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request { return nameOwn(t, e, "laptop") })
+	out[scenarioKey{rename, access.CodeBadRequest}] = scenario{arrange: func(t *testing.T, e *env) *http.Request { return nameOwn(t, e, "two\nlines") }}
+	out[scenarioKey{rename, access.CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.at(t, rename, otherSessionID, jsonBody(t, NameRequest{Name: "laptop"}), e.aliceSession(t))
 	}}
-	out[scenarioKey{revoke, CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{revoke, access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		cookie := e.aliceSession(t)
 		return e.at(t, revoke, e.sessionIDOf(t, cookie), "", cookie)
 	})
-	out[scenarioKey{revoke, CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{revoke, access.CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.at(t, revoke, otherSessionID, "", e.aliceSession(t))
 	}}
-	out[scenarioKey{"authSessions", CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{"authSessions", access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		return e.post(t, "authSessions", "", e.aliceSession(t))
 	})
-	out[scenarioKey{"authSessionsRevokeOthers", CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{"authSessionsRevokeOthers", access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		return e.post(t, "authSessionsRevokeOthers", "", e.aliceSession(t))
 	})
 }
@@ -482,22 +482,22 @@ func addKeyScenarios(out map[scenarioKey]scenario) {
 	mint := func(t *testing.T, e *env) *http.Request {
 		return e.post(t, create, keyBody(t, "ci"), e.aliceSession(t))
 	}
-	out[scenarioKey{create, CodeSessionExpired}] = scenario{opts: ends, arrange: mint}
-	out[scenarioKey{create, CodeForbidden}] = scenario{opts: envOptions{edit: refuse(account.OpCreateOwnKey)}, arrange: mint}
-	out[scenarioKey{create, CodeUnavailable}] = closing(envOptions{}, mint)
-	out[scenarioKey{create, CodeBadRequest}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{create, access.CodeSessionExpired}] = scenario{opts: ends, arrange: mint}
+	out[scenarioKey{create, access.CodeForbidden}] = scenario{opts: envOptions{edit: refuse(account.OpCreateOwnKey)}, arrange: mint}
+	out[scenarioKey{create, access.CodeUnavailable}] = closing(envOptions{}, mint)
+	out[scenarioKey{create, access.CodeBadRequest}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, create, keyBody(t, "two\nlines"), e.aliceSession(t))
 	}}
-	out[scenarioKey{create, CodeUnknownScope}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{create, access.CodeUnknownScope}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, create, keyBody(t, "ci", "unlisted"), e.aliceSession(t))
 	}}
-	out[scenarioKey{revoke, CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{revoke, access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		return e.at(t, revoke, "1", "", e.aliceSession(t))
 	})
-	out[scenarioKey{revoke, CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{revoke, access.CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.at(t, revoke, "1", "", e.aliceSession(t))
 	}}
-	out[scenarioKey{"authKeys", CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{"authKeys", access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		return e.post(t, "authKeys", "", e.aliceSession(t))
 	})
 }
