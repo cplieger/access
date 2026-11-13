@@ -38,7 +38,7 @@
     "lint:fix": "eslint . --fix && prettier --write ."
   },
   "devDependencies": {
-    "@cplieger/reactive": "2.4.0-dev.1",
+    "@cplieger/reactive": "2.4.0",
     "@eslint/js": "10.0.1",
     "@types/node": "26.6.6",
     "@typescript/native": "npm:typescript@7.0.2",
