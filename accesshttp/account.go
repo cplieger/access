@@ -67,8 +67,8 @@ type accountAPI interface {
 	DeleteUser(ctx context.Context, p access.Principal, userID int64) error
 	IssueRecovery(ctx context.Context, a account.Actor, userID int64, ttl time.Duration) (account.IssuedToken, error)
 	CreateInvite(ctx context.Context, p access.Principal, role access.Role, ttl time.Duration) (account.IssuedToken, error)
-	AllAPIKeys(ctx context.Context, p access.Principal) ([]account.ListedKey, error)
-	RevokeAnyAPIKey(ctx context.Context, p access.Principal, id int64) error
+	AllAPIKeys(ctx context.Context, a account.Actor) ([]account.ListedKey, error)
+	RevokeAnyAPIKey(ctx context.Context, a account.Actor, id int64) error
 	Tokens(ctx context.Context, p access.Principal) ([]account.ListedToken, error)
 	SecurityLog(ctx context.Context, p access.Principal, f account.LogFilter) (account.LogPage, error)
 }

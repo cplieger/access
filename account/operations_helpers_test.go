@@ -633,7 +633,7 @@ func adminOperations() []operation {
 			return opCall{run: func(ctx context.Context) error { _, err := w.svc.Users(ctx, p, account.UserFilter{}); return err }, want: none, actor: actorOf(p)}
 		}},
 		{name: "AllAPIKeys", class: classAdminScope, readOnly: true, asks: []account.Operation{account.OpManageAllKeys}, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
-			return opCall{run: func(ctx context.Context) error { _, err := w.svc.AllAPIKeys(ctx, p); return err }, want: none, actor: actorOf(p)}
+			return opCall{run: func(ctx context.Context) error { _, err := w.svc.AllAPIKeys(ctx, account.As(p)); return err }, want: none, actor: actorOf(p)}
 		}},
 		{name: "Tokens", class: classAdminScope, readOnly: true, asks: []account.Operation{account.OpListUsers}, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
 			return opCall{run: func(ctx context.Context) error { _, err := w.svc.Tokens(ctx, p); return err }, want: none, actor: actorOf(p)}
@@ -645,7 +645,7 @@ func adminOperations() []operation {
 			k := w.storedKey(t, w.alice, "read")
 			return opCall{
 				actor: actorOf(p),
-				run:   func(ctx context.Context) error { return w.svc.RevokeAnyAPIKey(ctx, p, k.ID) },
+				run:   func(ctx context.Context) error { return w.svc.RevokeAnyAPIKey(ctx, account.As(p), k.ID) },
 				want:  events(account.Event{Kind: account.EventKeyRevoked, UserID: w.alice.ID, KeyID: k.ID, Actor: actorOf(p)}),
 			}
 		}},

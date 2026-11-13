@@ -32,7 +32,7 @@ Each operation appends its entries in the order it reports its events to `OnEven
 | `passkey_removed` | change | `RemovePasskey`, and one per passkey for an OIDC link under `Rules.SSOGoverned` |
 | `oidc_linked`, `oidc_unlinked` | change | `OIDCComplete` finishing a link and `LinkPendingOIDC`; `UnlinkOIDC` |
 | `key_minted` | change | `CreateAPIKey` |
-| `key_revoked` | change | one per key: `RevokeAPIKey` and `RevokeAnyAPIKey`, with the keys minted below the revoked key; a disable through `UpdateUser`; `DeleteUser`; a recovery unless `RecoverOptions.KeepKeys` is set; and, only when `Rules.RevokeKeysOnCredentialChange` is set, `SetPassword` and an OIDC link under `Rules.SSOGoverned`. Removing a password and adding or removing a passkey revoke no key |
+| `key_revoked` | change | one per key: `RevokeAPIKey` and `RevokeAnyAPIKey`, with the keys minted below the revoked key. A `RevokeAnyAPIKey` by `account.OutOfBand(channel)` names that channel in `Event.Actor.OutOfBand`; a disable through `UpdateUser`; `DeleteUser`; a recovery unless `RecoverOptions.KeepKeys` is set; and, only when `Rules.RevokeKeysOnCredentialChange` is set, `SetPassword` and an OIDC link under `Rules.SSOGoverned`. Removing a password and adding or removing a passkey revoke no key |
 | `role_changed`, `user_disabled`, `user_enabled` | change | `UpdateUser` |
 | `user_deleted` | change | `DeleteUser` |
 | `invite_issued` | change | `CreateInvite` |

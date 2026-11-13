@@ -51,4 +51,15 @@ func TestShutdownEveryOperation(t *testing.T) {
 		closed(t, w, "RequireAdminScope", func() error { return w.svc.RequireAdminScope(p) })
 		closed(t, w, "RequireKeyPermission", func() error { return w.svc.RequireKeyPermission(p, scopeUsers) })
 	})
+	t.Run("out_of_band", func(t *testing.T) {
+		t.Parallel()
+		w := newOpWorld(t, worldOptions{scoped: true})
+		k := w.storedKey(t, w.alice, "read")
+		if err := w.svc.Shutdown(t.Context()); err != nil {
+			t.Fatalf("Shutdown = %v", err)
+		}
+		a := account.OutOfBand("socket")
+		closed(t, w, "AllAPIKeys", func() error { _, err := w.svc.AllAPIKeys(t.Context(), a); return err })
+		closed(t, w, "RevokeAnyAPIKey", func() error { return w.svc.RevokeAnyAPIKey(t.Context(), a, k.ID) })
+	})
 }

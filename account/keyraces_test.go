@@ -293,7 +293,7 @@ var (
 	revokeAnyWrite = keyWrite{
 		name: "RevokeAnyAPIKey", scope: scopeAdmin,
 		run: func(t *testing.T, e *raceEnv) error {
-			return e.f.svc.RevokeAnyAPIKey(t.Context(), e.k.p, e.target.key.ID)
+			return e.f.svc.RevokeAnyAPIKey(t.Context(), account.As(e.k.p), e.target.key.ID)
 		},
 		produced: func(t *testing.T, e *raceEnv) int {
 			gone := !slices.Contains(keyIDs(keysOf(t, e.f.mem, e.target.key.UserID)), e.target.key.ID)

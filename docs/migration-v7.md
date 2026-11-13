@@ -126,6 +126,8 @@ Key rotation adds to the key store, under contract rule 23 ([Key secrets](storag
 - `account.KeyStore` gains `UpdateAPIKeySecret(ctx, access.KeyRef, access.KeySecret)`, which writes the new secret and zeroes `LastUsedAt` in one write, and `UpdateAPIKeyLabel(ctx, access.KeyRef, label)`.
 - `account.Sweeper` gains `ClearRetiredAPIKeySecrets(ctx, now, limit) (int, error)`.
 
+`Service.AllAPIKeys(ctx, a)` and `Service.RevokeAnyAPIKey(ctx, a, id)` take an `account.Actor` in place of an `access.Principal`. Pass `account.As(p)` for a request's principal, or `account.OutOfBand(channel)` for an admin socket or a CLI. Both answer `ErrServiceClosed` after `Shutdown` for every actor, and `ErrSessionRequired` for the zero `Actor`. A key principal's authority is re-read in the operation's transaction, so a revoked or expired key gets a `*PolicyError` with `ReasonKeyNotCurrent` from `AllAPIKeys` as well. The built-in policies allow `OpManageAllKeys` to an out-of-band actor, and an app's own `Policy` now receives it with one.
+
 ## The security log
 
 `account` keeps an append-only [security log](security-log.md), written in the same `Update` as each change it records.

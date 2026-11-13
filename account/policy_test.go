@@ -89,7 +89,7 @@ func TestRolePolicyTable(t *testing.T) {
 		{op: account.OpInvite, role: access.RoleUser, allowed: adminOnly},
 		{op: account.OpIssueRecovery, target: new(userU), allowed: adminOrOOB},
 		{op: account.OpListUsers, allowed: adminOnly},
-		{op: account.OpManageAllKeys, allowed: adminOnly},
+		{op: account.OpManageAllKeys, allowed: adminOrOOB},
 		{op: account.OpMigrateToSSO, target: new(userU), allowed: map[string]bool{"admin": true, "user": true}},
 		{op: account.OpCreateKeyFor, target: new(userU), allowed: map[string]bool{"out_of_band": true}},
 		{op: account.OpCreateKeyFor, target: new(userV)},
@@ -207,7 +207,7 @@ func TestSingleOwnerPolicyTable(t *testing.T) {
 		{op: account.OpCreateKeyFor, target: new(adminA), allowed: map[string]bool{"out_of_band": true}},
 		{op: account.OpCreateKeyFor, target: new(userU)},
 		{op: account.OpListUsers, allowed: ownerOnly},
-		{op: account.OpManageAllKeys, allowed: ownerOnly},
+		{op: account.OpManageAllKeys, allowed: map[string]bool{"admin": true, "out_of_band": true}},
 		{op: "unknown"},
 	}
 	runPolicyTable(t, account.SingleOwnerPolicy{}, rows)

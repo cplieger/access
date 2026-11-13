@@ -37,9 +37,9 @@ const (
 )
 
 // Decision is one question to the Policy. A write that decides on stored
-// rows asks it inside its Update, with the rows read there; a list read,
-// and an invite acceptance's OpCreateUser, which no row decides, ask it
-// before.
+// rows asks it inside its Update, with the rows read there, and so does
+// AllAPIKeys, whose key actor is re-read there; the other list reads, and
+// an invite acceptance's OpCreateUser, which no row decides, ask it before.
 type Decision struct {
 	// Target is nil for OpCreateUser, OpInvite and the list operations, and
 	// for a user operation whose target does not exist; the policy then
@@ -55,7 +55,9 @@ type Decision struct {
 	Enabled bool  // OpSetEnabled: the value being set
 }
 
-// Policy decides who may change the user set and mint credentials.
+// Policy decides who may change the user set and mint credentials. An
+// OutOfBand actor reaches it for OpCreateUser, OpIssueRecovery,
+// OpCreateKeyFor and OpManageAllKeys, so an app's own Policy decides each.
 type Policy interface {
 	// Authorize returns nil, or a *PolicyError.
 	Authorize(ctx context.Context, d Decision) error
@@ -93,7 +95,7 @@ func (p RolePolicy) Authorize(_ context.Context, d Decision) error { //nolint:go
 		return p.createOwnKey(d, actor, isPrincipal)
 	case OpCreateKeyFor:
 		return createKeyFor(d, func(u *access.User) bool { return u.Enabled })
-	case OpIssueRecovery:
+	case OpIssueRecovery, OpManageAllKeys:
 		if d.Actor.isOutOfBand() {
 			return nil
 		}
@@ -105,7 +107,7 @@ func (p RolePolicy) Authorize(_ context.Context, d Decision) error { //nolint:go
 		return p.keepLocalAdmin(d)
 	case OpDeleteUser, OpSetRole, OpSetEnabled:
 		return p.changeUser(d, actor, isPrincipal)
-	case OpInvite, OpListUsers, OpManageAllKeys:
+	case OpInvite, OpListUsers:
 		return requireAdmin(d, actor, isPrincipal)
 	default:
 		return &PolicyError{Op: d.Op, Reason: ReasonUnknownOperation}
@@ -166,6 +168,12 @@ func (SingleOwnerPolicy) Authorize(_ context.Context, d Decision) error { //noli
 	refuse := func(reason string) error { return &PolicyError{Op: d.Op, Reason: reason} }
 	actor, isPrincipal := d.Actor.user()
 	isOwner := func(u *access.User) bool { return u.Enabled && u.Role == access.RoleAdmin }
+	requireOwner := func() error {
+		if !isPrincipal || !isOwner(actor) {
+			return refuse(ReasonNotOwner)
+		}
+		return nil
+	}
 	switch d.Op {
 	case OpCreateUser:
 		if d.Via != ViaSetup {
@@ -177,11 +185,13 @@ func (SingleOwnerPolicy) Authorize(_ context.Context, d Decision) error { //noli
 			return refuse(ReasonOutOfBandOnly)
 		}
 		return nil
-	case OpCreateOwnKey, OpListUsers, OpManageAllKeys:
-		if !isPrincipal || !isOwner(actor) {
-			return refuse(ReasonNotOwner)
+	case OpManageAllKeys:
+		if d.Actor.isOutOfBand() {
+			return nil
 		}
-		return nil
+		return requireOwner()
+	case OpCreateOwnKey, OpListUsers:
+		return requireOwner()
 	case OpCreateKeyFor:
 		return createKeyFor(d, isOwner)
 	default:

@@ -329,7 +329,7 @@ func TestKeyChainStaysUser(t *testing.T) {
 		_, refusals["Users"] = w.f.svc.Users(t.Context(), k2, account.UserFilter{})
 		_, refusals["CreateUser"] = w.f.svc.CreateUser(t.Context(), account.As(k2), account.NewUser{Username: "more"})
 		_, refusals["UpdateUser"] = w.f.svc.UpdateUser(t.Context(), k2, w.alice.ID, account.UserChange{Enabled: new(false)})
-		refusals["RevokeAnyAPIKey"] = w.f.svc.RevokeAnyAPIKey(t.Context(), k2, k.key.ID)
+		refusals["RevokeAnyAPIKey"] = w.f.svc.RevokeAnyAPIKey(t.Context(), account.As(k2), k.key.ID)
 		refusals["RequireAdminScope"] = w.f.svc.RequireAdminScope(k2)
 		for name, err := range refusals {
 			if !errors.Is(err, account.ErrScopeRequired) {

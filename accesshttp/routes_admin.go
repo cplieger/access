@@ -89,7 +89,7 @@ func serveAdminInvite(h *Handler, c *call) error {
 }
 
 func serveAdminKeys(h *Handler, c *call) error {
-	keys, err := h.acct.AllAPIKeys(c.r.Context(), c.p)
+	keys, err := h.acct.AllAPIKeys(c.r.Context(), account.As(c.p))
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func serveAdminKeys(h *Handler, c *call) error {
 }
 
 func serveAdminKeyRevoke(h *Handler, c *call) error {
-	if err := h.acct.RevokeAnyAPIKey(c.r.Context(), c.p, c.id); err != nil {
+	if err := h.acct.RevokeAnyAPIKey(c.r.Context(), account.As(c.p), c.id); err != nil {
 		return err
 	}
 	noContent(c.w)

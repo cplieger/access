@@ -240,12 +240,12 @@ func (s stubAccount) CreateInvite(ctx context.Context, p access.Principal, role 
 	return stubbed(s, "CreateInvite", func() (account.IssuedToken, error) { return s.accountAPI.CreateInvite(ctx, p, role, ttl) })
 }
 
-func (s stubAccount) AllAPIKeys(ctx context.Context, p access.Principal) ([]account.ListedKey, error) {
-	return stubbed(s, "AllAPIKeys", func() ([]account.ListedKey, error) { return s.accountAPI.AllAPIKeys(ctx, p) })
+func (s stubAccount) AllAPIKeys(ctx context.Context, a account.Actor) ([]account.ListedKey, error) {
+	return stubbed(s, "AllAPIKeys", func() ([]account.ListedKey, error) { return s.accountAPI.AllAPIKeys(ctx, a) })
 }
 
-func (s stubAccount) RevokeAnyAPIKey(ctx context.Context, p access.Principal, id int64) error {
-	return stubbedErr(s, "RevokeAnyAPIKey", func() error { return s.accountAPI.RevokeAnyAPIKey(ctx, p, id) })
+func (s stubAccount) RevokeAnyAPIKey(ctx context.Context, a account.Actor, id int64) error {
+	return stubbedErr(s, "RevokeAnyAPIKey", func() error { return s.accountAPI.RevokeAnyAPIKey(ctx, a, id) })
 }
 
 func (s stubAccount) Tokens(ctx context.Context, p access.Principal) ([]account.ListedToken, error) {
