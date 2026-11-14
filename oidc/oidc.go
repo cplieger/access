@@ -3,7 +3,10 @@
 // verifier and intent into a browser-bound cookie and returns the
 // authorization URL; [Provider.Finish] opens that cookie on the callback,
 // exchanges the code and verifies the ID token. Nothing is stored server-side.
-// It imports the root access package and never the reverse.
+// The flow cookie always takes the secure name and the Secure flag, because
+// every OIDC route needs a secure request: over plain HTTP the browser drops
+// it, so the flow fails closed. It imports the root access package and never
+// the reverse.
 package oidc
 
 import (

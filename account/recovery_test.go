@@ -292,7 +292,7 @@ func TestRecoveryCompletion(t *testing.T) {
 		rec, rp := w.start(t, w.svc, w.issue(t, account.OutOfBand("socket"), w.alice.ID))
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "https://example.com/", http.NoBody)
 		cookie := w.authn.Cookie()
-		req.AddCookie(&http.Cookie{Name: cookie.CookieName(req), Value: rec.Issued.Token.Reveal()})
+		req.AddCookie(&http.Cookie{Name: cookie.CookieName(true), Value: rec.Issued.Token.Reveal()})
 		if _, err := w.authn.Authenticate(req); !errors.Is(err, access.ErrRestrictedSession) {
 			t.Errorf("the recovery session off the recovery routes = %v, want access.ErrRestrictedSession", err)
 		}

@@ -12,7 +12,7 @@ A `Provider` does not change after `NewProvider` returns. When the settings chan
 
 ## The flow cookie
 
-`Provider.Begin` seals the flow's state, nonce and PKCE verifier into one cookie, with what the flow is for. It returns the URL to send the browser to, and nothing is stored on the server. The cookie's name comes from your session cookie config through `session.Derive("oidc", http.SameSiteLaxMode)`, so it follows the session cookie's posture and never collides with it. It is `HttpOnly` and expires after 10 minutes. It is `SameSite=Lax`, because the provider sends the browser back with a cross-site navigation.
+`Provider.Begin` seals the flow's state, nonce and PKCE verifier into one cookie, with what the flow is for. It returns the URL to send the browser to, and nothing is stored on the server. The cookie's name comes from your session cookie config through `session.Derive("oidc", http.SameSiteLaxMode)`, so it never collides with the session cookie. `Begin` and `Finish` always use its secure name, `__Host-<Name>_oidc` with Secure, because every OIDC route needs a secure request under both postures: over plain HTTP the browser drops the cookie and the flow fails closed. It is `HttpOnly` and expires after 10 minutes. It is `SameSite=Lax`, because the provider sends the browser back with a cross-site navigation.
 
 `Config.FlowSealer` seals the cookie. When you leave it nil, each `Provider` gets its own ephemeral sealer, and a flow begun under one provider value cannot finish under a rebuilt one. If you rebuild providers while flows are in flight, pass one sealer that outlives them.
 

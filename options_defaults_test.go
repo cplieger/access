@@ -56,11 +56,10 @@ func TestConfigZeroValueDefaults(t *testing.T) {
 	t.Run("default session cookie", func(t *testing.T) {
 		t.Parallel()
 		a := mustAuthenticator(t, newFakeSessionStore(), Config{})
-		r := httptest.NewRequest(http.MethodGet, "/", nil)
 		got, want := httptest.NewRecorder(), httptest.NewRecorder()
 		cookie, def := a.Cookie(), DefaultCookieConfig()
-		cookie.SetCookie(got, r, "token", 60)
-		def.SetCookie(want, r, "token", 60)
+		cookie.SetCookie(got, true, "token", 60)
+		def.SetCookie(want, true, "token", 60)
 		if g, w := got.Header().Values("Set-Cookie"), want.Header().Values("Set-Cookie"); len(g) != 1 || len(w) != 1 || g[0] != w[0] {
 			t.Errorf("Cookie() sets %q, want the default session cookie's %q", g, w)
 		}

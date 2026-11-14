@@ -52,7 +52,7 @@ func serveStepUpPassword(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	h.setIssued(c.w, c.r, is)
+	h.setIssued(c.w, c.client.Secure, is)
 	h.auditSuccess(c, c.p.User, is.Session)
 	noContent(c.w)
 	return nil
@@ -74,7 +74,7 @@ func servePasswordSet(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	h.setIssued(c.w, c.r, is)
+	h.setIssued(c.w, c.client.Secure, is)
 	noContent(c.w)
 	return nil
 }
@@ -91,7 +91,7 @@ func servePasswordRemove(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	h.setIssued(c.w, c.r, is)
+	h.setIssued(c.w, c.client.Secure, is)
 	noContent(c.w)
 	return nil
 }
@@ -117,7 +117,7 @@ func serveStepUpPasskeyFinish(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	h.setIssued(c.w, c.r, is)
+	h.setIssued(c.w, c.client.Secure, is)
 	h.auditSuccess(c, c.p.User, is.Session)
 	noContent(c.w)
 	return nil
@@ -157,7 +157,7 @@ func servePasskeyRegisterFinish(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	h.setIssued(c.w, c.r, reg.Issued)
+	h.setIssued(c.w, c.client.Secure, reg.Issued)
 	writeJSON(c.w, http.StatusCreated, passkeyView(&reg.Passkey))
 	return nil
 }
@@ -224,7 +224,7 @@ func serveSessionRevoke(h *Handler, c *call) error {
 		return err
 	}
 	if c.sessionID == c.p.SessionID {
-		h.clearSession(c.w, c.r)
+		h.clearSession(c.w, c.client.Secure)
 	}
 	noContent(c.w)
 	return nil
@@ -264,7 +264,7 @@ func serveKeyCreate(h *Handler, c *call) error {
 		return err
 	}
 	if !created.Issued.Token.IsZero() {
-		h.setIssued(c.w, c.r, created.Issued)
+		h.setIssued(c.w, c.client.Secure, created.Issued)
 	}
 	writeShownOnce(c.w, http.StatusCreated, KeyCreatedResponse{Details: keyView(&created.Key, "", time.Now())}, created.Plaintext)
 	return nil
@@ -289,7 +289,7 @@ func serveKeyRotate(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	h.setIssued(c.w, c.r, rotated.Issued)
+	h.setIssued(c.w, c.client.Secure, rotated.Issued)
 	writeShownOnce(c.w, http.StatusOK, KeyCreatedResponse{Details: keyView(&rotated.Key, "", time.Now())}, rotated.Plaintext)
 	return nil
 }

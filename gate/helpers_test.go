@@ -106,7 +106,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	c := f.authn.Cookie()
-	f.cookie = c.EffectiveName()
+	f.cookie = c.CookieName(true)
 	return f
 }
 

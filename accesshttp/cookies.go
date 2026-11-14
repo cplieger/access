@@ -14,61 +14,60 @@ const (
 	pendingCookieMaxAge = int(pendingLifetime / time.Second)
 )
 
-func deviceCookie(session access.CookieConfig) access.CookieConfig { //nolint:gocritic // hugeParam: the Authenticator's config, read once
+func deviceCookie(session access.CookieConfig) access.CookieConfig {
 	return session.Derive("device", http.SameSiteLaxMode)
 }
 
-func pendingCookie(session access.CookieConfig) access.CookieConfig { //nolint:gocritic // hugeParam: as deviceCookie
+func pendingCookie(session access.CookieConfig) access.CookieConfig {
 	return session.Derive("oidc_pending", http.SameSiteLaxMode)
 }
 
-// setSession sets the session cookie for Timeouts.Absolute, which the
-// CookieConfig's Persistent may turn into a browser-session cookie.
-func (h *Handler) setSession(w http.ResponseWriter, r *http.Request, token access.Secret) {
+// setSession sets the session cookie for Timeouts.Absolute.
+func (h *Handler) setSession(w http.ResponseWriter, secure bool, token access.Secret) {
 	authn := h.acct.Authenticator()
 	cfg := authn.Cookie()
-	cfg.SetCookie(w, r, token.Reveal(), int(authn.Timeouts().Absolute/time.Second))
+	cfg.SetCookie(w, secure, token.Reveal(), int(authn.Timeouts().Absolute/time.Second))
 }
 
 // setRecoverySession sets the restricted session cookie a recovery start
 // opens, for the recovery session's own lifetime.
-func (h *Handler) setRecoverySession(w http.ResponseWriter, r *http.Request, token access.Secret) {
+func (h *Handler) setRecoverySession(w http.ResponseWriter, secure bool, token access.Secret) {
 	cfg := h.acct.Authenticator().Cookie()
-	cfg.SetCookie(w, r, token.Reveal(), int(access.RecoverySessionLifetime/time.Second))
+	cfg.SetCookie(w, secure, token.Reveal(), int(access.RecoverySessionLifetime/time.Second))
 }
 
-func (h *Handler) clearSession(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) clearSession(w http.ResponseWriter, secure bool) {
 	cfg := h.acct.Authenticator().Cookie()
-	cfg.ClearCookie(w, r)
+	cfg.ClearCookie(w, secure)
 }
 
 // setDevice sets the device cookie when account issued one.
-func (h *Handler) setDevice(w http.ResponseWriter, r *http.Request, device access.Secret) {
+func (h *Handler) setDevice(w http.ResponseWriter, secure bool, device access.Secret) {
 	if device.IsZero() {
 		return
 	}
 	cfg := deviceCookie(h.acct.Authenticator().Cookie())
-	cfg.SetCookie(w, r, device.Reveal(), deviceCookieMaxAge)
+	cfg.SetCookie(w, secure, device.Reveal(), deviceCookieMaxAge)
 }
 
 // setPending sets the sealed pending-link cookie.
-func (h *Handler) setPending(w http.ResponseWriter, r *http.Request, sealed string) {
+func (h *Handler) setPending(w http.ResponseWriter, secure bool, sealed string) {
 	cfg := pendingCookie(h.acct.Authenticator().Cookie())
-	cfg.SetCookie(w, r, sealed, pendingCookieMaxAge)
+	cfg.SetCookie(w, secure, sealed, pendingCookieMaxAge)
 }
 
-func (h *Handler) clearPending(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) clearPending(w http.ResponseWriter, secure bool) {
 	cfg := pendingCookie(h.acct.Authenticator().Cookie())
-	cfg.ClearCookie(w, r)
+	cfg.ClearCookie(w, secure)
 }
 
 // setIssued sets a rotated session's cookie and the device cookie it carries.
-func (h *Handler) setIssued(w http.ResponseWriter, r *http.Request, is account.Issued) { //nolint:gocritic // hugeParam: account's own result, read once
-	h.setSession(w, r, is.Token)
-	h.setDevice(w, r, is.DeviceCookie)
+func (h *Handler) setIssued(w http.ResponseWriter, secure bool, is account.Issued) { //nolint:gocritic // hugeParam: account's own result, read once
+	h.setSession(w, secure, is.Token)
+	h.setDevice(w, secure, is.DeviceCookie)
 }
 
-func (h *Handler) setSignedIn(w http.ResponseWriter, r *http.Request, s account.SignedIn) { //nolint:gocritic // hugeParam: as setIssued
-	h.setSession(w, r, s.Token)
-	h.setDevice(w, r, s.DeviceCookie)
+func (h *Handler) setSignedIn(w http.ResponseWriter, secure bool, s account.SignedIn) { //nolint:gocritic // hugeParam: as setIssued
+	h.setSession(w, secure, s.Token)
+	h.setDevice(w, secure, s.DeviceCookie)
 }

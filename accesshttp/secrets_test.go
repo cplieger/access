@@ -140,13 +140,12 @@ func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler,
 	if err != nil {
 		t.Fatal(err)
 	}
-	cookieReq := httptest.NewRequest(http.MethodPost, "https://app.example.com/", nil)
 	cfg := authn.Cookie()
 	in, err := svc.PasswordLogin(t.Context(), account.Client{}, account.Credentials{Username: "alice", Password: access.NewSecret(secretsPassword)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := &http.Cookie{Name: cfg.CookieName(cookieReq), Value: in.Token.Reveal()}
+	session := &http.Cookie{Name: cfg.CookieName(true), Value: in.Token.Reveal()}
 	tok, err := svc.IssueRecovery(t.Context(), account.OutOfBand("test"), u.ID, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -155,7 +154,7 @@ func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler,
 	if err != nil {
 		t.Fatal(err)
 	}
-	recovery := &http.Cookie{Name: cfg.CookieName(cookieReq), Value: rec.Issued.Token.Reveal()}
+	recovery := &http.Cookie{Name: cfg.CookieName(true), Value: rec.Issued.Token.Reveal()}
 
 	fake := &recordingAccount{AccountAPI: svc, got: map[string][]string{}}
 	h, err := accesshttp.NewWithAccount(accesshttp.Config{

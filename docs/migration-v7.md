@@ -47,11 +47,13 @@ Every plaintext credential is an `access.Secret` and every stored hash an `acces
 | `AuthenticatorStore` | adds `APIKeyToucher`; activity takes a `SessionActivity` |
 | `SessionActivityUpdater.UpdateSessionActivity(ctx, hash, now)` | `(ctx, access.Hash, SessionActivity)`. An older or equal time writes nothing |
 
-New in the root package: `Principal`, `Rechecker`, `Authenticator.Recheck`, `RequireRecentAuth`, `Passive`, `AllowRecoverySession`, `ErrAuthBackend`, `ErrInvalidCredential`, `MethodAPIKey`, `MethodBypass`, `MethodRecovery`, `SessionKind`, `SessionRef`, `RecoverySessionLifetime`, `OIDCIdentity`, `OneTimeToken`, `TokenPurpose`, `KeyAttribution`, `Sealer`, `ClientAddr`, `Config.ClientAddr`, `RequestIsHTTPS` and `CookieConfig.Derive`. `Via` is new too, with its constants `ViaUnknown`, `ViaDirect`, `ViaUntrustedForwarding`, `ViaProxy` and `ViaProxyNoClient`.
+New in the root package: `Principal`, `Rechecker`, `Authenticator.Recheck`, `RequireRecentAuth`, `Passive`, `AllowRecoverySession`, `ErrAuthBackend`, `ErrInvalidCredential`, `MethodAPIKey`, `MethodBypass`, `MethodRecovery`, `SessionKind`, `SessionRef`, `RecoverySessionLifetime`, `OIDCIdentity`, `OneTimeToken`, `TokenPurpose`, `KeyAttribution`, `Sealer`, `ClientAddr`, `Config.ClientAddr` and `CookieConfig.Derive`. `Via` is new too, with its constants `ViaUnknown`, `ViaDirect`, `ViaUntrustedForwarding`, `ViaProxy` and `ViaProxyNoClient`.
 
 The refusal vocabulary is in the root package as well, so an app that guards its own routes imports neither `accesshttp` nor the passkey and OIDC packages behind it: `Code`, every `Code…` constant and `Codes`, `Error`, `ErrorWriter`, `AuditEvent`, `NewError`, `ErrorFor`, and `Authenticator.Challenge` with its `Config.Realm`. A service built on an earlier access dev tag renames `accesshttp.Code…`, `accesshttp.Codes`, `accesshttp.Error`, `accesshttp.ErrorWriter` and `accesshttp.AuditEvent` to these `access.` names. The wire strings are unchanged. A service built on an earlier dev tag also replaces `Authenticator.RequireAuth` with `access/gate`, and drops `Config.Unauthorized`, which is gone with it. Every 401 the auth routes answer now carries a `WWW-Authenticate` challenge, and `account.New` and `Rules.Validate` refuse a key scope that is not one RFC 6750 scope-token (printable ASCII other than space, `"` and `\`). Two codes are new: 403 `auth_key_required`, a gate `Key` row reached without an API key, and 409 `auth_key_label_taken`, a key label the owner's keys already carry.
 
 A service built on an earlier dev tag sets `ClientAddr.Secure` in its resolver, to `r.TLS != nil || res.ForwardedHTTPS` with `github.com/cplieger/go/httpserver` v1.5.0-dev.1 or later ([Authenticator configuration](configuration.md#authenticator-configuration)). A resolver that leaves it false reads every request as plain HTTP. `Principal.Secure` carries it, set by `Authenticate` and kept by `Recheck`. The default resolver answers `Secure` from `r.TLS`, and reads an `X-Forwarded-Proto` from any peer as `ViaUntrustedForwarding`.
+
+A service built on an earlier dev tag passes the cookie methods the request's transport in place of the request: `CookieName(secure)`, `SetCookie(w, secure, value, maxAge)`, `ReadCookie(r, secure)` and `ClearCookie(w, secure)`, with `ClientAddr(r).Secure` ([Session cookie](configuration.md#session-cookie)). A plain `SetCookie` drops a positive `maxAge`, so every cookie set over plain HTTP ends with the browser session. `PostureInsecureLAN`, `CookieConfig.HTTPS`, `CookieConfig.Persistent`, `CookieConfig.Path`, `CookieConfig.Domain` and `RequestIsHTTPS` are removed, and `CookieConfig.EffectiveName` is replaced by `CookieName(true)`. `PosturePerRequest` is now the second posture's value, 1. `oidc`'s `Begin` and `Finish` always use the flow cookie's secure name.
 
 ## Records
 
@@ -89,10 +91,12 @@ Every derivation now draws on a `HashBudget` (`NewHashBudget`, `HashCost`, `ErrH
 | `CSRFToken`, `VerifyCSRFToken` | [`http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection) |
 | `RotateSessionToken` | `account` rotates sessions through `SessionStore.RotateSession` |
 | `ValidateSession` | has no OIDC expiry arm, and applies the recovery lifetime and a session's own caps through `SessionDeadlines` |
-| `CookieConfig.TrustForwardedHeaders` | `CookieConfig.HTTPS` with `RequestIsHTTPS` |
+| `CookieConfig.TrustForwardedHeaders` | the transport each cookie method takes, the `ClientAddr.Secure` your resolver answers |
+| `PostureInsecureLAN` | `PosturePerRequest`, whose plain request gets the bare name without Secure |
+| `CookieConfig.Path`, `CookieConfig.Domain` | none; every cookie has `Path=/` and no `Domain`, as the `__Host-` prefix requires |
 | `PostureForceSecure` | `PostureSecure` |
 | `CookieConfig.Validate`, `ReadCookie` | `Validate` applies `http.Cookie.Valid` and refuses `SameSite=None`; a duplicated cookie reads as no session |
-| `CookieConfig.SetCookie` | drops a positive `maxAge` when `Persistent` answers false for the request |
+| `CookieName(r)`, `SetCookie(w, r, token, maxAge)`, `ReadCookie(r)`, `ClearCookie(w, r)` | `CookieName(secure)`, `SetCookie(w, secure, value, maxAge)`, `ReadCookie(r, secure)`, `ClearCookie(w, secure)`. A plain `SetCookie` drops a positive `maxAge`, so the cookie ends with the browser session |
 | `ValidateRedirectURI` | returns `/` for input over 2048 bytes or holding an ASCII control character, in the fragment too |
 | `IsBrowserRequest` | any `Authorization` header means a non-browser request |
 | `CanDisableMethod` | the `MethodAvailability` you pass is what remains after the removal, so a user with two passkeys can remove one |

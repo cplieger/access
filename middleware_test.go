@@ -482,7 +482,7 @@ func TestAuthenticator_injectedVerifierError_failsClosed(t *testing.T) {
 
 func TestAuthenticatorAccessors(t *testing.T) {
 	t.Parallel()
-	cookie := CookieConfig{Posture: PostureInsecureLAN, Name: "s"}
+	cookie := CookieConfig{Posture: PosturePerRequest, Name: "s"}
 	var src SessionTimeouts
 	a := mustAuthenticator(t, newFakeSessionStore(), Config{
 		Cookie:        cookie,
@@ -490,7 +490,7 @@ func TestAuthenticatorAccessors(t *testing.T) {
 		AbsTimeout:    48 * time.Hour,
 		TimeoutSource: func() SessionTimeouts { return src },
 	})
-	if got := a.Cookie(); got.Name != "s" || got.Posture != PostureInsecureLAN {
+	if got := a.Cookie(); got.Name != "s" || got.Posture != PosturePerRequest {
 		t.Errorf("Cookie() = %+v, want the configured cookie", got)
 	}
 	if got, want := a.Timeouts(), (SessionTimeouts{Idle: 2 * time.Hour, Absolute: 48 * time.Hour}); got != want {
@@ -620,7 +620,7 @@ func TestAuthenticatorPrinting(t *testing.T) {
 		"access.Authenticator.chain",
 		"access.sessionVerifier.store", "access.apiKeyVerifier.store",
 		"access.Config.Logger", "access.Config.Verifier", "access.Config.Realm",
-		"access.CookieConfig.Name", "access.CookieConfig.Path", "access.CookieConfig.Domain",
+		"access.CookieConfig.Name",
 	}, Types: []string{"time.Time"}}, reflect.TypeFor[*Authenticator]())
 }
 

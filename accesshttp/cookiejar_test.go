@@ -28,17 +28,18 @@ const (
 )
 
 // jarNames are the four cookie names a request to an origin uses, the
-// companions derived as §7.4 names them.
+// companions derived as §7.4 names them. The flow cookie always takes the
+// secure name.
 type jarNames struct{ session, device, flow, pending string }
 
 func (e *env) jarNames(origin string) jarNames {
-	r := httptest.NewRequest(http.MethodGet, origin+"/", nil)
+	secure := strings.HasPrefix(origin, "https://")
 	cfg := e.authn.Cookie()
-	name := func(suffix string) string {
+	name := func(suffix string, secure bool) string {
 		d := cfg.Derive(suffix, http.SameSiteLaxMode)
-		return d.CookieName(r)
+		return d.CookieName(secure)
 	}
-	return jarNames{session: cfg.CookieName(r), device: name("device"), flow: name("oidc"), pending: name("oidc_pending")}
+	return jarNames{session: cfg.CookieName(secure), device: name("device", secure), flow: name("oidc", true), pending: name("oidc_pending", secure)}
 }
 
 // setCookies parses every Set-Cookie line of w, by cookie name.
@@ -222,78 +223,116 @@ func TestCookieJarCoexistence(t *testing.T) {
 var postureOrigins = []string{testOrigin, "http://localhost", "http://192.168.1.77:9847"}
 
 // perRequest is §9.5's marotte-shaped session cookie under
-// PosturePerRequest, with persistent as its Persistent.
-func perRequest(persistent func(*http.Request) bool) envOptions {
-	return envOptions{authn: func(_ *env, c *access.Config) {
-		c.Cookie = access.CookieConfig{Name: "marotte_session", SameSite: http.SameSiteStrictMode, Posture: access.PosturePerRequest, HTTPS: access.RequestIsHTTPS, Persistent: persistent}
-	}}
-}
+// PosturePerRequest.
+var perRequest = envOptions{authn: func(_ *env, c *access.Config) {
+	c.Cookie = access.CookieConfig{Name: "marotte_session", SameSite: http.SameSiteStrictMode, Posture: access.PosturePerRequest}
+}}
 
+// TestPerRequestPostureEndToEnd walks the HTTPS origin's four cookies and
+// signs in by password at each plain origin, then presents each session
+// cookie at every origin: it is read only on its own transport.
 func TestPerRequestPostureEndToEnd(t *testing.T) {
-	for _, tc := range []struct {
-		persistent func(*http.Request) bool
-		name       string
-	}{{name: "persistent_nil"}, {name: "persistent_https", persistent: access.RequestIsHTTPS}} {
-		t.Run(tc.name, func(t *testing.T) {
-			e := newEnv(t, perRequest(tc.persistent))
-			idp := e.useIdP(t, accesstest.IdPOptions{}, nil)
-			e.createUser(t, "alice", access.RoleUser)
-			absolute := int(e.authn.Timeouts().Absolute / time.Second)
-			sessions := map[string]*http.Cookie{}
-			for _, origin := range postureOrigins {
-				https := strings.HasPrefix(origin, "https://")
-				prefix := ""
-				if https {
-					prefix = "__Host-"
-				}
-				want := map[string]http.SameSite{
-					prefix + "marotte_session":              http.SameSiteStrictMode,
-					prefix + "marotte_session_device":       http.SameSiteLaxMode,
-					prefix + "marotte_session_oidc":         http.SameSiteLaxMode,
-					prefix + "marotte_session_oidc_pending": http.SameSiteLaxMode,
-				}
-				wk := e.cookieWalk(t, idp, origin)
-				if got := slices.Sorted(maps.Keys(wk.set)); !slices.Equal(got, slices.Sorted(maps.Keys(want))) {
-					t.Fatalf("%s: cookies %v, want %v", origin, got, slices.Sorted(maps.Keys(want)))
-				}
-				for name, c := range wk.set {
-					if c.Secure != https || c.SameSite != want[name] {
-						t.Errorf("%s: %q, want Secure %v and SameSite %v", origin, c.Raw, https, want[name])
-					}
-				}
-				session := wk.set[prefix+"marotte_session"]
-				if tc.persistent == nil || https {
-					if session.MaxAge != absolute {
-						t.Errorf("%s: session cookie %q, want Max-Age %d", origin, session.Raw, absolute)
-					}
-				} else {
-					requireBrowserSession(t, session)
-				}
-				for name, seconds := range map[string]int{"device": deviceSeconds, "oidc": flowSeconds, "oidc_pending": pendingSeconds} {
-					if c := wk.set[prefix+"marotte_session_"+name]; c.MaxAge != seconds {
-						t.Errorf("%s: %q, want Max-Age %d", origin, c.Raw, seconds)
-					}
-				}
-				sessions[origin] = session
+	e := newEnv(t, perRequest)
+	idp := e.useIdP(t, accesstest.IdPOptions{}, nil)
+	e.createUser(t, "alice", access.RoleUser)
+	sessions := map[string]*http.Cookie{}
+	for _, origin := range postureOrigins {
+		https := strings.HasPrefix(origin, "https://")
+		prefix := ""
+		if https {
+			prefix = "__Host-"
+		}
+		want := map[string]http.SameSite{
+			prefix + "marotte_session":        http.SameSiteStrictMode,
+			prefix + "marotte_session_device": http.SameSiteLaxMode,
+		}
+		var set map[string]*http.Cookie
+		if https {
+			want[prefix+"marotte_session_oidc"] = http.SameSiteLaxMode
+			want[prefix+"marotte_session_oidc_pending"] = http.SameSiteLaxMode
+			set = e.cookieWalk(t, idp, origin).set
+		} else {
+			b := newBrowserAt(t, origin)
+			login := e.route(t, "authLoginPassword")
+			w := b.send(login, b.request(login, signInBody(t, "alice")))
+			if w.Code != http.StatusOK {
+				t.Fatalf("%s: sign-in status %d, errors %+v", origin, w.Code, e.errs.all())
 			}
-			me := e.route(t, "authMe")
-			for from, c := range sessions {
-				for _, to := range postureOrigins {
-					want := http.StatusUnauthorized
-					if strings.HasPrefix(from, "https://") == strings.HasPrefix(to, "https://") {
-						want = http.StatusOK
-					}
-					if w := do(me, requestAt(to, me.Path, me, "", &http.Cookie{Name: c.Name, Value: c.Value})); w.Code != want {
-						t.Errorf("the session cookie set at %s, presented at %s: status %d, want %d", from, to, w.Code, want)
-					}
-				}
+			set = setCookies(t, w)
+		}
+		if got := slices.Sorted(maps.Keys(set)); !slices.Equal(got, slices.Sorted(maps.Keys(want))) {
+			t.Fatalf("%s: cookies %v, want %v", origin, got, slices.Sorted(maps.Keys(want)))
+		}
+		for name, c := range set {
+			if c.Secure != https || c.SameSite != want[name] {
+				t.Errorf("%s: %q, want Secure %v and SameSite %v", origin, c.Raw, https, want[name])
 			}
-		})
+		}
+		sessions[origin] = set[prefix+"marotte_session"]
+	}
+	me := e.route(t, "authMe")
+	for from, c := range sessions {
+		for _, to := range postureOrigins {
+			want := http.StatusUnauthorized
+			if strings.HasPrefix(from, "https://") == strings.HasPrefix(to, "https://") {
+				want = http.StatusOK
+			}
+			if w := do(me, requestAt(to, me.Path, me, "", &http.Cookie{Name: c.Name, Value: c.Value})); w.Code != want {
+				t.Errorf("the session cookie set at %s, presented at %s: status %d, want %d", from, to, w.Code, want)
+			}
+		}
 	}
 }
 
-// never makes every cookie set a browser-session cookie.
-var never = envOptions{authn: func(_ *env, c *access.Config) { c.Cookie.Persistent = func(*http.Request) bool { return false } }}
+// TestPlainSignInCookiesEndWithBrowser pins that under PosturePerRequest a
+// plain password sign-in sets its session and device cookies with no
+// lifetime, a secure one keeps theirs, and a plain logout clears with
+// Max-Age=0.
+func TestPlainSignInCookiesEndWithBrowser(t *testing.T) {
+	e := newEnv(t, perRequest)
+	e.createUser(t, "alice", access.RoleUser)
+	login := e.route(t, "authLoginPassword")
+	signIn := func(t *testing.T, origin string) map[string]*http.Cookie {
+		t.Helper()
+		w := do(login, requestAt(origin, login.Path, login, signInBody(t, "alice")))
+		if w.Code != http.StatusOK {
+			t.Fatalf("sign-in at %s: status %d, errors %+v", origin, w.Code, e.errs.all())
+		}
+		set := setCookies(t, w)
+		if len(set) != 2 {
+			t.Fatalf("sign-in at %s set %v, want the session and device cookies", origin, slices.Sorted(maps.Keys(set)))
+		}
+		return set
+	}
+	const plain = "http://192.168.1.77:9847"
+	t.Run("plain", func(t *testing.T) {
+		for _, c := range signIn(t, plain) {
+			requireBrowserSession(t, c)
+		}
+	})
+	t.Run("secure", func(t *testing.T) {
+		n := e.jarNames(testOrigin)
+		set := signIn(t, testOrigin)
+		if c, want := set[n.session], int(e.authn.Timeouts().Absolute/time.Second); c == nil || c.MaxAge != want {
+			t.Errorf("session cookie %v, want Max-Age %d", c, want)
+		}
+		if c := set[n.device]; c == nil || c.MaxAge != deviceSeconds {
+			t.Errorf("device cookie %v, want Max-Age %d", c, deviceSeconds)
+		}
+	})
+	t.Run("plain_logout_clears", func(t *testing.T) {
+		n := e.jarNames(plain)
+		session := signIn(t, plain)[n.session]
+		if session == nil {
+			t.Fatalf("plain sign-in set no %s", n.session)
+		}
+		logout := e.route(t, "authLogout")
+		w := do(logout, requestAt(plain, logout.Path, logout, "", session))
+		if c := setCookies(t, w)[n.session]; w.Code != http.StatusNoContent || c == nil || !strings.Contains(c.Raw, "Max-Age=0") {
+			t.Errorf("plain logout: status %d, session Set-Cookie %v; want 204 and Max-Age=0", w.Code, c)
+		}
+	})
+}
 
 // sessionCookieCases are the passthrough cases whose answer sets a session
 // cookie: all but the refused sign-in and the key-authenticated mint,
@@ -302,53 +341,44 @@ func sessionCookieCases() []passthroughCase {
 	return slices.DeleteFunc(passthroughCases(), func(c passthroughCase) bool { return c.want != "" || c.name == "key_mint_key" })
 }
 
-func TestPersistentCookieHTTP(t *testing.T) {
+// TestSessionCookieLifetimeHTTP pins each cookie's lifetime on a secure
+// request: every route's session cookie, each companion, and a clear.
+func TestSessionCookieLifetimeHTTP(t *testing.T) {
 	t.Run("routes", func(t *testing.T) {
 		for _, tc := range sessionCookieCases() {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 				lifetime := map[string]int{"authRecoveryStart": recoverySeconds}[tc.route]
-				for _, persistent := range []bool{false, true} {
-					t.Run(fmt.Sprintf("persistent_%v", persistent), func(t *testing.T) {
-						opts := with(tc.opts, never)
-						if persistent {
-							opts = tc.opts
-						}
-						e := newEnv(t, opts)
-						got := setCookies(t, tc.run(t, e))
-						sessionName, deviceName := e.names()
-						session := got[sessionName]
-						if session == nil || session.Value == "" {
-							t.Fatalf("Set-Cookie %v, want a session cookie", slices.Sorted(maps.Keys(got)))
-						}
-						if !persistent {
-							requireBrowserSession(t, session)
-						} else if want := cmp.Or(lifetime, int(e.authn.Timeouts().Absolute/time.Second)); session.MaxAge != want {
-							t.Errorf("session cookie %q, want Max-Age %d", session.Raw, want)
-						}
-						if d := got[deviceName]; d != nil && d.MaxAge != deviceSeconds {
-							t.Errorf("device cookie %q, want Max-Age %d", d.Raw, deviceSeconds)
-						}
-					})
+				e := newEnv(t, tc.opts)
+				got := setCookies(t, tc.run(t, e))
+				sessionName, deviceName := e.names()
+				session := got[sessionName]
+				if session == nil || session.Value == "" {
+					t.Fatalf("Set-Cookie %v, want a session cookie", slices.Sorted(maps.Keys(got)))
+				}
+				if want := cmp.Or(lifetime, int(e.authn.Timeouts().Absolute/time.Second)); session.MaxAge != want {
+					t.Errorf("session cookie %q, want Max-Age %d", session.Raw, want)
+				}
+				if d := got[deviceName]; d != nil && d.MaxAge != deviceSeconds {
+					t.Errorf("device cookie %q, want Max-Age %d", d.Raw, deviceSeconds)
 				}
 			})
 		}
 	})
 	t.Run("companions_keep_their_lifetimes", func(t *testing.T) {
-		e := newEnv(t, never)
+		e := newEnv(t, envOptions{})
 		idp := e.useIdP(t, accesstest.IdPOptions{}, nil)
 		e.createUser(t, "alice", access.RoleUser)
 		wk := e.cookieWalk(t, idp, testOrigin)
 		n := e.jarNames(testOrigin)
-		requireBrowserSession(t, wk.set[n.session])
-		for name, seconds := range map[string]int{n.device: deviceSeconds, n.flow: flowSeconds, n.pending: pendingSeconds} {
+		for name, seconds := range map[string]int{n.session: int(e.authn.Timeouts().Absolute / time.Second), n.device: deviceSeconds, n.flow: flowSeconds, n.pending: pendingSeconds} {
 			if c := wk.set[name]; c.MaxAge != seconds {
 				t.Errorf("%q, want Max-Age %d", c.Raw, seconds)
 			}
 		}
 	})
 	t.Run("clear_sends_max_age_zero", func(t *testing.T) {
-		e := newEnv(t, never)
+		e := newEnv(t, envOptions{})
 		w := do(e.route(t, "authLogout"), e.post(t, "authLogout", "", e.aliceSession(t)))
 		sessionName, _ := e.names()
 		if c := setCookies(t, w)[sessionName]; c == nil || !strings.Contains(c.Raw, "Max-Age=0") {

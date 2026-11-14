@@ -277,13 +277,12 @@ func (e *env) createUser(t testing.TB, name string, role access.Role) {
 // session cookie.
 func (e *env) sessionCookie(t testing.TB, name string) *http.Cookie {
 	t.Helper()
-	r := httptest.NewRequest(http.MethodPost, testOrigin+"/", nil)
 	out, err := e.svc.PasswordLogin(t.Context(), account.Client{}, account.Credentials{Username: name, Password: access.NewSecret(testPassword)})
 	if err != nil {
 		t.Fatalf("PasswordLogin: %v", err)
 	}
 	cfg := e.authn.Cookie()
-	return &http.Cookie{Name: cfg.CookieName(r), Value: out.Token.Reveal()}
+	return &http.Cookie{Name: cfg.CookieName(true), Value: out.Token.Reveal()}
 }
 
 // specNamed returns the spec named name.

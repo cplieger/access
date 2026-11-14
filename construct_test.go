@@ -75,8 +75,7 @@ func TestNewRefusesUnusableConfig(t *testing.T) {
 		// A negative idle timeout survives the zero-only default and would
 		// expire every session at once.
 		{name: "negative idle timeout", cfg: Config{IdleTimeout: -time.Second}, want: "idle timeout must be positive"},
-		// Browsers refuse a __Host- cookie with a Domain.
-		{name: "invalid cookie", cfg: Config{Cookie: CookieConfig{Domain: "example.com"}}, want: "CookieConfig.Domain must be empty"},
+		{name: "invalid cookie", cfg: Config{Cookie: CookieConfig{Name: "__Host-s"}}, want: "CookieConfig.Name must not carry"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()

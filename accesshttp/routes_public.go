@@ -19,7 +19,7 @@ func canonical(username string) string {
 
 // signedIn sets the new session's cookies and answers SignedInResponse.
 func (h *Handler) signedIn(c *call, s account.SignedIn) { //nolint:gocritic // hugeParam: account's own result, read once
-	h.setSignedIn(c.w, c.r, s)
+	h.setSignedIn(c.w, c.client.Secure, s)
 	h.auditSuccess(c, s.User, s.Session)
 	writeJSON(c.w, http.StatusOK, signedInResponse(s))
 }
@@ -136,13 +136,13 @@ func serveLoginPasskeyFinish(h *Handler, c *call) error {
 func serveLogout(h *Handler, c *call) error {
 	cfg := h.acct.Authenticator().Cookie()
 	var hash access.Hash
-	if token := cfg.ReadCookie(c.r); token != "" {
+	if token := cfg.ReadCookie(c.r, c.client.Secure); token != "" {
 		hash = access.SessionHash(token)
 	}
 	if err := h.acct.Logout(c.r.Context(), hash); err != nil {
 		return err
 	}
-	h.clearSession(c.w, c.r)
+	h.clearSession(c.w, c.client.Secure)
 	noContent(c.w)
 	return nil
 }

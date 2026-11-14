@@ -13,11 +13,12 @@ import (
 func (h *Handler) client(r *http.Request) account.Client {
 	authn := h.acct.Authenticator()
 	device := deviceCookie(authn.Cookie())
+	ca := authn.ClientAddr(r)
 	return account.Client{
 		Host:       r.Host,
 		UserAgent:  r.UserAgent(),
-		Device:     access.NewSecret(device.ReadCookie(r)),
-		ClientAddr: authn.ClientAddr(r),
+		Device:     access.NewSecret(device.ReadCookie(r, ca.Secure)),
+		ClientAddr: ca,
 	}
 }
 

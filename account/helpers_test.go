@@ -196,7 +196,7 @@ func (f *fixture) principalOf(t testing.TB, sess *access.Session) (access.Princi
 func (f *fixture) authenticate(ctx context.Context, token access.Secret) (access.Principal, error) {
 	req := httptest.NewRequestWithContext(access.AllowRecoverySession(ctx), http.MethodGet, "https://example.com/", http.NoBody)
 	cookie := f.authn.Cookie()
-	req.AddCookie(&http.Cookie{Name: cookie.CookieName(req), Value: token.Reveal()})
+	req.AddCookie(&http.Cookie{Name: cookie.CookieName(true), Value: token.Reveal()})
 	return f.authn.Authenticate(req)
 }
 

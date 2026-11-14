@@ -87,19 +87,15 @@ When a request is not `Secure` but the first token of its `X-Forwarded-Proto` is
 | Field | What it sets | Default |
 | --- | --- | --- |
 | `Name` | The base cookie name, without the `__Host-` prefix | `auth_session` |
-| `Posture` | The prefix and Secure flag strategy, in the next table | `PostureSecure` |
-| `Path` | The cookie's Path attribute | `/` |
-| `Domain` | The cookie's Domain attribute | _(unset)_ |
+| `Posture` | Which name and Secure flag each transport gets, in the next table | `PostureSecure` |
 | `SameSite` | The cookie's SameSite attribute: Lax or Strict | `http.SameSiteLaxMode` |
-| `HTTPS` | Tells whether a request arrived over HTTPS, under `PosturePerRequest`, where it is required. Pass `access.RequestIsHTTPS` | _(nil)_ |
-| `Persistent` | Tells whether a cookie set on a request may outlive the browser session. When it answers false, a cookie that would have a lifetime carries neither `Max-Age` nor `Expires`, so it ends with the browser session | _(nil: always persistent)_ |
+
+Every cookie is HttpOnly, with `Path=/` and no `Domain`, as the `__Host-` prefix requires.
 
 ```go
 cfg := access.CookieConfig{
 	Name:     "my_session",
 	Posture:  access.PostureSecure,
-	Path:     "/",
-	Domain:   "", // must stay empty under a __Host- posture
 	SameSite: http.SameSiteLaxMode,
 }
 authenticator, err := access.New(myStore, access.Config{Cookie: cfg})
@@ -108,21 +104,18 @@ if err != nil {
 }
 ```
 
-| Posture | Behavior |
-| --- | --- |
-| `PostureSecure` | The default. The `__Host-` prefix with Secure, HttpOnly and SameSite=Lax, for any HTTPS deployment, self-signed certificates included |
-| `PostureInsecureLAN` | For plain-HTTP access by address and port on a LAN or a Docker network. The bare name without Secure, chosen only explicitly |
-| `PosturePerRequest` | Over HTTPS, as `HTTPS` reports it, the `__Host-` prefix with Secure. Over plain HTTP, the bare name without Secure |
+| Posture | A secure request | A plain request |
+| --- | --- | --- |
+| `PostureSecure` (the default) | `__Host-<Name>` with Secure | `__Host-<Name>` with Secure, the one name of the deployment |
+| `PosturePerRequest` | `__Host-<Name>` with Secure | `<Name>` without Secure |
 
 `PosturePerRequest` suits one instance that serves both plain-HTTP LAN traffic and HTTPS traffic through a proxy.
 
-Every posture except `PostureInsecureLAN` uses the `__Host-` prefix. Under those, `Domain` must stay empty and `Path` must be `/`, because browsers silently drop a `__Host-` cookie that breaks either rule. `Validate` refuses such a configuration. It also refuses a posture other than the three above, a name, domain or path that `http.Cookie.Valid` refuses, a path that does not start with `/` or is longer than 1024 bytes, a `SameSite` other than unset (which means Lax), Lax or Strict, and a nil `HTTPS` under `PosturePerRequest`. It refuses a `Name` that starts with `__Secure-`, `__Host-` or `__Http-` in any letter case, because browsers drop such a cookie when it is sent without Secure. Browsers also drop a cookie whose name and value together pass 4096 bytes; `Validate` never sees the value, so keep the name short.
+Each cookie method takes the request's transport, the `ClientAddr.Secure` your resolver answers for it ([Authenticator configuration](#authenticator-configuration)): `CookieName(secure)`, `SetCookie(w, secure, value, maxAge)`, `ReadCookie(r, secure)` and `ClearCookie(w, secure)`. The Authenticator and `accesshttp` pass it themselves. `SetCookie` always sets HttpOnly and sends `Cache-Control: no-store`. When `secure` is false it drops a positive `maxAge`, so a cookie set on a plain request carries neither `Max-Age` nor `Expires` and ends with the browser session; a clear sends `Max-Age=0` on either transport. `ReadCookie` reads only the name for the request's transport, never the other one, and only when the request carries exactly one cookie of that name.
 
-`RequestIsHTTPS` reports a request as HTTPS when it carries TLS or when the first token of `X-Forwarded-Proto` is `https`, from any peer. It never downgrades: a client that forges `https` only makes its own browser refuse the Secure cookie. Do not pass a predicate that trusts `X-Forwarded-Proto` only from listed proxies, because behind a TLS proxy you did not list it answers false and the cookie loses Secure.
+`Validate` refuses a posture other than the two above, a `Name` that `http.Cookie.Valid` refuses or that is longer than 64 bytes, and a `SameSite` other than unset (which means Lax), Lax or Strict. It refuses a `Name` that starts with `__Secure-`, `__Host-` or `__Http-` in any letter case, because browsers drop such a cookie when it is sent without Secure. Browsers also drop a cookie whose name and value together pass 4096 bytes; `Validate` never sees the value, so keep the name short.
 
-`SetCookie` always sets HttpOnly and also sends `Cache-Control: no-store`. `ClearCookie` expires the cookie, also when `Persistent` answers false. `ReadCookie` reads the name that fits the request, and only when the request carries exactly one cookie of that name.
-
-`Derive(suffix, sameSite)` returns the configuration of a companion cookie named `<Name>_<suffix>`, with the same posture, path, domain and `HTTPS`, and a nil `Persistent`. The suffix must match `^[a-z_]{1,16}$`, and `sameSite` must be unset (Lax), Lax or Strict. Any other value panics.
+`Derive(suffix, sameSite)` returns the configuration of a companion cookie named `<Name>_<suffix>`, with the same posture. The suffix must match `^[a-z_]{1,16}$`, and `sameSite` must be unset (Lax), Lax or Strict. Any other value panics.
 
 ## Password hasher
 

@@ -28,7 +28,8 @@ type sessionVerifier struct {
 // Verify grants the session the request's one session cookie names. No
 // cookie, or more than one, is not its credential.
 func (v *sessionVerifier) Verify(ctx context.Context, r *http.Request) (Principal, bool, error) {
-	token := v.cfg.Cookie.ReadCookie(r)
+	ca := v.cfg.ClientAddr(r)
+	token := v.cfg.Cookie.ReadCookie(r, ca.Secure)
 	if token == "" {
 		return Principal{}, false, nil
 	}
@@ -39,7 +40,7 @@ func (v *sessionVerifier) Verify(ctx context.Context, r *http.Request) (Principa
 		return Principal{}, false, err
 	}
 	if !IsPassive(ctx) && v.activityDue(sess, ts, now) {
-		act := SessionActivity{At: now, IP: activityIP(v.cfg.ClientAddr(r).IP())}
+		act := SessionActivity{At: now, IP: activityIP(ca.IP())}
 		if err := v.store.UpdateSessionActivity(ctx, hash, act); err != nil {
 			v.warn.log(v.cfg.log(), "access: session activity update failed", "session_id", sess.ID, "error", err)
 		} else {

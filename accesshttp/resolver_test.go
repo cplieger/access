@@ -47,7 +47,7 @@ func (e *env) lastIPs(t testing.TB, name string) []string {
 func TestOneResolver(t *testing.T) {
 	// Forwarded, Peer and httptest's RemoteAddr all differ, so each
 	// consumer shows which of them it read.
-	resolved := access.ClientAddr{Peer: netip.MustParseAddr("10.0.0.1"), Forwarded: netip.MustParseAddr("203.0.113.9"), Via: access.ViaProxy}
+	resolved := access.ClientAddr{Peer: netip.MustParseAddr("10.0.0.1"), Forwarded: netip.MustParseAddr("203.0.113.9"), Via: access.ViaProxy, Secure: true}
 	resolver := func(_ *env, c *access.Config) { c.ClientAddr = fixedResolver(resolved) }
 
 	t.Run("setup_rule_and_session", func(t *testing.T) {

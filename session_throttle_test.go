@@ -69,7 +69,8 @@ func setupThrottleSession(t *testing.T) (*countingStore, string) {
 	return cs, cs.addSession(t, "s1")
 }
 
-var throttleCookie = CookieConfig{Posture: PostureInsecureLAN, Name: "s"}
+// throttleCookie names a plain request's session cookie "s".
+var throttleCookie = CookieConfig{Posture: PosturePerRequest, Name: "s"}
 
 func throttleRequest(plaintext string) *http.Request {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)

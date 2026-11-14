@@ -109,14 +109,14 @@ func (h *Handler) completeCallback(c *call) (oidc.Flow, error) {
 func (h *Handler) land(c *call, out *account.OIDCOutcome) error {
 	switch out.Kind {
 	case account.OutcomeSignedIn:
-		h.setSignedIn(c.w, c.r, out.SignedIn)
+		h.setSignedIn(c.w, c.client.Secure, out.SignedIn)
 		h.auditSuccess(c, out.SignedIn.User, out.SignedIn.Session)
 		redirect(c.w, out.Redirect)
 	case account.OutcomeLinked:
-		h.setIssued(c.w, c.r, out.Issued)
+		h.setIssued(c.w, c.client.Secure, out.Issued)
 		redirect(c.w, withMarker(out.Redirect, markerOIDC, "linked"))
 	case account.OutcomeSteppedUp:
-		h.setIssued(c.w, c.r, out.Issued)
+		h.setIssued(c.w, c.client.Secure, out.Issued)
 		h.auditSuccess(c, nil, out.Issued.Session)
 		redirect(c.w, withMarker(out.Redirect, markerOIDC, "stepped_up"))
 	case account.OutcomeNotLinked:
@@ -152,21 +152,21 @@ func (h *Handler) setPendingLink(c *call, p account.PendingLink) error {
 	sealed, err := h.pending.Seal(pendingPurpose, payload, time.Now().Add(pendingLifetime))
 	cfg := pendingCookie(h.acct.Authenticator().Cookie())
 	switch {
-	case errors.Is(err, access.ErrSealTooLarge), err == nil && len(cfg.CookieName(c.r))+len(sealed) > maxCookieBytes:
+	case errors.Is(err, access.ErrSealTooLarge), err == nil && len(cfg.CookieName(c.client.Secure))+len(sealed) > maxCookieBytes:
 		h.log().WarnContext(c.r.Context(), "accesshttp: the OIDC pending link does not fit its cookie; none set", "payload_bytes", len(payload))
 		return errPendingTooLarge
 	case err != nil:
 		return err
 	}
-	h.setPending(c.w, c.r, sealed)
+	h.setPending(c.w, c.client.Secure, sealed)
 	return nil
 }
 
 // readPending opens the pending cookie; false when there is none or it
 // does not open.
-func (h *Handler) readPending(r *http.Request) (account.PendingLink, bool) {
+func (h *Handler) readPending(c *call) (account.PendingLink, bool) {
 	cfg := pendingCookie(h.acct.Authenticator().Cookie())
-	sealed := cfg.ReadCookie(r)
+	sealed := cfg.ReadCookie(c.r, c.client.Secure)
 	if sealed == "" {
 		return account.PendingLink{}, false
 	}
@@ -182,7 +182,7 @@ func (h *Handler) readPending(r *http.Request) (account.PendingLink, bool) {
 }
 
 func serveOIDCPending(h *Handler, c *call) error {
-	p, ok := h.readPending(c.r)
+	p, ok := h.readPending(c)
 	if !ok {
 		return account.ErrNotFound
 	}
@@ -197,13 +197,13 @@ func serveOIDCPending(h *Handler, c *call) error {
 // The body is the view the link committed with; no later read can fail
 // after the cookies are set.
 func serveOIDCLinkPending(h *Handler, c *call) error {
-	pending, _ := h.readPending(c.r)
+	pending, _ := h.readPending(c)
 	is, me, err := h.acct.LinkPendingOIDC(c.r.Context(), c.p, pending)
 	if err != nil {
 		return err
 	}
-	h.clearPending(c.w, c.r)
-	h.setIssued(c.w, c.r, is)
+	h.clearPending(c.w, c.client.Secure)
+	h.setIssued(c.w, c.client.Secure, is)
 	writeJSON(c.w, http.StatusOK, meResponse(&me))
 	return nil
 }

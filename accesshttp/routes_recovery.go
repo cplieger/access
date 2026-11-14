@@ -19,7 +19,7 @@ func serveRecoveryStart(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	h.setRecoverySession(c.w, c.r, rec.Issued.Token)
+	h.setRecoverySession(c.w, c.client.Secure, rec.Issued.Token)
 	writeJSON(c.w, http.StatusOK, RecoveryResponse{Username: rec.Username, Methods: methodsView(rec.Methods)})
 	return nil
 }
@@ -39,7 +39,7 @@ func serveRecoveryPassword(h *Handler, c *call) error {
 	if err := h.acct.RecoverWithPassword(c.r.Context(), c.p, password, opts); err != nil {
 		return err
 	}
-	h.clearSession(c.w, c.r)
+	h.clearSession(c.w, c.client.Secure)
 	noContent(c.w)
 	return nil
 }
@@ -68,7 +68,7 @@ func serveRecoveryPasskeyFinish(h *Handler, c *call) error {
 	if err := h.acct.RecoverPasskeyFinish(c.r.Context(), c.p, c.r.Header.Get(ceremonyHeader), body, opts); err != nil {
 		return err
 	}
-	h.clearSession(c.w, c.r)
+	h.clearSession(c.w, c.client.Secure)
 	noContent(c.w)
 	return nil
 }

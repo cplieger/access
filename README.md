@@ -181,7 +181,7 @@ The full reference is on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/acc
 access hardens the building blocks, and the security of your service depends on how you wire them.
 
 - Each password hash has its own random salt. Password hashes, API keys and tokens are compared in constant time.
-- The default cookie carries the `__Host-` prefix with the Secure, HttpOnly and SameSite=Lax attributes. With that prefix, leave `Domain` empty and `Path` at `/`, because `New` refuses any other value.
+- The default cookie carries the `__Host-` prefix with the Secure, HttpOnly and SameSite=Lax attributes, `Path=/` and no `Domain`, on every request.
 - API keys are read from the `Authorization: Bearer` header only, never from a URL query parameter.
 - Every unsafe-method route applies Go's `http.CrossOriginProtection` itself, whatever your own middleware does.
 - `Config.Bypass` grants a synthetic admin user, whose ID is 0 and names no stored user, to every request while its callback returns true. `account` refuses every write made under it. Keep it off in production.
