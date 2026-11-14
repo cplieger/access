@@ -148,7 +148,7 @@ func TestAuthenticate_session_cookie_valid(t *testing.T) {
 	}
 
 	a := mustAuthenticator(t, db, Config{IdleTimeout: time.Hour, AbsTimeout: 24 * time.Hour})
-	r, _ := http.NewRequest(http.MethodGet, "/api/config", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/api/config", nil)
 	r.AddCookie(&http.Cookie{Name: defaultSecureCookieName, Value: plaintext.Reveal()})
 
 	p, gotErr := a.Authenticate(r)
@@ -183,7 +183,7 @@ func TestAuthenticate_expired_session_falls_through(t *testing.T) {
 	}
 
 	a := mustAuthenticator(t, db, Config{IdleTimeout: time.Hour, AbsTimeout: 24 * time.Hour})
-	r, _ := http.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/", nil)
 	r.AddCookie(&http.Cookie{Name: defaultSecureCookieName, Value: plaintext.Reveal()})
 
 	if _, err := a.Authenticate(r); !errors.Is(err, ErrUnauthenticated) || !errors.Is(err, ErrSessionExpired) {
@@ -209,7 +209,7 @@ func TestAuthenticate_api_key_header(t *testing.T) {
 	}
 
 	a := mustAuthenticator(t, db, Config{IdleTimeout: time.Hour, AbsTimeout: 24 * time.Hour})
-	r, _ := http.NewRequest(http.MethodGet, "/api/search", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/api/search", nil)
 	r.Header.Set("Authorization", "Bearer "+plaintext)
 
 	p, gotErr := a.Authenticate(r)
@@ -224,7 +224,7 @@ func TestAuthenticate_api_key_header(t *testing.T) {
 func TestAuthenticate_no_credentials(t *testing.T) {
 	t.Parallel()
 	a := mustAuthenticator(t, newFakeSessionStore(), Config{IdleTimeout: time.Hour, AbsTimeout: 24 * time.Hour})
-	r, _ := http.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/", nil)
 	_, gotErr := a.Authenticate(r)
 	if !errors.Is(gotErr, ErrUnauthenticated) {
 		t.Errorf("error = %v, want ErrUnauthenticated", gotErr)
@@ -251,7 +251,7 @@ func TestAuthenticate_disabled_user_session(t *testing.T) {
 	}
 
 	a := mustAuthenticator(t, db, Config{IdleTimeout: time.Hour, AbsTimeout: 24 * time.Hour})
-	r, _ := http.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/", nil)
 	r.AddCookie(&http.Cookie{Name: defaultSecureCookieName, Value: plaintext.Reveal()})
 
 	if _, err := a.Authenticate(r); !errors.Is(err, ErrUnauthenticated) || !errors.Is(err, ErrSessionNotFound) {
@@ -280,7 +280,7 @@ func TestAuthenticate_api_key_query_param_rejected(t *testing.T) {
 	// A valid key supplied only via the URL query parameter must NOT authenticate:
 	// keys are accepted via Authorization: Bearer only (CWE-598: a key in the query
 	// string leaks into access logs, browser history, and the Referer header).
-	r, _ := http.NewRequest(http.MethodGet, "/api/search?api_key="+plaintext, nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/api/search?api_key="+plaintext, nil)
 
 	p, gotErr := a.Authenticate(r)
 	if !errors.Is(gotErr, ErrUnauthenticated) {
@@ -294,7 +294,7 @@ func TestAuthenticate_api_key_query_param_rejected(t *testing.T) {
 func TestAuthenticate_invalid_api_key(t *testing.T) {
 	t.Parallel()
 	a := mustAuthenticator(t, newFakeSessionStore(), Config{IdleTimeout: time.Hour, AbsTimeout: 24 * time.Hour})
-	r, _ := http.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/", nil)
 	r.Header.Set("Authorization", "Bearer "+"ak_invalid_key_value")
 
 	_, gotErr := a.Authenticate(r)
@@ -321,7 +321,7 @@ func TestAuthenticate_disabled_user_api_key(t *testing.T) {
 	}
 
 	a := mustAuthenticator(t, db, Config{IdleTimeout: time.Hour, AbsTimeout: 24 * time.Hour})
-	r, _ := http.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/", nil)
 	r.Header.Set("Authorization", "Bearer "+plaintext)
 
 	_, gotErr := a.Authenticate(r)
@@ -333,7 +333,7 @@ func TestAuthenticate_disabled_user_api_key(t *testing.T) {
 func TestAuthenticate_session_not_found_falls_through(t *testing.T) {
 	t.Parallel()
 	a := mustAuthenticator(t, newFakeSessionStore(), Config{IdleTimeout: time.Hour, AbsTimeout: 24 * time.Hour})
-	r, _ := http.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/", nil)
 	r.AddCookie(&http.Cookie{Name: defaultSecureCookieName, Value: "nonexistent-session-token"})
 
 	if _, err := a.Authenticate(r); !errors.Is(err, ErrUnauthenticated) || !errors.Is(err, ErrSessionNotFound) {
@@ -359,7 +359,7 @@ func TestAuthenticate_stale_session_falls_through_to_api_key(t *testing.T) {
 	}
 
 	a := mustAuthenticator(t, db, Config{IdleTimeout: time.Hour, AbsTimeout: 24 * time.Hour})
-	r, _ := http.NewRequest(http.MethodGet, "/api/search", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/api/search", nil)
 	r.AddCookie(&http.Cookie{Name: defaultSecureCookieName, Value: "stale-session-token"})
 	r.Header.Set("Authorization", "Bearer "+plaintext)
 
@@ -396,7 +396,7 @@ func TestAuthenticator_Logger_used(t *testing.T) {
 	}
 
 	a := mustAuthenticator(t, db, Config{IdleTimeout: time.Hour, AbsTimeout: 24 * time.Hour, Logger: logger})
-	r, _ := http.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/", nil)
 	r.AddCookie(&http.Cookie{Name: defaultSecureCookieName, Value: plaintext.Reveal()})
 
 	if _, err := a.Authenticate(r); !errors.Is(err, ErrUnauthenticated) {
@@ -474,7 +474,7 @@ func TestAuthenticator_injectedVerifierError_failsClosed(t *testing.T) {
 	wantErr := errors.New("backend down")
 	a := mustAuthenticator(t, newFakeSessionStore(), Config{Verifier: errVerifier{err: wantErr}})
 
-	p, err := a.Authenticate(httptest.NewRequest(http.MethodGet, "/api/x", nil))
+	p, err := a.Authenticate(httptest.NewRequest(http.MethodGet, "https://app.example/api/x", nil))
 	if !errors.Is(err, wantErr) || !isZeroPrincipal(p) {
 		t.Fatalf("Authenticate() = (%+v, %v), want the zero Principal and %v", p, err, wantErr)
 	}
@@ -620,7 +620,7 @@ func TestAuthenticatorPrinting(t *testing.T) {
 		"access.Authenticator.chain",
 		"access.sessionVerifier.store", "access.apiKeyVerifier.store",
 		"access.Config.Logger", "access.Config.Verifier", "access.Config.Realm",
-		"access.CookieConfig.Name",
+		"access.CookieConfig.Name", "access.sessionVerifier.revoker",
 	}, Types: []string{"time.Time"}}, reflect.TypeFor[*Authenticator]())
 }
 
@@ -632,9 +632,9 @@ func TestAuthenticateSetsPrincipalIP(t *testing.T) {
 	behindProxy := func(r *http.Request) ClientAddr {
 		peer := netip.MustParseAddrPort(r.RemoteAddr).Addr()
 		if peer == proxy {
-			return ClientAddr{Peer: peer, Forwarded: netip.MustParseAddr(r.Header.Get("X-Forwarded-For")), Via: ViaProxy}
+			return ClientAddr{Peer: peer, Forwarded: netip.MustParseAddr(r.Header.Get("X-Forwarded-For")), Via: ViaProxy, Secure: r.TLS != nil}
 		}
-		return ClientAddr{Peer: peer, Via: ViaDirect}
+		return ClientAddr{Peer: peer, Via: ViaDirect, Secure: r.TLS != nil}
 	}
 	f := newChainFixture(t)
 	custom := Principal{User: &User{Username: "agent", Enabled: true}, Method: "agent_key"}

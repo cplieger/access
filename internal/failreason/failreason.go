@@ -29,6 +29,10 @@ const (
 	SessionExpired = "session_expired"
 	// SessionUnknown is a session cookie no stored session has.
 	SessionUnknown = "session_unknown"
+	// TransportChanged is a session presented on the other transport than
+	// its own. Unlike the other verifier reasons it reaches the client, as
+	// the token is revoked in the same step.
+	TransportChanged = "transport_changed"
 	// CredentialInvalid is a custom verifier's refusal.
 	CredentialInvalid = "credential_invalid" //nolint:gosec // G101: a refusal reason, not a credential
 )

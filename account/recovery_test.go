@@ -649,7 +649,7 @@ func TestDurableLockClears(t *testing.T) {
 			if err := clear(); err != nil {
 				t.Fatalf("%s = %v", c.name, err)
 			}
-			svc, err := account.New(context.WithoutCancel(t.Context()), w.cfg)
+			svc, err := account.New(context.WithoutCancel(t.Context()), ownAuthenticator(t, w.cfg))
 			if err != nil {
 				t.Fatalf("account.New over the same store = %v", err)
 			}

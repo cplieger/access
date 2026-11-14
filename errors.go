@@ -27,14 +27,18 @@ var (
 	// ErrRestrictedSession is the detail for a recovery session presented
 	// on a request that does not allow one (see [AllowRecoverySession]).
 	ErrRestrictedSession = errors.New("access: restricted session")
+	// ErrSessionTransport is the detail for a session presented on the
+	// other transport than the one it was created on (see
+	// [Session.Secure]); the session verifier revokes it.
+	ErrSessionTransport = errors.New("access: session bound to the other transport")
 )
 
 // InvalidCredentialError is the detail of [ErrInvalidCredential]; the error
 // matches both ErrInvalidCredential and Err.
 type InvalidCredentialError struct {
-	// Err is [ErrInvalidAPIKey], [ErrAccountDisabled] or
-	// [ErrRestrictedSession], or nil for a granted principal refused only
-	// for an empty Method.
+	// Err is [ErrInvalidAPIKey], [ErrAccountDisabled],
+	// [ErrRestrictedSession] or [ErrSessionTransport], or nil for a granted
+	// principal refused only for an empty Method.
 	Err error
 	// Method is the refused credential's: [MethodAPIKey] for an API key, a
 	// recovery session's AuthMethod, the granted principal's own Method for

@@ -3,6 +3,7 @@ package account
 import (
 	"cmp"
 	"context"
+	"errors"
 	"slices"
 	"strings"
 
@@ -126,6 +127,27 @@ func (s *Service) Logout(ctx context.Context, tokenHash access.Hash) error {
 			Kind: EventSessionRevoked, At: s.now(), UserID: sess.UserID, SessionIDs: []string{sess.ID},
 			Actor: EventActor{SessionID: sess.ID, UserID: sess.UserID},
 		})
+		return nil
+	})
+}
+
+// RevokeTransportMismatch ends the session ref names, which the
+// Authenticator's session verifier refused for its transport; New registers
+// the Service for it with [access.Authenticator.UseSessionRevoker]. A
+// session already gone is nil with no event; otherwise one Update deletes
+// it and journals its EventSessionRevoked with LogDetailTransportChanged.
+func (s *Service) RevokeTransportMismatch(ctx context.Context, ref access.SessionRef) error {
+	if _, err := s.begin(); err != nil {
+		return err
+	}
+	return s.change(ctx, origin{}, func(tx Tx, j *journal) error {
+		if err := tx.DeleteSession(ctx, ref); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return nil
+			}
+			return err
+		}
+		j.addDetail(Event{Kind: EventSessionRevoked, At: s.now(), UserID: ref.UserID, SessionIDs: []string{ref.ID}}, LogDetailTransportChanged)
 		return nil
 	})
 }

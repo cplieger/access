@@ -57,6 +57,8 @@ A service built on an earlier dev tag passes the cookie methods the request's tr
 
 A store built on an earlier dev tag persists the new `Session.Secure` field, the transport of the request that created the session ([Sessions](storage.md#sessions)). A session stored without it reads plain, so it is bounded by `PlainSessionIdle` (30 minutes) and `PlainSessionAbsolute` (12 hours), which `ValidateSession` and `CleanupExpiredSessions` apply.
 
+A session is bound to its transport ([Sessions](primitives.md#sessions)). One presented on the other transport is refused with `ErrSessionTransport`, answered as 401 `auth_session_expired` with `Reason` `transport_changed`, and revoked through the new `access.SessionRevoker` that `Authenticator.UseSessionRevoker` registers. `account.New` registers its Service, so a second `account.New` over one Authenticator fails; `Service.RevokeTransportMismatch` is the revoke, and its `session_revoked` entry's `Detail` is `transport_changed`. Sessions stored before this change read plain, so each HTTPS user is signed out once at the upgrade, on their next request.
+
 ## Records
 
 | auth v6 | access |

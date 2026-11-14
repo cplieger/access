@@ -2,8 +2,10 @@ package access
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/cplieger/access/internal/failreason"
@@ -21,12 +23,43 @@ type sessionVerifier struct {
 	store AuthenticatorStore
 	cfg   *Config
 	// now is the verifier's only clock.
-	now  func() time.Time
-	warn warnLimiter
+	now     func() time.Time
+	revoker atomic.Pointer[SessionRevoker]
+	warn    warnLimiter
+	// mismatchWarn limits the WARN for a transport mismatch left unrevoked.
+	mismatchWarn warnLimiter
+}
+
+// revokeTimeout bounds one transport-mismatch revoke. It runs detached
+// from the request's cancellation, so a client that hangs up cannot keep
+// its token alive.
+const revokeTimeout = 5 * time.Second
+
+// SessionRevoker ends a session the session verifier refused for its
+// transport (see [Session.Secure]).
+type SessionRevoker interface {
+	// RevokeTransportMismatch deletes the session ref names, answering nil
+	// when it is already gone.
+	RevokeTransportMismatch(ctx context.Context, ref SessionRef) error
+}
+
+// UseSessionRevoker registers r as the revoker of every session refused
+// for its transport. It refuses a nil r and a second registration; with
+// none registered, such a session is refused but left in the store.
+func (a *Authenticator) UseSessionRevoker(r SessionRevoker) error {
+	if isNilInterface(r) {
+		return errors.New("access: UseSessionRevoker: nil SessionRevoker")
+	}
+	if !a.sessions.revoker.CompareAndSwap(nil, &r) {
+		return errors.New("access: UseSessionRevoker: a revoker is already registered")
+	}
+	return nil
 }
 
 // Verify grants the session the request's one session cookie names. No
-// cookie, or more than one, is not its credential.
+// cookie, or more than one, is not its credential. A session whose Secure
+// differs from the request's is refused with [ErrSessionTransport] and
+// revoked.
 func (v *sessionVerifier) Verify(ctx context.Context, r *http.Request) (Principal, bool, error) {
 	ca := v.cfg.ClientAddr(r)
 	token := v.cfg.Cookie.ReadCookie(r, ca.Secure)
@@ -39,6 +72,10 @@ func (v *sessionVerifier) Verify(ctx context.Context, r *http.Request) (Principa
 	if err != nil {
 		return Principal{}, false, err
 	}
+	if sess.Secure != ca.Secure {
+		v.revokeMismatch(ctx, sess)
+		return Principal{}, false, failreason.Wrap(&InvalidCredentialError{Method: sess.AuthMethod, Err: ErrSessionTransport}, failreason.TransportChanged)
+	}
 	if !IsPassive(ctx) && v.activityDue(sess, ts, now) {
 		act := SessionActivity{At: now, IP: activityIP(ca.IP())}
 		if err := v.store.UpdateSessionActivity(ctx, hash, act); err != nil {
@@ -48,6 +85,23 @@ func (v *sessionVerifier) Verify(ctx context.Context, r *http.Request) (Principa
 		}
 	}
 	return sessionPrincipal(sess, user, hash, ts), true, nil
+}
+
+// revokeMismatch ends sess, refused for its transport, through the
+// registered revoker. With none, or when the revoke fails, the session
+// stays stored and a WARN says so; the refusal stands either way.
+func (v *sessionVerifier) revokeMismatch(ctx context.Context, sess *Session) {
+	const msg = "access: a session presented on the other transport was refused but not revoked"
+	r := v.revoker.Load()
+	if r == nil {
+		v.mismatchWarn.log(v.cfg.log(), msg, "session_id", sess.ID)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), revokeTimeout)
+	defer cancel()
+	if err := (*r).RevokeTransportMismatch(ctx, SessionRef{ID: sess.ID, UserID: sess.UserID}); err != nil {
+		v.mismatchWarn.log(v.cfg.log(), msg, "session_id", sess.ID, "error", err)
+	}
 }
 
 // recheck re-reads p's session and user and returns its principal anew,

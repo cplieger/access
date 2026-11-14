@@ -122,6 +122,7 @@ func TestErrorFor(t *testing.T) {
 		code       access.Code
 		status     int
 		detail     string
+		reason     string
 		retryAfter time.Duration
 	}{
 		{name: "no_credential", err: access.ErrUnauthenticated, code: "auth_required", status: 401, detail: "Sign in to continue."},
@@ -132,6 +133,7 @@ func TestErrorFor(t *testing.T) {
 		{name: "session_owner_disabled", err: &access.InvalidCredentialError{Method: access.MethodPassword, Err: access.ErrAccountDisabled}, code: "auth_invalid_credentials", status: 401, detail: "The credentials are not valid."},
 		{name: "custom_verifier_refusal", err: &access.InvalidCredentialError{Method: "agent"}, code: "auth_invalid_credentials", status: 401, detail: "The credentials are not valid."},
 		{name: "recovery_session", err: &access.InvalidCredentialError{Method: access.MethodRecovery, Err: access.ErrRestrictedSession}, code: "auth_session_required", status: 403, detail: "A signed-in session is required."},
+		{name: "transport_changed", err: &access.InvalidCredentialError{Method: access.MethodPassword, Err: access.ErrSessionTransport}, code: "auth_session_expired", status: 401, detail: "Your session has ended. Sign in again.", reason: "transport_changed"},
 		{name: "backend", err: fmt.Errorf("%w: %w", access.ErrAuthBackend, errors.New("disk")), code: "auth_unavailable", status: 503, detail: "The service is unavailable. Try again shortly.", retryAfter: 5 * time.Second},
 		{name: "wrapped", err: fmt.Errorf("verify: %w", &access.InvalidCredentialError{Method: access.MethodAPIKey, Err: access.ErrInvalidAPIKey}), code: "auth_key_invalid", status: 401, detail: "The API key is not valid."},
 	}
@@ -145,8 +147,8 @@ func TestErrorFor(t *testing.T) {
 			if e.Code != row.code || e.Status != row.status || e.Detail != row.detail || e.RetryAfter != row.retryAfter {
 				t.Errorf("ErrorFor(%v) = %s %d %q %v, want %s %d %q %v", row.err, e.Code, e.Status, e.Detail, e.RetryAfter, row.code, row.status, row.detail, row.retryAfter)
 			}
-			if e.Reason != "" {
-				t.Errorf("ErrorFor(%v).Reason = %q, want empty", row.err, e.Reason)
+			if e.Reason != row.reason {
+				t.Errorf("ErrorFor(%v).Reason = %q, want %q", row.err, e.Reason, row.reason)
 			}
 			if !errors.Is(e.Err, row.err) {
 				t.Errorf("ErrorFor(%v).Err = %v, want the mapped error", row.err, e.Err)

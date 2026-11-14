@@ -60,6 +60,7 @@ func TestAudit(t *testing.T) {
 		{name: "key_account_disabled", path: "/key", creds: []cred{disabledKey}, want: failure("account_disabled", access.MethodAPIKey, f.keyDisabledID)},
 		{name: "session_expired", path: "/sess", creds: []cred{expiredCred}, want: failure("session_expired", "", 0)},
 		{name: "session_unknown", path: "/sess", creds: []cred{goneCred}, want: failure("session_unknown", "", 0)},
+		{name: "transport_changed", path: "/sess", creds: []cred{plainCred}, want: failure("transport_changed", access.MethodPassword, 0)},
 		{name: "session_account_disabled", path: "/sess", creds: []cred{disabledCred}, want: failure("account_disabled", "", 0)},
 		{name: "credential_invalid", path: "/scoped", creds: []cred{withAgent("bad")}, want: failure("credential_invalid", agentMethod, 0)},
 		{name: "recovery_session", path: "/sess", creds: []cred{recoveryCred}, want: forbidden("recovery_session", "", 0, 0)},

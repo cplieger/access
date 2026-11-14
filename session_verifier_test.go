@@ -42,7 +42,7 @@ func clockedSession(t *testing.T, s *Session, cfg Config) (*Authenticator, *reco
 }
 
 func sessionRequest(ctx context.Context, token string) *http.Request {
-	r := httptest.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
+	r := httptest.NewRequestWithContext(ctx, http.MethodGet, "https://app.example/", nil)
 	return withSession(r, token)
 }
 
@@ -161,7 +161,7 @@ func TestSessionStoreErrorIs503(t *testing.T) {
 func TestSessionActivityWrite(t *testing.T) {
 	t.Parallel()
 	client := netip.MustParseAddr("192.0.2.7")
-	a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: sessionT0, LastActivity: sessionT0, Secure: true}, Config{ClientAddr: func(*http.Request) ClientAddr { return ClientAddr{Peer: client, Via: ViaDirect} }})
+	a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: sessionT0, LastActivity: sessionT0, Secure: true}, Config{ClientAddr: func(*http.Request) ClientAddr { return ClientAddr{Peer: client, Via: ViaDirect, Secure: true} }})
 	now := sessionT0.Add(10 * time.Minute)
 	clock.Set(now)
 	p, err := a.Authenticate(sessionRequest(t.Context(), token))

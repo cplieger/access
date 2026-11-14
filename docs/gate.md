@@ -107,14 +107,15 @@ Set `Config.Audit` to receive one `access.AuditEvent` for each refusal of a pres
 | `account_disabled` | a key or session whose owner is missing or disabled |
 | `session_expired` | a session cookie past its idle or absolute limit |
 | `session_unknown` | a session cookie no stored session has |
+| `transport_changed` | a session cookie whose session was created on the other transport, plain HTTP or HTTPS; the session is revoked |
 | `credential_invalid` | a credential your custom verifier refused |
 
 `key_retired` lasts until the store clears the previous secret, which the account sweep does once it can no longer verify, or until the key is rotated again. After that the old secret is `key_unknown`. `key_expired` is also the reason `account` refuses to rotate an expired key with, since both name the same fact.
 
 `gate.forbidden` is a 403. Its `Reason` is `session_required`, `key_required`, `scope_required` or `forbidden` for a principal the row's class refuses, `recovery_session` for a recovery-session cookie, and `cross_origin` for a cross-site request.
 
-On both kinds, `Method` is `access.MethodAPIKey` for a Bearer key, your custom verifier's own method for its principal, the bypass method for the bypass principal, and empty for a session cookie. `KeyID` and `UserID` are set when the gate knows them, and `IP` is the client address `Authenticator.ClientAddr` resolves.
+On both kinds, `Method` is `access.MethodAPIKey` for a Bearer key, your custom verifier's own method for its principal, the bypass method for the bypass principal, and empty for a session cookie, except on `transport_changed`, which names the method the session signed in with. `KeyID` and `UserID` are set when the gate knows them, and `IP` is the client address `Authenticator.ClientAddr` resolves.
 
 A request with no credential (`auth_required`) and a 503 send no event, so a store outage never counts as failed sign-ins.
 
-The reason is for your records only. A client sees `auth_key_invalid` or `auth_session_expired` with an empty `Reason`, and an unknown key, an expired key and a retired previous secret get byte-identical answers, so a refusal never tells a key holder which keys exist.
+The reason is for your records only, except `transport_changed`. A client sees `auth_key_invalid` or `auth_session_expired` with an empty `Reason`, and an unknown key, an expired key and a retired previous secret get byte-identical answers, so a refusal never tells a key holder which keys exist. `transport_changed` is answered as `auth_session_expired` with that `Reason`, so the screen can say the user was signed out rather than show an error; it reveals nothing, because the session is already revoked.

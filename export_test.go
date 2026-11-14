@@ -29,6 +29,7 @@ func setVerifierClock(a *Authenticator, c *testClock) {
 	a.sessions.now = c.Now
 	a.keys.now = c.Now
 	a.sessions.warn.now = c.Now
+	a.sessions.mismatchWarn.now = c.Now
 	a.keys.warn.now = c.Now
 }
 

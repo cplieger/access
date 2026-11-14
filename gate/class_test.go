@@ -213,7 +213,7 @@ func TestVerifierErrorLogs(t *testing.T) {
 		g := mustGate(t, gate.Config{Authenticator: f.authn, Logger: f.logger()}, classRoutes, &served{})
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
-		r := httptest.NewRequestWithContext(ctx, http.MethodGet, "/sess", nil)
+		r := httptest.NewRequestWithContext(ctx, http.MethodGet, "https://example.com/sess", nil)
 		withAgent("ctx")(f, r)
 		a := serve(t, g, r)
 		if a.status != http.StatusServiceUnavailable || a.code != access.CodeUnavailable {

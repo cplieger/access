@@ -252,7 +252,7 @@ func TestKeyNoAdminTarget(t *testing.T) {
 			w := newAdminWorld(t, options{}, account.RolePolicy{})
 			k := w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 			high := mustUser(t, w.f.mem, "high", access.RoleAdmin)
-			cfg := w.f.cfg
+			cfg := ownAuthenticator(t, w.f.cfg)
 			cfg.Policy = tc.policy
 			svc, err := account.New(t.Context(), cfg)
 			if err != nil {

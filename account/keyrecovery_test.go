@@ -72,7 +72,7 @@ type issuerChange func(t *testing.T, kr *keyRec) *account.Service
 func issuerChanges() map[string]issuerChange {
 	restart := func(scope string) issuerChange {
 		return func(t *testing.T, kr *keyRec) *account.Service {
-			cfg := kr.cfg
+			cfg := ownAuthenticator(t, kr.cfg)
 			cfg.ManageUsersScope = scope
 			svc, err := account.New(context.WithoutCancel(t.Context()), cfg)
 			if err != nil {

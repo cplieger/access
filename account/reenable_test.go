@@ -154,7 +154,7 @@ func TestReenableMethod(t *testing.T) {
 		}
 		// A new Service over the same store, the old one never shut down:
 		// the clear is in the store, not in memory.
-		next, err := account.New(t.Context(), p.cfg)
+		next, err := account.New(t.Context(), ownAuthenticator(t, p.cfg))
 		if err != nil {
 			t.Fatalf("New: %v", err)
 		}

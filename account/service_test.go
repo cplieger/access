@@ -89,7 +89,7 @@ func TestNewRefuses(t *testing.T) {
 	}
 	t.Run("breach_mode_with_client", func(t *testing.T) {
 		t.Parallel()
-		cfg := base
+		cfg := ownAuthenticator(t, base)
 		cfg.Rules = func() account.Rules { return account.Rules{Breach: account.BreachFailOpen} }
 		cfg.Breach = &http.Client{}
 		svc, err := account.New(t.Context(), cfg)
@@ -110,7 +110,7 @@ func TestNewRefuses(t *testing.T) {
 	})
 	t.Run("caller_key_slice_not_kept", func(t *testing.T) {
 		t.Parallel()
-		cfg := base
+		cfg := ownAuthenticator(t, base)
 		cfg.FailureKey = bytes.Clone(testFailureKey)
 		svc, err := account.New(t.Context(), cfg)
 		if err != nil {
@@ -128,7 +128,7 @@ func TestNewRefuses(t *testing.T) {
 				t.Errorf("FailureName(%q) after zeroing the caller's key = %s, want %s", n, got, before[i])
 			}
 		}
-		other, err := account.New(t.Context(), cfg)
+		other, err := account.New(t.Context(), ownAuthenticator(t, cfg))
 		if err != nil {
 			t.Fatalf("New(zeroed key): %v", err)
 		}

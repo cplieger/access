@@ -331,7 +331,7 @@ func TestNewDrainsLog(t *testing.T) {
 		rec := &pruneRecorder{Store: cfg.Store}
 		cfg.Store, cfg.Now, cfg.LogMaxAge = rec, func() time.Time { return now }, maxAge
 		withLogCaps(caps[account.LogClassChange], caps[account.LogClassSession])(&cfg)
-		return cfg, rec
+		return ownAuthenticator(t, cfg), rec
 	}
 	t.Run("drains", func(t *testing.T) {
 		cfg, rec := setup(t)

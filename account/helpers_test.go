@@ -110,6 +110,19 @@ func newFixture(t testing.TB, o options) *fixture {
 	return f
 }
 
+// ownAuthenticator is cfg with an Authenticator of its own over cfg.Store,
+// with cfg's cookie and timeouts, for a second Service: New registers each
+// Service as its Authenticator's one session revoker.
+func ownAuthenticator(t testing.TB, cfg account.Config) account.Config {
+	t.Helper()
+	authn, err := access.New(cfg.Store, access.Config{Cookie: cfg.Authenticator.Cookie(), TimeoutSource: cfg.Authenticator.Timeouts})
+	if err != nil {
+		t.Fatalf("access.New: %v", err)
+	}
+	cfg.Authenticator = authn
+	return cfg
+}
+
 // eventLog records every event OnEvent receives.
 type eventLog struct {
 	events []account.Event

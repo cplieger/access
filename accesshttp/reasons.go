@@ -53,7 +53,7 @@ var ownReasons = []string{
 const providerErrorPrefix = "provider_error:"
 
 // Reasons returns every fixed access.Error Reason, each once, in a stable order:
-// accesshttp's own, then access's PasswordRejections, account's PolicyReasons,
+// accesshttp's own, then access's ErrorReasons and PasswordRejections, account's PolicyReasons,
 // UsernameReasons, TextErrors and LogFilterReasons, and webauthn's
 // OriginRejections.
 // Two families stay open and are not listed: "provider_error:" followed by
@@ -62,6 +62,7 @@ const providerErrorPrefix = "provider_error:"
 // refusals of the body or URL as a whole are listed.
 func Reasons() []string {
 	all := append([]string{}, ownReasons...)
+	all = append(all, access.ErrorReasons()...)
 	for _, r := range access.PasswordRejections() {
 		all = append(all, string(r))
 	}

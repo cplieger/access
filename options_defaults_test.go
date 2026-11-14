@@ -114,7 +114,7 @@ func TestZeroConfigGrantsSession(t *testing.T) {
 	}
 
 	a := mustAuthenticator(t, db, Config{})
-	r, _ := http.NewRequest(http.MethodGet, "/api/data", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/api/data", nil)
 	r.AddCookie(&http.Cookie{Name: defaultSecureCookieName, Value: plaintext.Reveal()})
 
 	p, gotErr := a.Authenticate(r)

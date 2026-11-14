@@ -190,7 +190,7 @@ func TestRequireRecentAuth(t *testing.T) {
 	f := newChainFixture(t)
 	now := time.Now()
 	a := mustAuthenticator(t, f.store, Config{})
-	r, _ := http.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/", nil)
 	r.AddCookie(&http.Cookie{Name: defaultSecureCookieName, Value: f.session})
 	session, err := a.Authenticate(r)
 	if err != nil || !session.IsSession() {
@@ -260,6 +260,9 @@ func TestRequestMarks(t *testing.T) {
 func TestPrincipalSecure(t *testing.T) {
 	t.Parallel()
 	f := newChainFixture(t)
+	now := time.Now()
+	plain := f.addSession(t, &Session{ID: "plain", UserID: f.user.ID, AuthMethod: MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: now})
+	perRequest := CookieConfig{Posture: PosturePerRequest}
 	// A custom verifier's own Secure is not the request's.
 	custom := Principal{User: &User{Username: "agent", Enabled: true}, Method: "agent_key", Secure: true}
 	at := func(target string, r *http.Request) *http.Request {
@@ -267,21 +270,33 @@ func TestPrincipalSecure(t *testing.T) {
 		req.Header = r.Header
 		return req
 	}
+	// session is the request carrying the session bound to the transport
+	// of target, under its cookie name.
+	session := func(target string) *http.Request {
+		if strings.HasPrefix(target, "https:") {
+			return withSession(bearerRequest(""), f.session)
+		}
+		r := bearerRequest("")
+		r.AddCookie(&http.Cookie{Name: perRequest.CookieName(false), Value: plain})
+		return r
+	}
+	targets := map[string]bool{"https://app.example/api": true, "http://app.example/api": false}
 	for _, tc := range []struct {
 		cfg  Config
-		req  func() *http.Request
+		req  func(target string) *http.Request
 		name string
 	}{
-		{name: "session", req: func() *http.Request { return withSession(bearerRequest(""), f.session) }},
-		{name: "key", req: func() *http.Request { return bearerRequest(f.key) }},
-		{name: "custom verifier", cfg: Config{Verifier: stubVerifier{p: custom, ok: true}}, req: func() *http.Request { return bearerRequest("") }},
-		{name: "bypass", cfg: Config{Bypass: func() bool { return true }}, req: func() *http.Request { return bearerRequest("") }},
+		{name: "session", req: session},
+		{name: "key", req: func(string) *http.Request { return bearerRequest(f.key) }},
+		{name: "custom verifier", cfg: Config{Verifier: stubVerifier{p: custom, ok: true}}, req: func(string) *http.Request { return bearerRequest("") }},
+		{name: "bypass", cfg: Config{Bypass: func() bool { return true }}, req: func(string) *http.Request { return bearerRequest("") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			tc.cfg.Cookie = perRequest
 			a := mustAuthenticator(t, f.store, tc.cfg)
-			for target, want := range map[string]bool{"https://app.example/api": true, "http://app.example/api": false} {
-				if p := mustAuthenticate(t, a, at(target, tc.req())); p.Secure != want {
+			for target, want := range targets {
+				if p := mustAuthenticate(t, a, at(target, tc.req(target))); p.Secure != want {
 					t.Errorf("Authenticate(%s).Secure = %v, want %v", target, p.Secure, want)
 				}
 			}
@@ -289,13 +304,13 @@ func TestPrincipalSecure(t *testing.T) {
 	}
 	t.Run("recheck", func(t *testing.T) {
 		t.Parallel()
-		a := mustAuthenticator(t, f.store, Config{})
-		for name, r := range map[string]*http.Request{
-			"session": withSession(bearerRequest(""), f.session),
-			"key":     bearerRequest(f.key),
+		a := mustAuthenticator(t, f.store, Config{Cookie: perRequest})
+		for name, req := range map[string]func(string) *http.Request{
+			"session": session,
+			"key":     func(string) *http.Request { return bearerRequest(f.key) },
 		} {
-			for target, want := range map[string]bool{"https://app.example/api": true, "http://app.example/api": false} {
-				p := mustAuthenticate(t, a, at(target, r))
+			for target, want := range targets {
+				p := mustAuthenticate(t, a, at(target, req(target)))
 				q, err := a.Recheck(t.Context(), p)
 				if err != nil {
 					t.Fatalf("Recheck(%s over %s) = %v", name, target, err)

@@ -76,7 +76,9 @@ type testHooks struct {
 // RFC 6750 scope-token, two equal non-empty ones, a negative CleanupInterval, MaxPending or Log* field, and
 // a Rules() value Rules.Validate refuses or whose breach mode lacks
 // Config.Breach. It drains the security log to its caps and LogMaxAge and
-// runs the failure-record sweep, returning either's store error, then
+// runs the failure-record sweep, returning either's store error. It then
+// registers the Service as the Authenticator's session revoker, failing
+// when another is registered, so one Authenticator serves one Service, and
 // sweeps on ctx's values, not its cancellation, until Shutdown.
 func New(ctx context.Context, cfg Config) (*Service, error) { //nolint:gocritic // hugeParam: a construction input, read once
 	return newService(ctx, cfg, testHooks{})
@@ -130,6 +132,9 @@ func newService(ctx context.Context, cfg Config, hooks testHooks) (*Service, err
 	}
 	if err := s.sweepFailures(ctx); err != nil {
 		return nil, err
+	}
+	if err := cfg.Authenticator.UseSessionRevoker(s); err != nil {
+		return nil, fmt.Errorf("account: Config.Authenticator: %w", err)
 	}
 	sweepCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	s.cancel = cancel

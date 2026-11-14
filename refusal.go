@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 	"time"
+
+	"github.com/cplieger/access/internal/failreason"
 )
 
 // ErrorWriter renders one refusal in the app's own envelope. The library
@@ -173,15 +175,31 @@ func NewError(code Code, reason string, err error) Error {
 	return e
 }
 
+// The [Error] Reason values [ErrorFor] can answer, in [ErrorReasons] order.
+const (
+	// ReasonTransportChanged is a session presented on the other transport,
+	// answered with [CodeSessionExpired] once the session is revoked.
+	ReasonTransportChanged = failreason.TransportChanged
+)
+
+// ErrorReasons returns every Reason [ErrorFor] can answer, in a stable
+// order.
+func ErrorReasons() []string { return []string{ReasonTransportChanged} }
+
 // ErrorFor maps an error [Authenticator.Authenticate] returned to its
-// refusal, with an empty Reason so the answer names no stored state. It
-// reports false for any other error.
+// refusal. Its Reason is empty, so the answer names no stored state, except
+// [ReasonTransportChanged] for a session presented on the other transport,
+// which the verifier has revoked. It reports false for any other error.
 func ErrorFor(err error) (Error, bool) {
 	code, ok := authenticationCode(err)
 	if !ok {
 		return Error{}, false
 	}
-	return NewError(code, "", err), true
+	var reason string
+	if errors.Is(err, ErrSessionTransport) {
+		reason = ReasonTransportChanged
+	}
+	return NewError(code, reason, err), true
 }
 
 func authenticationCode(err error) (Code, bool) {
@@ -189,6 +207,8 @@ func authenticationCode(err error) (Code, bool) {
 		switch {
 		case errors.Is(err, ErrRestrictedSession):
 			return CodeSessionRequired, true
+		case errors.Is(err, ErrSessionTransport):
+			return CodeSessionExpired, true
 		case ice.Method == MethodAPIKey:
 			return CodeKeyInvalid, true
 		default:

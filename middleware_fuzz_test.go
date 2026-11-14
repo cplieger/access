@@ -72,7 +72,7 @@ func FuzzBearerHeader(f *testing.F) {
 	store := newRecordingStore()
 	a := mustAuthenticator(f, store, Config{})
 	f.Fuzz(func(t *testing.T, header string) {
-		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r := httptest.NewRequest(http.MethodGet, "https://app.example/", nil)
 		r.Header["Authorization"] = []string{header}
 		before := store.keyReads.Load()
 		_, err := a.Authenticate(r)

@@ -2,6 +2,7 @@ package access
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -37,7 +38,7 @@ func BenchmarkAuthenticate(b *testing.B) {
 	auth := mustAuthenticator(b, store, Config{IdleTimeout: 24 * time.Hour, AbsTimeout: 7 * 24 * time.Hour})
 
 	b.Run("session_cookie", func(b *testing.B) {
-		req, _ := http.NewRequest(http.MethodGet, "/api/test", nil)
+		req := httptest.NewRequest(http.MethodGet, "https://app.example/api/test", nil)
 		req.AddCookie(&http.Cookie{Name: defaultSecureCookieName, Value: token})
 		b.ReportAllocs()
 		for b.Loop() {
@@ -46,7 +47,7 @@ func BenchmarkAuthenticate(b *testing.B) {
 	})
 
 	b.Run("api_key_header", func(b *testing.B) {
-		req, _ := http.NewRequest(http.MethodGet, "/api/test", nil)
+		req := httptest.NewRequest(http.MethodGet, "https://app.example/api/test", nil)
 		req.Header.Set("Authorization", "Bearer "+apiKeyRaw)
 		b.ReportAllocs()
 		for b.Loop() {
@@ -55,7 +56,7 @@ func BenchmarkAuthenticate(b *testing.B) {
 	})
 
 	b.Run("no_credentials", func(b *testing.B) {
-		req, _ := http.NewRequest(http.MethodGet, "/api/test", nil)
+		req := httptest.NewRequest(http.MethodGet, "https://app.example/api/test", nil)
 		b.ReportAllocs()
 		for b.Loop() {
 			_, _ = auth.Authenticate(req)

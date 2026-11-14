@@ -57,7 +57,7 @@ func New(store AuthenticatorStore, cfg Config) (*Authenticator, error) { //nolin
 		return nil, err
 	}
 	a := &Authenticator{cfg: cfg, proxyWarn: warnLimiter{now: time.Now}}
-	a.sessions = &sessionVerifier{store: store, cfg: &a.cfg, now: time.Now, warn: warnLimiter{now: time.Now}}
+	a.sessions = &sessionVerifier{store: store, cfg: &a.cfg, now: time.Now, warn: warnLimiter{now: time.Now}, mismatchWarn: warnLimiter{now: time.Now}}
 	a.keys = &apiKeyVerifier{store: store, cfg: &a.cfg, now: time.Now, warn: warnLimiter{now: time.Now}}
 	a.chain = []CredentialVerifier{a.sessions}
 	if cfg.Verifier != nil {

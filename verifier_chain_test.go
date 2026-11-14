@@ -240,7 +240,7 @@ func answer(t *testing.T, a *Authenticator, r *http.Request) (status int, code C
 }
 
 func bearerRequest(token string) *http.Request {
-	r := httptest.NewRequest(http.MethodGet, "/api", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/api", nil)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}

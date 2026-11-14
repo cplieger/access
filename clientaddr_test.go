@@ -178,7 +178,7 @@ func TestViaString(t *testing.T) {
 // write records its IP as LastIP.
 func TestConfigClientAddrServed(t *testing.T) {
 	t.Parallel()
-	want := ClientAddr{Peer: netip.MustParseAddr("10.0.0.5"), Forwarded: netip.MustParseAddr("203.0.113.9"), Via: ViaProxy}
+	want := ClientAddr{Peer: netip.MustParseAddr("10.0.0.5"), Forwarded: netip.MustParseAddr("203.0.113.9"), Via: ViaProxy, Secure: true}
 	f := newChainFixture(t)
 	a := mustAuthenticator(t, f.store, Config{ClientAddr: func(*http.Request) ClientAddr { return want }})
 

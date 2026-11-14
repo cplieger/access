@@ -103,6 +103,11 @@ func (j *journal) add(ev Event) { //nolint:gocritic // hugeParam: each event is 
 	j.record(ev, classOf(ev.Kind), "", j.s.stamp())
 }
 
+// addDetail is add with a library detail (a LogDetail constant).
+func (j *journal) addDetail(ev Event, detail string) { //nolint:gocritic // hugeParam: as add
+	j.record(ev, classOf(ev.Kind), detail, j.s.stamp())
+}
+
 // record is add with the class, detail and stamp the caller supplies.
 func (j *journal) record(ev Event, class LogClass, detail string, at time.Time) { //nolint:gocritic // hugeParam: as add
 	j.entries = append(j.entries, LogEntry{At: at, IP: j.ip, Class: class, Detail: detail, Event: ev})
