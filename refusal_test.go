@@ -11,6 +11,7 @@ import (
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/accesstest"
+	"github.com/cplieger/access/internal/failreason"
 )
 
 // specCodes is the specified code table, in Codes order, each code with its
@@ -111,9 +112,10 @@ func TestNewErrorTable(t *testing.T) {
 	})
 }
 
-// TestErrorFor is the mapping of every error Authenticate returns, each
-// row's code, status and detail from the spec and its Reason empty, so a
-// refusal names no stored state.
+// TestErrorFor is the mapping of every error Authenticate and
+// RequireRecentAuth return, each row's code, status and detail from the
+// spec. Its Reason is empty, so a refusal names no stored state, but for a
+// transport mismatch and the reason a recent-auth refusal carries.
 func TestErrorFor(t *testing.T) {
 	t.Parallel()
 	unauth := func(detail error) error { return fmt.Errorf("%w: %w", access.ErrUnauthenticated, detail) }
@@ -136,6 +138,9 @@ func TestErrorFor(t *testing.T) {
 		{name: "recovery_session", err: &access.InvalidCredentialError{Method: access.MethodRecovery, Err: access.ErrRestrictedSession}, code: "auth_session_required", status: 403, detail: "A signed-in session is required."},
 		{name: "transport_changed", err: &access.InvalidCredentialError{Method: access.MethodPassword, Err: access.ErrSessionTransport}, code: "auth_session_expired", status: 401, detail: "Your session has ended. Sign in again.", reason: "transport_changed"},
 		{name: "https_required", err: access.ErrHTTPSRequired, code: "auth_https_required", status: 403, detail: "This needs HTTPS."},
+		{name: "recent_auth", err: access.ErrRecentAuthRequired, code: "auth_recent_auth_required", status: 403, detail: "Confirm it is you to continue."},
+		{name: "sign_in_again", err: failreason.Wrap(access.ErrRecentAuthRequired, failreason.SignInAgain), code: "auth_recent_auth_required", status: 403, detail: "Confirm it is you to continue.", reason: "sign_in_again"},
+		{name: "reenable_needs_other_method", err: failreason.Wrap(access.ErrRecentAuthRequired, failreason.ReenableNeedsOtherMethod), code: "auth_recent_auth_required", status: 403, detail: "Confirm it is you to continue.", reason: "reenable_needs_other_method"},
 		{name: "backend", err: fmt.Errorf("%w: %w", access.ErrAuthBackend, errors.New("disk")), code: "auth_unavailable", status: 503, detail: "The service is unavailable. Try again shortly.", retryAfter: 5 * time.Second},
 		{name: "wrapped", err: fmt.Errorf("verify: %w", &access.InvalidCredentialError{Method: access.MethodAPIKey, Err: access.ErrInvalidAPIKey}), code: "auth_key_invalid", status: 401, detail: "The API key is not valid."},
 	}
@@ -159,7 +164,6 @@ func TestErrorFor(t *testing.T) {
 	}
 	for name, err := range map[string]error{
 		"unmapped_foreign":         errors.New("foreign"),
-		"unmapped_recent_auth":     access.ErrRecentAuthRequired,
 		"unmapped_not_recheckable": access.ErrNotRecheckable,
 		"unmapped_nil":             nil,
 	} {

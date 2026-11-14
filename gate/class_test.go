@@ -207,6 +207,20 @@ func TestVerifierErrorLogs(t *testing.T) {
 			t.Errorf("logs = %q, want one ERROR naming the route and the error", logs)
 		}
 	})
+	// ErrorFor maps RequireRecentAuth's refusal, which no row lists: a
+	// verifier returning it breaks its contract like any unmapped error.
+	t.Run("recent_auth_from_verifier", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		g := mustGate(t, gate.Config{Authenticator: f.authn, Logger: f.logger()}, classRoutes, &served{})
+		a := do(t, f, g, http.MethodGet, "/sess", withAgent("recent"))
+		if a.status != http.StatusServiceUnavailable || a.code != access.CodeUnavailable {
+			t.Errorf("GET /sess = %d %q, want 503 %s", a.status, a.code, access.CodeUnavailable)
+		}
+		if logs := f.logs.String(); !strings.Contains(logs, "level=ERROR") || !strings.Contains(logs, "route=sess") {
+			t.Errorf("logs = %q, want one ERROR naming the route", logs)
+		}
+	})
 	t.Run("request_ended", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t)

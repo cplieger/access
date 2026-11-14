@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/cplieger/access"
@@ -236,10 +237,12 @@ func (g *Gate) decide(rt *Route, p access.Principal) access.Code { //nolint:gocr
 }
 
 // unauthenticated answers an Authenticate error. An error ErrorFor does not
-// map is the verifier's own and answers 503; only r.Context().Err() tells
-// a client walking away from a real failure.
+// map to an authenticating code is the verifier's own and answers 503, so a
+// row never answers a code its Codes lack; only r.Context().Err() tells a
+// client walking away from a real failure.
 func (g *Gate) unauthenticated(w http.ResponseWriter, r *http.Request, rt *Route, err error) {
 	e, mapped := access.ErrorFor(err)
+	mapped = mapped && slices.Contains(authenticatingCodes, e.Code)
 	ctx := r.Context()
 	switch ctxErr := ctx.Err(); {
 	case ctxErr != nil && errors.Is(err, ctxErr):

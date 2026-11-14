@@ -41,6 +41,7 @@ func TestErrorCodeTable(t *testing.T) {
 		{name: "https_required", err: access.ErrHTTPSRequired, code: "auth_https_required"},
 		{name: "recent_auth", err: access.ErrRecentAuthRequired, code: "auth_recent_auth_required"},
 		{name: "reenable_needs_other_method", err: failreason.Wrap(access.ErrRecentAuthRequired, failreason.ReenableNeedsOtherMethod), code: "auth_recent_auth_required", reason: "reenable_needs_other_method"},
+		{name: "sign_in_again", err: failreason.Wrap(access.ErrRecentAuthRequired, failreason.SignInAgain), code: "auth_recent_auth_required", reason: "sign_in_again"},
 		{name: "session_required", err: account.ErrSessionRequired, code: "auth_session_required"},
 		{name: "recovery_route", err: failreason.Wrap(account.ErrSessionRequired, "recovery"), code: "auth_session_required", reason: "recovery"},
 		{name: "scope_required", err: account.ErrScopeRequired, code: "auth_scope_required"},

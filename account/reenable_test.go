@@ -98,6 +98,41 @@ func TestReenableMethod(t *testing.T) {
 			t.Errorf("events = %v, want none", got)
 		}
 	})
+	t.Run("fresh_plain_session_own_method", func(t *testing.T) {
+		t.Parallel()
+		p := newPW(t, pwOptions{posture: access.PosturePerRequest})
+		u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
+		lock := seedLock(t, p.mem, p.svc, "alice", false, false)
+		now := time.Now()
+		pr := p.plainPrincipalOf(t, &access.Session{
+			ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPassword,
+			CreatedAt: now, LastActivity: now, AuthTime: now,
+		})
+		err := p.svc.ReenableMethod(t.Context(), pr, access.MethodPassword)
+		if !errors.Is(err, access.ErrRecentAuthRequired) || failreason.Of(err) != failreason.ReenableNeedsOtherMethod {
+			t.Errorf("ReenableMethod(password) from a fresh plain password session = %v, reason %q; want ErrRecentAuthRequired, reason %q",
+				err, failreason.Of(err), failreason.ReenableNeedsOtherMethod)
+		}
+		if rec, _ := record(t, p.mem, p.svc, "alice", false); rec != lock {
+			t.Errorf("record after the refusal = %+v, want the lock unchanged", rec)
+		}
+	})
+	t.Run("stale_plain_session_sign_in_again", func(t *testing.T) {
+		t.Parallel()
+		p := newPW(t, pwOptions{posture: access.PosturePerRequest})
+		u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
+		seedLock(t, p.mem, p.svc, "alice", false, false)
+		now := time.Now()
+		pr := p.plainPrincipalOf(t, &access.Session{
+			ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPasskey,
+			CreatedAt: now.Add(-2 * time.Hour), LastActivity: now, AuthTime: now.Add(-time.Hour),
+		})
+		err := p.svc.ReenableMethod(t.Context(), pr, access.MethodPassword)
+		if !errors.Is(err, access.ErrRecentAuthRequired) || failreason.Of(err) != failreason.SignInAgain {
+			t.Errorf("ReenableMethod from a plain session signed in an hour ago = %v, reason %q; want ErrRecentAuthRequired, reason %q",
+				err, failreason.Of(err), failreason.SignInAgain)
+		}
+	})
 	t.Run("stale_session_no_reason", func(t *testing.T) {
 		t.Parallel()
 		p := newPW(t, pwOptions{})

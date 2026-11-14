@@ -20,7 +20,8 @@ import (
 
 // agentHeader carries the custom verifier's credential: "ok" grants its
 // principal, "bad" is its refusal, "down" a store failure, "boom" an error
-// access does not map, and "ctx" the request's own context error.
+// access does not map, "recent" RequireRecentAuth's refusal, which no
+// verifier may return, and "ctx" the request's own context error.
 const agentHeader = "X-Agent"
 
 const agentMethod access.Method = "agent"
@@ -37,6 +38,8 @@ func (agentVerifier) Verify(ctx context.Context, r *http.Request) (access.Princi
 		return access.Principal{}, false, fmt.Errorf("%w: agent store down", access.ErrAuthBackend)
 	case "boom":
 		return access.Principal{}, false, errors.New("agent: verifier broke")
+	case "recent":
+		return access.Principal{}, false, fmt.Errorf("agent: %w", access.ErrRecentAuthRequired)
 	case "ctx":
 		return access.Principal{}, false, fmt.Errorf("agent: %w", ctx.Err())
 	default:

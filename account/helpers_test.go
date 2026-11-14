@@ -214,6 +214,26 @@ func (f *fixture) authenticate(ctx context.Context, token access.Secret) (access
 	return f.authn.Authenticate(req)
 }
 
+// plainPrincipalOf stores sess and returns the principal the Authenticator
+// grants for it over plain HTTP, under the plain cookie name; the fixture
+// runs PosturePerRequest.
+func (f *fixture) plainPrincipalOf(t testing.TB, sess *access.Session) access.Principal {
+	t.Helper()
+	token, hash := access.GenerateSessionToken()
+	sess.TokenHash = hash
+	if err := f.mem.CreateSession(t.Context(), sess); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.com/", http.NoBody)
+	cookie := f.authn.Cookie()
+	req.AddCookie(&http.Cookie{Name: cookie.CookieName(false), Value: token.Reveal()})
+	p, err := f.authn.Authenticate(req)
+	if err != nil {
+		t.Fatalf("Authenticate(plain session): %v", err)
+	}
+	return p
+}
+
 // keyPrincipal stores a key of u carrying scopes and returns the principal
 // the Authenticator grants for it.
 func (f *fixture) keyPrincipal(t *testing.T, u *access.User, scopes ...string) access.Principal {

@@ -20,8 +20,9 @@ const maxUserAgentBytes = 256
 // draft is a session built before its Update, so Rules.SessionCaps runs
 // once and outside any transaction; store fills its user and writes it.
 type draft struct {
-	token   access.Secret
-	session access.Session
+	token     access.Secret
+	presented access.Hash // Client.Presented, the session a full sign-in replaces
+	session   access.Session
 }
 
 // newDraft builds the session of op's method and kind that createSession
@@ -33,7 +34,7 @@ func (s *Service) newDraft(ctx context.Context, r Rules, c Client, op *sessionOp
 	id := make([]byte, 16)
 	_, _ = rand.Read(id) // crypto/rand.Read never fails (Go 1.24+); it crashes the program instead
 	now := s.now()
-	d := draft{token: token, session: access.Session{
+	d := draft{token: token, presented: c.Presented, session: access.Session{
 		ID:           hex.EncodeToString(id),
 		TokenHash:    hash,
 		AuthMethod:   op.method,
@@ -55,32 +56,53 @@ func (s *Service) newDraft(ctx context.Context, r Rules, c Client, op *sessionOp
 	return d
 }
 
-// store writes d's session for userID inside tx. Under
-// Rules.MaxSessionsPerUser it first deletes the user's least recently
-// active sessions until one more fits, and returns their IDs for the
-// caller's EventSessionRevoked.
-func (d *draft) store(ctx context.Context, tx Tx, r Rules, userID int64) (evicted []string, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value
+// store writes d's session for userID inside tx. It first deletes the
+// session replace names, then, under Rules.MaxSessionsPerUser, the user's
+// least recently active sessions until one more fits, and returns both for
+// the caller's EventSessionRevoked entries ("" for no replacement).
+func (d *draft) store(ctx context.Context, tx Tx, r Rules, userID int64) (replaced string, evicted []string, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value
 	d.session.UserID = userID
+	if replaced, err = d.replace(ctx, tx); err != nil {
+		return "", nil, err
+	}
 	if r.MaxSessionsPerUser > 0 {
 		sessions, err := tx.SessionsByUserID(ctx, userID)
 		if err != nil {
-			return nil, err
+			return "", nil, err
 		}
 		slices.SortFunc(sessions, func(a, b access.Session) int {
 			return cmp.Or(a.LastActivity.Compare(b.LastActivity), strings.Compare(a.ID, b.ID))
 		})
 		for i := 0; len(sessions)-i >= r.MaxSessionsPerUser; i++ {
 			if err := tx.DeleteSession(ctx, access.SessionRef{ID: sessions[i].ID, UserID: userID}); err != nil {
-				return nil, err
+				return "", nil, err
 			}
 			evicted = append(evicted, sessions[i].ID)
 		}
 	}
 	sess := d.session
 	if err := tx.CreateSession(ctx, &sess); err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	return evicted, nil
+	return replaced, evicted, nil
+}
+
+// replace deletes the session d.presented names when d is a full session
+// of that session's user on its transport, and returns its ID: a fresh
+// sign-in ends the session it was made from, so a sniffed token dies with
+// it. A recovery start is not a sign-in and replaces nothing.
+func (d *draft) replace(ctx context.Context, tx Tx) (string, error) {
+	if d.session.Kind != access.SessionFull || d.presented.IsZero() {
+		return "", nil
+	}
+	old, found, err := tx.SessionByHash(ctx, d.presented)
+	if err != nil || !found || old.UserID != d.session.UserID || old.Secure != d.session.Secure {
+		return "", err
+	}
+	if err := tx.DeleteSession(ctx, access.SessionRef{ID: old.ID, UserID: old.UserID}); err != nil {
+		return "", err
+	}
+	return old.ID, nil
 }
 
 // admission is an anonymous operation's gate: its own refusals, then its
@@ -141,13 +163,13 @@ type sessionOp struct {
 }
 
 // createSession runs op in order: the admission, prepare, Rules.SessionCaps
-// once with c, then one change holding op.in, op.fill, the session write,
-// the MaxSessionsPerUser eviction and its entries: EventSessionRevoked,
-// op.announce's and, for a full session, EventSignedIn. A full session's device
-// cookie is Succeed's, else (no or an IP-only reservation) Limiter.DeviceCookie
-// for c.Device; a recovery session gets none. A prepare error cancels the
-// reservation and an Update error fails it; a commit whose op.in gave no user
-// fails it too and returns the zero SignedIn and a nil error.
+// once with c, then one change holding op.in, op.fill and the session write
+// (draft.store), with an EventSessionRevoked per replaced or evicted batch,
+// op.announce's entries and, for a full session, EventSignedIn. A full
+// session's device cookie is Succeed's, else Limiter.DeviceCookie for
+// c.Device; a recovery session gets none. A prepare error cancels the
+// reservation and an Update error fails it, as does a commit whose op.in gave
+// no user, which returns the zero SignedIn and a nil error.
 func (s *Service) createSession(ctx context.Context, r Rules, c Client, op *sessionOp) (SignedIn, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
 	res, err := op.admitAndPrepare()
 	if err != nil {
@@ -189,7 +211,7 @@ func (op *sessionOp) admitAndPrepare() (*ratelimit.Reservation, error) {
 
 // writeSession is createSession's change, from c's address: op.in and
 // op.fill, then d's session for the user op.in returned, with the
-// evictions and the entries.
+// replacement, the evictions and the entries.
 func (s *Service) writeSession(ctx context.Context, r Rules, c Client, op *sessionOp, d *draft) (user *access.User, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
 	err = s.change(ctx, byClient(Actor{}, c), func(tx Tx, j *journal) error {
 		user = nil
@@ -200,11 +222,14 @@ func (s *Service) writeSession(ctx context.Context, r Rules, c Client, op *sessi
 		if op.fill != nil {
 			op.fill(&d.session)
 		}
-		evicted, writeErr := d.store(ctx, tx, r, u.ID)
+		replaced, evicted, writeErr := d.store(ctx, tx, r, u.ID)
 		if writeErr != nil {
 			return writeErr
 		}
 		j.created(&d.session)
+		if replaced != "" {
+			j.addDetail(Event{Kind: EventSessionRevoked, At: s.now(), UserID: u.ID, SessionIDs: []string{replaced}}, LogDetailSignedInAgain)
+		}
 		if len(evicted) > 0 {
 			j.add(Event{Kind: EventSessionRevoked, At: s.now(), UserID: u.ID, SessionIDs: evicted})
 		}

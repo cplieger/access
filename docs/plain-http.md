@@ -35,6 +35,14 @@ Two rows need a reason:
 
 Each OIDC route is admitted by `account` before it touches a cookie or the identity provider: the sign-in start, the callback and the pending-link read through `Service.AdmitOIDC`, and the link and step-up starts through `Service.AdmitOIDCSession`. A plain start therefore sets no flow cookie and sends the browser nowhere. A plain pending-link read answers 403 even when it presents a valid pending cookie, which it neither reads nor clears.
 
+## Recent auth and the fresh sign-in
+
+A plain session's recent-auth time is its sign-in, because nothing over plain HTTP refreshes it: every step-up needs HTTPS. Once that time is older than `Rules.RecentAuth`, an action that needs recent auth, such as `authPasswordSet`, answers 403 `auth_recent_auth_required` with `Reason` `sign_in_again`, and the client asks for a fresh sign-in in place of the step-up dialog. A secure session's refusal carries no reason. A key, a custom verifier's principal and the bypass never get `sign_in_again`, since a sign-in cannot help them. A handler of yours that guards its own action gets the same answer from `access.RequireRecentAuth` and `access.ErrorFor` ([Guards](primitives.md#guards)).
+
+A fresh sign-in replaces the session its request presented. `accesshttp` puts the hash of the session cookie it read for the request's transport in `Client.Presented`, and a full sign-in deletes that session before it counts the user's sessions against `Rules.MaxSessionsPerUser`, when the session is the signing-in user's and on the same transport. Its `session_revoked` entry carries `signed_in_again` ([The security log](security-log.md)). The user then holds one session for that browser, a session on another device survives the limit, and a token sniffed from the old session stops working at the sign-in. Another user's session, a session on the other transport and a missing one are left alone, and a recovery start replaces nothing. An app that calls `account` directly sets `Client.Presented` the same way, from `CookieConfig.ReadCookie`.
+
+The limiter's device cookie is the one long-lived secret a plain sign-in issues, and it only relaxes the sign-in limiter for the device that holds it. Over plain HTTP it is set, like every cookie there, with no `Max-Age` and no `Expires`, so it ends with the browser ([Session cookie](configuration.md#session-cookie)).
+
 ## Keys over plain HTTP
 
 An API key works over plain HTTP under `PosturePerRequest`, because a LAN scraper such as Prometheus often has no TLS. A key is never issued over plain HTTP: `authKeyCreate` and `authKeyRotate` are refused, for a session and for a key alike. Create keys over HTTPS, or out of band with `account.OutOfBand`.

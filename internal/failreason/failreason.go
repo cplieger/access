@@ -13,6 +13,9 @@ const (
 	// ReenableNeedsOtherMethod is ReenableMethod refused for a session that
 	// signed in with the method being re-enabled.
 	ReenableNeedsOtherMethod = "reenable_needs_other_method"
+	// SignInAgain is a recent-auth refusal of a plain session: nothing over
+	// plain HTTP refreshes its AuthTime, so only a fresh sign-in passes.
+	SignInAgain = "sign_in_again"
 
 	// KeyUnknown is a Bearer value no stored key has as either secret. The
 	// verifiers' reasons are audit-only: the client sees the sentinel, so a

@@ -827,6 +827,7 @@ export const REASONS = [
   "unknown_field",
   "token_in_query",
   "transport_changed",
+  "sign_in_again",
   "too_short",
   "too_long",
   "contains_username",

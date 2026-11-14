@@ -22,6 +22,9 @@ const (
 	// LogDetailTransportChanged is a session revoked for being presented on
 	// the other transport (see [access.Session.Secure]).
 	LogDetailTransportChanged = access.ReasonTransportChanged
+	// LogDetailSignedInAgain is the session a fresh sign-in replaced: the
+	// one its request presented (Client.Presented).
+	LogDetailSignedInAgain = "signed_in_again"
 )
 
 // LogClasses returns every class, in this order.
@@ -41,7 +44,8 @@ type LogEntry struct {
 	ActorUserAgent string // the acting session's UserAgent
 	ActorKeySuffix string // the acting key's Suffix
 	// Detail is an app entry's own detail, or a library session_revoked's
-	// LogDetailTransportChanged; empty on every other library entry.
+	// LogDetailTransportChanged or LogDetailSignedInAgain; empty on every
+	// other library entry.
 	Detail string
 	Event  Event // Kind, the subject, the actor's IDs, the kind's fields, and Seq
 }

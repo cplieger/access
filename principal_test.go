@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cplieger/access/internal/failreason"
 	"github.com/cplieger/access/internal/printcheck"
 )
 
@@ -321,4 +322,69 @@ func TestPrincipalSecure(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestRequireRecentAuthSignInAgain pins the reason RequireRecentAuth's
+// refusal carries: sign_in_again for a full session over plain HTTP, whose
+// AuthTime nothing there refreshes, and none for a secure session or for any
+// principal a sign-in cannot help.
+func TestRequireRecentAuthSignInAgain(t *testing.T) {
+	t.Parallel()
+	f := newChainFixture(t)
+	now := time.Now()
+	perRequest := CookieConfig{Posture: PosturePerRequest}
+	// plainAt is a plain request carrying a new plain session of kind
+	// signed in at authTime.
+	plainAt := func(authTime time.Time, kind SessionKind) *http.Request {
+		method, created := MethodPassword, now.Add(-3*time.Hour)
+		if kind == SessionRecovery {
+			method, created = MethodRecovery, now
+		}
+		tok := f.addSession(t, &Session{ID: "plain-" + string(kind) + authTime.Format(time.RFC3339Nano), UserID: f.user.ID, AuthMethod: method, Kind: kind, CreatedAt: created, LastActivity: now, AuthTime: authTime})
+		r := httptest.NewRequestWithContext(AllowRecoverySession(t.Context()), http.MethodGet, "http://app.example/api", nil)
+		r.AddCookie(&http.Cookie{Name: perRequest.CookieName(false), Value: tok})
+		return r
+	}
+	// plain is r's headers on a plain request.
+	plain := func(r *http.Request) *http.Request {
+		q := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://app.example/api", nil)
+		q.Header = r.Header
+		return q
+	}
+	a := mustAuthenticator(t, f.store, Config{Cookie: perRequest})
+	staleSecure := mustAuthenticate(t, a, withSession(bearerRequest(""), f.session))
+	staleSecure.AuthTime = now.Add(-2 * time.Hour)
+	custom := Principal{User: &User{Username: "agent", Enabled: true}, Method: "agent_key", SessionID: "s", AuthTime: now.Add(-2 * time.Hour)}
+	for _, tc := range []struct {
+		p      Principal
+		name   string
+		reason string
+		ok     bool
+	}{
+		{name: "fresh_plain_session", p: mustAuthenticate(t, a, plainAt(now, SessionFull)), ok: true},
+		{name: "stale_plain_session", p: mustAuthenticate(t, a, plainAt(now.Add(-2*time.Hour), SessionFull)), reason: failreason.SignInAgain},
+		{name: "future_plain_session", p: mustAuthenticate(t, a, plainAt(now.Add(time.Hour), SessionFull)), reason: failreason.SignInAgain},
+		{name: "stale_secure_session", p: staleSecure},
+		{name: "plain_recovery_session", p: mustAuthenticate(t, a, plainAt(now, SessionRecovery))},
+		{name: "plain_key", p: mustAuthenticate(t, a, plain(bearerRequest(f.key)))},
+		{name: "plain_custom_verifier", p: mustAuthenticate(t, mustAuthenticator(t, f.store, Config{Cookie: perRequest, Verifier: stubVerifier{p: custom, ok: true}}), plain(bearerRequest("")))},
+		{name: "plain_bypass", p: mustAuthenticate(t, mustAuthenticator(t, f.store, Config{Cookie: perRequest, Bypass: func() bool { return true }}), plain(bearerRequest("")))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := RequireRecentAuth(tc.p, time.Minute, now)
+			if tc.ok {
+				if err != nil {
+					t.Errorf("RequireRecentAuth = %v, want nil", err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrRecentAuthRequired) || failreason.Of(err) != tc.reason {
+				t.Errorf("RequireRecentAuth(Secure %t) = %v, reason %q; want ErrRecentAuthRequired, reason %q", tc.p.Secure, err, failreason.Of(err), tc.reason)
+			}
+			if err != nil && err.Error() != ErrRecentAuthRequired.Error() {
+				t.Errorf("refusal text = %q, want the sentinel's", err)
+			}
+		})
+	}
 }

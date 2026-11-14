@@ -130,16 +130,11 @@ func serveLoginPasskeyFinish(h *Handler, c *call) error {
 	return nil
 }
 
-// serveLogout ends the session the cookie names, if any, and clears the
-// cookie. A refusal keeps the cookie, so the browser can retry the logout
-// instead of forgetting a token whose session still lives.
+// serveLogout ends the session the request presented, if any, and clears
+// the cookie. A refusal keeps the cookie, so the browser can retry the
+// logout instead of forgetting a token whose session still lives.
 func serveLogout(h *Handler, c *call) error {
-	cfg := h.acct.Authenticator().Cookie()
-	var hash access.Hash
-	if token := cfg.ReadCookie(c.r, c.client.Secure); token != "" {
-		hash = access.SessionHash(token)
-	}
-	if err := h.acct.Logout(c.r.Context(), hash); err != nil {
+	if err := h.acct.Logout(c.r.Context(), c.client.Presented); err != nil {
 		return err
 	}
 	h.clearSession(c.w, c.client.Secure)

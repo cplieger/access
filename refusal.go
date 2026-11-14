@@ -177,29 +177,40 @@ func NewError(code Code, reason string, err error) Error {
 	return e
 }
 
-// The [Error] Reason values [ErrorFor] can answer, in [ErrorReasons] order.
+// The [Error] Reason values access assigns, in [ErrorReasons] order.
 const (
 	// ReasonTransportChanged is a session presented on the other transport,
 	// answered with [CodeSessionExpired] once the session is revoked.
 	ReasonTransportChanged = failreason.TransportChanged
+	// ReasonSignInAgain is [RequireRecentAuth] refusing a plain session,
+	// answered with [CodeRecentAuthRequired]: a step-up cannot run over
+	// plain HTTP, so the client asks for a fresh sign-in.
+	ReasonSignInAgain = failreason.SignInAgain
 )
 
-// ErrorReasons returns every Reason [ErrorFor] can answer, in a stable
-// order.
-func ErrorReasons() []string { return []string{ReasonTransportChanged} }
+// ErrorReasons returns every Reason access assigns, in a stable order.
+func ErrorReasons() []string { return []string{ReasonTransportChanged, ReasonSignInAgain} }
 
-// ErrorFor maps an error [Authenticator.Authenticate] returned to its
-// refusal. Its Reason is empty, so the answer names no stored state, except
-// [ReasonTransportChanged] for a session presented on the other transport,
-// which the verifier has revoked. It reports false for any other error.
+// ErrorFor maps an error [Authenticator.Authenticate] or [RequireRecentAuth]
+// returned to its refusal. Its Reason is empty, so the answer names no
+// stored state, except [ReasonTransportChanged] for a session presented on
+// the other transport, which the verifier has revoked, and for
+// [ErrRecentAuthRequired] the reason the refusal carries, such as
+// [ReasonSignInAgain]. It reports false for any other error.
 func ErrorFor(err error) (Error, bool) {
 	code, ok := authenticationCode(err)
 	if !ok {
 		return Error{}, false
 	}
 	var reason string
-	if errors.Is(err, ErrSessionTransport) {
-		reason = ReasonTransportChanged
+	switch code {
+	case CodeSessionExpired:
+		if errors.Is(err, ErrSessionTransport) {
+			reason = ReasonTransportChanged
+		}
+	case CodeRecentAuthRequired:
+		reason = failreason.Of(err)
+	default:
 	}
 	return NewError(code, reason, err), true
 }
@@ -207,6 +218,9 @@ func ErrorFor(err error) (Error, bool) {
 func authenticationCode(err error) (Code, bool) {
 	if errors.Is(err, ErrHTTPSRequired) {
 		return CodeHTTPSRequired, true
+	}
+	if errors.Is(err, ErrRecentAuthRequired) {
+		return CodeRecentAuthRequired, true
 	}
 	if ice, isICE := errors.AsType[*InvalidCredentialError](err); isICE {
 		switch {
