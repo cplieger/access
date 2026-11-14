@@ -50,7 +50,7 @@ func sessionRequest(ctx context.Context, token string) *http.Request {
 // cookie: the sentinel a client sees, and the audit reason it carries.
 func TestSessionVerifierRefusals(t *testing.T) {
 	t.Parallel()
-	live := Session{ID: "s", CreatedAt: sessionT0, LastActivity: sessionT0}
+	live := Session{ID: "s", CreatedAt: sessionT0, LastActivity: sessionT0, Secure: true}
 	for _, tt := range []struct {
 		want     error
 		session  Session
@@ -62,11 +62,11 @@ func TestSessionVerifierRefusals(t *testing.T) {
 		{name: "unknown cookie", token: "no-such-session", want: ErrSessionNotFound, reason: failreason.SessionUnknown, session: live},
 		{
 			name: "past idle", want: ErrSessionExpired, reason: failreason.SessionExpired,
-			session: Session{ID: "s", CreatedAt: sessionT0.Add(-2 * time.Hour), LastActivity: sessionT0.Add(-time.Hour - time.Nanosecond)},
+			session: Session{ID: "s", CreatedAt: sessionT0.Add(-2 * time.Hour), LastActivity: sessionT0.Add(-time.Hour - time.Nanosecond), Secure: true},
 		},
 		{
 			name: "past absolute", want: ErrSessionExpired, reason: failreason.SessionExpired,
-			session: Session{ID: "s", CreatedAt: sessionT0.Add(-24*time.Hour - time.Nanosecond), LastActivity: sessionT0},
+			session: Session{ID: "s", CreatedAt: sessionT0.Add(-24*time.Hour - time.Nanosecond), LastActivity: sessionT0, Secure: true},
 		},
 		{name: "owner disabled", want: ErrSessionNotFound, reason: failreason.AccountDisabled, session: live, disabled: true},
 	} {
@@ -102,7 +102,7 @@ func TestSessionAheadOfClockVerifies(t *testing.T) {
 	t.Parallel()
 	week := 7 * 24 * time.Hour
 	ahead := sessionT0.Add(2 * time.Minute)
-	a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: ahead, LastActivity: ahead}, Config{IdleTimeout: week, AbsTimeout: week})
+	a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: ahead, LastActivity: ahead, Secure: true}, Config{IdleTimeout: week, AbsTimeout: week})
 	stored, _, _ := store.SessionByHash(t.Context(), SessionHash(token))
 	wantIdle, wantAbsolute := SessionDeadlines(stored, a.Timeouts())
 
@@ -161,7 +161,7 @@ func TestSessionStoreErrorIs503(t *testing.T) {
 func TestSessionActivityWrite(t *testing.T) {
 	t.Parallel()
 	client := netip.MustParseAddr("192.0.2.7")
-	a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: sessionT0, LastActivity: sessionT0}, Config{ClientAddr: func(*http.Request) ClientAddr { return ClientAddr{Peer: client, Via: ViaDirect} }})
+	a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: sessionT0, LastActivity: sessionT0, Secure: true}, Config{ClientAddr: func(*http.Request) ClientAddr { return ClientAddr{Peer: client, Via: ViaDirect} }})
 	now := sessionT0.Add(10 * time.Minute)
 	clock.Set(now)
 	p, err := a.Authenticate(sessionRequest(t.Context(), token))
@@ -215,7 +215,7 @@ func TestRecoverySessionRestricted(t *testing.T) {
 	t.Parallel()
 	week := 7 * 24 * time.Hour
 	recovery := func() *Session {
-		return &Session{ID: "r", Kind: SessionRecovery, AuthMethod: MethodRecovery, CreatedAt: sessionT0, LastActivity: sessionT0}
+		return &Session{ID: "r", Kind: SessionRecovery, AuthMethod: MethodRecovery, CreatedAt: sessionT0, LastActivity: sessionT0, Secure: true}
 	}
 	cfg := Config{IdleTimeout: week, AbsTimeout: week}
 
@@ -257,7 +257,7 @@ func TestRecoverySessionRestricted(t *testing.T) {
 	})
 	t.Run("the mark does not restrict a full session", func(t *testing.T) {
 		t.Parallel()
-		a, _, _, token := clockedSession(t, &Session{ID: "f", CreatedAt: sessionT0, LastActivity: sessionT0}, cfg)
+		a, _, _, token := clockedSession(t, &Session{ID: "f", CreatedAt: sessionT0, LastActivity: sessionT0, Secure: true}, cfg)
 		if p, err := a.Authenticate(sessionRequest(AllowRecoverySession(t.Context()), token)); err != nil || !p.IsSession() {
 			t.Errorf("Authenticate = (%+v, %v), want the full session principal", p, err)
 		}
@@ -282,7 +282,7 @@ func TestSessionCapsEnforced(t *testing.T) {
 			t.Parallel()
 			a, store, clock, token := clockedSession(t, &Session{
 				ID: "c", CreatedAt: sessionT0, LastActivity: tt.lastActivity,
-				IdleCap: 30 * time.Minute, AbsoluteCap: 12 * time.Hour,
+				IdleCap: 30 * time.Minute, AbsoluteCap: 12 * time.Hour, Secure: true,
 			}, cfg)
 			wantIdle, wantAbsolute := tt.lastActivity.Add(30*time.Minute), sessionT0.Add(12*time.Hour)
 

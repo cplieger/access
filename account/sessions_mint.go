@@ -25,9 +25,9 @@ type draft struct {
 }
 
 // newDraft builds the session of op's method and kind that createSession
-// writes for c: a 128-bit hex ID, a fresh token, the sanitised user agent,
-// c's IP, and the per-session caps from one Rules.SessionCaps call, keeping
-// only positive values.
+// writes for c: a 128-bit hex ID, a fresh token, c's transport, the sanitised
+// user agent, c's IP, and the per-session caps from one Rules.SessionCaps
+// call, keeping only positive values.
 func (s *Service) newDraft(ctx context.Context, r Rules, c Client, op *sessionOp) draft { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
 	token, hash := access.GenerateSessionToken()
 	id := make([]byte, 16)
@@ -42,6 +42,7 @@ func (s *Service) newDraft(ctx context.Context, r Rules, c Client, op *sessionOp
 		CreatedAt:    now,
 		LastActivity: now,
 		AuthTime:     now,
+		Secure:       c.Secure,
 	}}
 	if ip := c.IP(); ip.IsValid() {
 		d.session.LastIP = ip.String()

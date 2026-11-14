@@ -17,7 +17,7 @@ func storeSession(t *testing.T, s account.Store, u *access.User, created, last t
 	_, hash := access.GenerateSessionToken()
 	sess := access.Session{
 		ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, TokenHash: hash,
-		AuthMethod: access.MethodPassword, CreatedAt: created, LastActivity: last, AuthTime: created,
+		AuthMethod: access.MethodPassword, CreatedAt: created, LastActivity: last, AuthTime: created, Secure: true,
 	}
 	if err := s.CreateSession(t.Context(), &sess); err != nil {
 		t.Fatalf("CreateSession: %v", err)

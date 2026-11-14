@@ -31,6 +31,7 @@ var localClient = account.Client{
 	Via:       access.ViaDirect,
 	Host:      "nas.lan:8374",
 	UserAgent: "test-agent",
+	Secure:    true,
 }
 
 // busyHasher is a Hasher whose whole budget a held permit takes: every Hash

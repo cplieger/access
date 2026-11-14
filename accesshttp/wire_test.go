@@ -188,7 +188,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 	}
 	session := access.Session{
 		ID: "sess", Label: "laptop", UserAgent: "Firefox", LastIP: "192.0.2.1", AuthMethod: access.MethodPasskey,
-		CreatedAt: at(1), LastActivity: at(2), AuthTime: at(3),
+		CreatedAt: at(1), LastActivity: at(2), AuthTime: at(3), Secure: true,
 	}
 	timeouts := access.SessionTimeouts{Idle: 4 * time.Hour, Absolute: 10 * time.Hour}
 	wantSession := SessionView{

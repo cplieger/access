@@ -173,7 +173,7 @@ func newChainFixture(t *testing.T) chainFixture {
 	now := time.Now()
 	if err := store.CreateSession(ctx, &Session{
 		ID: "sess-1", TokenHash: hash, UserID: user.ID, AuthMethod: MethodPassword,
-		CreatedAt: now, LastActivity: now, AuthTime: now,
+		CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +425,7 @@ func TestPresentedButUnusable(t *testing.T) {
 	})
 	stale := func(t *testing.T, f chainFixture) string {
 		old := time.Now().Add(-48 * time.Hour)
-		return f.addSession(t, &Session{ID: "stale", UserID: f.user.ID, CreatedAt: old, LastActivity: old})
+		return f.addSession(t, &Session{ID: "stale", UserID: f.user.ID, CreatedAt: old, LastActivity: old, Secure: true})
 	}
 	t.Run("stale cookie alone is session expired", func(t *testing.T) {
 		t.Parallel()

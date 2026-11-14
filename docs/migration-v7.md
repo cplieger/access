@@ -55,6 +55,8 @@ A service built on an earlier dev tag sets `ClientAddr.Secure` in its resolver, 
 
 A service built on an earlier dev tag passes the cookie methods the request's transport in place of the request: `CookieName(secure)`, `SetCookie(w, secure, value, maxAge)`, `ReadCookie(r, secure)` and `ClearCookie(w, secure)`, with `ClientAddr(r).Secure` ([Session cookie](configuration.md#session-cookie)). A plain `SetCookie` drops a positive `maxAge`, so every cookie set over plain HTTP ends with the browser session. `PostureInsecureLAN`, `CookieConfig.HTTPS`, `CookieConfig.Persistent`, `CookieConfig.Path`, `CookieConfig.Domain` and `RequestIsHTTPS` are removed, and `CookieConfig.EffectiveName` is replaced by `CookieName(true)`. `PosturePerRequest` is now the second posture's value, 1. `oidc`'s `Begin` and `Finish` always use the flow cookie's secure name.
 
+A store built on an earlier dev tag persists the new `Session.Secure` field, the transport of the request that created the session ([Sessions](storage.md#sessions)). A session stored without it reads plain, so it is bounded by `PlainSessionIdle` (30 minutes) and `PlainSessionAbsolute` (12 hours), which `ValidateSession` and `CleanupExpiredSessions` apply.
+
 ## Records
 
 | auth v6 | access |
@@ -62,7 +64,7 @@ A service built on an earlier dev tag passes the cookie methods the request's tr
 | `User.OIDCSub`, `User.OIDCIssuer` | `User.OIDC`, an `access.OIDCIdentity` |
 | `Session.OIDCExpiry` | none; a session lives by your idle and absolute timeouts |
 | `Session.IPAddress` | `Session.LastIP` |
-| `Session` | gains `ID`, `AuthTime`, `Kind`, `UserAgent`, `Label`, `IssuedByKey`, `IdleCap` and `AbsoluteCap`; its JSON tags are dropped |
+| `Session` | gains `ID`, `AuthTime`, `Kind`, `UserAgent`, `Label`, `IssuedByKey`, `IdleCap`, `AbsoluteCap` and `Secure`; its JSON tags are dropped |
 | `Key` | gains `Scopes`, `LastUsedAt` and `LineageIDs`, and the `ParentKeyID()` method, the key that minted it |
 | `PasskeyCredential` | gains `LastUsedAt` |
 | `PasskeyFlags` | `PasskeyLoginUpdate` and `DecodePasskeyFlags` |

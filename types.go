@@ -119,15 +119,21 @@ type Session struct {
 	// limits; a zero or negative cap is none. [SessionDeadlines] applies them.
 	IdleCap     time.Duration
 	AbsoluteCap time.Duration
+	// Secure is the transport of the request that created the session, set at
+	// creation from [ClientAddr.Secure]. The zero value is plain, the weakest
+	// binding, so a store that drops the field fails closed.
+	Secure bool
 }
 
-// LogValue emits the session's identity, kind and times, never the hash.
+// LogValue emits the session's identity, kind, transport and times, never
+// the hash.
 func (s Session) LogValue() slog.Value { //nolint:gocritic // hugeParam: a value receiver applies LogValue to a Session value too
 	return slog.GroupValue(
 		slog.String("id", s.ID),
 		slog.Int64("user_id", s.UserID),
 		slog.String("auth_method", string(s.AuthMethod)),
 		slog.String("kind", string(s.Kind)),
+		slog.Bool("secure", s.Secure),
 		slog.Int64("issued_by_key", s.IssuedByKey),
 		slog.Time("created_at", s.CreatedAt),
 		slog.Time("last_activity", s.LastActivity),

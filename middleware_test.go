@@ -142,7 +142,7 @@ func TestAuthenticate_session_cookie_valid(t *testing.T) {
 	now := time.Now()
 	if err := db.CreateSession(ctx, &Session{
 		TokenHash: hash, UserID: user.ID, AuthMethod: "password",
-		LastIP: "127.0.0.1", CreatedAt: now, LastActivity: now,
+		LastIP: "127.0.0.1", CreatedAt: now, LastActivity: now, Secure: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestAuthenticate_expired_session_falls_through(t *testing.T) {
 	old := time.Now().Add(-25 * time.Hour)
 	if err := db.CreateSession(ctx, &Session{
 		TokenHash: hash, UserID: user.ID, AuthMethod: "password",
-		LastIP: "127.0.0.1", CreatedAt: old, LastActivity: old.Add(23 * time.Hour),
+		LastIP: "127.0.0.1", CreatedAt: old, LastActivity: old.Add(23 * time.Hour), Secure: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestAuthenticate_disabled_user_session(t *testing.T) {
 	now := time.Now()
 	if err := db.CreateSession(ctx, &Session{
 		TokenHash: hash, UserID: user.ID, AuthMethod: "password",
-		LastIP: "127.0.0.1", CreatedAt: now, LastActivity: now,
+		LastIP: "127.0.0.1", CreatedAt: now, LastActivity: now, Secure: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -390,7 +390,7 @@ func TestAuthenticator_Logger_used(t *testing.T) {
 	now := time.Now()
 	if err := db.CreateSession(ctx, &Session{
 		TokenHash: hash, UserID: user.ID, AuthMethod: "password",
-		LastIP: "127.0.0.1", CreatedAt: now, LastActivity: now,
+		LastIP: "127.0.0.1", CreatedAt: now, LastActivity: now, Secure: true,
 	}); err != nil {
 		t.Fatal(err)
 	}

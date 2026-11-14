@@ -277,7 +277,7 @@ func (e *env) createUser(t testing.TB, name string, role access.Role) {
 // session cookie.
 func (e *env) sessionCookie(t testing.TB, name string) *http.Cookie {
 	t.Helper()
-	out, err := e.svc.PasswordLogin(t.Context(), account.Client{}, account.Credentials{Username: name, Password: access.NewSecret(testPassword)})
+	out, err := e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: name, Password: access.NewSecret(testPassword)})
 	if err != nil {
 		t.Fatalf("PasswordLogin: %v", err)
 	}

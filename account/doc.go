@@ -119,7 +119,9 @@
 //     outlives a call.
 //  14. Cleanup. CleanupExpiredSessions deletes exactly the sessions for
 //     which access.ValidateSession(s, timeouts, now) fails: past idle or
-//     absolute, a SessionRecovery session past min(timeouts,
+//     absolute, a plain session (Secure false) past min(timeouts,
+//     access.PlainSessionIdle and access.PlainSessionAbsolute), a
+//     SessionRecovery session past min(timeouts,
 //     access.RecoverySessionLifetime), and a session past its own IdleCap or
 //     AbsoluteCap. A store calls [access.ValidateSession] (or
 //     [access.SessionDeadlines]) rather than restating the rule. account

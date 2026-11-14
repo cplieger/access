@@ -131,6 +131,10 @@ var variants = map[string]variant{
 		make:  mediumVariant(func(m *medium) { m.reload = dropIdleCaps }),
 		fails: []string{"rule_20_fidelity/reopen"}, mention: []string{"Session.IdleCap"}, only: true,
 	},
+	"secure-lost-on-reopen": {
+		make:  mediumVariant(func(m *medium) { m.reload = dropSecure }),
+		fails: []string{"rule_20_fidelity/reopen", "rule_14_cleanup/plain_limits"}, mention: []string{"Session.Secure"}, only: true,
+	},
 	"live-lists-expired": {
 		make:  memVariant(func(m *MemStore) account.Store { return &liveListsExpiredStore{m} }),
 		fails: []string{"rule_07_expiry/live_tokens"},
@@ -566,6 +570,16 @@ func dropIdleCaps(committed *state) *state {
 	s := committed.clone()
 	for k, sess := range s.sessions {
 		sess.IdleCap = 0
+		s.sessions[k] = sess
+	}
+	return s
+}
+
+// dropSecure is a medium that never wrote Session.Secure to disk.
+func dropSecure(committed *state) *state {
+	s := committed.clone()
+	for k, sess := range s.sessions {
+		sess.Secure = false
 		s.sessions[k] = sess
 	}
 	return s

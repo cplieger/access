@@ -159,7 +159,7 @@ func TestAppendLog(t *testing.T) {
 		now := time.Now()
 		sess := &access.Session{
 			ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPassword,
-			CreatedAt: now, LastActivity: now, AuthTime: now, Label: "laptop", UserAgent: "Firefox on Linux",
+			CreatedAt: now, LastActivity: now, AuthTime: now, Label: "laptop", UserAgent: "Firefox on Linux", Secure: true,
 		}
 		p, _ := f.principalOf(t, sess)
 		if !p.IP.IsValid() {

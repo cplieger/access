@@ -116,11 +116,11 @@ func (e *env) registerFinish(t testing.TB, cookie *http.Cookie, dev *accesstest.
 // the session cookie, whose AuthMethod is passkey.
 func (e *env) passkeySession(t testing.TB, dev *accesstest.PasskeyDevice) *http.Cookie {
 	t.Helper()
-	pc, err := e.svc.PasskeyLoginBegin(t.Context(), account.Client{}, testOriginOf(t), account.LoginModal)
+	pc, err := e.svc.PasskeyLoginBegin(t.Context(), account.Client{Secure: true}, testOriginOf(t), account.LoginModal)
 	if err != nil {
 		t.Fatalf("PasskeyLoginBegin: %v", err)
 	}
-	in, err := e.svc.PasskeyLoginFinish(t.Context(), account.Client{}, pc.ID, bytes.NewReader(dev.Assert(jsonBytes(t, pc.Assertion))))
+	in, err := e.svc.PasskeyLoginFinish(t.Context(), account.Client{Secure: true}, pc.ID, bytes.NewReader(dev.Assert(jsonBytes(t, pc.Assertion))))
 	if err != nil {
 		t.Fatalf("PasskeyLoginFinish: %v", err)
 	}

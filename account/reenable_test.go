@@ -68,7 +68,7 @@ func TestReenableMethod(t *testing.T) {
 		now := time.Now()
 		pr, _ := p.principalOf(t, &access.Session{
 			ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPasskey,
-			CreatedAt: now.Add(-2 * time.Hour), LastActivity: now, AuthTime: now,
+			CreatedAt: now.Add(-2 * time.Hour), LastActivity: now, AuthTime: now, Secure: true,
 		})
 		if err := p.svc.ReenableMethod(t.Context(), pr, access.MethodPassword); err != nil {
 			t.Fatalf("ReenableMethod from a session stepped up with a passkey = %v, want nil", err)
@@ -106,7 +106,7 @@ func TestReenableMethod(t *testing.T) {
 		now := time.Now()
 		pr, _ := p.principalOf(t, &access.Session{
 			ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPasskey,
-			CreatedAt: now.Add(-2 * time.Hour), LastActivity: now, AuthTime: now.Add(-time.Hour),
+			CreatedAt: now.Add(-2 * time.Hour), LastActivity: now, AuthTime: now.Add(-time.Hour), Secure: true,
 		})
 		err := p.svc.ReenableMethod(t.Context(), pr, access.MethodPassword)
 		if !errors.Is(err, access.ErrRecentAuthRequired) || failreason.Of(err) != "" {

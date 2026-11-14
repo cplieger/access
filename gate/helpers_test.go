@@ -82,10 +82,10 @@ func newFixture(t *testing.T) *fixture {
 	}
 	f.userID = u.ID
 	now := time.Now()
-	f.session = f.addSession(t, &access.Session{ID: "full", AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: now})
-	f.recovery = f.addSession(t, &access.Session{ID: "recovery", Kind: access.SessionRecovery, AuthMethod: access.MethodRecovery, CreatedAt: now, LastActivity: now, AuthTime: now})
-	f.expired = f.addSession(t, &access.Session{ID: "expired", AuthMethod: access.MethodPassword, CreatedAt: now.Add(-3 * time.Hour), LastActivity: now.Add(-2 * time.Hour), AuthTime: now.Add(-3 * time.Hour)})
-	f.stale = f.addSession(t, &access.Session{ID: "stale", AuthMethod: access.MethodPassword, CreatedAt: now.Add(-time.Hour), LastActivity: now.Add(-10 * time.Minute), AuthTime: now.Add(-time.Hour)})
+	f.session = f.addSession(t, &access.Session{ID: "full", AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true})
+	f.recovery = f.addSession(t, &access.Session{ID: "recovery", Kind: access.SessionRecovery, AuthMethod: access.MethodRecovery, CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true})
+	f.expired = f.addSession(t, &access.Session{ID: "expired", AuthMethod: access.MethodPassword, CreatedAt: now.Add(-3 * time.Hour), LastActivity: now.Add(-2 * time.Hour), AuthTime: now.Add(-3 * time.Hour), Secure: true})
+	f.stale = f.addSession(t, &access.Session{ID: "stale", AuthMethod: access.MethodPassword, CreatedAt: now.Add(-time.Hour), LastActivity: now.Add(-10 * time.Minute), AuthTime: now.Add(-time.Hour), Secure: true})
 	f.keyRead, f.keyID = f.addKey(t, &access.Key{Label: "reader", Scopes: []string{"read"}})
 	f.keyNone, f.keyNoneID = f.addKey(t, &access.Key{Label: "plain"})
 	f.keyExpired, f.keyExpiredID = f.addKey(t, &access.Key{Label: "expired", ExpiresAt: now.Add(-time.Minute)})
@@ -96,7 +96,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f.keyDisabled, f.keyDisabledID = f.addKey(t, &access.Key{UserID: off.ID, Label: "bob's"})
-	f.disabledSession = f.addSession(t, &access.Session{ID: "bob", UserID: off.ID, AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: now})
+	f.disabledSession = f.addSession(t, &access.Session{ID: "bob", UserID: off.ID, AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true})
 	logger := f.logger()
 	var err error
 	if f.authn, err = access.New(f.store, access.Config{Verifier: agentVerifier{}, Logger: logger}); err != nil {

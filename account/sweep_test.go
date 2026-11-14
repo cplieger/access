@@ -83,7 +83,7 @@ func putSessions(t *testing.T, f *fixture, specs ...sessionSpec) []string {
 			}
 			s := &access.Session{
 				ID: ids[i], TokenHash: hash, UserID: sp.user, AuthMethod: access.MethodPassword,
-				CreatedAt: now.Add(-sp.inactive), LastActivity: now.Add(-sp.inactive), AuthTime: now.Add(-sp.inactive),
+				CreatedAt: now.Add(-sp.inactive), LastActivity: now.Add(-sp.inactive), AuthTime: now.Add(-sp.inactive), Secure: true,
 			}
 			if err := tx.CreateSession(t.Context(), s); err != nil {
 				return err

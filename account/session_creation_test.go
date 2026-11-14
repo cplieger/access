@@ -643,3 +643,35 @@ func TestSessionUserAgentStored(t *testing.T) {
 		})
 	}
 }
+
+// TestSessionSecureAtCreation: a session records the transport of the
+// request that created it, and a step-up rotation keeps it.
+func TestSessionSecureAtCreation(t *testing.T) {
+	p := newPW(t, pwOptions{posture: access.PosturePerRequest})
+	u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
+	for _, secure := range []bool{false, true} {
+		c := clientAt(1)
+		c.Secure = secure
+		in, err := p.login(t.Context(), c, "alice", goodPassword)
+		if err != nil {
+			t.Fatalf("PasswordLogin(Secure %t) = %v", secure, err)
+		}
+		if got := storedSession(t, p.mem, u.ID, in.Session.ID).Secure; got != secure {
+			t.Errorf("stored Session.Secure after a sign-in with Secure %t = %t, want %t", secure, got, secure)
+		}
+		if !secure {
+			continue
+		}
+		pr, err := p.authenticate(t.Context(), in.Token)
+		if err != nil {
+			t.Fatalf("Authenticate(secure session) = %v", err)
+		}
+		up, err := p.stepUp(t.Context(), c, pr, goodPassword)
+		if err != nil {
+			t.Fatalf("StepUpPassword = %v", err)
+		}
+		if got := storedSession(t, p.mem, u.ID, up.Session.ID); !got.Secure || got.TokenHash.Equal(in.Session.TokenHash) {
+			t.Errorf("stored session after the step-up: Secure %t, rotated %t; want Secure true, rotated", got.Secure, !got.TokenHash.Equal(in.Session.TokenHash))
+		}
+	}
+}

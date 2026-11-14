@@ -167,7 +167,7 @@ func (e *env) recoveryCookie(t testing.TB, name string) *http.Cookie {
 
 func (e *env) startRecovery(t testing.TB, token access.Secret) *http.Cookie {
 	t.Helper()
-	rec, err := e.svc.StartRecovery(t.Context(), account.Client{}, token)
+	rec, err := e.svc.StartRecovery(t.Context(), account.Client{Secure: true}, token)
 	if err != nil {
 		t.Fatalf("StartRecovery: %v", err)
 	}

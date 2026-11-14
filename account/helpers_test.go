@@ -41,6 +41,7 @@ type options struct {
 	hook     func(ctx context.Context) // Hooks.BetweenSessionCalls
 	hooks    account.Hooks
 	store    *faultStore // the Store when set, over its own MemStore
+	posture  access.CookiePosture
 }
 
 // newFixture builds a Service and shuts it down at cleanup. Built inside a
@@ -56,7 +57,7 @@ func newFixture(t testing.TB, o options) *fixture {
 	if f.events == nil {
 		f.events = &eventLog{}
 	}
-	authn, err := access.New(f.mem, access.Config{TimeoutSource: o.timeouts})
+	authn, err := access.New(f.mem, access.Config{TimeoutSource: o.timeouts, Cookie: access.CookieConfig{Posture: o.posture}})
 	if err != nil {
 		t.Fatalf("access.New: %v", err)
 	}
@@ -166,7 +167,7 @@ func (f *fixture) sessionPrincipal(t *testing.T, u *access.User, kind access.Ses
 	now := time.Now()
 	sess := &access.Session{
 		ID: newSessionID(t), UserID: u.ID, Kind: kind,
-		AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: authTime,
+		AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: authTime, Secure: true,
 	}
 	if kind == access.SessionRecovery {
 		sess.AuthMethod = access.MethodRecovery

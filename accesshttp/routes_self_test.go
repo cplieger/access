@@ -227,7 +227,7 @@ func TestRouteAuthStepUpPasskeyFinish(t *testing.T) {
 // signsIn reports whether name signs in with password.
 func (e *env) signsIn(t testing.TB, name, password string) bool {
 	t.Helper()
-	_, err := e.svc.PasswordLogin(t.Context(), account.Client{}, account.Credentials{Username: name, Password: access.NewSecret(password)})
+	_, err := e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: name, Password: access.NewSecret(password)})
 	return err == nil
 }
 
@@ -481,7 +481,7 @@ func TestSessionViewDeadlines(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
 	capped := &access.Session{
 		ID: "c0ffee00c0ffee00c0ffee00c0ffee00", UserID: e.user(t, "alice").ID, TokenHash: hash, AuthMethod: access.MethodPassword,
-		CreatedAt: now, LastActivity: now, AuthTime: now, IdleCap: 10 * time.Minute, AbsoluteCap: time.Hour,
+		CreatedAt: now, LastActivity: now, AuthTime: now, IdleCap: 10 * time.Minute, AbsoluteCap: time.Hour, Secure: true,
 	}
 	if err := e.mem.CreateSession(t.Context(), capped); err != nil {
 		t.Fatalf("CreateSession: %v", err)

@@ -108,7 +108,7 @@ func TestZeroConfigGrantsSession(t *testing.T) {
 	now := time.Now()
 	if err := db.CreateSession(ctx, &Session{
 		ID: "s", TokenHash: hash, UserID: user.ID, AuthMethod: "password",
-		LastIP: "127.0.0.1", CreatedAt: now.Add(-30 * time.Minute), LastActivity: now.Add(-10 * time.Minute),
+		LastIP: "127.0.0.1", CreatedAt: now.Add(-30 * time.Minute), LastActivity: now.Add(-10 * time.Minute), Secure: true,
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -44,7 +44,7 @@ func liveSession(t testing.TB, u *access.User) access.Session {
 	now := time.Now()
 	return access.Session{
 		ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPassword,
-		CreatedAt: now, LastActivity: now, AuthTime: now,
+		CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true,
 	}
 }
 

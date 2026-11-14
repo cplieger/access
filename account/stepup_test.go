@@ -19,7 +19,7 @@ func (f *fixture) signedInVia(t testing.TB, u *access.User, method access.Method
 	now := time.Now()
 	return f.principalOf(t, &access.Session{
 		ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull,
-		AuthMethod: method, CreatedAt: now, LastActivity: now, AuthTime: now,
+		AuthMethod: method, CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true,
 	})
 }
 

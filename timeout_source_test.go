@@ -16,7 +16,7 @@ func setupAgedSession(t *testing.T, age time.Duration) (*countingStore, string) 
 	plaintext, hash := GenerateSessionToken()
 	then := time.Now().Add(-age)
 	if err := cs.CreateSession(t.Context(), &Session{
-		ID: "aged", TokenHash: hash, UserID: 1, AuthMethod: MethodPassword, CreatedAt: then, LastActivity: then,
+		ID: "aged", TokenHash: hash, UserID: 1, AuthMethod: MethodPassword, CreatedAt: then, LastActivity: then, Secure: true,
 	}); err != nil {
 		t.Fatal(err)
 	}

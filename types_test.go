@@ -310,10 +310,10 @@ func TestRecordLogValue(t *testing.T) {
 			v: Session{
 				ID: "sid", UserID: 5, AuthMethod: MethodPasskey, Kind: SessionRecovery, IssuedByKey: 8,
 				IdleCap: 30 * time.Minute, AbsoluteCap: 12 * time.Hour,
-				CreatedAt: at, LastActivity: at.Add(time.Minute), AuthTime: at.Add(2 * time.Minute), TokenHash: NewHash("h"),
+				CreatedAt: at, LastActivity: at.Add(time.Minute), AuthTime: at.Add(2 * time.Minute), TokenHash: NewHash("h"), Secure: true,
 			},
 			want: map[string]any{
-				"id": "sid", "user_id": int64(5), "auth_method": "passkey", "kind": "recovery", "issued_by_key": int64(8),
+				"id": "sid", "user_id": int64(5), "auth_method": "passkey", "kind": "recovery", "secure": true, "issued_by_key": int64(8),
 				"created_at": at, "last_activity": at.Add(time.Minute), "auth_time": at.Add(2 * time.Minute),
 			},
 		},

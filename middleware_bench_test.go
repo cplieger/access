@@ -18,7 +18,7 @@ func BenchmarkAuthenticate(b *testing.B) {
 	token := "bench-session-token-value"
 	hash := SessionHash(token)
 	if err := store.CreateSession(ctx, &Session{
-		UserID: user.ID, TokenHash: hash, AuthMethod: MethodPassword, CreatedAt: time.Now(), LastActivity: time.Now(),
+		UserID: user.ID, TokenHash: hash, AuthMethod: MethodPassword, CreatedAt: time.Now(), LastActivity: time.Now(), Secure: true,
 	}); err != nil {
 		b.Fatal(err)
 	}

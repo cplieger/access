@@ -88,7 +88,7 @@ func (f warnFixture) requestAt(t *testing.T, at time.Time) {
 func TestActivityWarnRateLimited(t *testing.T) { //nolint:paralleltest // asserts on captured logs
 	sessionSetup := func(t *testing.T, logger *slog.Logger) warnFixture {
 		t.Helper()
-		a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: sessionT0, LastActivity: sessionT0}, Config{Logger: logger})
+		a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: sessionT0, LastActivity: sessionT0, Secure: true}, Config{Logger: logger})
 		store.writeFails.Store(math.MaxInt32)
 		ctx := t.Context()
 		return warnFixture{clock: clock, store: store, grant: func() error {
@@ -224,7 +224,7 @@ func TestActivityWarnRateLimited(t *testing.T) { //nolint:paralleltest // assert
 	})
 	t.Run("a session and a key failure each log", func(t *testing.T) {
 		logger, h := capture.New()
-		a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: sessionT0, LastActivity: sessionT0}, Config{Logger: logger})
+		a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: sessionT0, LastActivity: sessionT0, Secure: true}, Config{Logger: logger})
 		g, err := GenerateAPIKey("ak_")
 		if err != nil {
 			t.Fatal(err)

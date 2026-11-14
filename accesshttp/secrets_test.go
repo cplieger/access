@@ -141,7 +141,7 @@ func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler,
 		t.Fatal(err)
 	}
 	cfg := authn.Cookie()
-	in, err := svc.PasswordLogin(t.Context(), account.Client{}, account.Credentials{Username: "alice", Password: access.NewSecret(secretsPassword)})
+	in, err := svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: "alice", Password: access.NewSecret(secretsPassword)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler,
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec, err := svc.StartRecovery(t.Context(), account.Client{}, tok.Plaintext)
+	rec, err := svc.StartRecovery(t.Context(), account.Client{Secure: true}, tok.Plaintext)
 	if err != nil {
 		t.Fatal(err)
 	}

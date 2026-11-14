@@ -62,6 +62,7 @@ func TestProperty_SessionExpiryEnforcement(t *testing.T) {
 		sess := &Session{
 			CreatedAt:    now.Add(-createdAge),
 			LastActivity: now.Add(-lastActivityAge),
+			Secure:       true,
 		}
 
 		idleExpired := lastActivityAge > idleTimeout
@@ -110,7 +111,7 @@ func TestValidateSession_timeoutBoundaries(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			sess := &Session{LastActivity: tc.lastActivity, CreatedAt: tc.createdAt}
+			sess := &Session{LastActivity: tc.lastActivity, CreatedAt: tc.createdAt, Secure: true}
 			err := ValidateSession(sess, SessionTimeouts{Idle: tc.idle, Absolute: tc.abs}, now)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("ValidateSession(idle=%v, abs=%v, lastActivity %v ago, created %v ago) = %v, wantErr=%v",
@@ -156,7 +157,7 @@ func TestSessionDeadlines(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			s := &Session{CreatedAt: created, LastActivity: active, Kind: tc.kind, IdleCap: tc.idleCap, AbsoluteCap: tc.absCap}
+			s := &Session{CreatedAt: created, LastActivity: active, Kind: tc.kind, IdleCap: tc.idleCap, AbsoluteCap: tc.absCap, Secure: true}
 			idle, absolute := SessionDeadlines(s, policy)
 			if !idle.Equal(tc.wantIdle) {
 				t.Errorf("idle deadline = %v, want %v", idle, tc.wantIdle)
@@ -168,6 +169,55 @@ func TestSessionDeadlines(t *testing.T) {
 	}
 }
 
+func TestPlainSessionDeadlines(t *testing.T) {
+	t.Parallel()
+	created := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
+	active := created.Add(3 * time.Hour)
+	day := SessionTimeouts{Idle: time.Hour, Absolute: 24 * time.Hour}
+	tests := []struct {
+		name              string
+		policy            SessionTimeouts
+		secure            bool
+		idleCap, absCap   time.Duration
+		wantIdle, wantAbs time.Time
+	}{
+		{name: "plain_under_a_day_policy", policy: day, wantIdle: active.Add(30 * time.Minute), wantAbs: created.Add(12 * time.Hour)},
+		{
+			name: "plain_under_a_shorter_idle_policy", policy: SessionTimeouts{Idle: 15 * time.Minute, Absolute: 24 * time.Hour},
+			wantIdle: active.Add(15 * time.Minute), wantAbs: created.Add(12 * time.Hour),
+		},
+		{
+			name: "plain_with_lower_caps", policy: day, idleCap: 10 * time.Minute, absCap: 6 * time.Hour,
+			wantIdle: active.Add(10 * time.Minute), wantAbs: created.Add(6 * time.Hour),
+		},
+		{
+			name: "plain_with_higher_caps", policy: day, idleCap: 2 * time.Hour, absCap: 48 * time.Hour,
+			wantIdle: active.Add(30 * time.Minute), wantAbs: created.Add(12 * time.Hour),
+		},
+		{name: "secure_unchanged", policy: day, secure: true, wantIdle: active.Add(time.Hour), wantAbs: created.Add(24 * time.Hour)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := &Session{CreatedAt: created, LastActivity: active, Secure: tc.secure, IdleCap: tc.idleCap, AbsoluteCap: tc.absCap}
+			idle, absolute := SessionDeadlines(s, tc.policy)
+			if !idle.Equal(tc.wantIdle) {
+				t.Errorf("idle deadline = %v, want %v", idle, tc.wantIdle)
+			}
+			if !absolute.Equal(tc.wantAbs) {
+				t.Errorf("absolute deadline = %v, want %v", absolute, tc.wantAbs)
+			}
+		})
+	}
+	t.Run("plain_without_caps_is_bounded", func(t *testing.T) {
+		t.Parallel()
+		s := &Session{CreatedAt: created, LastActivity: created}
+		if err := ValidateSession(s, SessionTimeouts{Idle: 7 * 24 * time.Hour, Absolute: 30 * 24 * time.Hour}, created.Add(31*time.Minute)); !errors.Is(err, ErrSessionExpired) {
+			t.Errorf("ValidateSession(plain, uncapped, idle 31m under a week's policy) = %v, want ErrSessionExpired", err)
+		}
+	})
+}
+
 func TestValidateSessionCaps(t *testing.T) {
 	t.Parallel()
 	const week = 7 * 24 * time.Hour
@@ -175,8 +225,8 @@ func TestValidateSessionCaps(t *testing.T) {
 	policy := SessionTimeouts{Idle: week, Absolute: week}
 	// The absolute cases stay active until a second before the instant, so
 	// only the 12 h cap can lapse there.
-	idleCapped := &Session{CreatedAt: created, LastActivity: created, IdleCap: 30 * time.Minute}
-	recovery := &Session{CreatedAt: created, LastActivity: created, Kind: SessionRecovery}
+	idleCapped := &Session{CreatedAt: created, LastActivity: created, IdleCap: 30 * time.Minute, Secure: true}
+	recovery := &Session{CreatedAt: created, LastActivity: created, Kind: SessionRecovery, Secure: true}
 	absAt := created.Add(12 * time.Hour)
 	tests := []struct {
 		s       *Session
@@ -188,18 +238,18 @@ func TestValidateSessionCaps(t *testing.T) {
 		{name: "idle cap 1ns after its deadline", s: idleCapped, now: created.Add(30*time.Minute + 1), wantErr: ErrSessionExpired},
 		{
 			name: "absolute cap exactly at its deadline", now: absAt,
-			s: &Session{CreatedAt: created, LastActivity: absAt.Add(-time.Second), AbsoluteCap: 12 * time.Hour},
+			s: &Session{CreatedAt: created, LastActivity: absAt.Add(-time.Second), AbsoluteCap: 12 * time.Hour, Secure: true},
 		},
 		{
 			name: "absolute cap 1ns after its deadline", now: absAt.Add(1), wantErr: ErrSessionExpired,
-			s: &Session{CreatedAt: created, LastActivity: absAt.Add(-time.Second), AbsoluteCap: 12 * time.Hour},
+			s: &Session{CreatedAt: created, LastActivity: absAt.Add(-time.Second), AbsoluteCap: 12 * time.Hour, Secure: true},
 		},
-		{name: "uncapped full session a day old", s: &Session{CreatedAt: created, LastActivity: created.Add(23 * time.Hour)}, now: created.Add(24 * time.Hour)},
+		{name: "uncapped full session a day old", s: &Session{CreatedAt: created, LastActivity: created.Add(23 * time.Hour), Secure: true}, now: created.Add(24 * time.Hour)},
 		{name: "recovery session idle 15 min", s: recovery, now: created.Add(15 * time.Minute)},
 		{name: "recovery session idle 15 min and 1ns", s: recovery, now: created.Add(15*time.Minute + 1), wantErr: ErrSessionExpired},
 		{
 			name: "recovery session created 15 min and 1ns ago, active a minute ago", now: created.Add(15*time.Minute + 1), wantErr: ErrSessionExpired,
-			s: &Session{CreatedAt: created, LastActivity: created.Add(14*time.Minute + 1), Kind: SessionRecovery},
+			s: &Session{CreatedAt: created, LastActivity: created.Add(14*time.Minute + 1), Kind: SessionRecovery, Secure: true},
 		},
 	}
 	for _, tc := range tests {
@@ -223,6 +273,7 @@ func TestValidateSessionIgnoresOIDCExpiry(t *testing.T) {
 		AuthTime:     now.Add(-3 * time.Hour),
 		LastActivity: now.Add(-time.Minute),
 		AuthMethod:   MethodOIDC,
+		Secure:       true,
 	}
 	if err := ValidateSession(sess, SessionTimeouts{Idle: time.Hour, Absolute: 24 * time.Hour}, now); err != nil {
 		t.Errorf("ValidateSession(created 3h ago, idle 1m) = %v, want nil", err)

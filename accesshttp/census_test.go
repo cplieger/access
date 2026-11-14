@@ -245,7 +245,7 @@ func (e *env) storedSession(t testing.TB, name string, authAge, activeAge time.D
 	now := time.Now()
 	s := &access.Session{
 		ID: hex.EncodeToString(randomBytes(16)), UserID: e.user(t, name).ID, TokenHash: hash, AuthMethod: access.MethodPassword, Kind: access.SessionFull,
-		CreatedAt: now.Add(-activeAge), LastActivity: now.Add(-activeAge), AuthTime: now.Add(-authAge),
+		CreatedAt: now.Add(-activeAge), LastActivity: now.Add(-activeAge), AuthTime: now.Add(-authAge), Secure: true,
 	}
 	if err := e.mem.CreateSession(t.Context(), s); err != nil {
 		t.Fatalf("CreateSession: %v", err)

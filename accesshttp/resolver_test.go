@@ -116,7 +116,7 @@ func proxyResolver(proxy netip.Addr) func(*http.Request) access.ClientAddr {
 	return func(r *http.Request) access.ClientAddr {
 		peer := netip.MustParseAddrPort(r.RemoteAddr).Addr()
 		forwarded := r.Header.Get("X-Forwarded-For")
-		c := access.ClientAddr{Peer: peer}
+		c := access.ClientAddr{Peer: peer, Secure: r.TLS != nil}
 		switch {
 		case peer == proxy && forwarded != "":
 			c.Via, c.Forwarded = access.ViaProxy, netip.MustParseAddr(forwarded)
