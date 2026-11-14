@@ -128,9 +128,9 @@ func (r OriginRejection) clause() string {
 // Origin request header; the error is a *[OriginError]. It applies only the
 // normalizations the response comparison also applies (ASCII case folding,
 // default-port elision) and refuses a trailing dot, an empty label, a non-ASCII
-// host and one that is neither a hostname nor an IP address, keeping an IP
-// literal as written. A repair would turn a refusal before the authenticator
-// prompt into a mismatch after it.
+// host, one that is neither a hostname nor an IP address, and an IP address not
+// spelled as a browser serializes it. A repair would turn a refusal before the
+// authenticator prompt into a mismatch after it.
 func ParseOrigin(raw string) (Origin, error) {
 	o, err := parseOrigin(raw)
 	if err != nil {
@@ -170,8 +170,9 @@ func parseOrigin(raw string) (Origin, *OriginError) {
 
 // parseHost lowercases the host and refuses the three shapes no relying-party
 // ID can ever cover, each with its own reason, then any host that is neither
-// a hostname nor an IP literal; "" means accepted. url.Parse keeps a host
-// holding '"', '<' or ']', which RFC 3986 section 3.2.2 does not allow.
+// a hostname nor an IP address in its browser form; "" means accepted.
+// url.Parse keeps a host holding '"', '<' or ']', which RFC 3986 section 3.2.2
+// does not allow.
 func parseHost(raw string) (string, OriginRejection) {
 	host := strings.ToLower(raw)
 	switch {
@@ -183,35 +184,53 @@ func parseHost(raw string) (string, OriginRejection) {
 		return "", RejectEmptyLabel
 	case !isASCII(host):
 		return "", RejectNonASCII
-	case !isHostname(host) && !isIPLiteral(host):
+	case !isHostname(host) && !isCanonicalIP(host):
 		return "", RejectMalformed
 	}
 	return host, ""
 }
 
-// isHostname reports whether host is dot-separated, non-empty labels of
-// ASCII letters, digits, '-' and '_', the last of which WHATWG URL's domain
-// parsing admits (https://url.spec.whatwg.org/#forbidden-domain-code-point).
+// isHostname reports whether lowercase host is dot-separated, non-empty labels
+// of ASCII letters, digits, '-' and '_' (WHATWG URL's domain parsing admits '_',
+// https://url.spec.whatwg.org/#forbidden-domain-code-point) whose last label is
+// not a number. A browser parses a host ending in a decimal or 0x-hex number as
+// an IPv4 address, refusing it or opening another address
+// (https://url.spec.whatwg.org/#ends-in-a-number-checker).
 func isHostname(host string) bool {
+	last := ""
 	for label := range strings.SplitSeq(host, ".") {
 		if label == "" {
 			return false
 		}
 		for i := range len(label) {
 			c := label[i]
-			if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' {
+			if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' && c != '_' {
 				return false
 			}
 		}
+		last = label
 	}
-	return true
+	if hex, ok := strings.CutPrefix(last, "0x"); ok {
+		return strings.Trim(hex, "0123456789abcdef") != ""
+	}
+	return strings.Trim(last, "0123456789") != ""
 }
 
-// isIPLiteral reports whether host is an IP address with no zone, which an
-// origin cannot carry.
-func isIPLiteral(host string) bool {
+// isCanonicalIP reports whether host is a zoneless IP address spelled as a
+// browser serializes it: dotted-decimal IPv4, and RFC 5952 IPv6 except that an
+// IPv4-mapped address is written in hex (::ffff:102:304), never dotted
+// (https://url.spec.whatwg.org/#concept-ipv6-serializer). A browser sends only
+// this form, and the response's origin is compared textually.
+func isCanonicalIP(host string) bool {
 	a, err := netip.ParseAddr(host)
-	return err == nil && a.Zone() == ""
+	if err != nil || a.Zone() != "" {
+		return false
+	}
+	if a.Is4In6() {
+		b := a.As16()
+		return host == fmt.Sprintf("::ffff:%x:%x", uint16(b[12])<<8|uint16(b[13]), uint16(b[14])<<8|uint16(b[15]))
+	}
+	return host == a.String()
 }
 
 // parsePort returns the port to carry, "" for the scheme's default, and false
