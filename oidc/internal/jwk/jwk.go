@@ -139,8 +139,9 @@ func (s Set) Len() int { return len(s.keys) }
 // All yields the usable keys in the set's order.
 func (s Set) All() iter.Seq[Key] { return slices.Values(s.keys) }
 
-// classify applies 6.3's key table to one JWK: an error refuses the set,
-// and ok false skips the key.
+// classify reads one JWK: an error refuses the set, and ok false skips the
+// key. The private-member check comes first, so it refuses the set
+// whatever the key's crv, use or key_ops.
 func classify(m map[string]jsontext.Value) (k Key, ok bool, err error) {
 	kty, _ := stringMember(m, "kty")
 	if kty == "RSA" || kty == "EC" || kty == "OKP" {

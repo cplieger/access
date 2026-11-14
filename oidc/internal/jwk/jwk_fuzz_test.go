@@ -41,7 +41,7 @@ func fuzzSeeds(f *testing.F) {
 
 // go-jose CVE-2026-116586 and Nimbus CVE-2019-17195: any input either
 // refuses the set with ErrSet or yields keys that each satisfy their row
-// (RFC 7518 §6, RFC 8037 §2, 6.3's key table); it never panics.
+// (RFC 7518 §6, RFC 8037 §2); it never panics.
 func FuzzParseSet(f *testing.F) {
 	fuzzSeeds(f)
 	small := smallOrderEncodings(f)

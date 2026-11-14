@@ -84,7 +84,7 @@ func TestParseAlg_Refused(t *testing.T) {
 
 // RFC 7517 §4, §5; RFC 7518 §6.2.2, §6.3.2; RFC 8037 §2: a published
 // private member on an RSA, EC or OKP key refuses the whole set, before
-// any other row of the key table, whatever the key's crv, use or alg.
+// any other check, whatever the key's crv, use or alg.
 func TestParse_PrivateMemberRefusesSet(t *testing.T) {
 	t.Parallel()
 	bases := map[string]map[string]any{
@@ -145,7 +145,7 @@ func TestParse_PrivateMemberRowScope(t *testing.T) {
 	})
 }
 
-// RFC 7517 §5 (the "keys" member) and 6.3's key table: more than 100 keys,
+// RFC 7517 §5 (the "keys" member) and MaxKeys: more than 100 keys,
 // an entry that is not an object, or a document that is not a JWK Set
 // refuses the whole set.
 func TestParse_SetShape(t *testing.T) {
@@ -198,7 +198,7 @@ func TestParse_SetShape(t *testing.T) {
 	}
 }
 
-// RFC 8259 §4 and §8.1, design 6.2: the set is decoded with unique member
+// RFC 8259 §4 and §8.1: the set is decoded with unique member
 // names, valid UTF-8 and a bounded depth at every level, read members or
 // not.
 func TestParse_JSON(t *testing.T) {
@@ -370,22 +370,23 @@ func TestParse_UseKeyOpsUsable(t *testing.T) {
 	}
 }
 
-// RFC 7518 §6.3.1 and 6.3's RSA row: n of 2048 to 4096 bits by bit length,
-// so a leading zero octet is tolerated; e odd, at least 3 and at most
-// 2^31−1. go-jose CVE-2026-116587: a modulus over 4096 bits costs cubic CPU.
+// RFC 7518 §6.3.1 and §3.3: n of 2048 to 4096 bits by bit length, so a
+// leading zero octet is tolerated; e odd and at least 3 (RFC 8017 §3.1) and
+// at most 2^31−1, as crypto/rsa requires. go-jose CVE-2026-116587: a
+// modulus over 4096 bits costs cubic CPU.
 func TestParse_RSABounds(t *testing.T) {
 	t.Parallel()
 	padded := append([]byte{0}, oddWithBits(2048).Bytes()...)
 	assertSkipped(t, []skipCase{
-		{rsaJWK("bad", oddWithBits(2047), 65537), "n 2047 bits", "6.3 RSA row"},
+		{rsaJWK("bad", oddWithBits(2047), 65537), "n 2047 bits", "RFC 7518 §3.3"},
 		{rsaJWK("bad", oddWithBits(4097), 65537), "n 4097 bits", "go-jose CVE-2026-116587"},
 		{rsaJWK("bad", oddWithBits(8192), 65537), "n 8192 bits", "go-jose CVE-2026-116587"},
 		{with(rsaJWK("bad", oddWithBits(2048), 65537), "n", ""), "n empty", "RFC 7518 §6.3.1.1"},
-		{rsaJWK("bad", oddWithBits(2048), 2), "e 2", "6.3 RSA row"},
-		{rsaJWK("bad", oddWithBits(2048), 1), "e 1", "6.3 RSA row"},
-		{rsaJWK("bad", oddWithBits(2048), 65538), "e even", "6.3 RSA row"},
-		{rsaJWK("bad", oddWithBits(2048), 1<<31), "e 2^31", "6.3 RSA row"},
-		{rsaJWK("bad", oddWithBits(2048), 1<<32+1), "e 2^32+1", "6.3 RSA row"},
+		{rsaJWK("bad", oddWithBits(2048), 2), "e 2", "RFC 8017 §3.1"},
+		{rsaJWK("bad", oddWithBits(2048), 1), "e 1", "RFC 8017 §3.1"},
+		{rsaJWK("bad", oddWithBits(2048), 65538), "e even", "RFC 8017 §3.1"},
+		{rsaJWK("bad", oddWithBits(2048), 1<<31), "e 2^31", "crypto/rsa e bound"},
+		{rsaJWK("bad", oddWithBits(2048), 1<<32+1), "e 2^32+1", "crypto/rsa e bound"},
 		{with(rsaJWK("bad", oddWithBits(2048), 65537), "e", ""), "e empty", "RFC 7518 §6.3.1.2"},
 	})
 	usable := []struct {

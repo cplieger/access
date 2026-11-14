@@ -29,7 +29,7 @@ func get(t *testing.T, c *http.Client, url string) []byte {
 	return body
 }
 
-// RFC 7517 §4.2, §4.3 and 6.3: accesstest.IdP publishes use sig and alg
+// RFC 7517 §4.2 and §4.3: accesstest.IdP publishes use sig and alg
 // with no key_ops, as most providers do, and every key it serves is usable
 // for exactly its own alg.
 func TestParse_AccesstestIdPShape(t *testing.T) {
