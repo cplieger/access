@@ -131,29 +131,10 @@ func proxyResolver(proxy netip.Addr) func(*http.Request) access.ClientAddr {
 	}
 }
 
-// privateOnly asks for a token whenever the client is unknown or its
-// address is public.
-func privateOnly(_ context.Context, c account.Client) bool {
-	return !c.ClientKnown() || !c.IP().IsPrivate() && !c.IP().IsLoopback()
-}
-
-// directLoopback is local for a direct loopback peer.
-func directLoopback(a access.ClientAddr) bool {
-	return a.Via == access.ViaDirect && a.IP().IsLoopback()
-}
-
-// everyoneLocal is local for every client, leaving the refusal to
-// SetupLocality.
-func everyoneLocal(access.ClientAddr) bool { return true }
-
 func TestSetupProvenanceHTTP(t *testing.T) {
 	proxy := netip.MustParseAddr("10.0.0.1")
-	// unconsulted answers true like everyoneLocal, and fails the test if
-	// called: an unknown client is refused before Local runs.
-	unconsulted := func(a access.ClientAddr) bool {
-		t.Errorf("Local consulted for %+v, want the unknown client refused first", a)
-		return true
-	}
+	lan := account.Locality{Forwarder: func(netip.Addr) bool { return false }}.TokenRequired
+	bridge := account.Locality{Forwarder: func(a netip.Addr) bool { return a == netip.MustParseAddr("10.0.0.7") }}.TokenRequired
 	cases := []struct {
 		name      string
 		rule      func(context.Context, account.Client) bool
@@ -162,15 +143,16 @@ func TestSetupProvenanceHTTP(t *testing.T) {
 		forwarded string
 		refused   bool
 	}{
-		{"unlisted_private_peer_forwarded", privateOnly, "10.0.0.7:4711", testRPID, "192.168.1.20", true},
-		{"direct_private_peer", privateOnly, "10.0.0.7:4711", testRPID, "", false},
-		{"proxied_public_client", privateOnly, "10.0.0.1:4711", testRPID, "203.0.113.9", true},
-		{"proxied_private_client", privateOnly, "10.0.0.1:4711", testRPID, "192.168.1.20", false},
-		{"locality_rebound_host", account.SetupLocality{Local: directLoopback}.TokenRequired, "127.0.0.1:4711", "evil.example", "", true},
-		{"locality_localhost", account.SetupLocality{Local: directLoopback}.TokenRequired, "127.0.0.1:4711", "localhost", "", false},
-		{"zero_locality_localhost", account.SetupLocality{}.TokenRequired, "127.0.0.1:4711", "localhost", "", true},
-		{"listed_proxy_no_forwarding", account.SetupLocality{Local: unconsulted}.TokenRequired, "10.0.0.1:4711", "localhost", "", true},
-		{"listed_proxy_loopback_client", account.SetupLocality{Local: everyoneLocal}.TokenRequired, "10.0.0.1:4711", "localhost", "127.0.0.1", false},
+		{"direct_private_peer", lan, "10.0.0.7:4711", "localhost", "", false},
+		{"direct_loopback_peer", lan, "127.0.0.1:4711", "localhost", "", false},
+		{"direct_rebound_host", lan, "127.0.0.1:4711", "evil.example", "", true},
+		{"direct_forwarder_peer", bridge, "10.0.0.7:4711", "localhost", "", true},
+		{"zero_locality", account.Locality{}.TokenRequired, "127.0.0.1:4711", "localhost", "", true},
+		{"unlisted_private_peer_forwarded", lan, "10.0.0.7:4711", "localhost", "192.168.1.20", true},
+		{"listed_proxy_private_client", lan, "10.0.0.1:4711", "localhost", "192.168.1.5", true},
+		{"listed_proxy_public_client", lan, "10.0.0.1:4711", "localhost", "203.0.113.9", true},
+		{"listed_proxy_loopback_client", lan, "10.0.0.1:4711", "localhost", "127.0.0.1", true},
+		{"listed_proxy_no_forwarding", lan, "10.0.0.1:4711", "localhost", "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

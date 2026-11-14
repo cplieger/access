@@ -87,6 +87,10 @@ Under `PosturePerRequest`, a plain request may sign in and set up by password an
 
 `account.Service.State` takes the request's `Client`, `State(ctx, c)`, and answers what the sign-in screen can offer over that transport ([Plain HTTP](plain-http.md#what-the-screens-learn)): `account.State` gains `Secure`, `PlainSession`, `HTTPSRequired` (a list of the new `account.HTTPSFeature`) and `HTTPSOrigin`, from the new `Rules.HTTPSOrigin`, which `Rules.Validate` refuses unless it is an `https` origin with no path, query or fragment. `account.CurrentSession` gains `Secure`. On the wire, `StateResponse` gains `secure`, `plain_session`, `https_required` and `https_origin`, and `CurrentSessionView` and `SessionView` gain `secure`. In `@cplieger/access` the same fields join `StateResponse`, `CurrentSessionView` and `SessionView`, `CODES` gains `auth_https_required`, `REASONS` gains `transport_changed` and `sign_in_again`, and `StepUpOptions` gains `signInAgain`, which `withStepUp` calls on a `sign_in_again` refusal in place of the step-up prompt.
 
+## Local clients
+
+`account.SetupLocality` is renamed `account.Locality`, and its `Local` field is replaced by the method `Local(access.ClientAddr)`, the library's one rule for a local client ([Local clients](configuration.md#local-clients)). Pass the new `Forwarder` field, `httpserver.NewForwarderCheck(...).IsForwarder` from `github.com/cplieger/go/httpserver` v1.5.0-dev.2 or later: a nil `Forwarder` makes no client local, so `TokenRequired` then always asks for a setup token. A forwarded client is never local. Code that judged locality itself calls `Local(c.ClientAddr)` instead. `access.ClientAddr.ClientKnown` is removed; `Local` reads `Via` and `Peer` itself.
+
 ## Records
 
 | auth v6 | access |

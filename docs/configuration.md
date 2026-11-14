@@ -43,7 +43,7 @@ The `Verifier` runs after the session cookie and before the API-key verifier, wh
 | `ViaProxyNoClient` | A proxy you trust forwarded no client address |
 | `ViaUnknown` | Never. It is the zero value, so a resolver that forgets `Via` reports no known client |
 
-`IP()` is the client's address: `Forwarded` under `ViaProxy`, and `Peer` otherwise. The rate limiter, each session's last IP and a principal's IP read it. `ClientKnown()` is true when `Via` is `ViaDirect` or `ViaProxy` and `IP()` is a valid address. A unix-socket listener has no valid address, so its clients are unknown. `SetupLocality` requires a setup token for every client whose `ClientKnown()` is false.
+`IP()` is the client's address: `Forwarded` under `ViaProxy`, and `Peer` otherwise. The rate limiter, each session's last IP and a principal's IP read it. Whether a client counts as local is `account.Locality`'s rule, which reads `Via` and `Peer` ([Local clients](#local-clients)).
 
 `Secure` is true when TLS ended at your server or at a proxy you trust. Each principal carries it as `Principal.Secure`. A resolver that leaves it false reads every request as plain HTTP.
 
@@ -66,13 +66,11 @@ func clientAddr(r *http.Request, res httpserver.ClientResolution) access.ClientA
 }
 ```
 
-Keep `ViaDirect` as the last arm. Without the `PeerTrusted` arm, a trusted proxy that forwards no client address reads as a direct client, often a loopback one. Anything else you distrust from an untrusted peer, such as its `X-Forwarded-Proto`, also answers `ViaUntrustedForwarding`. When you pass a `SetupLocality.Local`, test it through your real resolver with whole requests. A trusted peer with no `X-Forwarded-For` must require a setup token. So must a trusted peer whose `X-Forwarded-For` holds only trusted hops.
+Keep `ViaDirect` as the last arm. Without the `PeerTrusted` arm, a trusted proxy that forwards no client address reads as a direct client, often a loopback one. Anything else you distrust from an untrusted peer, such as its `X-Forwarded-Proto`, also answers `ViaUntrustedForwarding`. Test your resolver with whole requests: a trusted peer with no `X-Forwarded-For` must answer `ViaProxyNoClient`, and so must a trusted peer whose `X-Forwarded-For` holds only trusted hops.
 
 `ForwardedHTTPS` is true only when a trusted peer sent exactly one `X-Forwarded-Proto` field holding the one token `https`, in any case. A list such as `https, http`, a repeated field and an untrusted peer all read as plain, so the check fails closed, and `Forwarded: proto=` is not read. A proxy you trust must set `X-Forwarded-Proto` itself, replacing the client's value rather than appending to it. Caddy does.
 
 An app that serves a loopback origin by configuration, such as `http://localhost`, may also set `Secure` for a loopback request, because a browser treats that origin as secure. Set it only when `Via` is `ViaDirect`, the peer is a loopback address, and the hostname of `r.Host` is `localhost` or a loopback literal, since the browser decides by the origin it was given. Requiring the `Host` refuses a relay on the same host that delivers LAN traffic over loopback with a LAN `Host`, such as socat, `ssh -R` or a tunnel daemon. The library does not make this call itself, because it cannot see a forwarder on the same host.
-
-A forwarded address is only the peer your proxy saw. A forwarder in front of the proxy, such as a container runtime's port proxy, a tunnel daemon or a masquerading router, arrives as `ViaProxy` with a loopback or private `Forwarded`. The library cannot see that hop. A port proxy or router directly in front of your app arrives as `ViaDirect` from its own address. Only a `Local` that requires `ViaDirect`, refuses your host's own forwarders (such as a route gateway or the container's own address), and then accepts only a loopback or private `IP()` bounds token-free setup to the host's own networks.
 
 Without `ClientAddr`, no peer is treated as a proxy. `Peer` is the connection's address, with an IPv4-mapped IPv6 address unmapped. `Via` is `ViaUntrustedForwarding` when the request carries `Forwarded`, `X-Forwarded-For`, `X-Real-IP` or `X-Forwarded-Proto`, which the default ignores, and `ViaDirect` otherwise. `Secure` is true only for a request that reached your server over TLS.
 
@@ -259,7 +257,7 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 
 | Field | What it sets | Default |
 | --- | --- | --- |
-| `SetupTokenRequired` | Whether a first-user setup from a client needs a setup token | nil: always |
+| `SetupTokenRequired` | Whether a first-user setup from a client needs a setup token; `account.Locality`'s `TokenRequired` asks none of a local client ([Local clients](#local-clients)) | nil: always |
 | `MethodUsable` | Whether a held method can sign the user in now under your own rules, ANDed into the last-method guard and `Service.UsableMethods` ([Your own rules inside the transaction](storage.md#your-own-rules-inside-the-transaction)) | nil: every held method is usable |
 | `SessionCaps` | Per-session idle and absolute limits for a new session; a positive value lowers that limit for the session's life | nil: no cap |
 | `KeyPrefix` | The prefix of every minted key's plaintext | empty |
@@ -290,6 +288,35 @@ An app may refuse a sign-in method in its own gate before `account` sees the att
 - A key's lineage holds at most `account.MaxKeyLineage` IDs, 8: a root key and seven generations of keys minted by keys. Minting below a full lineage is refused with the reason `lineage_too_deep`.
 
 Every key-authorized write re-reads the key and its owner inside its own transaction, so a key revoked or expired, or an owner disabled, deleted or demoted, authorises nothing that commits after the change. Leaving both scopes empty keeps all of these operations session-only under a recent sign-in.
+
+### Local clients
+
+`account.Locality` decides whether a client is local, one that a decision may trust more. Its `TokenRequired`, passed as `Rules.SetupTokenRequired`, lets a local client set up the first user with no setup token, and your app calls `Local(c.ClientAddr)` for any other such decision, since `account.Client` embeds the `access.ClientAddr`.
+
+```go
+check := httpserver.NewForwarderCheck()
+locality := account.Locality{Forwarder: check.IsForwarder, Hosts: []string{"nas.lan"}}
+rules.SetupTokenRequired = locality.TokenRequired
+```
+
+`Local` is true only when all of these hold:
+
+- `Via` is `ViaDirect`, so the client reached your app directly. `ViaProxy`, `ViaProxyNoClient`, `ViaUntrustedForwarding` and `ViaUnknown` are never local.
+- `Forwarder` is set.
+- `Peer` is a valid loopback or private address: 127.0.0.0/8, ::1, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 or fc00::/7, Go's `IsLoopback` and `IsPrivate`. An IPv4-mapped peer is judged as IPv4. Carrier-grade NAT (100.64.0.0/10), which providers share between customers, and link-local addresses (169.254.0.0/16, fe80::/10) are not local.
+- `Forwarder` answers false for the peer, which it receives unmapped and with no zone.
+
+`TokenRequired` asks for a token unless `Local` holds and the request's `Host`, with its port removed, lower-cased and one trailing dot dropped, is an IP literal with no zone, `localhost` or one of `Hosts`. The `Host` rule refuses DNS rebinding, where a page rebinds its own name to your server and sends that name from a local peer.
+
+The rule reads the socket peer and never a forwarded address. A forwarded address is only the peer your proxy saw: a forwarder in front of the proxy, or a proxy misconfigured to forward a private address, would make a remote client local. The peer depends only on the connection, and `Forwarder` refuses the forwarders your app's network namespace can see: a container bridge's gateway, the host's own addresses through a port proxy, a Swarm ingress. `Forwarder` is yours, since only your app can read its routes and interfaces. With `github.com/cplieger/go/httpserver` v1.5.0-dev.2 or later, pass the `IsForwarder` method of `httpserver.NewForwarderCheck(...)`, which answers true, so not local, on a failed read of the host's network, an invalid address or a nil check. An app with no forwarder at all passes `func(netip.Addr) bool { return false }`. A nil `Forwarder`, as in the zero `Locality`, makes no client local.
+
+Some peers look local and are not, and no address rule can tell them apart:
+
+- a relay on loopback, such as `ssh -R`, socat, frp, rathole or a TCP tunnel daemon, delivers a remote client as 127.0.0.1;
+- a NAT outside your app's namespace, such as a router's port forward that rewrites the source or a Kubernetes node's SNAT under `externalTrafficPolicy: Cluster`, delivers one as a private address your container never sees as a gateway;
+- an overlay network over IPv6 delivers its peers as unique-local addresses inside fc00::/7, such as Tailscale's fd7a:115c:a1e0::/48, so a tailnet peer is local over IPv6, though not over IPv4, whose 100.64.0.0/10 is excluded.
+
+The library adds no vendor prefixes, since no list could be complete. A peer behind one of these paths is local, so it may set up a fresh instance with no token, and use whatever else your app opens to a local client. Complete setup before you expose an instance through such a relay, NAT or overlay: a set-up instance asks no setup question. Your app may also give its operator a setting that passes a nil `Forwarder`, which makes no client local; that choice is your app's, since the library cannot see these paths. A client that reaches a fresh instance only through your reverse proxy is never local, so its admin pastes the setup token your app prints at start, once.
 
 ## HTTP handlers
 

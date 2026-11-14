@@ -48,9 +48,8 @@ type Config struct {
 	TimeoutSource func() SessionTimeouts
 	// ClientAddr is the app's one client resolver, served by
 	// [Authenticator.ClientAddr]. Its answer's Via says how the request
-	// arrived, and one left zero ([ViaUnknown]) is no known client. Nil
-	// treats no peer as a proxy: Peer is r.RemoteAddr's address, unmapped,
-	// Secure is r.TLS != nil, and Via is [ViaDirect], or
+	// arrived. Nil treats no peer as a proxy: Peer is r.RemoteAddr's
+	// address, unmapped, Secure is r.TLS != nil, and Via is [ViaDirect], or
 	// [ViaUntrustedForwarding] when Forwarded, X-Forwarded-For, X-Real-IP or
 	// X-Forwarded-Proto is present.
 	ClientAddr func(*http.Request) ClientAddr

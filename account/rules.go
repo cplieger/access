@@ -35,7 +35,8 @@ const (
 type Rules struct {
 	// SetupTokenRequired reports whether a setup from c needs a token. It
 	// gets the request context and the resolved client with its
-	// provenance. Nil means always.
+	// provenance. Nil means always; [Locality.TokenRequired] is the
+	// library's rule for a local client.
 	SetupTokenRequired func(ctx context.Context, c Client) bool
 	// MethodUsable reports whether m can sign u in now under the app's own
 	// rules; the last-method guard and UsableMethods AND it into every

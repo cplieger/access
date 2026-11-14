@@ -99,30 +99,29 @@ func TestDefaultClientAddrSecure(t *testing.T) {
 }
 
 type clientAddrCase struct {
-	wantIP          netip.Addr
-	name            string
-	c               ClientAddr
-	wantClientKnown bool
+	wantIP netip.Addr
+	name   string
+	c      ClientAddr
 }
 
 // clientAddrTable is every Via value × {valid, invalid} Peer × {Forwarded
-// set, unset}, with the IP and ClientKnown answers their definitions give.
+// set, unset}, with the IP its definition gives.
 var clientAddrTable = []clientAddrCase{
 	{name: "unknown peer forwarded", c: ClientAddr{Peer: testPeer, Forwarded: testForwarded, Via: ViaUnknown}, wantIP: testPeer},
 	{name: "unknown peer", c: ClientAddr{Peer: testPeer, Via: ViaUnknown}, wantIP: testPeer},
 	{name: "unknown forwarded", c: ClientAddr{Forwarded: testForwarded, Via: ViaUnknown}},
 	{name: "unknown empty", c: ClientAddr{Via: ViaUnknown}},
-	{name: "direct peer forwarded", c: ClientAddr{Peer: testPeer, Forwarded: testForwarded, Via: ViaDirect}, wantIP: testPeer, wantClientKnown: true},
-	{name: "direct peer", c: ClientAddr{Peer: testPeer, Via: ViaDirect}, wantIP: testPeer, wantClientKnown: true},
+	{name: "direct peer forwarded", c: ClientAddr{Peer: testPeer, Forwarded: testForwarded, Via: ViaDirect}, wantIP: testPeer},
+	{name: "direct peer", c: ClientAddr{Peer: testPeer, Via: ViaDirect}, wantIP: testPeer},
 	{name: "direct forwarded", c: ClientAddr{Forwarded: testForwarded, Via: ViaDirect}},
 	{name: "direct empty", c: ClientAddr{Via: ViaDirect}},
 	{name: "untrusted peer forwarded", c: ClientAddr{Peer: testPeer, Forwarded: testForwarded, Via: ViaUntrustedForwarding}, wantIP: testPeer},
 	{name: "untrusted peer", c: ClientAddr{Peer: testPeer, Via: ViaUntrustedForwarding}, wantIP: testPeer},
 	{name: "untrusted forwarded", c: ClientAddr{Forwarded: testForwarded, Via: ViaUntrustedForwarding}},
 	{name: "untrusted empty", c: ClientAddr{Via: ViaUntrustedForwarding}},
-	{name: "proxy peer forwarded", c: ClientAddr{Peer: testPeer, Forwarded: testForwarded, Via: ViaProxy}, wantIP: testForwarded, wantClientKnown: true},
+	{name: "proxy peer forwarded", c: ClientAddr{Peer: testPeer, Forwarded: testForwarded, Via: ViaProxy}, wantIP: testForwarded},
 	{name: "proxy peer", c: ClientAddr{Peer: testPeer, Via: ViaProxy}},
-	{name: "proxy forwarded", c: ClientAddr{Forwarded: testForwarded, Via: ViaProxy}, wantIP: testForwarded, wantClientKnown: true},
+	{name: "proxy forwarded", c: ClientAddr{Forwarded: testForwarded, Via: ViaProxy}, wantIP: testForwarded},
 	{name: "proxy empty", c: ClientAddr{Via: ViaProxy}},
 	{name: "proxy no client peer forwarded", c: ClientAddr{Peer: testPeer, Forwarded: testForwarded, Via: ViaProxyNoClient}, wantIP: testPeer},
 	{name: "proxy no client peer", c: ClientAddr{Peer: testPeer, Via: ViaProxyNoClient}, wantIP: testPeer},
@@ -137,18 +136,6 @@ func TestClientAddrIP(t *testing.T) {
 			t.Parallel()
 			if got := tt.c.IP(); got != tt.wantIP {
 				t.Errorf("%+v.IP() = %v, want %v", tt.c, got, tt.wantIP)
-			}
-		})
-	}
-}
-
-func TestClientKnown(t *testing.T) {
-	t.Parallel()
-	for _, tt := range clientAddrTable {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if got := tt.c.ClientKnown(); got != tt.wantClientKnown {
-				t.Errorf("%+v.ClientKnown() = %v, want %v", tt.c, got, tt.wantClientKnown)
 			}
 		})
 	}

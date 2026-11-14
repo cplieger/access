@@ -912,89 +912,6 @@ func TestSessionCapsAtCreation(t *testing.T) {
 	}
 }
 
-func TestSetupLocality(t *testing.T) {
-	t.Parallel()
-	loopback := access.ClientAddr{Peer: netip.MustParseAddr("127.0.0.1"), Via: access.ViaDirect}
-	loopback6 := access.ClientAddr{Peer: netip.MustParseAddr("::1"), Via: access.ViaDirect}
-	private := access.ClientAddr{Peer: netip.MustParseAddr("192.168.1.5"), Via: access.ViaDirect}
-	forwarded := loopback
-	forwarded.Via = access.ViaUntrustedForwarding
-	proxyNoClient := access.ClientAddr{Peer: loopback.Peer, Via: access.ViaProxyNoClient}
-	unknown := access.ClientAddr{Peer: loopback.Peer, Via: access.ViaUnknown}
-	socket := access.ClientAddr{Via: access.ViaDirect}
-	proxied := access.ClientAddr{Peer: netip.MustParseAddr("10.0.0.1"), Forwarded: loopback.Peer, Via: access.ViaProxy}
-	everyone := func(access.ClientAddr) bool { return true }
-	// unconsulted answers true like everyone, and fails the test if called:
-	// an unknown client is refused before Local runs.
-	unconsulted := func(c access.ClientAddr) bool {
-		t.Errorf("Local consulted for %+v, want the unknown client refused first", c)
-		return true
-	}
-	loopbackOnly := func(c access.ClientAddr) bool { return c.Via == access.ViaDirect && c.IP().IsLoopback() }
-	privateToo := func(c access.ClientAddr) bool {
-		return c.Via == access.ViaDirect && (c.IP().IsLoopback() || c.IP().IsPrivate())
-	}
-	cases := []struct {
-		l    account.SetupLocality
-		addr access.ClientAddr
-		host string
-		want bool // token required
-	}{
-		{l: account.SetupLocality{}, addr: loopback, host: "localhost", want: true},
-		{l: account.SetupLocality{}, addr: loopback, host: "127.0.0.1", want: true},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: loopback, host: "localhost"},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: loopback, host: "localhost:9847"},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: loopback, host: "LOCALHOST."},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: loopback, host: "127.0.0.1:8080"},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: loopback6, host: "[::1]:9847"},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: loopback6, host: "[::1]"},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: loopback, host: "evil.example", want: true},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: loopback, host: "nas.lan", want: true},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: loopback, host: "", want: true},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: loopback, host: ":8080", want: true},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: loopback6, host: "fe80::1%eth0", want: true},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: loopback6, host: "[fe80::1%eth0]:80", want: true},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: loopback6, host: "[::1", want: true},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: loopback6, host: "::1]", want: true},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: private, host: "localhost", want: true},
-		{l: account.SetupLocality{Local: loopbackOnly}, addr: private, host: "192.168.1.5:8374", want: true},
-		{l: account.SetupLocality{Local: loopbackOnly, Hosts: []string{"nas.lan"}}, addr: loopback, host: "NAS.LAN.:8374"},
-		{l: account.SetupLocality{Local: loopbackOnly, Hosts: []string{"NAS.lan."}}, addr: loopback, host: "nas.lan"},
-		{l: account.SetupLocality{Local: loopbackOnly, Hosts: []string{"az.lan"}}, addr: loopback, host: "AZ.lan"},
-		{l: account.SetupLocality{Local: loopbackOnly, Hosts: []string{"nas.lan"}}, addr: loopback, host: "nas.lan.evil", want: true},
-		{l: account.SetupLocality{Local: loopbackOnly, Hosts: []string{""}}, addr: loopback, host: ".", want: true},
-		{l: account.SetupLocality{Local: privateToo}, addr: private, host: "192.168.1.5:8374"},
-		{l: account.SetupLocality{Local: privateToo}, addr: private, host: "evil.example", want: true},
-		{l: account.SetupLocality{Local: unconsulted}, addr: proxyNoClient, host: "localhost", want: true},
-		{l: account.SetupLocality{Local: unconsulted}, addr: forwarded, host: "localhost", want: true},
-		{l: account.SetupLocality{Local: unconsulted}, addr: unknown, host: "localhost", want: true},
-		{l: account.SetupLocality{Local: unconsulted}, addr: socket, host: "localhost", want: true},
-		{l: account.SetupLocality{Local: everyone}, addr: proxied, host: "localhost"},
-	}
-	for _, tc := range cases {
-		c := account.Client{ClientAddr: tc.addr, Host: tc.host}
-		if got := tc.l.TokenRequired(t.Context(), c); got != tc.want {
-			t.Errorf("TokenRequired(local=%t hosts=%q, ip=%s via=%s, Host %q) = %t, want %t",
-				tc.l.Local != nil, tc.l.Hosts, tc.addr.IP(), tc.addr.Via, tc.host, got, tc.want)
-		}
-	}
-	t.Run("as_setup_rule", func(t *testing.T) {
-		t.Parallel()
-		f := newFixture(t, options{rules: rulesWith(func(r *account.Rules) {
-			r.SetupTokenRequired = account.SetupLocality{Local: loopbackOnly}.TokenRequired
-		}), edit: withBusyHasher(t)})
-		in := account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)}
-		secure := loopback
-		secure.Secure = true
-		if _, err := f.svc.SetupWithPassword(t.Context(), account.Client{ClientAddr: secure, Host: "localhost:8080"}, in); !errors.Is(err, access.ErrHashBusy) {
-			t.Errorf("a local setup = %v, want it past the token rule", err)
-		}
-		if _, err := f.svc.SetupWithPassword(t.Context(), account.Client{ClientAddr: secure, Host: "rebound.example"}, in); !errors.Is(err, account.ErrSetupTokenRequired) {
-			t.Errorf("a rebound Host = %v, want ErrSetupTokenRequired", err)
-		}
-	})
-}
-
 func TestSetupNilAlwaysAsks(t *testing.T) {
 	t.Parallel()
 	loopback := account.Client{Peer: netip.MustParseAddr("127.0.0.1"), Via: access.ViaDirect, Host: "localhost", Secure: true}
@@ -1003,9 +920,9 @@ func TestSetupNilAlwaysAsks(t *testing.T) {
 	if _, err := f.svc.SetupWithPassword(t.Context(), loopback, in); !errors.Is(err, account.ErrSetupTokenRequired) {
 		t.Errorf("setup with a nil SetupTokenRequired from loopback = %v, want ErrSetupTokenRequired with no hash", err)
 	}
-	g := newFixture(t, options{rules: rulesWith(func(r *account.Rules) { r.SetupTokenRequired = account.SetupLocality{}.TokenRequired })})
+	g := newFixture(t, options{rules: rulesWith(func(r *account.Rules) { r.SetupTokenRequired = account.Locality{}.TokenRequired })})
 	if _, err := g.svc.SetupWithPassword(t.Context(), loopback, in); !errors.Is(err, account.ErrSetupTokenRequired) {
-		t.Errorf("setup with the zero SetupLocality from loopback = %v, want ErrSetupTokenRequired", err)
+		t.Errorf("setup with the zero Locality from loopback = %v, want ErrSetupTokenRequired", err)
 	}
 	tok := issueSetupToken(t, g)
 	in.Token = tok
