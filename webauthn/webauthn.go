@@ -775,9 +775,3 @@ func completeAssertion(ctx context.Context, store Store, user *User, parsed *pro
 		CloneWarning: regressed,
 	}, nil
 }
-
-// signCountRegressed is the clone signal of W3C WebAuthn L3 §7.2's signCount
-// step: either counter nonzero and the asserted one not above the stored one.
-func signCountRegressed(stored, asserted uint32) bool {
-	return (stored != 0 || asserted != 0) && asserted <= stored
-}

@@ -34,7 +34,10 @@ type ceremonyState struct {
 	// userHandle is the user's WebAuthn ID, for registration and
 	// reauthentication.
 	userHandle []byte
-	kind       ceremonyKind
+	// allowed is the reauthentication's allowCredentials, the user's
+	// credential IDs at Begin.
+	allowed [][]byte
+	kind    ceremonyKind
 }
 
 // check refuses st unless it came from a Begin function of kind and its

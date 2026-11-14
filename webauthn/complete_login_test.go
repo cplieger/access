@@ -172,26 +172,6 @@ func TestCompleteAssertionFailedCustody(t *testing.T) {
 	}
 }
 
-func TestSignCountRegressed(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		stored, asserted uint32
-		want             bool
-	}{
-		{stored: 0, asserted: 0, want: false},
-		{stored: 0, asserted: 1, want: false},
-		{stored: 4, asserted: 5, want: false},
-		{stored: 5, asserted: 5, want: true},
-		{stored: 5, asserted: 4, want: true},
-		{stored: 5, asserted: 0, want: true},
-	}
-	for _, tc := range tests {
-		if got := signCountRegressed(tc.stored, tc.asserted); got != tc.want {
-			t.Errorf("signCountRegressed(%d, %d) = %v, want %v", tc.stored, tc.asserted, got, tc.want)
-		}
-	}
-}
-
 // TestCompleteLogin_ceremony_failure_returns_wrapped_error: an undecodable
 // assertion body fails the ceremony with context, no user and no custody write.
 func TestCompleteLogin_ceremony_failure_returns_wrapped_error(t *testing.T) {
