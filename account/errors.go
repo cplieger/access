@@ -77,10 +77,13 @@ var (
 // The PolicyError Reasons, in PolicyReasons order. RolePolicy and
 // SingleOwnerPolicy give the role and owner reasons; ReasonNotPrincipal,
 // ReasonUnknownOperation, ReasonUnknownVia and ReasonViaWithActor answer a
-// Decision no account operation builds.
+// Decision no account operation builds. ReasonKeyRetiring is a key principal
+// presenting a secret a rotation superseded, which an operation that creates
+// or restores a way in refuses.
 const (
 	ReasonOutOfBandOnly      = "out_of_band_only"
 	ReasonKeyNotCurrent      = "key_not_current"
+	ReasonKeyRetiring        = "key_retiring"
 	ReasonKeyExpired         = "key_expired"
 	ReasonAdminTarget        = "admin_target"
 	ReasonScopesNotSubset    = "scopes_not_subset"
@@ -109,6 +112,7 @@ func PolicyReasons() []string {
 	return []string{
 		ReasonOutOfBandOnly,
 		ReasonKeyNotCurrent,
+		ReasonKeyRetiring,
 		ReasonKeyExpired,
 		ReasonAdminTarget,
 		ReasonScopesNotSubset,

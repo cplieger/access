@@ -37,10 +37,10 @@ func (m *minter) principal() access.Principal {
 // OutOfBand (OpCreateKeyFor) or a principal of userID's own user that
 // RequireKeyPermission admits under CreateKeysScope (OpCreateOwnKey; another
 // user is other_user). Scopes come from Rules().Scopes (ErrUnknownScope), a
-// permission scope only on a RoleAdmin owner (permission_not_admin); Label
-// and ExpiresIn meet NewKey's rules. A key actor's parent is re-read in the
-// Update and bounds the child's scopes, expiry and depth. Only a session
-// actor's session rotates into Issued.
+// permission scope only on a RoleAdmin owner (permission_not_admin); Label and
+// ExpiresIn meet NewKey's rules. A key actor's parent is re-read in the Update,
+// needs its current secret (key_retiring), and bounds the child's scopes,
+// expiry and depth. Only a session actor's session rotates into Issued.
 func (s *Service) CreateAPIKey(ctx context.Context, a Actor, userID int64, in NewKey) (CreatedKey, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	r, err := s.begin()
 	if err != nil {
@@ -147,6 +147,9 @@ func (s *Service) authorizeMint(ctx context.Context, tx Tx, j *journal, m minter
 		actor, parent, err = s.currentKeyActor(ctx, tx, j, m.op, access.KeyRef{ID: p.KeyID, UserID: p.User.ID}, s.keysScope)
 		if err != nil {
 			return err
+		}
+		if keyErr := requireCurrentSecret(m.op, parent, p); keyErr != nil {
+			return keyErr
 		}
 		if err := childOf(m.op, parent, key); err != nil {
 			return err

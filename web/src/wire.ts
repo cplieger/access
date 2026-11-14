@@ -828,6 +828,7 @@ export const REASONS = [
   "breached",
   "out_of_band_only",
   "key_not_current",
+  "key_retiring",
   "key_expired",
   "admin_target",
   "scopes_not_subset",

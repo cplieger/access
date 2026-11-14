@@ -69,6 +69,17 @@ func (s *Service) keyAuthority(ctx context.Context, tx Tx, op Operation, ref acc
 	}), &key, nil
 }
 
+// requireCurrentSecret is the rule on an operation that creates or restores
+// a way in: p, the Principal the request authenticated as, must present
+// key's current secret, else a refused key_retiring. key is the key as the
+// operation's Update re-read it, and nil, for an actor with no key, passes.
+func requireCurrentSecret(op Operation, key *access.Key, p access.Principal) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
+	if key == nil || p.KeyHash().Equal(key.KeyHash) {
+		return nil
+	}
+	return refuse(&PolicyError{Op: op, Reason: ReasonKeyRetiring})
+}
+
 // requireUserTarget is the admin-target rule for a key actor: every role it
 // sets or acts on, as a value or as a target's stored role, is RoleUser,
 // else a refused admin_target.

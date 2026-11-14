@@ -20,11 +20,11 @@ type AcceptInvite struct {
 
 // CreateInvite mints an invite for an account of role (empty is
 // access.RoleUser), for an admin principal or a ManageUsersScope key, and
-// returns its plaintext once. Policy (OpInvite) decides inside the Update;
-// a key's authority is re-read there (key_not_current), its invite may
-// carry RoleUser only (admin_target), records the key as IssuedByKey and
-// expires no later than the key. A ttl of 0 means 7 days; one above 7 × 7
-// days is ErrTTLTooLong.
+// returns its plaintext once. Policy (OpInvite) decides inside the Update; a
+// key's authority is re-read there (key_not_current) and needs its current
+// secret (key_retiring), its invite may carry RoleUser only (admin_target),
+// records the key as IssuedByKey and expires no later than the key. A ttl of
+// 0 means 7 days; one above 7 × 7 days is ErrTTLTooLong.
 func (s *Service) CreateInvite(ctx context.Context, p access.Principal, role access.Role, ttl time.Duration) (IssuedToken, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	r, err := s.begin()
 	if err != nil {
@@ -47,6 +47,9 @@ func (s *Service) CreateInvite(ctx context.Context, p access.Principal, role acc
 		ua, uaErr := s.userAdminIn(ctx, tx, j, OpInvite, As(p))
 		if uaErr != nil {
 			return uaErr
+		}
+		if keyErr := requireCurrentSecret(OpInvite, ua.key, p); keyErr != nil {
+			return keyErr
 		}
 		if polErr := s.policy.Authorize(ctx, Decision{Op: OpInvite, Actor: ua.actor, Role: role}); polErr != nil {
 			return refuse(polErr)
