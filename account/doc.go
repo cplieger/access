@@ -260,7 +260,9 @@
 //     store that resets derived data on a format change classifies its log
 //     records as durable, never derived.
 //  23. Key secrets. APIKeyByHash finds a key by its KeyHash or by its
-//     non-zero PreviousHash, and a zero hash finds nothing.
+//     non-zero PreviousHash, and a zero hash finds nothing. Either hash
+//     reads the one current record, so a touch or a label write shows
+//     through both.
 //     UpdateAPIKeySecret writes KeyHash, KeyPrefix, KeySuffix, PreviousHash
 //     and PreviousUntil and zeroes LastUsedAt in one atomic write (rule
 //     21); the hash it supersedes as PreviousHash leaves the index in that
