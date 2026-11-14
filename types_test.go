@@ -100,7 +100,7 @@ func TestCloneIsDeep(t *testing.T) {
 	t.Run("PasskeyCredential", func(t *testing.T) {
 		t.Parallel()
 		checkDeepClone(t, (*PasskeyCredential).Clone,
-			[]string{"Discoverable", "CredentialID", "PublicKey", "AAGUID", "RawAttestation"})
+			[]string{"Discoverable", "CredentialID", "PublicKey", "AAGUID"})
 	})
 }
 

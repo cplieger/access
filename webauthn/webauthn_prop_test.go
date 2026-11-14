@@ -18,24 +18,19 @@ func TestAPICredentialRoundTrip_preserves_fields(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		discoverable := rapid.Bool().Draw(t, "discoverable")
 		orig := &access.PasskeyCredential{
-			CredentialID:      rapid.SliceOf(rapid.Byte()).Draw(t, "credID"),
-			PublicKey:         rapid.SliceOf(rapid.Byte()).Draw(t, "pubKey"),
-			AAGUID:            rapid.SliceOf(rapid.Byte()).Draw(t, "aaguid"),
-			AttestationType:   rapid.String().Draw(t, "attestationType"),
-			AttestationFormat: rapid.String().Draw(t, "attestationFormat"),
-			Attachment:        access.AuthenticatorAttachment(rapid.String().Draw(t, "attachment")),
-			Transport:         rapid.String().Draw(t, "transport"),
-			SignCount:         rapid.Uint32().Draw(t, "signCount"),
-			RawFlags:          rapid.Uint8Range(1, 255).Draw(t, "rawFlags"),
-			CloneWarning:      rapid.Bool().Draw(t, "cloneWarning"),
-			Discoverable:      &discoverable,
+			CredentialID: rapid.SliceOf(rapid.Byte()).Draw(t, "credID"),
+			PublicKey:    rapid.SliceOf(rapid.Byte()).Draw(t, "pubKey"),
+			AAGUID:       rapid.SliceOf(rapid.Byte()).Draw(t, "aaguid"),
+			Attachment:   access.AuthenticatorAttachment(rapid.String().Draw(t, "attachment")),
+			Transport:    rapid.String().Draw(t, "transport"),
+			SignCount:    rapid.Uint32().Draw(t, "signCount"),
+			RawFlags:     rapid.Uint8Range(1, 255).Draw(t, "rawFlags"),
+			CloneWarning: rapid.Bool().Draw(t, "cloneWarning"),
+			Discoverable: &discoverable,
 		}
 
 		wa := credentialFromAPI(orig)
-		got, err := credentialToAPI(&wa, orig.UserID, orig.Name)
-		if err != nil {
-			t.Fatalf("credentialToAPI: %v", err)
-		}
+		got := credentialToAPI(&wa, orig.UserID, orig.Name)
 
 		if !bytes.Equal(got.CredentialID, orig.CredentialID) {
 			t.Errorf("CredentialID = %x, want %x", got.CredentialID, orig.CredentialID)
@@ -45,12 +40,6 @@ func TestAPICredentialRoundTrip_preserves_fields(t *testing.T) {
 		}
 		if !bytes.Equal(got.AAGUID, orig.AAGUID) {
 			t.Errorf("AAGUID = %x, want %x", got.AAGUID, orig.AAGUID)
-		}
-		if got.AttestationType != orig.AttestationType {
-			t.Errorf("AttestationType = %q, want %q", got.AttestationType, orig.AttestationType)
-		}
-		if got.AttestationFormat != orig.AttestationFormat {
-			t.Errorf("AttestationFormat = %q, want %q", got.AttestationFormat, orig.AttestationFormat)
 		}
 		if got.Attachment != orig.Attachment {
 			t.Errorf("Attachment = %q, want %q", got.Attachment, orig.Attachment)

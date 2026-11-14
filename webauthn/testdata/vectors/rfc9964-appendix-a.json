@@ -3,7 +3,7 @@
   "document": "RFC 9964, ML-DSA for JOSE and COSE",
   "url": "https://www.rfc-editor.org/rfc/rfc9964.txt",
   "section": "Appendix A, Examples (Figures 3 to 8)",
-  "licence": "Copyright (c) 2026 IETF Trust and the persons identified as the document authors; Revised BSD License (IETF Trust Legal Provisions §4.e)"
+  "licence": "Copyright (c) 2026 IETF Trust and the persons identified as the document authors; Revised BSD License (IETF Trust Legal Provisions §4.e), reproduced in THIRD_PARTY_NOTICES.md"
  },
  "examples": [
   {

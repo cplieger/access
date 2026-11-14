@@ -162,14 +162,14 @@ func (c *contract) ownAttribution(t *testing.T) {
 
 // passkeyBytes is every reference field of a credential.
 func passkeyBytes(p *access.PasskeyCredential) [][]byte {
-	return [][]byte{p.CredentialID, p.PublicKey, p.AAGUID, p.RawAttestation}
+	return [][]byte{p.CredentialID, p.PublicKey, p.AAGUID}
 }
 
 func (c *contract) ownPasskey(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
 	u := mustUser(t, s, "owner")
 	p := newPasskey(u.ID)
-	p.RawAttestation, p.Discoverable = []byte{9, 9}, new(true)
+	p.Discoverable = new(true)
 	mustPasskey(t, s, p)
 	want := p.Clone()
 	for _, b := range passkeyBytes(p) {

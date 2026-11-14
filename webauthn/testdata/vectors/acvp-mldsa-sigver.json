@@ -3,7 +3,7 @@
   "document": "NIST ACVP-Server, ML-DSA sigVer (FIPS 204) internal projection",
   "url": "https://github.com/usnistgov/ACVP-Server/blob/975de31eb83d87039ec88934fdc47d8c312b892d/gen-val/json-files/ML-DSA-sigVer-FIPS204/internalProjection.json",
   "commit": "975de31eb83d87039ec88934fdc47d8c312b892d",
-  "licence": "NIST-developed software and data, not subject to copyright in the United States (public domain)",
+  "licence": "NIST software notice, reproduced in THIRD_PARTY_NOTICES.md; not subject to copyright in the United States",
   "selection": "the pure, empty-context, expected-failure cases tcId 10, 39 and 64; sk omitted"
  },
  "cases": [

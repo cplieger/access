@@ -8,7 +8,14 @@ No go-webauthn type appears in this package's exported API, so your code runs a 
 
 `webauthn.New` takes an `RPConfig` with an `ID`, a `DisplayName`, and optionally `Origins` or `AllowSubdomains`, and returns a `*RelyingParty`. `ID()` reports the relying-party ID it was built with.
 
-`ValidateRPID` decides whether a value can be a relying-party ID. It accepts a lowercase domain name with no scheme, port or path. It refuses an IP address, and a single label other than `localhost`. Every refusal matches `ErrIllegalRPID`. `New` refuses an empty ID, and an illegal one with the same `ErrIllegalRPID` error.
+`ValidateRPID` decides whether a value can be a relying-party ID, a valid domain in the [WHATWG URL](https://url.spec.whatwg.org/#valid-domain) sense spelled in lowercase:
+
+- at most 253 bytes, with no scheme, port, path, query or fragment, and not an IP address;
+- labels of 1 to 63 lowercase letters, digits and hyphens, none starting or ending with a hyphen, and none with hyphens in both its third and fourth places unless it starts with `xn--`, so `ab--cd.example` and `exa_mple.com` are refused;
+- a last label that is not a number, so `example.123`, `example.0x1` and `example.0x` are refused, since a browser reads each as an IPv4 address;
+- a single label only as `localhost`.
+
+An `xn--` label is accepted as written and not decoded, the one place access admits more than WHATWG's strict rule; a wrong one fails at the browser. Every refusal matches `ErrIllegalRPID` and states its reason. `New` refuses an empty ID, and an illegal one with the same `ErrIllegalRPID` error.
 
 ## The origin a ceremony expects
 

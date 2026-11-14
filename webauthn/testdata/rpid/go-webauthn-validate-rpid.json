@@ -1,0 +1,222 @@
+{
+ "source": {
+  "upstream": "github.com/go-webauthn/webauthn",
+  "version": "v0.18.2",
+  "commit": "a4c6fc6a4399bcd1ba982c116189f1598d9d5eec",
+  "file": "https://github.com/go-webauthn/webauthn/blob/a4c6fc6a4399bcd1ba982c116189f1598d9d5eec/protocol/utils_test.go",
+  "test": "TestValidateRPID",
+  "licence": "BSD-3-Clause, reproduced in THIRD_PARTY_NOTICES.md",
+  "excluded": [
+   {
+    "name": "ValidRPIDUppercase",
+    "reason": "access refuses an ID that is not spelled in lowercase (design 7.4)"
+   },
+   {
+    "name": "ValidRPIDUnderscoreIsNotForbidden",
+    "reason": "WHATWG URL §3.4 valid domain, UTS #46 UseSTD3ASCIIRules: '_' is not LDH"
+   }
+  ]
+ },
+ "cases": [
+  {
+   "name": "ValidRPIDDomain",
+   "value": "example.com",
+   "valid": true
+  },
+  {
+   "name": "ValidRPIDLocalHost",
+   "value": "localhost",
+   "valid": true
+  },
+  {
+   "name": "ValidRPIDSubdomain",
+   "value": "sub.example.com",
+   "valid": true
+  },
+  {
+   "name": "ValidRPIDPunycode",
+   "value": "xn--bcher-kva.example",
+   "valid": true
+  },
+  {
+   "name": "InvalidRPIDNonASCII",
+   "value": "café.example",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDIPv4Shorthand",
+   "value": "127.1",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDNumericFinalLabel",
+   "value": "example.123",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDThreeOctetShorthand",
+   "value": "1.2.3",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDOutOfRangeOctets",
+   "value": "999.999.999.999",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDHexadecimalFinalLabel",
+   "value": "example.0x1",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDAllDigits",
+   "value": "2130706433",
+   "valid": false
+  },
+  {
+   "name": "ValidRPIDShortest",
+   "value": "a.b",
+   "valid": true
+  },
+  {
+   "name": "InvalidRPIDUsingIPv4",
+   "value": "127.0.0.1",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDUsingIPv4Alt",
+   "value": "1.1.1.1",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDUsingIPv6",
+   "value": "2001:DB8:0:0:8:800:200C:417A",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDUsingIPv6Alt",
+   "value": "::1",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDNotDomain",
+   "value": "example",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDTrailingDot",
+   "value": "example.com.",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDLocalhostTrailingDot",
+   "value": "localhost.",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDLeadingDot",
+   "value": ".example.com",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDOnlyDots",
+   "value": "..",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDEmptyLabel",
+   "value": "a..b",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDHyphenLabels",
+   "value": "-.-",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDLeadingHyphen",
+   "value": "-example.com",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDTrailingHyphen",
+   "value": "example-.com",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDTrailingHyphenLastLabel",
+   "value": "a.b-",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDLeadingSpace",
+   "value": " example.com",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDLabelTooLong",
+   "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDTooLong",
+   "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDScheme",
+   "value": "https://example.com",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDPort",
+   "value": "example.com:1234",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDPortWithScheme",
+   "value": "https://example.com:1234",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDPath",
+   "value": "example.com/example",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDQuery",
+   "value": "example.com?abc=123",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDFragment",
+   "value": "example.com#abc=123",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDPathWithScheme",
+   "value": "https://example.com/example",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDQueryWithScheme",
+   "value": "https://example.com?abc=123",
+   "valid": false
+  },
+  {
+   "name": "InvalidRPIDFragmentWithScheme",
+   "value": "https://example.com#abc=123",
+   "valid": false
+  },
+  {
+   "name": "InvalidEmpty",
+   "value": "",
+   "valid": false
+  },
+  {
+   "name": "InvalidURI",
+   "value": "https://example\u0000.com",
+   "valid": false
+  }
+ ]
+}

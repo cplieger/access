@@ -25,4 +25,4 @@ Metadata-service verification and AAGUID filtering are both policies about which
 
 So `webauthn.New` owns the relying-party configuration and offers no way to inject such a policy. An opening there would break the boundary that keeps every go-webauthn type out of the exported API.
 
-The stored credential record already keeps the raw attestation and the AAGUID. AAGUID filtering also needs attestation conveyance to work at all. The AAGUID arrives unaltered only under `direct` or `enterprise` conveyance, and the default `none` removes it.
+The stored credential record already keeps the AAGUID. AAGUID filtering also needs attestation conveyance to work at all. The AAGUID arrives unaltered only under `direct` or `enterprise` conveyance, and the default `none` removes it.

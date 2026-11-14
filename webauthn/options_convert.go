@@ -32,12 +32,10 @@ func creationFromUpstream(in *protocol.CredentialCreation, userHandle []byte) *C
 			Timeout:            opts.Timeout,
 			ExcludeCredentials: credentialDescriptors(opts.CredentialExcludeList),
 			AuthenticatorSelection: AuthenticatorSelection{
-				ResidentKey:      ResidentKeyRequirement(opts.AuthenticatorSelection.ResidentKey),
-				UserVerification: UserVerificationRequirement(opts.AuthenticatorSelection.UserVerification),
+				ResidentKey:        ResidentKeyRequirement(opts.AuthenticatorSelection.ResidentKey),
+				RequireResidentKey: opts.AuthenticatorSelection.RequireResidentKey != nil && *opts.AuthenticatorSelection.RequireResidentKey,
+				UserVerification:   UserVerificationRequirement(opts.AuthenticatorSelection.UserVerification),
 			},
-			Hints:              credentialHints(opts.Hints),
-			Attestation:        ConveyancePreference(opts.Attestation),
-			AttestationFormats: attestationFormats(opts.AttestationFormats),
 			Extensions: RegistrationExtensions{
 				CredProps: opts.Extensions.CredProps,
 			},
@@ -55,7 +53,6 @@ func assertionFromUpstream(in *protocol.CredentialAssertion) *CredentialAssertio
 			RelyingPartyID:   opts.RelyingPartyID,
 			AllowCredentials: credentialDescriptors(opts.AllowedCredentials),
 			UserVerification: UserVerificationRequirement(opts.UserVerification),
-			Hints:            credentialHints(opts.Hints),
 		},
 		Mediation: Mediation(in.Mediation),
 	}
@@ -97,28 +94,6 @@ func authenticatorTransports(in []protocol.AuthenticatorTransport) []Authenticat
 	out := make([]AuthenticatorTransport, len(in))
 	for i, t := range in {
 		out[i] = AuthenticatorTransport(t)
-	}
-	return out
-}
-
-func credentialHints(in []protocol.PublicKeyCredentialHints) []CredentialHint {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]CredentialHint, len(in))
-	for i, h := range in {
-		out[i] = CredentialHint(h)
-	}
-	return out
-}
-
-func attestationFormats(in []protocol.AttestationFormat) []AttestationStatementFormat {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]AttestationStatementFormat, len(in))
-	for i, f := range in {
-		out[i] = AttestationStatementFormat(f)
 	}
 	return out
 }

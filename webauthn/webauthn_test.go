@@ -74,7 +74,7 @@ func TestCredentialFromAPI_table(t *testing.T) {
 			t.Parallel()
 			cred := &access.PasskeyCredential{
 				CredentialID: []byte{1, 2, 3}, PublicKey: []byte{4, 5, 6},
-				AAGUID: make([]byte, 16), AttestationType: "none",
+				AAGUID:    make([]byte, 16),
 				Transport: tt.transport, SignCount: 42,
 				RawFlags: uint8(protocol.FlagUserPresent | protocol.FlagUserVerified | protocol.FlagBackupEligible),
 			}
@@ -111,7 +111,7 @@ func TestWebAuthnCredentialToAPI_table(t *testing.T) {
 					AAGUID: make([]byte, 16), SignCount: 99,
 				},
 			}
-			got := mustToAPI(t, waCred, 7, "test-key")
+			got := credentialToAPI(waCred, 7, "test-key")
 			if got.Transport != tt.wantTransport {
 				t.Errorf("Transport = %q, want %q", got.Transport, tt.wantTransport)
 			}
@@ -144,15 +144,6 @@ func TestFormatAAGUID_edge_cases(t *testing.T) {
 	}
 }
 
-func mustToAPI(t *testing.T, c *gowebauthn.Credential, userID int64, name string) *access.PasskeyCredential {
-	t.Helper()
-	got, err := credentialToAPI(c, userID, name)
-	if err != nil {
-		t.Fatalf("credentialToAPI: %v", err)
-	}
-	return got
-}
-
 func TestCloneWarning_roundtrip(t *testing.T) {
 	t.Parallel()
 	cred := &access.PasskeyCredential{
@@ -166,7 +157,7 @@ func TestCloneWarning_roundtrip(t *testing.T) {
 	if !waCred.Authenticator.CloneWarning {
 		t.Error("CredentialFromAPI did not propagate CloneWarning")
 	}
-	back := mustToAPI(t, &waCred, 1, "test")
+	back := credentialToAPI(&waCred, 1, "test")
 	if !back.CloneWarning {
 		t.Error("CredentialToAPI did not propagate CloneWarning")
 	}
@@ -269,50 +260,6 @@ func TestBeginLogin_requires_user_verification(t *testing.T) {
 	uv := assertion.Response.UserVerification
 	if uv != VerificationRequired {
 		t.Errorf("UserVerification = %q, want %q", uv, VerificationRequired)
-	}
-}
-
-// CredentialToAPI populates RawAttestation only when the source credential
-// carries attestation data: an attestation with either an Object or a
-// ClientDataJSON present is marshalled, while a fully-empty attestation leaves
-// RawAttestation nil.
-func TestCredentialToAPI_RawAttestation_presence(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name           string
-		object         []byte
-		clientDataJSON []byte
-		wantNil        bool
-	}{
-		{"both_empty_omits_attestation", nil, nil, true},
-		{"object_only_marshals", []byte{0xa0, 0x01}, nil, false},
-		{"clientdata_only_marshals", nil, []byte(`{"x":1}`), false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			waCred := &gowebauthn.Credential{
-				ID:            []byte{1, 2, 3},
-				PublicKey:     []byte{4, 5, 6},
-				Authenticator: gowebauthn.Authenticator{AAGUID: make([]byte, 16)},
-			}
-			waCred.Attestation.Object = tt.object
-			waCred.Attestation.ClientDataJSON = tt.clientDataJSON
-
-			got := mustToAPI(t, waCred, 7, "key")
-
-			if tt.wantNil && got.RawAttestation != nil {
-				t.Errorf("credentialToAPI(Object=%v, ClientDataJSON=%v).RawAttestation = %v, want nil",
-					tt.object, tt.clientDataJSON, got.RawAttestation)
-			}
-			if !tt.wantNil && got.RawAttestation == nil {
-				t.Errorf("credentialToAPI(Object=%v, ClientDataJSON=%v).RawAttestation = nil, want non-nil",
-					tt.object, tt.clientDataJSON)
-			}
-		})
 	}
 }
 

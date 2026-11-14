@@ -17,10 +17,7 @@ func TestRegistrationRecord_recordsTheRelyingParty(t *testing.T) {
 	user := &User{AuthUser: &access.User{ID: 99, Username: "alex"}}
 	cred := &gowebauthn.Credential{ID: []byte{1, 2, 3}, PublicKey: []byte{4, 5}}
 
-	got, err := registrationRecord(rp, user, cred)
-	if err != nil {
-		t.Fatalf("registrationRecord: %v", err)
-	}
+	got := registrationRecord(rp, user, cred)
 
 	if got.RPID != "example.com" {
 		t.Errorf("registrationRecord().RPID = %q, want %q", got.RPID, "example.com")

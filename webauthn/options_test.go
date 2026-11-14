@@ -109,6 +109,80 @@ func TestCreationOptions_serializesLikeUpstream_withExcludedCredential(t *testin
 	assertSameJSON(t, "registration options with exclusions", upstream, creationFromUpstream(upstream, user.WebAuthnID()))
 }
 
+// publicKeyJSON returns the publicKey member of v's JSON as a decoded object.
+func publicKeyJSON(t *testing.T, v any) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var doc struct {
+		PublicKey map[string]any `json:"publicKey"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil || doc.PublicKey == nil {
+		t.Fatalf("Unmarshal %s: publicKey %v, error %v", raw, doc.PublicKey, err)
+	}
+	return doc.PublicKey
+}
+
+// TestCreationOptions_WebAuthn5_4_4_requireResidentKey checks that the creation
+// options send requireResidentKey true beside residentKey "required": WebAuthn
+// §5.4.4 has the relying party set it to true for backwards compatibility with
+// Level 1 clients, which read only requireResidentKey (design 7.4).
+func TestCreationOptions_WebAuthn5_4_4_requireResidentKey(t *testing.T) {
+	t.Parallel()
+	user := &User{AuthUser: &access.User{ID: 42, Username: "alex", WebAuthnHandle: access.GenerateWebAuthnHandle()}}
+	creation, _, err := BeginRegistration(testRelyingParty(t), user, exampleOrigin(t))
+	if err != nil {
+		t.Fatalf("BeginRegistration: %v", err)
+	}
+	selection, ok := publicKeyJSON(t, creation)["authenticatorSelection"].(map[string]any)
+	if !ok {
+		t.Fatalf("publicKey.authenticatorSelection is not an object")
+	}
+	if got := selection["requireResidentKey"]; got != true {
+		t.Errorf("authenticatorSelection.requireResidentKey = %v, want true", got)
+	}
+	if got := selection["residentKey"]; got != "required" {
+		t.Errorf("authenticatorSelection.residentKey = %v, want required", got)
+	}
+}
+
+// TestOptions_WebAuthn5_4_7_noAttestationOrHints checks that neither options
+// dictionary carries attestation, attestationFormats or hints: an absent
+// attestation member is the default "none" (WebAuthn §5.4.7, design 7.4), and
+// access sends no hints (§5.8.7, design 7.16 R1).
+func TestOptions_WebAuthn5_4_7_noAttestationOrHints(t *testing.T) {
+	t.Parallel()
+	rp := testRelyingParty(t)
+	user := &User{AuthUser: &access.User{ID: 42, Username: "alex", WebAuthnHandle: access.GenerateWebAuthnHandle()}}
+	creation, _, err := BeginRegistration(rp, user, exampleOrigin(t))
+	if err != nil {
+		t.Fatalf("BeginRegistration: %v", err)
+	}
+	login, _, err := BeginLogin(rp, exampleOrigin(t))
+	if err != nil {
+		t.Fatalf("BeginLogin: %v", err)
+	}
+	conditional, _, err := BeginConditionalLogin(rp, exampleOrigin(t))
+	if err != nil {
+		t.Fatalf("BeginConditionalLogin: %v", err)
+	}
+	user.Credentials = []access.PasskeyCredential{{CredentialID: []byte{1, 2, 3}}}
+	reauth, _, err := BeginReauthentication(rp, user, exampleOrigin(t))
+	if err != nil {
+		t.Fatalf("BeginReauthentication: %v", err)
+	}
+	for name, options := range map[string]any{"creation": creation, "login": login, "conditional": conditional, "reauthentication": reauth} {
+		publicKey := publicKeyJSON(t, options)
+		for _, member := range []string{"attestation", "attestationFormats", "hints"} {
+			if v, present := publicKey[member]; present {
+				t.Errorf("%s options carry publicKey.%s = %v, want no such member", name, member, v)
+			}
+		}
+	}
+}
+
 // TestBase64URL_roundTrip pins the encoding every binary member uses. Padded
 // input is accepted on the way in because some clients emit it, but output is
 // always unpadded.
@@ -193,8 +267,9 @@ func testHandle(t *testing.T, rp *RelyingParty) *gowebauthn.WebAuthn {
 
 func upstreamSelection() protocol.AuthenticatorSelection {
 	return protocol.AuthenticatorSelection{
-		ResidentKey:      "required",
-		UserVerification: "required",
+		ResidentKey:        "required",
+		RequireResidentKey: protocol.ResidentKeyRequired(),
+		UserVerification:   "required",
 	}
 }
 

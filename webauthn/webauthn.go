@@ -6,7 +6,6 @@ package webauthn
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -194,9 +193,7 @@ func PasskeyFriendlyName(aaguid []byte, existingNames []string) string {
 }
 
 // credentialFromAPI converts a stored PasskeyCredential to the gowebauthn
-// form an assertion verifies against. RawAttestation is not decoded:
-// go-webauthn@v0.18.2 reads Credential.Attestation only in Credential.Verify
-// (webauthn/credential.go:286,328), never in a login.
+// form an assertion verifies against.
 func credentialFromAPI(c *access.PasskeyCredential) gowebauthn.Credential {
 	var transports []protocol.AuthenticatorTransport
 	if c.Transport != "" {
@@ -206,12 +203,10 @@ func credentialFromAPI(c *access.PasskeyCredential) gowebauthn.Credential {
 	}
 
 	return gowebauthn.Credential{
-		ID:                c.CredentialID,
-		PublicKey:         c.PublicKey,
-		AttestationType:   c.AttestationType,
-		AttestationFormat: c.AttestationFormat,
-		Transport:         transports,
-		Flags:             credentialFlags(c),
+		ID:        c.CredentialID,
+		PublicKey: c.PublicKey,
+		Transport: transports,
+		Flags:     credentialFlags(c),
 		Authenticator: gowebauthn.Authenticator{
 			AAGUID:       c.AAGUID,
 			SignCount:    c.SignCount,
@@ -230,40 +225,29 @@ func credentialFlags(c *access.PasskeyCredential) gowebauthn.CredentialFlags {
 }
 
 // credentialToAPI converts a gowebauthn.Credential to a PasskeyCredential.
-func credentialToAPI(c *gowebauthn.Credential, userID int64, name string) (*access.PasskeyCredential, error) {
+func credentialToAPI(c *gowebauthn.Credential, userID int64, name string) *access.PasskeyCredential {
 	transports := make([]string, 0, len(c.Transport))
 	for _, t := range c.Transport {
 		transports = append(transports, string(t))
 	}
 
-	var rawAttestation []byte
-	if len(c.Attestation.Object) > 0 || len(c.Attestation.ClientDataJSON) > 0 {
-		var err error
-		if rawAttestation, err = json.Marshal(c.Attestation); err != nil {
-			return nil, fmt.Errorf("access/webauthn: encode the attestation: %w", err)
-		}
-	}
-
 	return &access.PasskeyCredential{
-		UserID:            userID,
-		CredentialID:      c.ID,
-		PublicKey:         c.PublicKey,
-		AAGUID:            c.Authenticator.AAGUID,
-		AttestationType:   c.AttestationType,
-		AttestationFormat: c.AttestationFormat,
-		Attachment:        access.AuthenticatorAttachment(c.Authenticator.Attachment),
-		Transport:         strings.Join(transports, ","),
-		SignCount:         c.Authenticator.SignCount,
-		Name:              name,
-		RawFlags:          uint8(c.Flags.ProtocolValue()),
-		BackupEligible:    c.Flags.BackupEligible,
-		BackupState:       c.Flags.BackupState,
-		UserPresent:       c.Flags.UserPresent,
-		UserVerified:      c.Flags.UserVerified,
-		CloneWarning:      c.Authenticator.CloneWarning,
-		Discoverable:      c.Extensions.RK,
-		RawAttestation:    rawAttestation,
-	}, nil
+		UserID:         userID,
+		CredentialID:   c.ID,
+		PublicKey:      c.PublicKey,
+		AAGUID:         c.Authenticator.AAGUID,
+		Attachment:     access.AuthenticatorAttachment(c.Authenticator.Attachment),
+		Transport:      strings.Join(transports, ","),
+		SignCount:      c.Authenticator.SignCount,
+		Name:           name,
+		RawFlags:       uint8(c.Flags.ProtocolValue()),
+		BackupEligible: c.Flags.BackupEligible,
+		BackupState:    c.Flags.BackupState,
+		UserPresent:    c.Flags.UserPresent,
+		UserVerified:   c.Flags.UserVerified,
+		CloneWarning:   c.Authenticator.CloneWarning,
+		Discoverable:   c.Extensions.RK,
+	}
 }
 
 // RelyingParty is a configured relying party, and the value every ceremony
@@ -316,7 +300,7 @@ func (rp *RelyingParty) policy(o Origin) *OriginError {
 		return refuse(RejectNoOrigin)
 	case o.isIPHost():
 		return refuse(RejectIPHost)
-	case o.scheme == schemeHTTP && o.host != "localhost":
+	case o.scheme == schemeHTTP && o.host != localhost:
 		return refuse(RejectInsecureScheme)
 	case o.host != rp.id && !strings.HasSuffix(o.host, "."+rp.id):
 		return refuse(RejectHostNotCovered)
@@ -415,33 +399,10 @@ type RPConfig struct {
 	AllowSubdomains bool
 }
 
-// ErrIllegalRPID reports a value that cannot be a relying-party ID. Every
-// error [ValidateRPID] returns matches it with errors.Is and also carries the
-// upstream validator's reason.
-var ErrIllegalRPID = errors.New("access/webauthn: illegal relying-party ID")
-
 // ErrCeremonyUnbound reports a ceremony carrying no origin, which a ceremony
 // from a Begin function always does. It is a fail-closed guard against a
 // Ceremony assembled some other way, never a condition a caller can reach.
 var ErrCeremonyUnbound = errors.New("access/webauthn: the ceremony is not bound to an origin")
-
-// ValidateRPID reports whether id is a legal relying-party ID: a lowercase
-// domain name with no scheme, port or path, not an IP address, and not a
-// single label other than localhost. A refusal matches [ErrIllegalRPID].
-//
-// The lowercase requirement is this package's own: the upstream validator
-// accepts "Example.COM", but the relying-party hash is computed over the
-// configured bytes, so whether a mixed-case ID ever verifies depends on the
-// client, and a configured value must not.
-func ValidateRPID(id string) error {
-	if err := protocol.ValidateRPID(id); err != nil {
-		return fmt.Errorf("%w %q: %w", ErrIllegalRPID, id, err)
-	}
-	if lower := strings.ToLower(id); id != lower {
-		return fmt.Errorf("%w %q: the value must be spelled in lowercase, as %q", ErrIllegalRPID, id, lower)
-	}
-	return nil
-}
 
 // New creates a configured [RelyingParty]. An RPConfig with an empty ID is
 // rejected here with an error naming the field, an illegal ID with one
@@ -510,8 +471,9 @@ func BeginRegistration(rp *RelyingParty, user *User, origin Origin) (*Credential
 		gowebauthn.WithRegistrationOrigin(origin.String()),
 		gowebauthn.WithCredentialParameters(gowebauthn.CredentialParametersPQCRecommendedL3()),
 		gowebauthn.WithAuthenticatorSelection(protocol.AuthenticatorSelection{
-			ResidentKey:      protocol.ResidentKeyRequirementRequired,
-			UserVerification: protocol.VerificationRequired,
+			ResidentKey:        protocol.ResidentKeyRequirementRequired,
+			RequireResidentKey: protocol.ResidentKeyRequired(),
+			UserVerification:   protocol.VerificationRequired,
 		}),
 		gowebauthn.WithExclusions(gowebauthn.Credentials((&userAdapter{User: user}).WebAuthnCredentials()).CredentialDescriptors()),
 		gowebauthn.WithExtensions(gowebauthn.WithExtensionCredProps()),
@@ -549,20 +511,17 @@ func FinishRegistration(rp *RelyingParty, user *User, ceremony Ceremony, respons
 	if err := rejectNonDiscoverable(cred); err != nil {
 		return nil, err
 	}
-	return registrationRecord(rp, user, cred)
+	return registrationRecord(rp, user, cred), nil
 }
 
 // registrationRecord builds the stored credential record for a completed
 // registration. The Name is left empty: a friendly name is derived from the
 // AAGUID against the user's EXISTING passkey names (see [PasskeyFriendlyName]),
 // which only the caller's store can supply.
-func registrationRecord(rp *RelyingParty, user *User, cred *gowebauthn.Credential) (*access.PasskeyCredential, error) {
-	record, err := credentialToAPI(cred, user.AuthUser.ID, "")
-	if err != nil {
-		return nil, err
-	}
+func registrationRecord(rp *RelyingParty, user *User, cred *gowebauthn.Credential) *access.PasskeyCredential {
+	record := credentialToAPI(cred, user.AuthUser.ID, "")
 	record.RPID = rp.ID()
-	return record, nil
+	return record
 }
 
 // rejectNonDiscoverable reports [ErrNotDiscoverable] when the credProps output

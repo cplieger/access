@@ -21,6 +21,9 @@ type Origin struct {
 const (
 	schemeHTTPS = "https"
 	schemeHTTP  = "http"
+	// localhost is the one single-label RP ID ValidateRPID admits and the one
+	// host CheckOrigin lets a ceremony run on over plain http.
+	localhost = "localhost"
 )
 
 // OriginRejection names why an origin cannot conduct a ceremony, or why a
@@ -256,7 +259,7 @@ func parsePort(port, scheme string) (string, bool) {
 // TLS (W3C WebAuthn L3 §13.4.9 recommends accepting no more than needed).
 func defaultOrigins(id string) []Origin {
 	exact := []Origin{{scheme: schemeHTTPS, host: id}}
-	if id == "localhost" {
+	if id == localhost {
 		exact = append(exact, Origin{scheme: schemeHTTP, host: id})
 	}
 	return exact

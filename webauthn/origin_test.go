@@ -428,50 +428,6 @@ func TestNew_storesParsedOriginList(t *testing.T) {
 	}
 }
 
-// TestValidateRPID pins the one legality predicate: upstream's domain rules
-// plus this package's lowercase requirement, every refusal matching
-// ErrIllegalRPID. The hyphen and numeric-label rows are the two shapes a
-// derived-domain path can hand it (a leading-hyphen label and "foo.123").
-func TestValidateRPID(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		id      string
-		wantErr bool
-	}{
-		{id: "example.com"},
-		{id: "sub.example.com"},
-		{id: "localhost"},
-		{id: "duckdns.org"},
-		{id: "", wantErr: true},
-		{id: "Example.COM", wantErr: true},
-		{id: "10.0.0.5", wantErr: true},
-		{id: "::1", wantErr: true},
-		{id: "[::1]", wantErr: true},
-		{id: "http://example.com", wantErr: true},
-		{id: "example.com:8443", wantErr: true},
-		{id: "example.com.", wantErr: true},
-		{id: "nas", wantErr: true},
-		{id: "foo.123", wantErr: true},
-		{id: "-foo.example.com", wantErr: true},
-		{id: "ex\u00e4mple.com", wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(strings.ReplaceAll(tt.id, "/", "_"), func(t *testing.T) {
-			t.Parallel()
-			err := ValidateRPID(tt.id)
-			if gotErr := err != nil; gotErr != tt.wantErr {
-				t.Fatalf("ValidateRPID(%q) error = %v, want error presence %v", tt.id, err, tt.wantErr)
-			}
-			if tt.wantErr && !errors.Is(err, ErrIllegalRPID) {
-				t.Errorf("ValidateRPID(%q) error = %v, want it to match ErrIllegalRPID", tt.id, err)
-			}
-			if tt.wantErr && !strings.Contains(err.Error(), `"`+tt.id+`"`) {
-				t.Errorf("ValidateRPID(%q) error = %q, want it to name the value", tt.id, err)
-			}
-		})
-	}
-}
-
 // TestNew_refusesIllegalRPID pins that New applies ValidateRPID, so a
 // misspelled or IP relying party fails at construction rather than at ceremony
 // time.
