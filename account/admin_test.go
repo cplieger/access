@@ -89,7 +89,7 @@ func TestUpdateUser(t *testing.T) {
 		for n := 1; n <= 4; n++ {
 			w := newAdminWorld(t, options{}, nil)
 			w.f.sessionPrincipal(t, w.alice, access.SessionFull, time.Now())
-			w.f.mint(t, account.OutOfBand("socket"), w.alice.ID, account.NewKey{Scopes: []string{"read"}})
+			w.f.mint(t, account.OutOfBand("socket"), w.alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 			before := w.f.events.all()
 			w.fs.failWrite(n)
 			got, err := w.f.svc.UpdateUser(t.Context(), w.pr, w.alice.ID, account.UserChange{Role: new(access.RoleAdmin), Enabled: new(false)})
@@ -200,7 +200,7 @@ func TestUpdateUser(t *testing.T) {
 		t.Parallel()
 		w := newAdminWorld(t, options{}, nil)
 		sp := w.f.sessionPrincipal(t, w.alice, access.SessionFull, time.Now())
-		key := w.f.mint(t, account.OutOfBand("socket"), w.alice.ID, account.NewKey{Scopes: []string{"read"}})
+		key := w.f.mint(t, account.OutOfBand("socket"), w.alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 		if _, err := w.f.svc.UpdateUser(t.Context(), w.pr, w.alice.ID, account.UserChange{Role: new(access.RoleAdmin)}); err != nil {
 			t.Fatalf("promote alice = %v", err)
 		}
@@ -295,8 +295,8 @@ func TestDisableDeletesKeysAndSessions(t *testing.T) {
 	w := newAdminWorld(t, options{}, account.RolePolicy{})
 	s1 := w.f.sessionPrincipal(t, w.alice, access.SessionFull, time.Now())
 	s2 := w.f.sessionPrincipal(t, w.alice, access.SessionFull, time.Now())
-	k1 := w.f.mint(t, account.As(s1), w.alice.ID, account.NewKey{Scopes: []string{"read"}})
-	k2 := w.f.mint(t, account.OutOfBand("socket"), w.alice.ID, account.NewKey{Scopes: []string{"read"}})
+	k1 := w.f.mint(t, account.As(s1), w.alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
+	k2 := w.f.mint(t, account.OutOfBand("socket"), w.alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 	if _, err := w.f.svc.UpdateUser(t.Context(), w.pr, w.alice.ID, account.UserChange{Enabled: new(false)}); err != nil {
 		t.Fatalf("disable alice = %v", err)
 	}
@@ -334,8 +334,8 @@ func TestDisableOwnerRevokesMintedKeys(t *testing.T) {
 			w := newAdminWorld(t, options{}, nil)
 			owner := mustUser(t, w.f.mem, "owner", access.RoleAdmin)
 			op1 := w.f.sessionPrincipal(t, owner, access.SessionFull, time.Now())
-			root := w.f.mint(t, account.As(op1), owner.ID, account.NewKey{Scopes: []string{scopeUsers, scopeKeys}})
-			child := w.f.mint(t, account.As(root.p), owner.ID, account.NewKey{Scopes: []string{scopeUsers}})
+			root := w.f.mint(t, account.As(op1), owner.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
+			child := w.f.mint(t, account.As(root.p), owner.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 			invite, err := w.f.svc.CreateInvite(t.Context(), child.p, access.RoleUser, 0)
 			if err != nil {
 				t.Fatalf("CreateInvite from the child = %v", err)

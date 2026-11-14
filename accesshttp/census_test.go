@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -194,8 +195,10 @@ func newCensus(t *testing.T, set, bypass bool) *census {
 	c.createUser(t, "alice", access.RoleUser)
 	c.createUser(t, "kim", access.RoleAdmin)
 	cookie := func(ck *http.Cookie) func(*http.Request) { return func(r *http.Request) { r.AddCookie(ck) } }
+	minted := 0
 	key := func(owner string, scopes ...string) func(*http.Request) {
-		k := c.mintKey(t, owner, account.NewKey{Label: owner, Scopes: scopes})
+		minted++
+		k := c.mintKey(t, owner, account.NewKey{Label: owner + " " + strconv.Itoa(minted), Scopes: scopes})
 		return func(r *http.Request) { bearer(r, k.Plaintext) }
 	}
 	agent := func(scopes string) func(*http.Request) {

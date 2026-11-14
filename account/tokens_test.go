@@ -14,9 +14,9 @@ func TestTokensListsLiveTokens(t *testing.T) {
 	t.Parallel()
 	w := newAdminWorld(t, options{}, nil)
 	ctx := t.Context()
-	root := w.key(t, account.NewKey{Scopes: []string{scopeUsers, scopeKeys}})
-	child := w.f.mint(t, account.As(root.p), w.root.ID, account.NewKey{Scopes: []string{scopeUsers, scopeKeys}})
-	grand := w.f.mint(t, account.As(child.p), w.root.ID, account.NewKey{Scopes: []string{scopeUsers}})
+	root := w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
+	child := w.f.mint(t, account.As(root.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
+	grand := w.f.mint(t, account.As(child.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 	invite, err := w.f.svc.CreateInvite(ctx, w.pr, access.RoleUser, 0)
 	if err != nil {
 		t.Fatalf("CreateInvite = %v", err)

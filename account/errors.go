@@ -42,6 +42,9 @@ var (
 	// user who holds a password, or a RemovePassword with a zero current.
 	ErrCurrentPasswordRequired = errors.New("account: the current password is required")
 	ErrKeyExpiryInvalid        = errors.New("account: key expiry must not be negative")
+	// ErrKeyLabelTaken is a key label another unexpired key of the same
+	// owner already carries, compared after NFC and Unicode case folding.
+	ErrKeyLabelTaken = errors.New("account: a key with this label already exists")
 	// ErrRulesInvalid is matched by every *RulesError: New refusing the
 	// Rules() value, and an operation refusing a later invalid one.
 	ErrRulesInvalid = errors.New("account: rules invalid")
@@ -206,7 +209,8 @@ func (*RulesError) Is(target error) bool { return target == ErrRulesInvalid }
 
 func (e *RulesError) Unwrap() error { return e.Err }
 
-// The UsernameError and TextError Reasons.
+// The UsernameError and TextError Reasons. A TextError is ReasonEmpty only
+// for a key label: every other display text may be empty.
 const (
 	ReasonEmpty               = "empty"
 	ReasonDisallowedCharacter = "disallowed_character"
@@ -228,7 +232,22 @@ func UsernameReasons() []string {
 func TextErrorFields() []string { return []string{TextFieldLabel, TextFieldDisplayName} }
 
 // TextErrorReasons returns every TextError Reason, in a stable order.
-func TextErrorReasons() []string { return []string{ReasonDisallowedCharacter, ReasonTooLong} }
+func TextErrorReasons() []string {
+	return []string{ReasonEmpty, ReasonDisallowedCharacter, ReasonTooLong}
+}
+
+// TextErrors returns every {Field, Reason} pair an operation returns as a
+// *TextError, in a stable order: a label is refused empty, a display name
+// never is.
+func TextErrors() []TextError {
+	return []TextError{
+		{Field: TextFieldLabel, Reason: ReasonEmpty},
+		{Field: TextFieldLabel, Reason: ReasonDisallowedCharacter},
+		{Field: TextFieldLabel, Reason: ReasonTooLong},
+		{Field: TextFieldDisplayName, Reason: ReasonDisallowedCharacter},
+		{Field: TextFieldDisplayName, Reason: ReasonTooLong},
+	}
+}
 
 // UsernameError is a username a creation path refuses, before any limiter
 // call or hash. Reason is one of UsernameReasons.
@@ -239,9 +258,9 @@ type UsernameError struct {
 func (e *UsernameError) Error() string { return "account: invalid username: " + e.Reason }
 
 // TextError is a display text an operation refuses before any write. Field
-// is one of TextErrorFields and Reason one of TextErrorReasons:
-// disallowed_character is invalid UTF-8, a control, bidi control or line
-// separator character.
+// is one of TextErrorFields, Reason one of TextErrorReasons, and the pair
+// one of TextErrors: disallowed_character is invalid UTF-8, a control, bidi
+// control or line separator character.
 type TextError struct {
 	Field  string
 	Reason string

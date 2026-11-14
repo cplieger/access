@@ -68,6 +68,8 @@ func TestErrorCodeTable(t *testing.T) {
 		{name: "response_too_large", err: webauthn.ErrResponseTooLarge, code: "auth_body_too_large"},
 		{name: "username_invalid", err: &account.UsernameError{Reason: "too_long"}, code: "auth_username_invalid", reason: "too_long"},
 		{name: "username_taken", err: account.ErrUsernameTaken, code: "auth_username_taken"},
+		{name: "key_label_taken", err: account.ErrKeyLabelTaken, code: "auth_key_label_taken"},
+		{name: "label_empty", err: &account.TextError{Field: "label", Reason: "empty"}, code: "auth_bad_request", reason: "label_empty"},
 		{name: "password_rejected", err: &access.PasswordError{Reason: "common"}, code: "auth_password_rejected", reason: "common"},
 		{name: "breach_unavailable", err: account.ErrBreachCheckUnavailable, code: "auth_breach_check_unavailable"},
 		{name: "password_login_disabled", err: account.ErrPasswordLoginDisabled, code: "auth_password_login_disabled"},

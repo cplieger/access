@@ -537,7 +537,7 @@ func TestKeyAdminTargetRoutes(t *testing.T) {
 // TestKeysAdminOnlyRoute is §9.5 "Key minting policy" through authKeyCreate.
 func TestKeysAdminOnlyRoute(t *testing.T) {
 	mint := func(e *env, cookie *http.Cookie, scopes ...string) *httptest.ResponseRecorder {
-		return do(e.route(t, "authKeyCreate"), e.post(t, "authKeyCreate", keyBody(t, "ci", scopes...), cookie))
+		return do(e.route(t, "authKeyCreate"), e.post(t, "authKeyCreate", keyBody(t, "ci "+strings.Join(scopes, " "), scopes...), cookie))
 	}
 	// refused checks a refused mint: the code, no key and no rotation.
 	refused := func(t *testing.T, e *env, w *httptest.ResponseRecorder, reason string) {

@@ -58,6 +58,7 @@ var sentinelCodes = []struct {
 	{account.ErrCurrentPasswordRequired, access.CodeBadRequest, ReasonCurrentPasswordRequired},
 	{webauthn.ErrResponseTooLarge, access.CodeBodyTooLarge, ""},
 	{account.ErrUsernameTaken, access.CodeUsernameTaken, ""},
+	{account.ErrKeyLabelTaken, access.CodeKeyLabelTaken, ""},
 	{account.ErrPasswordLoginDisabled, access.CodePasswordLoginDisabled, ""},
 	{account.ErrSetupComplete, access.CodeSetupComplete, ""},
 	{account.ErrSetupTokenRequired, access.CodeSetupTokenRequired, ""},

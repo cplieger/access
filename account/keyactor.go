@@ -48,7 +48,7 @@ func (s *Service) keyAuthority(ctx context.Context, tx Tx, op Operation, ref acc
 	}
 	key := keys[i]
 	if (ref.UserID != 0 && key.UserID != ref.UserID) ||
-		(!key.ExpiresAt.IsZero() && !key.ExpiresAt.After(s.now())) ||
+		keyExpired(&key, s.now()) ||
 		!slices.Contains(key.Scopes, scope) {
 		return Actor{}, nil, notCurrent
 	}

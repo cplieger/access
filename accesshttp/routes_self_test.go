@@ -611,6 +611,34 @@ func TestRouteAuthKeyCreate(t *testing.T) {
 	})
 }
 
+// TestRouteAuthKeyCreateLabel: a label is required and unique among the
+// owner's unexpired keys, compared after NFC and case folding.
+func TestRouteAuthKeyCreateLabel(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		cookie := e.aliceSession(t)
+		w := do(e.route(t, "authKeyCreate"), e.post(t, "authKeyCreate", keyBody(t, ""), cookie))
+		if got := e.requireRefused(t, w, access.CodeBadRequest); got.Reason != "label_empty" {
+			t.Errorf("reason %q, want label_empty", got.Reason)
+		}
+		if keys, _ := e.mem.ListAPIKeysByUserID(t.Context(), e.user(t, "alice").ID); len(keys) != 0 {
+			t.Errorf("stored keys %d, want none", len(keys))
+		}
+	})
+	t.Run("taken", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		cookie := e.aliceSession(t)
+		e.mintKey(t, "alice", account.NewKey{Label: "Agent"})
+		w := do(e.route(t, "authKeyCreate"), e.post(t, "authKeyCreate", keyBody(t, "agent"), cookie))
+		if got := e.requireRefused(t, w, access.CodeKeyLabelTaken); w.Code != http.StatusConflict || got.Reason != "" {
+			t.Errorf("status %d reason %q, want 409 with no reason", w.Code, got.Reason)
+		}
+		if keys, _ := e.mem.ListAPIKeysByUserID(t.Context(), e.user(t, "alice").ID); len(keys) != 1 {
+			t.Errorf("stored keys %d, want the first one only", len(keys))
+		}
+	})
+}
+
 func TestRouteAuthKeyRevoke(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		e := newEnv(t, envOptions{})

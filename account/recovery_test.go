@@ -143,7 +143,7 @@ func newRecoveredWorld(t *testing.T) *recoveredWorld {
 	w := &recoveredWorld{recWorld: newRecWorld(t, pwOptions{}, nil)}
 	for range 2 {
 		w.others = append(w.others, w.sessionPrincipal(t, w.alice, access.SessionFull, time.Now()).SessionID)
-		w.keys = append(w.keys, w.mint(t, account.OutOfBand("socket"), w.alice.ID, account.NewKey{Scopes: []string{"read"}}).key.ID)
+		w.keys = append(w.keys, w.mint(t, account.OutOfBand("socket"), w.alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}}).key.ID)
 	}
 	tok := w.issue(t, account.OutOfBand("socket"), w.alice.ID)
 	seedToken(t, w.mem, access.PurposeRecovery, w.alice.ID, 0, time.Hour)
@@ -270,7 +270,7 @@ func TestRecoveryCompletion(t *testing.T) {
 		t.Parallel()
 		w := newRecoveredWorld(t)
 		full := w.sessionPrincipal(t, w.alice, access.SessionFull, time.Now())
-		key := w.mint(t, account.OutOfBand("socket"), w.alice.ID, account.NewKey{Scopes: []string{"read"}}).p
+		key := w.mint(t, account.OutOfBand("socket"), w.alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}}).p
 		for name, p := range map[string]access.Principal{"full_session": full, "key": key, "bypass": w.bypassPrincipal(t)} {
 			if err := completeWithPassword(t, w.svc, p, account.RecoverOptions{}); !errors.Is(err, account.ErrSessionRequired) {
 				t.Errorf("RecoverWithPassword from a %s = %v, want ErrSessionRequired", name, err)
@@ -346,7 +346,7 @@ func TestRecoveryRevokesKeys(t *testing.T) {
 				w := newRecWorld(t, pwOptions{}, nil)
 				var plaintexts []access.Secret
 				for range 2 {
-					created, err := w.svc.CreateAPIKey(t.Context(), account.OutOfBand("socket"), w.alice.ID, account.NewKey{Scopes: []string{"read"}})
+					created, err := w.svc.CreateAPIKey(t.Context(), account.OutOfBand("socket"), w.alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 					if err != nil {
 						t.Fatalf("CreateAPIKey = %v", err)
 					}
@@ -380,7 +380,7 @@ func TestRecoveryRevokesKeysAndTheirTokens(t *testing.T) {
 			if err := w.mem.UpdateUser(t.Context(), boss); err != nil {
 				t.Fatalf("UpdateUser: %v", err)
 			}
-			k := w.mint(t, account.OutOfBand("socket"), boss.ID, account.NewKey{Scopes: []string{scopeUsers}})
+			k := w.mint(t, account.OutOfBand("socket"), boss.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 			inv, err := w.svc.CreateInvite(t.Context(), k.p, access.RoleUser, 0)
 			if err != nil {
 				t.Fatalf("CreateInvite from K = %v", err)
@@ -437,7 +437,7 @@ func TestShellOnlyRepair(t *testing.T) {
 		var keys []int64
 		for range 2 {
 			sessions = append(sessions, w.sessionPrincipal(t, w.alice, access.SessionFull, time.Now()).SessionID)
-			keys = append(keys, w.mint(t, account.OutOfBand("socket"), w.alice.ID, account.NewKey{Scopes: []string{"read"}}).key.ID)
+			keys = append(keys, w.mint(t, account.OutOfBand("socket"), w.alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}}).key.ID)
 		}
 		w.issue(t, account.OutOfBand("socket"), w.alice.ID)
 		seedLock(t, w.mem, w.svc, "alice", false, false)

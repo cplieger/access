@@ -52,6 +52,7 @@ var accountSentinels = []struct {
 	{name: "log_filter", err: &account.LogFilterError{Reason: account.ReasonLogKind}, code: access.CodeBadRequest},
 	{name: "username_invalid", err: &account.UsernameError{Reason: account.ReasonTooLong}, code: access.CodeUsernameInvalid},
 	{name: "username_taken", err: account.ErrUsernameTaken, code: access.CodeUsernameTaken},
+	{name: "key_label_taken", err: account.ErrKeyLabelTaken, code: access.CodeKeyLabelTaken},
 	{name: "password_rejected", err: &access.PasswordError{Reason: access.PasswordCommon}, code: access.CodePasswordRejected},
 	{name: "breach_unavailable", err: account.ErrBreachCheckUnavailable, code: access.CodeBreachCheckUnavailable},
 	{name: "password_login_disabled", err: account.ErrPasswordLoginDisabled, code: access.CodePasswordLoginDisabled},

@@ -43,6 +43,7 @@ const (
 	CodeBodyTooLarge           Code = "auth_body_too_large"
 	CodeUsernameInvalid        Code = "auth_username_invalid"
 	CodeUsernameTaken          Code = "auth_username_taken"
+	CodeKeyLabelTaken          Code = "auth_key_label_taken"
 	CodePasswordRejected       Code = "auth_password_rejected"
 	CodeBreachCheckUnavailable Code = "auth_breach_check_unavailable"
 	CodePasswordLoginDisabled  Code = "auth_password_login_disabled"
@@ -93,6 +94,7 @@ var codeTable = [...]codeRow{
 	{CodeBodyTooLarge, "The request body is too large.", http.StatusRequestEntityTooLarge},
 	{CodeUsernameInvalid, "The username is not valid.", http.StatusBadRequest},
 	{CodeUsernameTaken, "The username is taken.", http.StatusConflict},
+	{CodeKeyLabelTaken, "A key with this label already exists.", http.StatusConflict},
 	{CodePasswordRejected, "The password is not allowed.", http.StatusBadRequest},
 	{CodeBreachCheckUnavailable, "The password check is unavailable. Try again shortly.", http.StatusServiceUnavailable},
 	{CodePasswordLoginDisabled, "Password sign-in is turned off.", http.StatusForbidden},

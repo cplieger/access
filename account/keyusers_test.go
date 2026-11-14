@@ -42,7 +42,7 @@ func userIDs(rows []account.ListedUser) []int64 {
 func TestKeyManagesUsers(t *testing.T) {
 	t.Parallel()
 	w := newAdminWorld(t, options{}, account.RolePolicy{})
-	k := w.key(t, account.NewKey{Scopes: []string{scopeUsers}})
+	k := w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 	ctx := t.Context()
 	u1, err := w.f.svc.CreateUser(ctx, account.As(k.p), account.NewUser{Username: "Una", Password: access.NewSecret(goodPassword)})
 	if err != nil || u1.Role != access.RoleUser || u1.Username != "una" {
@@ -116,7 +116,7 @@ func TestKeyManagesUsers(t *testing.T) {
 	})
 	t.Run("single_owner", func(t *testing.T) {
 		g := newAdminWorld(t, options{}, account.SingleOwnerPolicy{})
-		gk := g.key(t, account.NewKey{Scopes: []string{scopeUsers}})
+		gk := g.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 		if _, err := g.f.svc.CreateUser(t.Context(), account.As(gk.p), account.NewUser{Username: "second"}); !errors.Is(err, account.ErrPolicyRefused) {
 			t.Errorf("CreateUser from the owner's key under SingleOwnerPolicy = %v, want ErrPolicyRefused", err)
 		}
@@ -149,7 +149,7 @@ func TestKeyNoAdminTarget(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			w := newAdminWorld(t, options{}, tc.policy)
-			k := w.key(t, account.NewKey{Scopes: []string{scopeUsers}})
+			k := w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 			high := mustUser(t, w.f.mem, "high", tc.role)
 			off := mustUser(t, w.f.mem, "off", tc.role)
 			off.Enabled = false
@@ -250,7 +250,7 @@ func TestKeyNoAdminTarget(t *testing.T) {
 			{name: "allowed", policy: allowAll{}, existing: "admin_target", gone: ""},
 		} {
 			w := newAdminWorld(t, options{}, account.RolePolicy{})
-			k := w.key(t, account.NewKey{Scopes: []string{scopeUsers}})
+			k := w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 			high := mustUser(t, w.f.mem, "high", access.RoleAdmin)
 			cfg := w.f.cfg
 			cfg.Policy = tc.policy
@@ -286,7 +286,7 @@ func TestKeyChainStaysUser(t *testing.T) {
 	t.Parallel()
 	for _, keysAdminOnly := range []bool{false, true} {
 		w := newAdminWorld(t, options{}, account.RolePolicy{KeysAdminOnly: keysAdminOnly})
-		k := w.key(t, account.NewKey{Scopes: []string{scopeUsers}})
+		k := w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 		u, err := w.f.svc.CreateUser(t.Context(), account.As(k.p), account.NewUser{Username: "uma", Password: access.NewSecret(goodPassword)})
 		if err != nil {
 			t.Fatalf("CreateUser from the key = %v", err)
@@ -299,7 +299,7 @@ func TestKeyChainStaysUser(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Authenticate(uma) = %v", err)
 		}
-		created, err := w.f.svc.CreateAPIKey(t.Context(), account.As(up), u.ID, account.NewKey{Scopes: []string{"read"}})
+		created, err := w.f.svc.CreateAPIKey(t.Context(), account.As(up), u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 		if keysAdminOnly {
 			if !errors.Is(err, account.ErrPolicyRefused) {
 				t.Errorf("uma's mint under KeysAdminOnly = %v, want ErrPolicyRefused", err)
@@ -317,7 +317,7 @@ func TestKeyChainStaysUser(t *testing.T) {
 			t.Fatalf("Authenticate(uma rotated) = %v", err)
 		}
 		for _, scope := range []string{scopeUsers, scopeAdmin, scopeKeys} {
-			if _, err := w.f.svc.CreateAPIKey(t.Context(), account.As(up), u.ID, account.NewKey{Scopes: []string{scope}}); reason(err) != "permission_not_admin" {
+			if _, err := w.f.svc.CreateAPIKey(t.Context(), account.As(up), u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scope}}); reason(err) != "permission_not_admin" {
 				t.Errorf("uma minting %s = %v, want permission_not_admin", scope, err)
 			}
 		}
@@ -353,8 +353,8 @@ func TestKeyAttributionWrites(t *testing.T) {
 	t.Parallel()
 	clock := laterClock()
 	w := newAdminWorld(t, options{edit: func(c *account.Config) { c.Now = clock.now }}, nil)
-	root := w.key(t, account.NewKey{Scopes: []string{scopeUsers, scopeKeys}})
-	k := w.f.mint(t, account.As(root.p), w.root.ID, account.NewKey{Scopes: []string{scopeUsers}})
+	root := w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
+	k := w.f.mint(t, account.As(root.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 	ctx := t.Context()
 	want := func(userID int64, action access.AttributionAction) access.KeyAttribution {
 		return access.KeyAttribution{UserID: userID, Action: action, KeyLineage: k.key.LineageIDs, At: clock.now()}
@@ -437,7 +437,7 @@ func TestKeyAttributionWrites(t *testing.T) {
 			return err
 		},
 		"CreateAPIKey_from_root": func() error {
-			_, err := w.f.svc.CreateAPIKey(ctx, account.As(root.p), w.root.ID, account.NewKey{Scopes: []string{scopeUsers}})
+			_, err := w.f.svc.CreateAPIKey(ctx, account.As(root.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 			return err
 		},
 	}
@@ -520,10 +520,10 @@ func TestUsersAttributedToKey(t *testing.T) {
 	w := newAdminWorld(t, options{}, nil)
 	boss := mustUser(t, w.f.mem, "boss", access.RoleAdmin)
 	bp := w.f.sessionPrincipal(t, boss, access.SessionFull, time.Now())
-	k := w.key(t, account.NewKey{Scopes: []string{scopeUsers, scopeKeys}})
-	k2 := w.f.mint(t, account.As(k.p), w.root.ID, account.NewKey{Scopes: []string{scopeUsers, scopeKeys}})
-	k3 := w.f.mint(t, account.As(k2.p), w.root.ID, account.NewKey{Scopes: []string{scopeUsers}})
-	other := w.key(t, account.NewKey{Scopes: []string{scopeUsers}})
+	k := w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
+	k2 := w.f.mint(t, account.As(k.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
+	k3 := w.f.mint(t, account.As(k2.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
+	other := w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 	ctx := t.Context()
 	u1, err := w.f.svc.CreateUser(ctx, account.As(k3.p), account.NewUser{Username: "u1"})
 	if err != nil {
@@ -593,7 +593,7 @@ func TestUsersAttributedToKey(t *testing.T) {
 	if n := len(attributionsOf(t, w.f, u1.ID)); n != before {
 		t.Errorf("deleting u2 changed u1's records: %d, want %d", n, before)
 	}
-	k4 := w.f.mint(t, account.As(bp), boss.ID, account.NewKey{Scopes: []string{scopeUsers}})
+	k4 := w.f.mint(t, account.As(bp), boss.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 	if _, err := w.f.svc.UpdateUser(ctx, k4.p, u1.ID, account.UserChange{Enabled: new(true)}); err != nil {
 		t.Fatalf("re-enable u1 from K4 = %v", err)
 	}

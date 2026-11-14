@@ -36,8 +36,9 @@ func (m *minter) principal() access.Principal {
 // RequireKeyPermission admits under CreateKeysScope (OpCreateOwnKey; another
 // user is other_user). Scopes come from Rules().Scopes (ErrUnknownScope), a
 // permission scope only on a RoleAdmin owner (permission_not_admin); the
-// label is one line of at most 128 runes and ExpiresIn not negative. A key
-// actor's parent is re-read in the Update and bounds the child's scopes,
+// label is required, one line of at most 128 runes, and no label of
+// userID's unexpired keys after NFC and case folding (ErrKeyLabelTaken),
+// and ExpiresIn is not negative. A key actor's parent is re-read in the Update and bounds the child's scopes,
 // expiry and depth. Only a session actor's session rotates into Issued.
 func (s *Service) CreateAPIKey(ctx context.Context, a Actor, userID int64, in NewKey) (CreatedKey, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	r, err := s.begin()
@@ -70,12 +71,11 @@ func (s *Service) CreateAPIKey(ctx context.Context, a Actor, userID int64, in Ne
 	session := m.principal()
 	err = s.change(ctx, by(a), func(tx Tx, j *journal) error {
 		key, rot = *draft.Clone(), rotated{}
-		owner, mintErr := s.authorizeMint(ctx, tx, j, m, &key)
-		if mintErr != nil {
+		if mintErr := s.authorizeMint(ctx, tx, j, m, &key); mintErr != nil {
 			return mintErr
 		}
-		if scopeErr := s.permissionScopes(m.op, owner, key.Scopes); scopeErr != nil {
-			return scopeErr
+		if labelErr := requireLabelFree(ctx, tx, userID, key.Label, now, 0); labelErr != nil {
+			return labelErr
 		}
 		if createErr := tx.CreateAPIKey(ctx, &key); createErr != nil {
 			return createErr
@@ -123,7 +123,7 @@ func checkKeyInput(r Rules, in NewKey) error { //nolint:gocritic // hugeParam: t
 			return ErrUnknownScope
 		}
 	}
-	if err := checkLine(TextFieldLabel, in.Label, maxDisplayRunes); err != nil {
+	if err := checkKeyLabel(in.Label); err != nil {
 		return err
 	}
 	if in.ExpiresIn < 0 {
@@ -132,10 +132,10 @@ func checkKeyInput(r Rules, in NewKey) error { //nolint:gocritic // hugeParam: t
 	return nil
 }
 
-// authorizeMint decides a mint inside its Update and returns the key's
-// owner as tx read it. A key minter's parent is re-read first, and key
-// takes its path; then the Policy, then the owner must be enabled.
-func (s *Service) authorizeMint(ctx context.Context, tx Tx, j *journal, m minter, key *access.Key) (*access.User, error) { //nolint:gocritic // hugeParam: the minter admitMinter built
+// authorizeMint decides a mint inside its Update. A key minter's parent is
+// re-read first, and key takes its path; then the Policy, then the owner as
+// tx reads it must be enabled and, for a permission scope, RoleAdmin.
+func (s *Service) authorizeMint(ctx context.Context, tx Tx, j *journal, m minter, key *access.Key) error { //nolint:gocritic // hugeParam: the minter admitMinter built
 	actor := m.actor
 	if m.key {
 		var (
@@ -145,33 +145,33 @@ func (s *Service) authorizeMint(ctx context.Context, tx Tx, j *journal, m minter
 		p := m.principal()
 		actor, parent, err = s.currentKeyActor(ctx, tx, j, m.op, access.KeyRef{ID: p.KeyID, UserID: p.User.ID}, s.keysScope)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if err := childOf(m.op, parent, key); err != nil {
-			return nil, err
+			return err
 		}
 		key.LineageIDs = slices.Clone(parent.LineageIDs)
 	}
 	owner, found, err := tx.UserByID(ctx, key.UserID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	var target *access.User
 	if found {
 		target = owner
 	}
 	if polErr := s.policy.Authorize(ctx, Decision{Op: m.op, Actor: actor, Target: target}); polErr != nil {
-		return nil, refuse(polErr)
+		return refuse(polErr)
 	}
 	switch {
 	case !found && m.op == OpCreateKeyFor:
-		return nil, refuse(ErrNotFound)
+		return refuse(ErrNotFound)
 	case !found:
-		return nil, refuse(ErrSessionGone)
+		return refuse(ErrSessionGone)
 	case !owner.Enabled:
-		return nil, refuse(&PolicyError{Op: m.op, Reason: ReasonTargetNotEligible})
+		return refuse(&PolicyError{Op: m.op, Reason: ReasonTargetNotEligible})
 	}
-	return owner, nil
+	return s.permissionScopes(m.op, owner, key.Scopes)
 }
 
 // childOf is the rule on a key a key mints: no scope its parent lacks, no

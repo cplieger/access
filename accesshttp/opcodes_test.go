@@ -153,6 +153,7 @@ var producerErrors = map[string]error{
 	modulePath + "/account.ErrKeyExpiryInvalid":        account.ErrKeyExpiryInvalid,
 	modulePath + "/account.ErrCurrentPasswordRequired": account.ErrCurrentPasswordRequired,
 	modulePath + "/account.ErrUsernameTaken":           account.ErrUsernameTaken,
+	modulePath + "/account.ErrKeyLabelTaken":           account.ErrKeyLabelTaken,
 	modulePath + "/account.ErrPasswordLoginDisabled":   account.ErrPasswordLoginDisabled,
 	modulePath + "/account.ErrSetupComplete":           account.ErrSetupComplete,
 	modulePath + "/account.ErrSetupTokenRequired":      account.ErrSetupTokenRequired,

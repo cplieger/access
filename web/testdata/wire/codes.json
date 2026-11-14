@@ -15,6 +15,7 @@
   "auth_body_too_large",
   "auth_username_invalid",
   "auth_username_taken",
+  "auth_key_label_taken",
   "auth_password_rejected",
   "auth_breach_check_unavailable",
   "auth_password_login_disabled",

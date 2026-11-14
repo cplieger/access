@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,6 +18,13 @@ const (
 	scopeKeys  = "create_keys"
 	scopeAdmin = "admin"
 )
+
+// labels numbers uniqueLabel's answers.
+var labels atomic.Int64
+
+// uniqueLabel is a key label no other key of the run carries, for a test
+// whose subject is not the label rule (keylabel_test.go pins that).
+func uniqueLabel() string { return "key " + strconv.FormatInt(labels.Add(1), 10) }
 
 // keyRules names every scope the key tests mint.
 func keyRules() account.Rules {

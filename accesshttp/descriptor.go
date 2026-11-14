@@ -208,7 +208,7 @@ var opCodes = map[string][]access.Code{
 	"RevokeSession":         {access.CodeUnavailable, access.CodeNotFound},
 	"RevokeOtherSessions":   {access.CodeUnavailable},
 	"APIKeys":               {access.CodeUnavailable},
-	"CreateAPIKey":          {access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeUnknownScope},
+	"CreateAPIKey":          {access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeUnknownScope, access.CodeKeyLabelTaken},
 	"RevokeAPIKey":          {access.CodeUnavailable, access.CodeNotFound},
 	"Users":                 {access.CodeForbidden, access.CodeUnavailable},
 	"CreateUser":            {access.CodeForbidden, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeUsernameTaken, access.CodePasswordRejected, access.CodeBreachCheckUnavailable},

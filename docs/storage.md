@@ -93,7 +93,7 @@ A key rotation replaces a key's secret and keeps its ID, label, scopes, expiry, 
 - **The conditional touch.** `TouchAPIKey(ctx, keyID, hash, at)` writes `LastUsedAt` only when the stored `KeyHash` equals `hash` and `at` is after the stored value. A touch sampled before a rotation carries the old hash and writes nothing, so it can never end the new secret's overlap.
 - **The sweep.** `Sweeper.ClearRetiredAPIKeySecrets(ctx, now, limit)` zeroes `PreviousHash` and `PreviousUntil`, in one atomic step, on at most `limit` keys whose previous secret no longer verifies: `PreviousHash` set, and `PreviousUntil` not after `now` or `LastUsedAt` non-zero. It returns how many it cleared and never writes `KeyHash`. Evaluate the predicate in the write itself (`UPDATE … WHERE …`, or a compare under the writer mutex), never from a list read before it: a key rotated again between the read and the write would lose its new previous secret. The sweep calls it in batches of `account.MaxSweepBatch` and stops at a count below `limit`.
 - **Deletes.** `DeleteAPIKey`, `DeleteUserAPIKeys` and `DeleteUser`'s cascade remove both hashes with the key.
-- **Labels.** `Tx.UpdateAPIKeyLabel(ctx, ref, label)` writes the label and nothing else, scoped by `ref` like the rotation write.
+- **Labels.** `Tx.UpdateAPIKeyLabel(ctx, ref, label)` writes the label and nothing else, scoped by `ref` like the rotation write. `account` checks that a label is unique among its owner's unexpired keys when it creates the key, inside the same `Update`. Do not add a unique index on the label: a store from before that rule may hold two keys with one label, or a key with an empty label, and each stays listed, readable and revocable by its ID.
 
 ## IDs and key lineage
 

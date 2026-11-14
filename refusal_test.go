@@ -36,6 +36,7 @@ var specCodes = []struct {
 	{"auth_body_too_large", "The request body is too large.", 413},
 	{"auth_username_invalid", "The username is not valid.", 400},
 	{"auth_username_taken", "The username is taken.", 409},
+	{"auth_key_label_taken", "A key with this label already exists.", 409},
 	{"auth_password_rejected", "The password is not allowed.", 400},
 	{"auth_breach_check_unavailable", "The password check is unavailable. Try again shortly.", 503},
 	{"auth_password_login_disabled", "Password sign-in is turned off.", 403},

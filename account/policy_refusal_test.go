@@ -69,7 +69,7 @@ func policyVariants() []operation {
 		{name: "CreateAPIKey_out_of_band", class: classOutOfBand, asks: []account.Operation{account.OpCreateKeyFor}, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
 			a := w.actor(p)
 			return opCall{actor: account.EventActorOf(a), target: w.alice.ID, run: func(ctx context.Context) error {
-				_, err := w.svc.CreateAPIKey(ctx, a, w.alice.ID, account.NewKey{Scopes: []string{"read"}})
+				_, err := w.svc.CreateAPIKey(ctx, a, w.alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 				return err
 			}}
 		}},

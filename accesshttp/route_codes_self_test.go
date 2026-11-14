@@ -488,6 +488,11 @@ func addKeyScenarios(out map[scenarioKey]scenario) {
 	out[scenarioKey{create, access.CodeBadRequest}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, create, keyBody(t, "two\nlines"), e.aliceSession(t))
 	}}
+	out[scenarioKey{create, access.CodeKeyLabelTaken}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		cookie := e.aliceSession(t)
+		e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+		return e.post(t, create, keyBody(t, "CI"), cookie)
+	}}
 	out[scenarioKey{create, access.CodeUnknownScope}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, create, keyBody(t, "ci", "unlisted"), e.aliceSession(t))
 	}}

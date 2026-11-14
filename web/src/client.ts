@@ -168,6 +168,11 @@ export interface AuthClient {
   revokeSession(id: string): Promise<ApiResult<void>>;
   revokeOtherSessions(): Promise<ApiResult<void>>;
   keys(): Promise<ApiResult<readonly KeyView[]>>;
+  /**
+   * A label another unexpired key of the user carries, compared after NFC and
+   * case folding, is auth_key_label_taken; an empty one is auth_bad_request
+   * with reason label_empty.
+   */
   createKey(r: NewKeyRequest): Promise<ApiResult<KeyCreatedResponse>>;
   revokeKey(id: number): Promise<ApiResult<void>>;
   /** key lists the users any key in that key's lineage acted on (GET /users?key=). */

@@ -55,6 +55,7 @@
   "via_with_actor",
   "empty",
   "disallowed_character",
+  "label_empty",
   "label_disallowed_character",
   "label_too_long",
   "display_name_disallowed_character",

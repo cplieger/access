@@ -710,7 +710,7 @@ func adminOperations() []operation {
 			return opCall{
 				actor: actorOf(p), target: u.ID,
 				run: func(ctx context.Context) (err error) {
-					created, err = w.svc.CreateAPIKey(ctx, account.As(p), u.ID, account.NewKey{Scopes: scopes})
+					created, err = w.svc.CreateAPIKey(ctx, account.As(p), u.ID, account.NewKey{Label: uniqueLabel(), Scopes: scopes})
 					return err
 				},
 				want: func() []account.Event {

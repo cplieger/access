@@ -57,10 +57,8 @@ func wireReasons(t *testing.T) []string {
 	for _, r := range account.UsernameReasons() {
 		errs = append(errs, &account.UsernameError{Reason: r})
 	}
-	for _, f := range account.TextErrorFields() {
-		for _, r := range account.TextErrorReasons() {
-			errs = append(errs, &account.TextError{Field: f, Reason: r})
-		}
+	for _, te := range account.TextErrors() {
+		errs = append(errs, &te)
 	}
 	for _, r := range account.LogFilterReasons() {
 		errs = append(errs, &account.LogFilterError{Reason: r})
@@ -118,6 +116,12 @@ func TestReasonTable(t *testing.T) {
 			t.Errorf("Reasons() starts %v, want %v", got[:min(len(got), len(designOwnReasons))], designOwnReasons)
 		}
 	})
+	t.Run("no_display_name_empty", func(t *testing.T) {
+		t.Parallel()
+		if !slices.Contains(got, "label_empty") || slices.Contains(got, "display_name_empty") {
+			t.Errorf("Reasons() = %v, want label_empty and no display_name_empty", got)
+		}
+	})
 	t.Run("composition", func(t *testing.T) {
 		t.Parallel()
 		want := slices.Clone(designOwnReasons)
@@ -126,7 +130,7 @@ func TestReasonTable(t *testing.T) {
 		}
 		want = append(want, account.PolicyReasons()...)
 		want = append(want, account.UsernameReasons()...)
-		want = append(want, "label_disallowed_character", "label_too_long", "display_name_disallowed_character", "display_name_too_long")
+		want = append(want, "label_empty", "label_disallowed_character", "label_too_long", "display_name_disallowed_character", "display_name_too_long")
 		want = append(want, "log_limit", "log_range", "log_kind", "log_id")
 		for _, r := range webauthn.OriginRejections() {
 			want = append(want, string(r))

@@ -177,7 +177,7 @@ func burden(t *testing.T, w *opWorld, u *access.User) {
 // out of band, with its principal.
 func (w *opWorld) usersKey(t *testing.T) minted {
 	t.Helper()
-	return w.mint(t, account.OutOfBand("socket"), w.root.ID, account.NewKey{Scopes: []string{scopeUsers, scopeKeys}})
+	return w.mint(t, account.OutOfBand("socket"), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
 }
 
 func (w *opWorld) attributionsOf(t *testing.T, userID int64) []access.AttributionAction {
@@ -401,7 +401,7 @@ func txScenarios() []txScenario {
 			p := w.recent(t, w.root)
 			before := storedSession(t, w.mem, w.root.ID, p.SessionID)
 			return func(ctx context.Context) error {
-					_, err := w.svc.CreateAPIKey(ctx, account.As(p), w.root.ID, account.NewKey{Scopes: []string{"read"}})
+					_, err := w.svc.CreateAPIKey(ctx, account.As(p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 					return err
 				}, func(t *testing.T) {
 					after := storedSession(t, w.mem, w.root.ID, p.SessionID)
@@ -412,7 +412,7 @@ func txScenarios() []txScenario {
 		}},
 		{name: "revoke_api_key_subtree", world: scoped, prep: func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
 			parent := w.usersKey(t)
-			child := w.mint(t, account.As(parent.p), w.root.ID, account.NewKey{Scopes: []string{scopeUsers}})
+			child := w.mint(t, account.As(parent.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 			if _, err := w.svc.CreateInvite(t.Context(), child.p, access.RoleUser, 0); err != nil {
 				t.Fatalf("CreateInvite from the child = %v", err)
 			}
