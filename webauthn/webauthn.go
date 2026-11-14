@@ -34,10 +34,16 @@ var ErrResponseTooLarge = errors.New("access/webauthn: the authenticator respons
 
 // Store is the store interface [CompleteLogin] and [CompleteReauthentication]
 // consume: the account and its passkeys by user handle, and the post-login
-// custody write. An [github.com/cplieger/access/account.Store] satisfies it.
+// custody write. The account package's passkey sign-in implements it over an
+// [github.com/cplieger/access/account.Store].
 type Store interface {
 	PasskeysByUserID(ctx context.Context, userID int64) ([]access.PasskeyCredential, error)
-	UpdatePasskeyAfterLogin(ctx context.Context, userID int64, credID []byte, upd access.PasskeyLoginUpdate) error
+	// RecordAssertion stores a verified assertion's custody in one atomic
+	// step: the larger of the stored and upd's SignCount, the OR of both
+	// CloneWarnings, and upd's RawFlags and At (BS may clear, WebAuthn L3
+	// §6.1.3). It compares nothing: the ceremony decided the regression.
+	// A credential userID does not hold is an error.
+	RecordAssertion(ctx context.Context, userID int64, credID []byte, upd access.PasskeyLoginUpdate) error
 	UserByWebAuthnHandle(ctx context.Context, handle []byte) (user *access.User, found bool, err error)
 }
 
@@ -746,25 +752,27 @@ func (u *User) credential(id []byte) (*access.PasskeyCredential, bool) {
 	return nil, false
 }
 
-// completeAssertion stores the custody of a verified assertion, scoped to the
-// user it verified for: the sign count, the full flags octet and the sticky
-// clone warning upstream keeps from the stored record.
+// completeAssertion records the custody of a verified assertion, scoped to
+// the user it verified for: the asserted count and flags octet, and whether
+// this assertion regressed; RecordAssertion keeps a stored warning.
 func completeAssertion(ctx context.Context, store Store, user *User, parsed *protocol.ParsedCredentialAssertionData, cred *gowebauthn.Credential) (LoginResult, error) {
-	err := store.UpdatePasskeyAfterLogin(ctx, user.AuthUser.ID, cred.ID, access.PasskeyLoginUpdate{
+	// upstream verifies only a credential of user.Credentials, so it is found.
+	stored, _ := user.credential(cred.ID)
+	asserted := parsed.Response.AuthenticatorData.Counter
+	regressed := signCountRegressed(stored.SignCount, asserted)
+	err := store.RecordAssertion(ctx, user.AuthUser.ID, cred.ID, access.PasskeyLoginUpdate{
 		At:           time.Now(),
-		SignCount:    cred.Authenticator.SignCount,
-		RawFlags:     uint8(cred.Flags.ProtocolValue()),
-		CloneWarning: cred.Authenticator.CloneWarning,
+		SignCount:    asserted,
+		RawFlags:     uint8(parsed.Response.AuthenticatorData.Flags),
+		CloneWarning: regressed,
 	})
 	if err != nil {
 		return LoginResult{}, fmt.Errorf("%w: access/webauthn: post-login passkey update: %w", access.ErrAuthBackend, err)
 	}
-	// upstream verifies only a credential of user.Credentials, so it is found.
-	stored, _ := user.credential(cred.ID)
 	return LoginResult{
 		User:         user.AuthUser,
 		CredentialID: slices.Clone(cred.ID),
-		CloneWarning: signCountRegressed(stored.SignCount, parsed.Response.AuthenticatorData.Counter),
+		CloneWarning: regressed,
 	}, nil
 }
 

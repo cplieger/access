@@ -6,7 +6,7 @@ access stores nothing itself. This page is for the developer writing the storage
 
 A store implements `account.Store`: the roles `UserStore`, `SessionStore`, `PasskeyStore`, `KeyStore`, `TokenStore`, `AttributionStore`, `FailureStore` and `LogStore`, grouped as `account.Tx` inside `Store.Update`, plus the `Sweeper` cleanups the background sweep calls.
 
-`access.New` takes an `AuthenticatorStore`, the read side it needs: session lookup and activity updates, user lookup by ID, API-key lookup by hash, and `TouchAPIKey`, which records the last use of a key's current secret. `webauthn.CompleteLogin` takes a `webauthn.Store`. An `account.Store` satisfies both.
+`access.New` takes an `AuthenticatorStore`, the read side it needs: session lookup and activity updates, user lookup by ID, API-key lookup by hash, and `TouchAPIKey`, which records the last use of a key's current secret. An `account.Store` satisfies it. `webauthn.CompleteLogin` takes a `webauthn.Store`, whose `RecordAssertion` merges a sign-in's custody atomically; `account` implements it over your `account.Store`, so a store written for `account` needs nothing more.
 
 ## The transaction boundary
 

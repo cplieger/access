@@ -59,7 +59,7 @@ Each `Begin` call returns two values. `CredentialCreation` or `CredentialAsserti
 
 The provider names come from the [passkey authenticator AAGUID list](https://github.com/passkeydeveloper/passkey-authenticator-aaguids), which the passkey developer community maintains. The package ships a copy, adds three authenticators the list lacks, and reads nothing over the network. Dependency-update pull requests refresh the copy, and each copy names the commit of the list it came from. `AuthenticatorName` returns the name for an AAGUID, and `false` when the AAGUID is unknown.
 
-`CompleteLogin` finishes a sign-in against your `webauthn.Store`. It resolves the account from the user handle, verifies the assertion and writes the new sign count and flags. Account status and session creation stay yours, so check `User.Enabled` before you create the session.
+`CompleteLogin` finishes a sign-in against your `webauthn.Store`. It resolves the account from the user handle, verifies the assertion and records the custody through `RecordAssertion`, which must, in one atomic step, keep the larger of the stored and the new sign count, OR the clone warnings, and store the new flags and time. `account` implements it for you; a custom `webauthn.Store` must keep that contract, or two concurrent sign-ins can lower the count or clear a warning. Account status and session creation stay yours, so check `User.Enabled` before you create the session.
 
 ## What registration requires
 

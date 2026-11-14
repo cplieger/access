@@ -12,13 +12,11 @@ import (
 	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/internal/printcheck"
-	"github.com/cplieger/access/webauthn"
 )
 
 var (
 	_ account.Store             = (*accesstest.MemStore)(nil)
 	_ access.AuthenticatorStore = (*accesstest.MemStore)(nil)
-	_ webauthn.Store            = (*accesstest.MemStore)(nil)
 )
 
 var t0 = time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)

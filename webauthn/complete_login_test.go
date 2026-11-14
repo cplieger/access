@@ -13,7 +13,7 @@ import (
 	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
 )
 
-// custodyRecord captures one UpdatePasskeyAfterLogin call.
+// custodyRecord captures one RecordAssertion call.
 type custodyRecord struct {
 	credID []byte
 	upd    access.PasskeyLoginUpdate
@@ -49,7 +49,7 @@ func (f *fakeStore) PasskeysByUserID(_ context.Context, userID int64) ([]access.
 	return f.creds[userID], nil
 }
 
-func (f *fakeStore) UpdatePasskeyAfterLogin(_ context.Context, userID int64, credID []byte, upd access.PasskeyLoginUpdate) error {
+func (f *fakeStore) RecordAssertion(_ context.Context, userID int64, credID []byte, upd access.PasskeyLoginUpdate) error {
 	f.updated = &custodyRecord{userID: userID, credID: credID, upd: upd}
 	return f.updateErr
 }
@@ -128,13 +128,10 @@ func TestCompleteAssertionStoresCustody(t *testing.T) {
 	// UP, UV, BE and AT set, BS clear: the AT bit has no boolean, so only the
 	// octet carries it.
 	const octet = 0x4D
-	cred := &gowebauthn.Credential{
-		ID:            stored.CredentialID,
-		Flags:         gowebauthn.NewCredentialFlags(octet),
-		Authenticator: gowebauthn.Authenticator{SignCount: 42, CloneWarning: true},
-	}
+	cred := &gowebauthn.Credential{ID: stored.CredentialID}
 	parsed := &protocol.ParsedCredentialAssertionData{}
 	parsed.Response.AuthenticatorData.Counter = 42
+	parsed.Response.AuthenticatorData.Flags = octet
 	before := time.Now()
 
 	res, err := completeAssertion(t.Context(), fs, user, parsed, cred)
@@ -151,8 +148,8 @@ func TestCompleteAssertionStoresCustody(t *testing.T) {
 		t.Errorf("custody write for user %d, credential %x; want 7, %x", fs.updated.userID, fs.updated.credID, cred.ID)
 	}
 	upd := fs.updated.upd
-	if upd.SignCount != 42 || upd.RawFlags != octet || !upd.CloneWarning || upd.At.Before(before) {
-		t.Errorf("custody update = %+v, want SignCount 42, RawFlags %#x, the sticky CloneWarning and At now", upd, octet)
+	if upd.SignCount != 42 || upd.RawFlags != octet || upd.CloneWarning || upd.At.Before(before) {
+		t.Errorf("custody update = %+v, want SignCount 42, RawFlags %#x, no CloneWarning on 41 to 42 and At now", upd, octet)
 	}
 	res.CredentialID[0] = 0
 	if cred.ID[0] != 9 {
@@ -164,7 +161,7 @@ func TestCompleteAssertionFailedCustody(t *testing.T) {
 	t.Parallel()
 	errBucket := errors.New("bucket unavailable")
 	fs := &fakeStore{updateErr: errBucket}
-	user := &User{AuthUser: &access.User{ID: 7}}
+	user := &User{AuthUser: &access.User{ID: 7}, Credentials: []access.PasskeyCredential{{CredentialID: []byte{1}}}}
 
 	res, err := completeAssertion(t.Context(), fs, user, &protocol.ParsedCredentialAssertionData{}, &gowebauthn.Credential{ID: []byte{1}})
 	if !errors.Is(err, access.ErrAuthBackend) || !errors.Is(err, errBucket) {

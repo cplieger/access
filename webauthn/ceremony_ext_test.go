@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -127,7 +128,7 @@ func TestPasskeyLoginStoresCustody(t *testing.T) {
 	h.enrol(alice, dev)
 	before := time.Now()
 
-	res, err := h.login(h.store, dev)
+	res, err := h.login(memCustody{h.store}, dev)
 	if err != nil {
 		t.Fatalf("CompleteLogin: %v", err)
 	}
@@ -187,7 +188,7 @@ func TestUnknownCredentialAfterDeletion(t *testing.T) {
 
 func assertUnknown(t *testing.T, h *harness, dev *accesstest.PasskeyDevice) {
 	t.Helper()
-	res, err := h.login(h.store, dev)
+	res, err := h.login(memCustody{h.store}, dev)
 	if !errors.Is(err, webauthn.ErrUnknownCredential) {
 		t.Fatalf("CompleteLogin error = %v, want ErrUnknownCredential", err)
 	}
@@ -205,13 +206,13 @@ func TestCloneWarningSurfaced(t *testing.T) {
 	alice := h.user("alice")
 	dev := accesstest.NewPasskeyDevice(t)
 	h.enrol(alice, dev)
-	if _, err := h.login(h.store, dev); err != nil {
+	if _, err := h.login(memCustody{h.store}, dev); err != nil {
 		t.Fatalf("first CompleteLogin: %v", err)
 	}
 	counted := dev.SignCount
 
 	dev.SignCount = counted - 1
-	res, err := h.login(h.store, dev)
+	res, err := h.login(memCustody{h.store}, dev)
 	if err != nil {
 		t.Fatalf("CompleteLogin on a regressed counter: %v", err)
 	}
@@ -223,7 +224,7 @@ func TestCloneWarningSurfaced(t *testing.T) {
 	}
 
 	dev.SignCount = counted + 5
-	res, err = h.login(h.store, dev)
+	res, err = h.login(memCustody{h.store}, dev)
 	if err != nil {
 		t.Fatalf("CompleteLogin after the regression: %v", err)
 	}
@@ -235,9 +236,30 @@ func TestCloneWarningSurfaced(t *testing.T) {
 	}
 }
 
+// memCustody is a webauthn.Store over a MemStore whose RecordAssertion
+// merges in one Update. account's adapter owns the merge's tests.
+type memCustody struct{ *accesstest.MemStore }
+
+func (m memCustody) RecordAssertion(ctx context.Context, userID int64, credID []byte, upd access.PasskeyLoginUpdate) error {
+	return m.Update(ctx, func(tx account.Tx) error {
+		held, err := tx.PasskeysByUserID(ctx, userID)
+		if err != nil {
+			return err
+		}
+		i := slices.IndexFunc(held, func(pk access.PasskeyCredential) bool { return bytes.Equal(pk.CredentialID, credID) })
+		if i < 0 {
+			return account.ErrNotFound
+		}
+		merged := upd
+		merged.SignCount = max(held[i].SignCount, upd.SignCount)
+		merged.CloneWarning = held[i].CloneWarning || upd.CloneWarning
+		return tx.UpdatePasskeyAfterLogin(ctx, userID, credID, merged)
+	})
+}
+
 // faultStore fails the named Store method and delegates every other one.
 type faultStore struct {
-	*accesstest.MemStore
+	memCustody
 	fail string
 }
 
@@ -247,21 +269,21 @@ func (f *faultStore) UserByWebAuthnHandle(ctx context.Context, handle []byte) (*
 	if f.fail == "UserByWebAuthnHandle" {
 		return nil, false, errDisk
 	}
-	return f.MemStore.UserByWebAuthnHandle(ctx, handle)
+	return f.memCustody.UserByWebAuthnHandle(ctx, handle)
 }
 
 func (f *faultStore) PasskeysByUserID(ctx context.Context, userID int64) ([]access.PasskeyCredential, error) {
 	if f.fail == "PasskeysByUserID" {
 		return nil, errDisk
 	}
-	return f.MemStore.PasskeysByUserID(ctx, userID)
+	return f.memCustody.PasskeysByUserID(ctx, userID)
 }
 
-func (f *faultStore) UpdatePasskeyAfterLogin(ctx context.Context, userID int64, credID []byte, upd access.PasskeyLoginUpdate) error {
-	if f.fail == "UpdatePasskeyAfterLogin" {
+func (f *faultStore) RecordAssertion(ctx context.Context, userID int64, credID []byte, upd access.PasskeyLoginUpdate) error {
+	if f.fail == "RecordAssertion" {
 		return errDisk
 	}
-	return f.MemStore.UpdatePasskeyAfterLogin(ctx, userID, credID, upd)
+	return f.memCustody.RecordAssertion(ctx, userID, credID, upd)
 }
 
 func TestCustodyFailureFailsLogin(t *testing.T) {
@@ -271,7 +293,7 @@ func TestCustodyFailureFailsLogin(t *testing.T) {
 	dev := accesstest.NewPasskeyDevice(t)
 	h.enrol(alice, dev)
 
-	res, err := h.login(&faultStore{MemStore: h.store, fail: "UpdatePasskeyAfterLogin"}, dev)
+	res, err := h.login(&faultStore{memCustody: memCustody{h.store}, fail: "RecordAssertion"}, dev)
 	if !errors.Is(err, access.ErrAuthBackend) || !errors.Is(err, errDisk) {
 		t.Errorf("CompleteLogin error = %v, want access.ErrAuthBackend wrapping the store error", err)
 	}
@@ -290,7 +312,7 @@ func TestLookupFailureIsBackend(t *testing.T) {
 			dev := accesstest.NewPasskeyDevice(t)
 			h.enrol(alice, dev)
 
-			res, err := h.login(&faultStore{MemStore: h.store, fail: method}, dev)
+			res, err := h.login(&faultStore{memCustody: memCustody{h.store}, fail: method}, dev)
 			if !errors.Is(err, access.ErrAuthBackend) || !errors.Is(err, errDisk) {
 				t.Errorf("CompleteLogin error = %v, want access.ErrAuthBackend wrapping the store error", err)
 			}
@@ -334,7 +356,7 @@ func TestReauthenticationBoundToUser(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BeginReauthentication: %v", err)
 		}
-		return webauthn.CompleteReauthentication(t.Context(), h.rp, h.store, h.webauthnUser(finish), ceremony, bytes.NewReader(dev.Assert(h.json(options))))
+		return webauthn.CompleteReauthentication(t.Context(), h.rp, memCustody{h.store}, h.webauthnUser(finish), ceremony, bytes.NewReader(dev.Assert(h.json(options))))
 	}
 
 	t.Run("own_user", func(t *testing.T) {
@@ -382,7 +404,7 @@ func TestReauthenticationBoundToUser(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BeginLogin: %v", err)
 		}
-		res, err := webauthn.CompleteReauthentication(t.Context(), h.rp, h.store, h.webauthnUser(alice), ceremony, bytes.NewReader(aliceDev.Assert(h.json(options))))
+		res, err := webauthn.CompleteReauthentication(t.Context(), h.rp, memCustody{h.store}, h.webauthnUser(alice), ceremony, bytes.NewReader(aliceDev.Assert(h.json(options))))
 		if err == nil || res.User != nil {
 			t.Errorf("CompleteReauthentication(discoverable ceremony) = %+v, %v; want a refusal", res, err)
 		}
@@ -392,7 +414,7 @@ func TestReauthenticationBoundToUser(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BeginReauthentication: %v", err)
 		}
-		res, err := webauthn.CompleteLogin(t.Context(), h.rp, h.store, ceremony, bytes.NewReader(aliceDev.Assert(h.json(options))))
+		res, err := webauthn.CompleteLogin(t.Context(), h.rp, memCustody{h.store}, ceremony, bytes.NewReader(aliceDev.Assert(h.json(options))))
 		if err == nil || res.User != nil {
 			t.Errorf("CompleteLogin(step-up ceremony) = %+v, %v; want a refusal", res, err)
 		}
