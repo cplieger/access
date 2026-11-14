@@ -257,8 +257,8 @@ var p25519 = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 255), big.NewInt(1
 // smallOrderY is y mod p of edwards25519's eight points of order dividing
 // 8. A public key on one verifies a forged signature over any message under
 // ed25519.Verify, which is cofactorless and never checks the key's order
-// (RFC 8032 §5.1.7 leaves it to the caller); go-jose and libsodium refuse
-// the same keys.
+// (RFC 8032 §5.1.7 leaves it to the caller); go-jose refuses the same keys
+// (https://github.com/go-jose/go-jose/blob/v4.1.9/jwk.go#L966), as does libsodium.
 var smallOrderY = func() []*big.Int {
 	y8, _ := new(big.Int).SetString("2707385501144840649318225287225658788936804267575313519463743609750303402022", 10)
 	return []*big.Int{big.NewInt(0), big.NewInt(1), new(big.Int).Sub(p25519, big.NewInt(1)), y8, new(big.Int).Sub(p25519, y8)}

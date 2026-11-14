@@ -459,10 +459,11 @@ func TestParse_ECBounds(t *testing.T) {
 	}
 }
 
-// RFC 8037 §2: an Ed25519 x is the 32-octet public key. A point of small
-// order verifies a forged signature over any message under Go's
-// cofactorless ed25519.Verify, as go-jose's and libsodium's key checks
-// refuse it; its every encoding is skipped.
+// RFC 8037 §2: an Ed25519 x is the 32-octet public key. RFC 8032 §5.1.7:
+// a key of small order verifies a forged signature over any message under
+// Go's cofactorless ed25519.Verify, so its every encoding is skipped, as
+// go-jose's weakEd25519PublicKeys does
+// (https://github.com/go-jose/go-jose/blob/v4.1.9/jwk.go#L966).
 func TestParse_Ed25519Bounds(t *testing.T) {
 	t.Parallel()
 	pub := newEd25519(t)
@@ -472,7 +473,7 @@ func TestParse_Ed25519Bounds(t *testing.T) {
 		{with(key, "x", b64(append(slices.Clone(pub), 0))), "x 33 bytes", "RFC 8037 §2"},
 	}
 	for i, enc := range smallOrderEncodings(t) {
-		cases = append(cases, skipCase{with(key, "x", b64(enc)), "small order " + string(rune('a'+i)), "RFC 8032 §5.1.7"})
+		cases = append(cases, skipCase{with(key, "x", b64(enc)), "small order " + string(rune('a'+i)), "RFC 8032 §5.1.7, go-jose weakEd25519PublicKeys"})
 	}
 	assertSkipped(t, cases)
 	s := mustParse(t, jwkSet(t, with(key, "kid", "ok")))
