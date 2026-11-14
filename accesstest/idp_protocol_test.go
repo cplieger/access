@@ -557,6 +557,27 @@ func urlClauses() []protocolClause {
 			},
 		},
 		{
+			name: "url_any_dns_host_is_discovery_issuer", clause: "OpenID Connect Discovery 1.0 sections 4.1 and 4.3: the issuer under any https DNS host, Google's included",
+			opts: accesstest.IdPOptions{URL: googleIssuer}, check: discoveryUnder(googleIssuer, googleIssuer),
+		},
+		{
+			name: "url_any_dns_host_with_port_and_path", clause: "OpenID Connect Discovery 1.0 section 4.1: an issuer's port and path precede /.well-known",
+			opts: accesstest.IdPOptions{URL: "https://login.example.net:9443/tenant/v2"}, check: discoveryUnder("https://login.example.net:9443/tenant/v2", "https://login.example.net:9443/tenant/v2"),
+		},
+		{
+			name: "issuer_claim_is_the_token_iss_alone", clause: "IdPOptions.IssuerClaim: OpenID Connect Core 1.0 section 2 iss; discovery's issuer (Discovery 1.0 section 4.3) and RFC 9207 section 2's iss stay the issuer",
+			opts: accesstest.IdPOptions{URL: googleIssuer, IssuerClaim: "accounts.google.com"},
+			check: func(t *testing.T, idp *accesstest.IdP, clock *testClock) {
+				discoveryUnder(googleIssuer, googleIssuer)(t, idp, clock)
+				if cb := authorize(t, idp, nil); cb.Get("iss") != googleIssuer {
+					t.Errorf("callback iss = %q, want %q", cb.Get("iss"), googleIssuer)
+				}
+				if _, c, _, _ := decodeJWS(t, issue(t, idp, nil)); c["iss"] != "accounts.google.com" {
+					t.Errorf("token iss = %v, want %q", c["iss"], "accounts.google.com")
+				}
+			},
+		},
+		{
 			name: "url_shared_by_two_fakes_each_reached_by_its_client", clause: "IdPOptions.URL: IdP.Client dials its own listener for URL",
 			opts: withURL,
 			check: func(t *testing.T, idp *accesstest.IdP, clock *testClock) {

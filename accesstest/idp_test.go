@@ -27,9 +27,12 @@ import (
 
 const (
 	testRedirectURI = "https://app.example/callback"
-	// testIdPURL carries a port so that only IdP.Client's routing, not
-	// httptest's own for example.com:443, reaches the listener.
+	// testIdPURL carries a port so a test that passes proves IdP.Client
+	// routes URL's own port, not 443, to the listener.
 	testIdPURL = "https://idp.example.com:8443"
+	// googleIssuer is Google's issuer, from Google Identity's "Validating
+	// an ID token" (https://developers.google.com/identity/openid-connect/openid-connect#validatinganidtoken).
+	googleIssuer = "https://accounts.google.com"
 )
 
 var idpT0 = time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
@@ -338,6 +341,7 @@ func TestIdPClaimKnobs(t *testing.T) {
 			}
 		}},
 		{name: "sub_empty", opts: accesstest.IdPOptions{Subject: &empty}, check: claimIs("sub", "")},
+		{name: "issuer_claim", opts: accesstest.IdPOptions{IssuerClaim: "accounts.google.com"}, check: claimIs("iss", "accounts.google.com")},
 		{name: "preferred_username", opts: accesstest.IdPOptions{PreferredUsername: &username}, check: claimIs("preferred_username", "other-user")},
 		{name: "preferred_username_empty", opts: accesstest.IdPOptions{PreferredUsername: &empty}, check: claimIs("preferred_username", "")},
 		{name: "email_verified_string", opts: accesstest.IdPOptions{EmailVerified: "true"}, check: claimIs("email_verified", "true")},
@@ -651,9 +655,23 @@ func TestNewIdPRefusals(t *testing.T) {
 		{name: "url_userinfo", opts: accesstest.IdPOptions{URL: "https://u:p@idp.example.com"}, want: "userinfo, a query or a fragment"},
 		{name: "url_loopback_v4", opts: accesstest.IdPOptions{URL: "https://127.0.0.1:8443"}, want: "not a DNS name"},
 		{name: "url_loopback_v6", opts: accesstest.IdPOptions{URL: "https://[::1]:8443"}, want: "not a DNS name"},
-		{name: "url_localhost", opts: accesstest.IdPOptions{URL: "https://localhost:8443"}, want: "certificate"},
-		{name: "url_host_outside_certificate", opts: accesstest.IdPOptions{URL: "https://idp.example.org"}, want: "certificate"},
-		{name: "url_two_labels_below_example_com", opts: accesstest.IdPOptions{URL: "https://a.idp.example.com"}, want: "certificate"},
+		{name: "url_ip_v4", opts: accesstest.IdPOptions{URL: "https://203.0.113.1"}, want: "not a DNS name"},
+		{name: "url_ip_v6", opts: accesstest.IdPOptions{URL: "https://[::1]"}, want: "not a DNS name"},
+		// RFC 1123 section 2.1 and RFC 1035 section 2.3.1: letters, digits
+		// and inner hyphens, labels of 1 to 63 octets.
+		{name: "url_label_leading_hyphen", opts: accesstest.IdPOptions{URL: "https://-idp.example.com"}, want: "not a DNS name"},
+		{name: "url_label_trailing_hyphen", opts: accesstest.IdPOptions{URL: "https://idp-.example.com"}, want: "not a DNS name"},
+		{name: "url_label_empty", opts: accesstest.IdPOptions{URL: "https://idp..example.com"}, want: "not a DNS name"},
+		{name: "url_final_dot", opts: accesstest.IdPOptions{URL: "https://idp.example.com."}, want: "not a DNS name"},
+		{name: "url_label_64_octets", opts: accesstest.IdPOptions{URL: "https://" + strings.Repeat("a", 64) + ".example.com"}, want: "not a DNS name"},
+		{name: "url_underscore", opts: accesstest.IdPOptions{URL: "https://i_p.example.com"}, want: "not a DNS name"},
+		{name: "url_non_ascii", opts: accesstest.IdPOptions{URL: "https://idp.exämple.com"}, want: "not a DNS name"},
+		// RFC 1035 section 2.3.4: a name is at most 255 octets on the wire,
+		// 253 characters as text.
+		{name: "url_name_254_characters", opts: accesstest.IdPOptions{URL: "https://" + strings.Repeat("a.", 125) + "abcd"}, want: "not a DNS name"},
+		// RFC 3696 section 2: an all-numeric top-level label reads as an
+		// IPv4 address to some resolvers.
+		{name: "url_numeric_top_label", opts: accesstest.IdPOptions{URL: "https://idp.123"}, want: "not a DNS name"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := &fatalRecorder{TB: t}
