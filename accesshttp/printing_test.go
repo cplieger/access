@@ -165,16 +165,16 @@ func inventory(t *testing.T) []inventoryRow {
 	e.createUser(t, "root", access.RoleAdmin)
 	e.createUser(t, "alice", access.RoleUser)
 	alice := e.user(t, "alice")
-	if _, err := e.svc.PasswordLogin(t.Context(), account.Client{}, account.Credentials{Username: "alice", Password: access.NewSecret(printingPassword)}); err == nil {
+	if _, err := e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: "alice", Password: access.NewSecret(printingPassword)}); err == nil {
 		t.Fatal("PasswordLogin with a wrong password succeeded")
 	}
-	signed, err := e.svc.PasswordLogin(t.Context(), account.Client{}, account.Credentials{Username: "alice", Password: access.NewSecret(testPassword)})
+	signed, err := e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: "alice", Password: access.NewSecret(testPassword)})
 	if err != nil {
 		t.Fatalf("PasswordLogin: %v", err)
 	}
 	cookie := e.cookie(signed.Token)
 	principal := e.principal(t, cookie)
-	issued, err := e.svc.StepUpPassword(t.Context(), account.Client{Device: signed.DeviceCookie}, principal, access.NewSecret(testPassword))
+	issued, err := e.svc.StepUpPassword(t.Context(), account.Client{Secure: true, Device: signed.DeviceCookie}, principal, access.NewSecret(testPassword))
 	if err != nil {
 		t.Fatalf("StepUpPassword: %v", err)
 	}
@@ -184,7 +184,7 @@ func inventory(t *testing.T) []inventoryRow {
 	if err != nil {
 		t.Fatalf("IssueRecovery: %v", err)
 	}
-	recovery, err := e.svc.StartRecovery(t.Context(), account.Client{}, recoveryLink.Plaintext)
+	recovery, err := e.svc.StartRecovery(t.Context(), account.Client{Secure: true}, recoveryLink.Plaintext)
 	if err != nil {
 		t.Fatalf("StartRecovery: %v", err)
 	}
@@ -213,9 +213,9 @@ func inventory(t *testing.T) []inventoryRow {
 		t.Fatalf("Hasher.Hash: %v", err)
 	}
 	nextPlain, nextHash := access.GenerateSessionToken()
-	rotation := account.Rotation{ID: signed.Session.ID, ExpectHash: signed.Session.TokenHash, Next: access.Session{ID: "next", TokenHash: nextHash}, UserID: alice.ID}
+	rotation := account.Rotation{ID: signed.Session.ID, ExpectHash: signed.Session.TokenHash, Next: access.Session{ID: "next", TokenHash: nextHash, Secure: true}, UserID: alice.ID}
 	outcome := account.OIDCOutcome{Issued: issued, SignedIn: signed, Kind: account.OutcomeSignedIn}
-	client := account.Client{Host: "app.example.com", UserAgent: "test", Device: signed.DeviceCookie}
+	client := account.Client{Secure: true, Host: "app.example.com", UserAgent: "test", Device: signed.DeviceCookie}
 	origin, err := webauthn.ParseOrigin(testOrigin)
 	if err != nil {
 		t.Fatalf("ParseOrigin: %v", err)

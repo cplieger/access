@@ -8,14 +8,14 @@ import (
 	"github.com/cplieger/access"
 )
 
-// RotateAPIKey gives key id a new secret and keeps the rest of it; the
-// superseded secret verifies for Rules.KeyRotationOverlap or until the new
-// one's first use, and a rotation during an overlap replaces it. a is
-// OutOfBand, reaching every key, or a full session within RecentAuth,
-// reaching its own user's keys and rotating into Issued; any other actor is
-// ErrSessionRequired before any read. An unreachable key is ErrNotFound;
-// then Policy (OpRotateKey) decides on the owner as stored, and an expired
-// key is a refused key_expired. One EventKeyRotated follows the commit.
+// RotateAPIKey gives key id a new secret and keeps the rest of it; the old
+// secret verifies for Rules.KeyRotationOverlap or until the new one's first
+// use, and a rotation during an overlap replaces it. a is OutOfBand, reaching
+// every key, or a full session within RecentAuth, reaching its own user's keys
+// and rotating into Issued; a plain one is access.ErrHTTPSRequired and any
+// other actor ErrSessionRequired before any read. An unreachable key is
+// ErrNotFound; then Policy (OpRotateKey) decides on the owner as stored, and an
+// expired key is a refused key_expired; one EventKeyRotated follows the commit.
 func (s *Service) RotateAPIKey(ctx context.Context, a Actor, id int64) (RotatedKey, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	r, session, err := s.admitRotation(a)
 	if err != nil {
@@ -68,7 +68,7 @@ func (s *Service) RotateAPIKey(ctx context.Context, a Actor, id int64) (RotatedK
 // Rules().RecentAuth, which it returns; an out-of-band actor gets the zero
 // Principal.
 func (s *Service) admitRotation(a Actor) (Rules, access.Principal, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
-	r, err := s.begin()
+	r, err := s.beginOver(plainRefused, a.secure())
 	if err != nil {
 		return Rules{}, access.Principal{}, err
 	}
@@ -76,11 +76,8 @@ func (s *Service) admitRotation(a Actor) (Rules, access.Principal, error) { //no
 		return r, access.Principal{}, nil
 	}
 	p, _ := a.Principal()
-	if sessErr := requireSession(p); sessErr != nil {
+	if sessErr := s.recentSession(r, p); sessErr != nil {
 		return Rules{}, access.Principal{}, sessErr
-	}
-	if recentErr := s.recentAuth(r, p); recentErr != nil {
-		return Rules{}, access.Principal{}, recentErr
 	}
 	return r, p, nil
 }

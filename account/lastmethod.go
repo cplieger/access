@@ -81,7 +81,7 @@ func (s *Service) guardLastMethod(ctx context.Context, tx Tx, r Rules, u *access
 	if rp := s.relyingParty(); rp != nil {
 		st.RPID = rp.ID()
 	}
-	if p := s.OIDCProvider(); p != nil {
+	if p := s.provider(); p != nil {
 		st.OIDCIssuer = p.Issuer()
 	}
 	avail, err := s.availability(ctx, tx, st, u, gone)

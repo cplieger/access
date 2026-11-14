@@ -173,7 +173,7 @@ func newChainFixture(t *testing.T) chainFixture {
 	now := time.Now()
 	if err := store.CreateSession(ctx, &Session{
 		ID: "sess-1", TokenHash: hash, UserID: user.ID, AuthMethod: MethodPassword,
-		CreatedAt: now, LastActivity: now, AuthTime: now,
+		CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -198,6 +198,17 @@ func (f chainFixture) addSession(t *testing.T, s *Session) string {
 		t.Fatal(err)
 	}
 	return plaintext.Reveal()
+}
+
+// storedSession is the session token names, read past the store's
+// counters; it fails t when the session is gone.
+func (f chainFixture) storedSession(t *testing.T, token string) *Session {
+	t.Helper()
+	s, found, err := f.store.fakeSessionStore.SessionByHash(t.Context(), SessionHash(token))
+	if err != nil || !found {
+		t.Fatalf("SessionByHash = %v, %t, %v; want the stored session", s, found, err)
+	}
+	return s
 }
 
 // addUserKey stores a new enabled user with one key and returns the key.
@@ -240,7 +251,7 @@ func answer(t *testing.T, a *Authenticator, r *http.Request) (status int, code C
 }
 
 func bearerRequest(token string) *http.Request {
-	r := httptest.NewRequest(http.MethodGet, "/api", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/api", nil)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -425,7 +436,7 @@ func TestPresentedButUnusable(t *testing.T) {
 	})
 	stale := func(t *testing.T, f chainFixture) string {
 		old := time.Now().Add(-48 * time.Hour)
-		return f.addSession(t, &Session{ID: "stale", UserID: f.user.ID, CreatedAt: old, LastActivity: old})
+		return f.addSession(t, &Session{ID: "stale", UserID: f.user.ID, CreatedAt: old, LastActivity: old, Secure: true})
 	}
 	t.Run("stale cookie alone is session expired", func(t *testing.T) {
 		t.Parallel()
@@ -519,7 +530,7 @@ func TestPresentedButUnusable(t *testing.T) {
 		t.Parallel()
 		notFound := fmt.Errorf("%w: %w", ErrUnauthenticated, ErrSessionNotFound)
 		a := mustAuthenticator(t, newFakeSessionStore(), Config{})
-		a.chain = []CredentialVerifier{stubVerifier{err: notFound}, stubVerifier{err: expired}, stubVerifier{}}
+		a.chain = []verifyStep{addrless(stubVerifier{err: notFound}), addrless(stubVerifier{err: expired}), addrless(stubVerifier{})}
 		if _, err := a.Authenticate(bearerRequest("")); !errors.Is(err, ErrSessionNotFound) || errors.Is(err, ErrSessionExpired) {
 			t.Errorf("Authenticate error = %v, want the first unusable error (ErrSessionNotFound)", err)
 		}
@@ -536,7 +547,7 @@ func TestPresentedButUnusable(t *testing.T) {
 			var later atomic.Int32
 			a := mustAuthenticator(t, newFakeSessionStore(), Config{})
 			grant := Principal{User: &User{ID: 1, Enabled: true}, Method: "custom"}
-			a.chain = []CredentialVerifier{stubVerifier{err: stop}, stubVerifier{p: grant, ok: true, calls: &later}}
+			a.chain = []verifyStep{addrless(stubVerifier{err: stop}), addrless(stubVerifier{p: grant, ok: true, calls: &later})}
 			if p, err := a.Authenticate(bearerRequest("")); !errors.Is(err, stop) || !isZeroPrincipal(p) {
 				t.Errorf("%s: Authenticate = (%+v, %v), want (zero, %v)", name, p, err, stop)
 			}

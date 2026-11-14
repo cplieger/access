@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/cplieger/access"
@@ -36,6 +38,45 @@ func operationScenarios() map[scenarioKey]scenario {
 	maps.Copy(out, oidcScenarios())
 	maps.Copy(out, selfScenarios())
 	maps.Copy(out, adminScenarios())
+	maps.Copy(out, plainScenarios())
+	return out
+}
+
+// plainScenarios reach auth_https_required from each operation that
+// refuses a plain request: an anonymous route's census request without TLS
+// under the env's PostureSecure, and every other refused route's census
+// request from a plain session under PosturePerRequest, which the guard
+// admits.
+func plainScenarios() map[scenarioKey]scenario {
+	out := map[scenarioKey]scenario{}
+	anonymous := []string{
+		"authSetupPassword", "authSetupPasskeyBegin", "authSetupPasskeyFinish", "authLoginPassword", "authLoginPasskeyBegin",
+		"authLoginPasskeyFinish", "authRecoveryStart", "authInviteAcceptPassword", "authOIDCStartSignIn", "authOIDCCallback", "authOIDCPending",
+	}
+	for _, route := range anonymous {
+		out[scenarioKey{route, access.CodeHTTPSRequired}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+			rt := e.route(t, route)
+			r := requestFor(rt, censusPathValue(t, rt), censusBody(t, rt))
+			r.TLS = nil
+			return r
+		}}
+	}
+	for route := range plainRefusedRoutes {
+		if slices.Contains(anonymous, route) {
+			continue
+		}
+		out[scenarioKey{route, access.CodeHTTPSRequired}] = scenario{opts: perRequest, arrange: func(t *testing.T, e *env) *http.Request {
+			e.createUser(t, "root", access.RoleAdmin)
+			e.createUser(t, "alice", access.RoleUser)
+			rt := e.route(t, route)
+			name, kind := "root", access.SessionFull
+			if rt.Class == ClassRecovery {
+				name, kind = "alice", access.SessionRecovery
+			}
+			path := strings.NewReplacer("{id}", censusPathValue(t, rt), "{method}", censusPathValue(t, rt)).Replace(rt.Path)
+			return requestAt(plainOrigin, path, rt, censusBody(t, rt), e.transportSession(t, name, kind, false))
+		}}
+	}
 	return out
 }
 

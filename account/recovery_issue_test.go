@@ -135,7 +135,7 @@ func TestIssueRecoveryVoidsEarlier(t *testing.T) {
 	if _, err := w.f.svc.IssueRecovery(ctx, oob, 9999, 0); !errors.Is(err, account.ErrNotFound) {
 		t.Errorf("recovery for a missing user = %v, want ErrNotFound", err)
 	}
-	if _, err := w.f.svc.IssueRecovery(ctx, account.Actor{}, w.alice.ID, 0); !errors.Is(err, account.ErrSessionRequired) {
-		t.Errorf("recovery from the zero Actor = %v, want ErrSessionRequired", err)
+	if _, err := w.f.svc.IssueRecovery(ctx, account.Actor{}, w.alice.ID, 0); !errors.Is(err, access.ErrHTTPSRequired) {
+		t.Errorf("recovery from the zero Actor, which is plain = %v, want access.ErrHTTPSRequired", err)
 	}
 }

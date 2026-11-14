@@ -76,7 +76,7 @@ func newBrowser(t *testing.T) *browser {
 
 func (b *browser) flowCookie() string {
 	flow := b.session.Derive("oidc", http.SameSiteLaxMode)
-	return flow.CookieName(httptest.NewRequest(http.MethodGet, b.app.String(), nil))
+	return flow.CookieName(true)
 }
 
 // begin calls Begin on a request from this browser and keeps what it set.
@@ -971,18 +971,20 @@ func configBounds(t *testing.T) {
 	wantFlow(t, f.flow, req)
 }
 
+// flowCookieName pins that Begin always sets the secure name with Secure,
+// under either posture and over either transport: a plain caller's flow
+// cookie is one the browser drops.
 func flowCookieName(t *testing.T) {
 	idp := accesstest.NewIdP(t, accesstest.IdPOptions{})
 	p := mustProvider(t, configFor(idp))
 	cases := map[string]struct {
 		session access.CookieConfig
 		app     string
-		secure  bool
+		want    string
 	}{
-		"secure":            {access.DefaultCookieConfig(), "https://app.example/", true},
-		"insecure_lan":      {access.CookieConfig{Name: "lan", Posture: access.PostureInsecureLAN}, "http://app.example/", false},
-		"per_request_https": {access.CookieConfig{Name: "pr", Posture: access.PosturePerRequest, HTTPS: access.RequestIsHTTPS}, "https://app.example/", true},
-		"per_request_http":  {access.CookieConfig{Name: "pr", Posture: access.PosturePerRequest, HTTPS: access.RequestIsHTTPS}, "http://app.example/", false},
+		"secure":            {access.DefaultCookieConfig(), "https://app.example/", "__Host-auth_session_oidc"},
+		"per_request_https": {access.CookieConfig{Name: "pr", Posture: access.PosturePerRequest}, "https://app.example/", "__Host-pr_oidc"},
+		"per_request_http":  {access.CookieConfig{Name: "pr", Posture: access.PosturePerRequest}, "http://app.example/", "__Host-pr_oidc"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -993,14 +995,11 @@ func flowCookieName(t *testing.T) {
 				t.Fatalf("Begin: %v", err)
 			}
 			set := rec.Result().Cookies()
-			flow := tc.session.Derive("oidc", http.SameSiteLaxMode)
-			want := flow.CookieName(r)
-			if len(set) != 1 || set[0].Name != want {
-				t.Fatalf("Begin set %v, want exactly one cookie named %s", set, want)
+			if len(set) != 1 || set[0].Name != tc.want {
+				t.Fatalf("Begin set %v, want exactly one cookie named %s", set, tc.want)
 			}
-			c := set[0]
-			if c.Name == tc.session.CookieName(r) || !c.HttpOnly || c.SameSite != http.SameSiteLaxMode || c.Secure != tc.secure {
-				t.Errorf("flow cookie %+v, want HttpOnly, Lax, Secure=%t and not the session cookie's name", c, tc.secure)
+			if c := set[0]; !c.HttpOnly || c.SameSite != http.SameSiteLaxMode || !c.Secure || c.MaxAge != 600 {
+				t.Errorf("flow cookie %+v, want HttpOnly, Lax, Secure and Max-Age 600", c)
 			}
 		})
 	}

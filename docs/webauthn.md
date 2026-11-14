@@ -14,7 +14,9 @@ No go-webauthn type appears in this package's exported API, so your code runs a 
 
 A ceremony expects the origin it was begun at. Parse the request's `Origin` header with `ParseOrigin` and pass the result to the `Begin` call. The response is then verified against exactly that scheme, host and port by go-webauthn's own comparison, so you never list the expected origins in advance.
 
-`ParseOrigin` refuses rather than repairs. It folds ASCII case and drops a default port, because the comparison does the same. It refuses a trailing dot, an empty label and a non-ASCII host, each with its own `OriginRejection`. It refuses a path other than `/`, a query, a fragment, user information and any scheme other than `http` or `https` as malformed. The error is an `*OriginError`.
+`ParseOrigin` refuses rather than repairs. It folds ASCII case and drops a default port, because the comparison does the same. It refuses a trailing dot, an empty label and a non-ASCII host, each with its own `OriginRejection`.
+
+It refuses as malformed a host that is neither a hostname nor an IP address. A hostname is dot-separated labels of letters, digits, `-` and `_`, and its last label is not a number, because a browser reads such a host as an IPv4 address. An IP address has no zone and is spelled as a browser serializes it, so `[::ffff:102:304]` is accepted and `[::ffff:1.2.3.4]` is refused. An invalid port, a path other than `/`, a query, a fragment, user information and any scheme other than `http` or `https` are malformed too. The error is an `*OriginError`.
 
 A ceremony that carries no bound origin fails at the finish step with `ErrCeremonyUnbound`.
 

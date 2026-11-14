@@ -89,7 +89,7 @@ func TestNewRefuses(t *testing.T) {
 	}
 	t.Run("breach_mode_with_client", func(t *testing.T) {
 		t.Parallel()
-		cfg := base
+		cfg := ownAuthenticator(t, base)
 		cfg.Rules = func() account.Rules { return account.Rules{Breach: account.BreachFailOpen} }
 		cfg.Breach = &http.Client{}
 		svc, err := account.New(t.Context(), cfg)
@@ -110,7 +110,7 @@ func TestNewRefuses(t *testing.T) {
 	})
 	t.Run("caller_key_slice_not_kept", func(t *testing.T) {
 		t.Parallel()
-		cfg := base
+		cfg := ownAuthenticator(t, base)
 		cfg.FailureKey = bytes.Clone(testFailureKey)
 		svc, err := account.New(t.Context(), cfg)
 		if err != nil {
@@ -128,7 +128,7 @@ func TestNewRefuses(t *testing.T) {
 				t.Errorf("FailureName(%q) after zeroing the caller's key = %s, want %s", n, got, before[i])
 			}
 		}
-		other, err := account.New(t.Context(), cfg)
+		other, err := account.New(t.Context(), ownAuthenticator(t, cfg))
 		if err != nil {
 			t.Fatalf("New(zeroed key): %v", err)
 		}
@@ -205,6 +205,10 @@ func TestRulesValidate(t *testing.T) {
 		{Scopes: []string{"read", "manage_users", "files:write"}},
 		{KeyRotationOverlap: time.Minute},
 		{KeyRotationOverlap: 24 * time.Hour},
+		{HTTPSOrigin: "https://grelot.example"},
+		{HTTPSOrigin: "https://grelot.example:8443"},
+		{HTTPSOrigin: "https://[2001:db8::1]:8443"},
+		{HTTPSOrigin: "https://[::1]"},
 	}
 	for i, r := range valid {
 		if err := r.Validate(); err != nil {
@@ -215,20 +219,45 @@ func TestRulesValidate(t *testing.T) {
 		field string
 		r     account.Rules
 	}{
-		"recent_auth_below_1m":  {field: "RecentAuth", r: account.Rules{RecentAuth: time.Minute - time.Nanosecond}},
-		"recent_auth_negative":  {field: "RecentAuth", r: account.Rules{RecentAuth: -time.Minute}},
-		"breach_unknown":        {field: "Breach", r: account.Rules{Breach: account.BreachFailClosed + 1}},
-		"breach_negative":       {field: "Breach", r: account.Rules{Breach: -1}},
-		"max_sessions_negative": {field: "MaxSessionsPerUser", r: account.Rules{MaxSessionsPerUser: -1}},
-		"overlap_below_1m":      {field: "KeyRotationOverlap", r: account.Rules{KeyRotationOverlap: time.Minute - time.Nanosecond}},
-		"overlap_negative":      {field: "KeyRotationOverlap", r: account.Rules{KeyRotationOverlap: -time.Hour}},
-		"overlap_above_24h":     {field: "KeyRotationOverlap", r: account.Rules{KeyRotationOverlap: 24*time.Hour + time.Nanosecond}},
-		"provisioning":          {field: "Provisioning", r: account.Rules{Provisioning: oidc.Provisioning{Enabled: true, Claim: "groups"}}},
-		"key_prefix_invalid":    {field: "KeyPrefix", r: account.Rules{KeyPrefix: "ak-"}},
-		"scope_space":           {field: "Scopes", r: account.Rules{Scopes: []string{"read", "read write"}}},
-		"scope_empty":           {field: "Scopes", r: account.Rules{Scopes: []string{""}}},
-		"scope_dquote":          {field: "Scopes", r: account.Rules{Scopes: []string{`re"ad`}}},
-		"scope_non_ascii":       {field: "Scopes", r: account.Rules{Scopes: []string{"caf\u00e9"}}},
+		"recent_auth_below_1m":      {field: "RecentAuth", r: account.Rules{RecentAuth: time.Minute - time.Nanosecond}},
+		"recent_auth_negative":      {field: "RecentAuth", r: account.Rules{RecentAuth: -time.Minute}},
+		"breach_unknown":            {field: "Breach", r: account.Rules{Breach: account.BreachFailClosed + 1}},
+		"breach_negative":           {field: "Breach", r: account.Rules{Breach: -1}},
+		"max_sessions_negative":     {field: "MaxSessionsPerUser", r: account.Rules{MaxSessionsPerUser: -1}},
+		"overlap_below_1m":          {field: "KeyRotationOverlap", r: account.Rules{KeyRotationOverlap: time.Minute - time.Nanosecond}},
+		"overlap_negative":          {field: "KeyRotationOverlap", r: account.Rules{KeyRotationOverlap: -time.Hour}},
+		"overlap_above_24h":         {field: "KeyRotationOverlap", r: account.Rules{KeyRotationOverlap: 24*time.Hour + time.Nanosecond}},
+		"provisioning":              {field: "Provisioning", r: account.Rules{Provisioning: oidc.Provisioning{Enabled: true, Claim: "groups"}}},
+		"key_prefix_invalid":        {field: "KeyPrefix", r: account.Rules{KeyPrefix: "ak-"}},
+		"scope_space":               {field: "Scopes", r: account.Rules{Scopes: []string{"read", "read write"}}},
+		"scope_empty":               {field: "Scopes", r: account.Rules{Scopes: []string{""}}},
+		"scope_dquote":              {field: "Scopes", r: account.Rules{Scopes: []string{`re"ad`}}},
+		"scope_non_ascii":           {field: "Scopes", r: account.Rules{Scopes: []string{"caf\u00e9"}}},
+		"origin_http":               {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "http://grelot.example"}},
+		"origin_root_path":          {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example/"}},
+		"origin_path":               {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example/x"}},
+		"origin_query":              {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example?q"}},
+		"origin_fragment":           {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example#f"}},
+		"origin_bare_query":         {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example?"}},
+		"origin_bare_fragment":      {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example#"}},
+		"origin_user_info":          {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://u@grelot.example"}},
+		"origin_no_host":            {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://"}},
+		"origin_upper_scheme":       {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "HTTPS://grelot.example"}},
+		"origin_unparsable":         {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example:port"}},
+		"origin_no_scheme":          {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "grelot.example"}},
+		"origin_host_dquote":        {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: `https://grelot.example"x`}},
+		"origin_host_angle":         {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example<x"}},
+		"origin_host_bracket":       {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example]x"}},
+		"origin_port_zero":          {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example:0"}},
+		"origin_port_range":         {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example:99999"}},
+		"origin_empty_port":         {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example:"}},
+		"origin_default_port":       {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example:443"}},
+		"origin_dot_host":           {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://."}},
+		"origin_upper_host":         {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://Grelot.example"}},
+		"origin_ipv4_out_of_range":  {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://256.1.1.1"}},
+		"origin_ipv4_short":         {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://1.2.3"}},
+		"origin_ipv6_uncompressed":  {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://[0:0:0:0:0:0:0:1]"}},
+		"origin_ipv6_mapped_dotted": {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://[::ffff:1.2.3.4]"}},
 	} {
 		err := tc.r.Validate()
 		var re *account.RulesError
@@ -312,7 +341,7 @@ func TestPasswordLoginDefault(t *testing.T) {
 		"disabled":         {rules: account.Rules{DisablePasswordLogin: true}},
 	} {
 		f := newFixture(t, options{rules: func() account.Rules { return tc.rules }})
-		st, err := f.svc.State(t.Context())
+		st, err := f.svc.State(t.Context(), localClient)
 		if err != nil || st.PasswordLogin != tc.want {
 			t.Errorf("%s: State().PasswordLogin = %t, %v, want %t", name, st.PasswordLogin, err, tc.want)
 		}
@@ -334,19 +363,29 @@ func TestAccessors(t *testing.T) {
 	if got := []string{f.svc.AdminScope(), f.svc.ManageUsersScope(), f.svc.CreateKeysScope()}; got[0] != "admin" || got[1] != "manage_users" || got[2] != "create_keys" {
 		t.Errorf("scope accessors = %q, want the Config fields", got)
 	}
-	if f.svc.OIDCProvider() != first {
-		t.Error("OIDCProvider() is not Config.OIDC's provider")
+	// admitted is the provider a secure session-bound start is admitted
+	// with, nil when OIDC is off.
+	admitted := func(t *testing.T, f *fixture) *oidc.Provider {
+		t.Helper()
+		p, err := f.svc.AdmitOIDCSession(account.Client{Secure: true}, access.Principal{Secure: true})
+		if err != nil && !errors.Is(err, account.ErrOIDCUnavailable) {
+			t.Fatalf("AdmitOIDCSession: %v", err)
+		}
+		return p
+	}
+	if admitted(t, f) != first {
+		t.Error("the admitted provider is not Config.OIDC's")
 	}
 	current.Store(second)
-	if f.svc.OIDCProvider() != second {
-		t.Error("OIDCProvider() after the app swapped its provider is not the new one")
+	if admitted(t, f) != second {
+		t.Error("the admitted provider after the app swapped its provider is not the new one")
 	}
 	current.Store(nil)
-	if f.svc.OIDCProvider() != nil {
-		t.Error("OIDCProvider() with a nil result is not nil")
+	if admitted(t, f) != nil {
+		t.Error("the admitted provider with a nil result is not nil")
 	}
 	none := newFixture(t, options{})
-	if none.svc.OIDCProvider() != nil {
-		t.Error("OIDCProvider() with a nil Config.OIDC is not nil")
+	if admitted(t, none) != nil {
+		t.Error("the admitted provider with a nil Config.OIDC is not nil")
 	}
 }

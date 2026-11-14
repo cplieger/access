@@ -70,14 +70,14 @@ type testHooks struct {
 	afterVerify func(ctx context.Context)
 }
 
-// New refuses a nil Store, Policy, Authenticator, Hasher, Limiter or Rules,
-// a FailureKey that is not 32 bytes (naming the field, never the bytes), a
-// non-empty AdminScope, ManageUsersScope or CreateKeysScope that is not one
-// RFC 6750 scope-token, two equal non-empty ones, a negative CleanupInterval, MaxPending or Log* field, and
-// a Rules() value Rules.Validate refuses or whose breach mode lacks
-// Config.Breach. It drains the security log to its caps and LogMaxAge and
-// runs the failure-record sweep, returning either's store error, then
-// sweeps on ctx's values, not its cancellation, until Shutdown.
+// New refuses a nil Store, Policy, Authenticator, Hasher, Limiter or Rules, a
+// FailureKey that is not 32 bytes (naming the field, never the bytes), a
+// non-empty key scope that is not one RFC 6750 scope-token or equals another,
+// a negative CleanupInterval, MaxPending or Log* field, and a Rules() value
+// Rules.Validate refuses or whose breach mode lacks Config.Breach. It drains
+// the security log and sweeps the failure records, returning either's store
+// error, then registers the Service as the Authenticator's one session revoker
+// (an error if one is). It sweeps on ctx's values, not its cancellation, until Shutdown.
 func New(ctx context.Context, cfg Config) (*Service, error) { //nolint:gocritic // hugeParam: a construction input, read once
 	return newService(ctx, cfg, testHooks{})
 }
@@ -130,6 +130,9 @@ func newService(ctx context.Context, cfg Config, hooks testHooks) (*Service, err
 	}
 	if err := s.sweepFailures(ctx); err != nil {
 		return nil, err
+	}
+	if err := cfg.Authenticator.UseSessionRevoker(s); err != nil {
+		return nil, fmt.Errorf("account: Config.Authenticator: %w", err)
 	}
 	sweepCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	s.cancel = cancel
@@ -233,10 +236,10 @@ func (s *Service) Shutdown(ctx context.Context) error {
 	}
 }
 
-// OIDCProvider resolves Config.OIDC once; nil means OIDC is off. accesshttp
-// calls it once per OIDC request, so a provider swapped by the app is used
-// from the next request on.
-func (s *Service) OIDCProvider() *oidc.Provider {
+// provider resolves Config.OIDC; nil means OIDC is off. Each admission and
+// operation reads it once, so a provider the app swaps is used from the next
+// request on.
+func (s *Service) provider() *oidc.Provider {
 	if s.oidc == nil {
 		return nil
 	}

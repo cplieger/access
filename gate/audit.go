@@ -24,12 +24,13 @@ const (
 
 // auditUnauthenticated reports the Authenticate error err the gate answers
 // with code: a recovery session is gate.forbidden, any other refused
-// credential gate.failure with the verifier's reason. No credential and a
-// 503 report nothing, so a store outage never counts as failed sign-ins.
+// credential gate.failure with the verifier's reason. No credential, a 503
+// and auth_https_required report nothing, so neither a store outage nor an
+// unlisted TLS proxy counts as failed sign-ins.
 func (g *Gate) auditUnauthenticated(r *http.Request, err error, code access.Code) {
 	e := access.AuditEvent{Kind: kindFailure}
 	switch code {
-	case access.CodeAuthRequired, access.CodeUnavailable:
+	case access.CodeAuthRequired, access.CodeUnavailable, access.CodeHTTPSRequired:
 		return
 	case access.CodeSessionRequired:
 		e.Kind, e.Reason = kindForbidden, reasonRecoverySession

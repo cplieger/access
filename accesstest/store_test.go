@@ -52,7 +52,7 @@ func TestMemStorePrintingDoesNotRevealHash(t *testing.T) {
 	ctx := t.Context()
 	store := accesstest.NewMemStore()
 	sessionText, keyText, tokenText := access.HexSHA256("session"), access.HexSHA256("key"), access.HexSHA256("token")
-	mustCreateSession(t, store, &access.Session{ID: "s1", TokenHash: access.NewHash(sessionText), UserID: 1, CreatedAt: t0, LastActivity: t0})
+	mustCreateSession(t, store, &access.Session{ID: "s1", TokenHash: access.NewHash(sessionText), UserID: 1, CreatedAt: t0, LastActivity: t0, Secure: true})
 	if err := store.CreateAPIKey(ctx, &access.Key{KeyHash: access.NewHash(keyText), UserID: 1}); err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestMemStoreActivityMonotonic(t *testing.T) {
 	ctx := t.Context()
 	store := accesstest.NewMemStore()
 	h := access.NewHash("session")
-	mustCreateSession(t, store, &access.Session{ID: "s1", TokenHash: h, UserID: 1, CreatedAt: t0.Add(-time.Hour), LastActivity: t0.Add(-time.Hour)})
+	mustCreateSession(t, store, &access.Session{ID: "s1", TokenHash: h, UserID: 1, CreatedAt: t0.Add(-time.Hour), LastActivity: t0.Add(-time.Hour), Secure: true})
 	later := t0.Add(30 * time.Minute)
 
 	read := func() access.Session {
@@ -274,7 +274,7 @@ func TestMemStoreIsolatesStoredValues(t *testing.T) {
 	store := accesstest.NewMemStore()
 	timeouts := access.SessionTimeouts{Idle: time.Hour, Absolute: 24 * time.Hour}
 
-	sess := &access.Session{ID: "s1", TokenHash: access.NewHash("h"), UserID: 1, CreatedAt: t0, LastActivity: t0}
+	sess := &access.Session{ID: "s1", TokenHash: access.NewHash("h"), UserID: 1, CreatedAt: t0, LastActivity: t0, Secure: true}
 	mustCreateSession(t, store, sess)
 	sess.LastActivity = t0.Add(-2 * time.Hour)
 	got, _, err := store.SessionByHash(ctx, access.NewHash("h"))
@@ -326,7 +326,7 @@ func TestUpdatePanicRollsBack(t *testing.T) {
 		if err := tx.CreateUser(ctx, &access.User{Username: "u"}); err != nil {
 			t.Fatalf("tx.CreateUser: %v", err)
 		}
-		if err := tx.CreateSession(ctx, &access.Session{ID: "s1", TokenHash: access.NewHash("h"), UserID: 1}); err != nil {
+		if err := tx.CreateSession(ctx, &access.Session{ID: "s1", TokenHash: access.NewHash("h"), UserID: 1, Secure: true}); err != nil {
 			t.Fatalf("tx.CreateSession: %v", err)
 		}
 		if n, err := tx.UserCount(ctx); err != nil || n != 1 {

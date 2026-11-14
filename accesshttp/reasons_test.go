@@ -35,13 +35,17 @@ var designOwnReasons = []string{
 
 // wireReasons is every Reason classify gives for the fixed-reason
 // producers: each sentinel row, each typed error built from its owner's
-// list, the guard's recovery refusal, account's re-enable refusal and each
-// fixed refusal of the body, path and query decoders.
+// list, the guard's recovery refusal, account's re-enable refusal, the
+// session verifier's transport refusal, the recent-auth refusal of a plain
+// session and each fixed refusal of the body,
+// path and query decoders.
 func wireReasons(t *testing.T) []string {
 	t.Helper()
 	errs := []error{
 		(&Handler{}).admit(&Descriptor{Class: ClassRecovery}, access.Principal{}),
 		failreason.Wrap(access.ErrRecentAuthRequired, failreason.ReenableNeedsOtherMethod),
+		&access.InvalidCredentialError{Method: access.MethodPassword, Err: access.ErrSessionTransport},
+		failreason.Wrap(access.ErrRecentAuthRequired, failreason.SignInAgain),
 		&oidc.UsernameError{},
 	}
 	errs = append(errs, requestReasonErrors(t)...)
@@ -125,6 +129,7 @@ func TestReasonTable(t *testing.T) {
 	t.Run("composition", func(t *testing.T) {
 		t.Parallel()
 		want := slices.Clone(designOwnReasons)
+		want = append(want, "transport_changed", "sign_in_again")
 		for _, r := range access.PasswordRejections() {
 			want = append(want, string(r))
 		}

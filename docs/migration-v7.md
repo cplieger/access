@@ -47,9 +47,49 @@ Every plaintext credential is an `access.Secret` and every stored hash an `acces
 | `AuthenticatorStore` | adds `APIKeyToucher`; activity takes a `SessionActivity` |
 | `SessionActivityUpdater.UpdateSessionActivity(ctx, hash, now)` | `(ctx, access.Hash, SessionActivity)`. An older or equal time writes nothing |
 
-New in the root package: `Principal`, `Rechecker`, `Authenticator.Recheck`, `RequireRecentAuth`, `Passive`, `AllowRecoverySession`, `ErrAuthBackend`, `ErrInvalidCredential`, `MethodAPIKey`, `MethodBypass`, `MethodRecovery`, `SessionKind`, `SessionRef`, `RecoverySessionLifetime`, `OIDCIdentity`, `OneTimeToken`, `TokenPurpose`, `KeyAttribution`, `Sealer`, `ClientAddr`, `Config.ClientAddr`, `RequestIsHTTPS` and `CookieConfig.Derive`. `Via` is new too, with its constants `ViaUnknown`, `ViaDirect`, `ViaUntrustedForwarding`, `ViaProxy` and `ViaProxyNoClient`.
+New in the root package: `Principal`, `Rechecker`, `Authenticator.Recheck`, `RequireRecentAuth`, `Passive`, `AllowRecoverySession`, `ErrAuthBackend`, `ErrInvalidCredential`, `MethodAPIKey`, `MethodBypass`, `MethodRecovery`, `SessionKind`, `SessionRef`, `RecoverySessionLifetime`, `OIDCIdentity`, `OneTimeToken`, `TokenPurpose`, `KeyAttribution`, `Sealer`, `ClientAddr`, `Config.ClientAddr` and `CookieConfig.Derive`. `Via` is new too, with its constants `ViaUnknown`, `ViaDirect`, `ViaUntrustedForwarding`, `ViaProxy` and `ViaProxyNoClient`.
 
 The refusal vocabulary is in the root package as well, so an app that guards its own routes imports neither `accesshttp` nor the passkey and OIDC packages behind it: `Code`, every `Code…` constant and `Codes`, `Error`, `ErrorWriter`, `AuditEvent`, `NewError`, `ErrorFor`, and `Authenticator.Challenge` with its `Config.Realm`. A service built on an earlier access dev tag renames `accesshttp.Code…`, `accesshttp.Codes`, `accesshttp.Error`, `accesshttp.ErrorWriter` and `accesshttp.AuditEvent` to these `access.` names. The wire strings are unchanged. A service built on an earlier dev tag also replaces `Authenticator.RequireAuth` with `access/gate`, and drops `Config.Unauthorized`, which is gone with it. Every 401 the auth routes answer now carries a `WWW-Authenticate` challenge, and `account.New` and `Rules.Validate` refuse a key scope that is not one RFC 6750 scope-token (printable ASCII other than space, `"` and `\`). Two codes are new: 403 `auth_key_required`, a gate `Key` row reached without an API key, and 409 `auth_key_label_taken`, a key label the owner's keys already carry.
+
+## Plain HTTP and the request's transport
+
+Each request now carries its transport, and each session is bound to the transport that created it ([Plain HTTP](plain-http.md)). A service built on an earlier dev tag makes the changes below.
+
+### Before you upgrade
+
+Set `ClientAddr.Secure` in your resolver to `r.TLS != nil || res.ForwardedHTTPS`, with `github.com/cplieger/go/httpserver` v1.5.0-dev.1 or later, and list every proxy that ends TLS for you among its trusted peers ([Authenticator configuration](configuration.md#authenticator-configuration)). A resolver that leaves `Secure` false, or a request through a proxy it does not list, reads as plain HTTP. Under `PostureSecure` every such request is refused, and under `PosturePerRequest` passkey and single sign-on users are locked out, since passkeys and OIDC need HTTPS. The warning `Authenticate` logs for a request that claims HTTPS but is not secure names such a proxy's address.
+
+`Principal.Secure` carries the transport, set by `Authenticate` and kept by `Recheck`. The default resolver answers `Secure` from `r.TLS`, and reads an `X-Forwarded-Proto` from any peer as `ViaUntrustedForwarding`.
+
+### Every HTTPS user is signed out once
+
+A store persists the new `Session.Secure` field, the transport of the request that created the session ([Sessions](storage.md#sessions)). A session stored without it reads plain, so it is bounded by `PlainSessionIdle` (30 minutes) and `PlainSessionAbsolute` (12 hours), which `ValidateSession` and `CleanupExpiredSessions` apply. Every session stored before the upgrade reads plain: an HTTPS user's session is refused and revoked on its next secure request, and the user signs in again once. A session created over plain HTTP keeps working under the plain limits.
+
+### Cookies
+
+The cookie methods take the request's transport, `ClientAddr(r).Secure`, in place of the request, as the cookie rows of [Tokens, cookies and checks](#tokens-cookies-and-checks) show, with the removal of `PostureInsecureLAN`, `CookieConfig.Path` and `CookieConfig.Domain`. `CookieConfig.HTTPS` and `RequestIsHTTPS` are removed too, since the argument replaces them, and `CookieConfig.Persistent` is removed, since a plain `SetCookie` drops a positive `maxAge` for every cookie. `CookieConfig.EffectiveName` is replaced by `CookieName(true)`. `PosturePerRequest` is now the second posture's value, 1. `oidc`'s `Begin` and `Finish` always use the flow cookie's secure name.
+
+### Sessions bound to their transport
+
+A session presented on the other transport is refused with `ErrSessionTransport`, answered as 401 `auth_session_expired` with `Reason` `transport_changed`, and revoked through the new `access.SessionRevoker` that `Authenticator.UseSessionRevoker` registers ([Sessions](primitives.md#sessions)). `account.New` registers its Service, so a second `account.New` over one Authenticator fails. `Service.RevokeTransportMismatch` is the revoke, and its `session_revoked` entry's `Detail` is `transport_changed`.
+
+### HTTPS required
+
+Under `PostureSecure`, `Authenticate` refuses every plain request with the new `ErrHTTPSRequired`, before the bypass and every verifier, and revokes nothing ([Session cookie](configuration.md#session-cookie)). `ErrorFor` answers it with the new code 403 `auth_https_required`, which every authenticating route of the gate and of `accesshttp` lists. The gate's new `Route.HTTPS` refuses a plain request on its row with the same code ([Guarding your own routes](gate.md#the-classes)), and `gate.New` refuses it on a `Public` row.
+
+Under `PosturePerRequest`, a plain request may sign in and set up by password and use a password session, and `account` refuses the rest with `ErrHTTPSRequired`: passkeys, OIDC, step-up, recovery, invite acceptance, password removal, key creation and rotation, recovery issuing and invites ([Plain HTTP](plain-http.md)). Under `PostureSecure`, every operation that takes a `Client` refuses a plain one, except `State` and `Logout`. A `Client` or `Principal` built without `Secure` reads plain. `Service.OIDCProvider` is removed: the link and step-up starts call the new `Service.AdmitOIDCSession`, and the pending-link read (`authOIDCPending`) is admitted by `AdmitOIDC` like the sign-in start, so it now also answers `auth_https_required`, `auth_oidc_unavailable`, `auth_rate_limited` and `auth_unavailable`, and each read counts against the per-IP request limit.
+
+### Recent auth and the fresh sign-in
+
+`RequireRecentAuth` keeps its signature, and its refusal of a full session over plain HTTP now carries the reason `sign_in_again` (`ReasonSignInAgain`), which a client answers with a fresh sign-in ([Plain HTTP](plain-http.md#recent-auth-and-the-fresh-sign-in)). `ErrorFor` now maps `ErrRecentAuthRequired` to 403 `auth_recent_auth_required` with the reason the refusal carries, so a handler that guards its own action renders it like the auth routes do; `ErrorReasons` lists `transport_changed` and `sign_in_again`. `account.Client` gains `Presented`, the hash of the session cookie the request carried: a full sign-in deletes that session when it is the same user's on the same transport, and journals a `session_revoked` whose `Detail` is `signed_in_again` (`account.LogDetailSignedInAgain`). An app that builds its own `Client` sets `Presented` from `CookieConfig.ReadCookie`, or every sign-in from a signed-in browser keeps the old session too.
+
+### The state answer and the wire
+
+`account.Service.State` takes the request's `Client`, `State(ctx, c)`, and answers what the sign-in screen can offer over that transport ([Plain HTTP](plain-http.md#what-the-screens-learn)): `account.State` gains `Secure`, `PlainSession`, `HTTPSRequired` (a list of the new `account.HTTPSFeature`) and `HTTPSOrigin`, from the new `Rules.HTTPSOrigin`, which `Rules.Validate` refuses unless it is an `https` origin with no path, query or fragment. `account.CurrentSession` gains `Secure`. On the wire, `StateResponse` gains `secure`, `plain_session`, `https_required` and `https_origin`, and `CurrentSessionView` and `SessionView` gain `secure`. In `@cplieger/access` the same fields join `StateResponse`, `CurrentSessionView` and `SessionView`, `CODES` gains `auth_https_required`, `REASONS` gains `transport_changed` and `sign_in_again`, and `StepUpOptions` gains `signInAgain`, which `withStepUp` calls on a `sign_in_again` refusal in place of the step-up prompt.
+
+## Local clients
+
+`account.SetupLocality` is renamed `account.Locality`, and its `Local` field is replaced by the method `Local(access.ClientAddr)`, the library's one rule for a local client ([Local clients](configuration.md#local-clients)). Pass the new `Forwarder` field, `httpserver.NewForwarderCheck(...).IsForwarder` from `github.com/cplieger/go/httpserver` v1.5.0-dev.2 or later: a nil `Forwarder` makes no client local, so `TokenRequired` then always asks for a setup token. A forwarded client is never local. Code that judged locality itself calls `Local(c.ClientAddr)` instead. `access.ClientAddr.ClientKnown` is removed; `Local` reads `Via` and `Peer` itself.
 
 ## Records
 
@@ -58,7 +98,7 @@ The refusal vocabulary is in the root package as well, so an app that guards its
 | `User.OIDCSub`, `User.OIDCIssuer` | `User.OIDC`, an `access.OIDCIdentity` |
 | `Session.OIDCExpiry` | none; a session lives by your idle and absolute timeouts |
 | `Session.IPAddress` | `Session.LastIP` |
-| `Session` | gains `ID`, `AuthTime`, `Kind`, `UserAgent`, `Label`, `IssuedByKey`, `IdleCap` and `AbsoluteCap`; its JSON tags are dropped |
+| `Session` | gains `ID`, `AuthTime`, `Kind`, `UserAgent`, `Label`, `IssuedByKey`, `IdleCap`, `AbsoluteCap` and `Secure`; its JSON tags are dropped |
 | `Key` | gains `Scopes`, `LastUsedAt` and `LineageIDs`, and the `ParentKeyID()` method, the key that minted it |
 | `PasskeyCredential` | gains `LastUsedAt` |
 | `PasskeyFlags` | `PasskeyLoginUpdate` and `DecodePasskeyFlags` |
@@ -87,10 +127,12 @@ Every derivation now draws on a `HashBudget` (`NewHashBudget`, `HashCost`, `ErrH
 | `CSRFToken`, `VerifyCSRFToken` | [`http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection) |
 | `RotateSessionToken` | `account` rotates sessions through `SessionStore.RotateSession` |
 | `ValidateSession` | has no OIDC expiry arm, and applies the recovery lifetime and a session's own caps through `SessionDeadlines` |
-| `CookieConfig.TrustForwardedHeaders` | `CookieConfig.HTTPS` with `RequestIsHTTPS` |
+| `CookieConfig.TrustForwardedHeaders` | the transport each cookie method takes, the `ClientAddr.Secure` your resolver answers |
+| `PostureInsecureLAN` | `PosturePerRequest`, whose plain request gets the bare name without Secure |
+| `CookieConfig.Path`, `CookieConfig.Domain` | none; every cookie has `Path=/` and no `Domain`, as the `__Host-` prefix requires |
 | `PostureForceSecure` | `PostureSecure` |
 | `CookieConfig.Validate`, `ReadCookie` | `Validate` applies `http.Cookie.Valid` and refuses `SameSite=None`; a duplicated cookie reads as no session |
-| `CookieConfig.SetCookie` | drops a positive `maxAge` when `Persistent` answers false for the request |
+| `CookieName(r)`, `SetCookie(w, r, token, maxAge)`, `ReadCookie(r)`, `ClearCookie(w, r)` | `CookieName(secure)`, `SetCookie(w, secure, value, maxAge)`, `ReadCookie(r, secure)`, `ClearCookie(w, secure)`. A plain `SetCookie` drops a positive `maxAge`, so the cookie ends with the browser session |
 | `ValidateRedirectURI` | returns `/` for input over 2048 bytes or holding an ASCII control character, in the fragment too |
 | `IsBrowserRequest` | any `Authorization` header means a non-browser request |
 | `CanDisableMethod` | the `MethodAvailability` you pass is what remains after the removal, so a user with two passkeys can remove one |

@@ -43,7 +43,6 @@ var sentinelCodes = []struct {
 }{
 	{errMethodNotAllowed, access.CodeMethodNotAllowed, ""},
 	{errCrossOrigin, access.CodeCrossOrigin, ""},
-	{access.ErrRecentAuthRequired, access.CodeRecentAuthRequired, ""},
 	{account.ErrSessionRequired, access.CodeSessionRequired, ""},
 	{account.ErrScopeRequired, access.CodeScopeRequired, ""},
 	{account.ErrSSOGoverned, access.CodeForbidden, ReasonSSOGoverned},
@@ -112,7 +111,7 @@ func classify(err error, cer ceremony) (access.Error, bool) {
 			return access.Error{}, false
 		}
 	}
-	if code == access.CodeRecentAuthRequired || code == access.CodeSessionRequired {
+	if code == access.CodeSessionRequired {
 		reason = failreason.Of(err)
 	}
 	e := access.NewError(code, reason, err)

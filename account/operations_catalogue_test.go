@@ -12,18 +12,19 @@ import (
 // is in no test that ranges over operations(), so its reason must be true
 // and its behaviour tested on its own.
 var notOperations = map[string]string{
-	"AdminScope":           "accessor of Config.AdminScope",
-	"ManageUsersScope":     "accessor of Config.ManageUsersScope",
-	"CreateKeysScope":      "accessor of Config.CreateKeysScope",
-	"Authenticator":        "accessor of Config.Authenticator",
-	"OIDCProvider":         "accessor resolving Config.OIDC; reads no store",
-	"AdmitOIDC":            "per-request rate-limit admission returning the provider; reads no store (TestAdmitOIDC)",
-	"RequireAdminScope":    "principal guard for accesshttp's key_scope class; reads no store",
-	"RequireKeyPermission": "principal guard for accesshttp's key_permission class; reads no store",
-	"RequireRecentAuth":    "principal guard for accesshttp's recent_auth class; reads no store",
-	"Shutdown":             "lifecycle: the call every operation's ErrServiceClosed answers to",
-	"AppendLog":            "appends through the caller's Tx inside the app's own transaction, asks no Policy and reads no Rules (TestAppendLog)",
-	"UsableMethods":        "reads through the caller's Tx inside the app's own transaction, whose store errors are the app's (TestUsableMethodsRefusals)",
+	"AdminScope":              "accessor of Config.AdminScope",
+	"ManageUsersScope":        "accessor of Config.ManageUsersScope",
+	"CreateKeysScope":         "accessor of Config.CreateKeysScope",
+	"Authenticator":           "accessor of Config.Authenticator",
+	"AdmitOIDC":               "per-request rate-limit admission returning the provider; reads no store (TestAdmitOIDC)",
+	"AdmitOIDCSession":        "per-request admission returning the provider; reads no store (TestAdmitOIDCSession)",
+	"RequireAdminScope":       "principal guard for accesshttp's key_scope class; reads no store",
+	"RequireKeyPermission":    "principal guard for accesshttp's key_permission class; reads no store",
+	"RequireRecentAuth":       "principal guard for accesshttp's recent_auth class; reads no store",
+	"Shutdown":                "lifecycle: the call every operation's ErrServiceClosed answers to",
+	"RevokeTransportMismatch": "the Authenticator's revoke callback; takes no Actor (TestRevokeTransportMismatch)",
+	"AppendLog":               "appends through the caller's Tx inside the app's own transaction, asks no Policy and reads no Rules (TestAppendLog)",
+	"UsableMethods":           "reads through the caller's Tx inside the app's own transaction, whose store errors are the app's (TestUsableMethodsRefusals)",
 }
 
 func TestOperationsCatalogueCoversService(t *testing.T) {

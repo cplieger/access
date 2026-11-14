@@ -22,13 +22,13 @@ const (
 	LoginConditional
 )
 
-// PasskeyLoginBegin starts a discoverable passkey sign-in at origin, in
-// mode. A nil RP() is ErrPasskeysUnavailable and an unknown mode an error;
-// a call past those counts against c's IP request limit
+// PasskeyLoginBegin starts a discoverable passkey sign-in at origin, in mode. A
+// plain c is access.ErrHTTPSRequired, a nil RP() ErrPasskeysUnavailable and an
+// unknown mode an error; a call past those counts against c's IP request limit
 // (*ratelimit.RefusedError) before the pending cache grows. An origin the
 // relying party refuses is its *webauthn.OriginError.
 func (s *Service) PasskeyLoginBegin(_ context.Context, c Client, origin webauthn.Origin, mode LoginMode) (PendingCeremony, error) { //nolint:gocritic // hugeParam: the request's Client, read once
-	if _, err := s.begin(); err != nil {
+	if _, err := s.beginOver(plainRefused, c.Secure); err != nil {
 		return PendingCeremony{}, err
 	}
 	var rp *webauthn.RelyingParty
@@ -60,15 +60,16 @@ func (s *Service) PasskeyLoginBegin(_ context.Context, c Client, origin webauthn
 	return PendingCeremony{ID: id, Assertion: assertion}, nil
 }
 
-// PasskeyLoginFinish completes the sign-in ceremonyID began and creates a
-// full session for the asserting user, with a device cookie that keeps the
-// ID of c.Device when that is valid for the user. An unknown, spent,
-// expired or other ceremony is ErrCeremonyInvalid; a credential no user
-// holds is webauthn.ErrUnknownCredential; a disabled user is
-// ErrInvalidCredentials, after the credential's custody update is stored.
-// CloneWarning reports a regressed sign counter.
+// PasskeyLoginFinish completes the sign-in ceremonyID began and creates a full
+// session for the asserting user, with a device cookie that keeps the ID of
+// c.Device when that is valid for the user. A plain c is
+// access.ErrHTTPSRequired, and an unknown, spent, expired or other ceremony
+// ErrCeremonyInvalid; a credential no user holds is
+// webauthn.ErrUnknownCredential; a disabled user is ErrInvalidCredentials,
+// after the credential's custody update is stored. CloneWarning reports a
+// regressed sign counter.
 func (s *Service) PasskeyLoginFinish(ctx context.Context, c Client, ceremonyID string, body io.Reader) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client, read once
-	r, err := s.begin()
+	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {
 		return SignedIn{}, err
 	}
@@ -106,11 +107,12 @@ func (s *Service) PasskeyLoginFinish(ctx context.Context, c Client, ceremonyID s
 	return out, nil
 }
 
-// PasskeyRegisterBegin starts enrolling a passkey for p's own user, for a
-// full session within RecentAuth. A nil RP() is ErrPasskeysUnavailable, and
-// a linked user under Rules.SSOGoverned is ErrSSOGoverned.
+// PasskeyRegisterBegin starts enrolling a passkey for p's own user, for a full
+// session within RecentAuth. A plain p is access.ErrHTTPSRequired, a nil RP()
+// ErrPasskeysUnavailable, and a linked user under Rules.SSOGoverned
+// ErrSSOGoverned.
 func (s *Service) PasskeyRegisterBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (PendingCeremony, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	r, err := s.beginRecentSession(p)
+	r, err := s.beginRecentSession(plainRefused, p.Secure, p)
 	if err != nil {
 		return PendingCeremony{}, err
 	}
@@ -137,13 +139,13 @@ func (s *Service) PasskeyRegisterBegin(ctx context.Context, p access.Principal, 
 	return PendingCeremony{ID: id, Creation: cc}, nil
 }
 
-// PasskeyRegisterFinish stores the passkey ceremonyID enrols for p's own
-// user, named by webauthn.PasskeyFriendlyName against the user's passkeys,
-// and rotates p's session into Issued, in one Update. A ceremony another
-// user began is ErrCeremonyInvalid; a credential already registered to any
-// user is ErrDuplicateCredential.
+// PasskeyRegisterFinish stores the passkey ceremonyID enrols for p's own user,
+// named by webauthn.PasskeyFriendlyName against the user's passkeys, and
+// rotates p's session into Issued, in one Update. A plain p is
+// access.ErrHTTPSRequired, a ceremony another user began ErrCeremonyInvalid,
+// and a credential already registered to any user ErrDuplicateCredential.
 func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal, ceremonyID string, body io.Reader) (Registered, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	r, err := s.beginRecentSession(p)
+	r, err := s.beginRecentSession(plainRefused, p.Secure, p)
 	if err != nil {
 		return Registered{}, err
 	}
@@ -188,11 +190,12 @@ func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal,
 	return Registered{Passkey: pk, Issued: Issued{Token: rot.token, Session: rot.session}}, nil
 }
 
-// StepUpPasskeyBegin starts re-proving p's user with one of its passkeys
-// under the current relying party's ID, for a full session. A nil RP() is
-// ErrPasskeysUnavailable, and a user holding no such passkey ErrNotFound.
+// StepUpPasskeyBegin starts re-proving p's user with one of its passkeys under
+// the current relying party's ID, for a full session. A plain p is
+// access.ErrHTTPSRequired, a nil RP() ErrPasskeysUnavailable, and a user
+// holding no such passkey ErrNotFound.
 func (s *Service) StepUpPasskeyBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (PendingCeremony, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	if _, err := s.begin(); err != nil {
+	if _, err := s.beginOver(plainRefused, p.Secure); err != nil {
 		return PendingCeremony{}, err
 	}
 	if err := requireSession(p); err != nil {
@@ -224,12 +227,12 @@ func (s *Service) StepUpPasskeyBegin(ctx context.Context, p access.Principal, or
 
 // StepUpPasskeyFinish completes the step-up ceremonyID began, against the
 // passkeys p's user holds now, and rotates p's session to AuthTime now and
-// AuthMethod MethodPasskey, returning in Issued a device cookie that keeps
-// the ID of c.Device when that is valid for the user. A ceremony another
-// user began is ErrCeremonyInvalid, and a session rotated or ended
-// meanwhile ErrSessionGone.
+// AuthMethod MethodPasskey, returning in Issued a device cookie that keeps the
+// ID of c.Device when that is valid for the user. A plain c or p is
+// access.ErrHTTPSRequired, a ceremony another user began ErrCeremonyInvalid,
+// and a session rotated or ended meanwhile ErrSessionGone.
 func (s *Service) StepUpPasskeyFinish(ctx context.Context, c Client, p access.Principal, ceremonyID string, body io.Reader) (Issued, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
-	if _, err := s.begin(); err != nil {
+	if _, err := s.beginOver(plainRefused, c.Secure && p.Secure); err != nil {
 		return Issued{}, err
 	}
 	if err := requireSession(p); err != nil {
@@ -312,7 +315,7 @@ func (s *Service) RenamePasskey(ctx context.Context, p access.Principal, id int6
 // removal that leaves no method able to sign the user in now ErrLastMethod,
 // both with nothing written.
 func (s *Service) RemovePasskey(ctx context.Context, p access.Principal, id int64) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	r, err := s.beginRecentSession(p)
+	r, err := s.beginRecentSession(plainAllowed, p.Secure, p)
 	if err != nil {
 		return err
 	}

@@ -194,7 +194,8 @@ func mustUser(t *testing.T, s account.Store, name string) *access.User {
 	return u
 }
 
-// newSession is a full session of userID created and last active at last.
+// newSession is a full secure session of userID created and last active at
+// last, so only the policy timeouts and its caps bound it.
 func newSession(userID int64, last time.Time) *access.Session {
 	id := fmt.Sprintf("%032x", fixtureSeq.Add(1))
 	return &access.Session{
@@ -205,6 +206,7 @@ func newSession(userID int64, last time.Time) *access.Session {
 		TokenHash:    access.NewHash(access.HexSHA256(id)),
 		AuthMethod:   access.MethodPassword,
 		UserID:       userID,
+		Secure:       true,
 	}
 }
 

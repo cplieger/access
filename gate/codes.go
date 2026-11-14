@@ -7,10 +7,12 @@ import (
 )
 
 // authenticatingCodes is what every row that runs Authenticate can answer:
-// ErrorFor's codes, a recovery session's auth_session_required among them.
+// ErrorFor's codes for an Authenticate error, a recovery session's
+// auth_session_required among them, and auth_https_required, which a plain
+// request meets under PostureSecure or on an HTTPS row.
 var authenticatingCodes = []access.Code{
 	access.CodeAuthRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeKeyInvalid,
-	access.CodeSessionRequired, access.CodeUnavailable,
+	access.CodeSessionRequired, access.CodeHTTPSRequired, access.CodeUnavailable,
 }
 
 // Codes is every code route r can answer, in access.Codes() order.

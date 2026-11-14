@@ -22,6 +22,7 @@ const rounds = 50
 func (c *contract) cleanup(t *testing.T) {
 	t.Run("expired_removed", c.cleanupExpired)
 	t.Run("caps", c.cleanupCaps)
+	t.Run("plain_limits", c.cleanupPlain)
 	t.Run("deleted_set", func(t *testing.T) { c.deletedSet(t, false) })
 	t.Run("deleted_set_reopen", func(t *testing.T) { c.deletedSet(t, true) })
 	t.Run("bound", c.cleanupBound)
@@ -127,6 +128,28 @@ func (c *contract) cleanupCaps(t *testing.T) {
 	}
 	if got := present(t, s, kept...); !slices.Equal(got, []bool{true, true}) {
 		t.Errorf("sessions inside their caps found = %v, want both", got)
+	}
+}
+
+// cleanupPlain: under a day's policy a plain session idle past
+// [access.PlainSessionIdle] is swept and a secure one kept, read back across
+// a reopen when the config has one.
+func (c *contract) cleanupPlain(t *testing.T) {
+	s := c.store(t)
+	now := epoch.Add(48 * time.Hour)
+	idle := now.Add(-access.PlainSessionIdle - time.Minute)
+	plain, secure := newSession(1, idle), newSession(1, idle)
+	plain.Secure = false
+	mustSession(t, s, plain)
+	mustSession(t, s, secure)
+	if c.cfg.Reopen != nil {
+		s = c.reopen(t, "rule 14 (plain limits across a reopen)", s)
+	}
+	if refs := sweep(t, s, now, cleanupTimeouts, 10); !sameRefs(refs, plain) {
+		t.Errorf("CleanupExpiredSessions(sessions idle 31m, 1h/24h policy) = %v, want exactly the plain one", refs)
+	}
+	if got := present(t, s, plain, secure); !slices.Equal(got, []bool{false, true}) {
+		t.Errorf("after the sweep plain, secure found = %v, want [false true]", got)
 	}
 }
 

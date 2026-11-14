@@ -43,7 +43,7 @@ func TestBearerHeader(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			r := httptest.NewRequest(http.MethodGet, "/api", nil)
+			r := httptest.NewRequest(http.MethodGet, "https://app.example/api", nil)
 			for _, h := range tt.headers {
 				r.Header.Add("Authorization", h)
 			}
@@ -61,7 +61,7 @@ func TestBearerHeader(t *testing.T) {
 	}
 	t.Run("X-API-Key is not read", func(t *testing.T) {
 		t.Parallel()
-		r := httptest.NewRequest(http.MethodGet, "/api", nil)
+		r := httptest.NewRequest(http.MethodGet, "https://app.example/api", nil)
 		r.Header.Set("X-API-Key", f.key)
 		if _, err := a.Authenticate(r); err != ErrUnauthenticated { //nolint:errorlint // bare: no verifier claimed the header
 			t.Errorf("Authenticate(X-API-Key) error = %v, want bare ErrUnauthenticated", err)

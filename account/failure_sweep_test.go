@@ -48,7 +48,7 @@ func TestLockReportedBySweep(t *testing.T) {
 		}
 		sweepFailures(t, p.svc)
 		events := &eventLog{}
-		cfg := p.cfg
+		cfg := ownAuthenticator(t, p.cfg)
 		cfg.OnEvent = events.record
 		next, err := account.New(t.Context(), cfg)
 		if err != nil {
@@ -78,7 +78,7 @@ func TestLockReportedBySweep(t *testing.T) {
 		u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
 		p.failN(t, clientAt(1), "alice", account.FailureCap)
 		events := &eventLog{}
-		cfg := p.cfg
+		cfg := ownAuthenticator(t, p.cfg)
 		cfg.OnEvent = events.record
 		next, err := account.New(t.Context(), cfg)
 		if err != nil {
@@ -171,7 +171,7 @@ func TestFailureNames(t *testing.T) {
 		t.Parallel()
 		p := newPW(t, pwOptions{})
 		p.failN(t, localClient, "alice", 3)
-		cfg := p.cfg
+		cfg := ownAuthenticator(t, p.cfg)
 		cfg.FailureKey = []byte("another-failure-key-of-32-bytes!")
 		other, err := account.New(t.Context(), cfg)
 		if err != nil {

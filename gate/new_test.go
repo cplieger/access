@@ -58,6 +58,7 @@ func TestNewRefuses(t *testing.T) {
 		{name: "scope_backslash", routes: row(gate.Route{Name: "x", Method: http.MethodGet, Path: "/x", Class: gate.Key, Scope: `a\b`}), want: "scope"},
 		{name: "scope_non_ascii", routes: row(gate.Route{Name: "x", Method: http.MethodGet, Path: "/x", Class: gate.Key, Scope: "café"}), want: "scope"},
 		{name: "passive_on_public", routes: row(gate.Route{Name: "x", Method: http.MethodGet, Path: "/x", Class: gate.Public, Passive: true}), want: "Passive"},
+		{name: "https_on_public", routes: row(gate.Route{Name: "x", Method: http.MethodGet, Path: "/x", Class: gate.Public, HTTPS: true}), want: "HTTPS"},
 		{
 			name: "row_with_no_handler", routes: row(gate.Route{Name: "x", Method: http.MethodGet, Path: "/x", Class: gate.Session}), want: `"x"`,
 			handlers: func([]gate.Route) map[string]http.Handler {
@@ -111,6 +112,7 @@ func TestNewAccepts(t *testing.T) {
 		{Name: "patch", Method: http.MethodPatch, Path: "/files/{name}", Class: gate.Scoped, Scope: "write:files"},
 		{Name: "delete", Method: http.MethodDelete, Path: "/files/{name}", Class: gate.Scoped, Scope: "admin"},
 		{Name: "post", Method: http.MethodPost, Path: "/files/upload", Class: gate.Session},
+		{Name: "mint", Method: http.MethodPost, Path: "/tokens", Class: gate.Scoped, Scope: "admin", HTTPS: true},
 	}
 	if _, err := gate.New(gate.Config{Authenticator: f.authn, Errors: writeError}, routes, handlersFor(&served{}, routes)); err != nil {
 		t.Errorf("New: %v", err)

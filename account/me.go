@@ -48,7 +48,7 @@ func (s *Service) meIn(ctx context.Context, tx Tx, r Rules, u *access.User, p ac
 		SSOGoverned: r.SSOGoverned && m.OIDCLinked,
 		Current: CurrentSession{
 			ID: p.SessionID, Method: p.Method, AuthTime: p.AuthTime,
-			IdleDeadline: p.IdleDeadline, AbsoluteDeadline: p.AbsoluteDeadline,
+			IdleDeadline: p.IdleDeadline, AbsoluteDeadline: p.AbsoluteDeadline, Secure: p.Secure,
 		},
 	}, nil
 }
@@ -65,7 +65,7 @@ func (s *Service) methods(ctx context.Context, tx Tx, r Rules, u *access.User) (
 		PasskeyCount:      len(passkeys),
 		HasPassword:       !u.PasswordHash.IsZero(),
 		OIDCLinked:        !u.OIDC.IsZero(),
-		OIDCAvailable:     s.OIDCProvider() != nil,
+		OIDCAvailable:     s.provider() != nil,
 		PasskeysAvailable: s.passkeysAvailable(),
 		PasswordLogin:     !r.DisablePasswordLogin,
 	}

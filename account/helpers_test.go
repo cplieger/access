@@ -41,6 +41,7 @@ type options struct {
 	hook     func(ctx context.Context) // Hooks.BetweenSessionCalls
 	hooks    account.Hooks
 	store    *faultStore // the Store when set, over its own MemStore
+	posture  access.CookiePosture
 }
 
 // newFixture builds a Service and shuts it down at cleanup. Built inside a
@@ -56,7 +57,7 @@ func newFixture(t testing.TB, o options) *fixture {
 	if f.events == nil {
 		f.events = &eventLog{}
 	}
-	authn, err := access.New(f.mem, access.Config{TimeoutSource: o.timeouts})
+	authn, err := access.New(f.mem, access.Config{TimeoutSource: o.timeouts, Cookie: access.CookieConfig{Posture: o.posture}})
 	if err != nil {
 		t.Fatalf("access.New: %v", err)
 	}
@@ -107,6 +108,19 @@ func newFixture(t testing.TB, o options) *fixture {
 	f.svc = svc
 	t.Cleanup(func() { _ = svc.Shutdown(context.Background()) })
 	return f
+}
+
+// ownAuthenticator is cfg with an Authenticator of its own over cfg.Store,
+// with cfg's cookie and timeouts, for a second Service: New registers each
+// Service as its Authenticator's one session revoker.
+func ownAuthenticator(t testing.TB, cfg account.Config) account.Config {
+	t.Helper()
+	authn, err := access.New(cfg.Store, access.Config{Cookie: cfg.Authenticator.Cookie(), TimeoutSource: cfg.Authenticator.Timeouts})
+	if err != nil {
+		t.Fatalf("access.New: %v", err)
+	}
+	cfg.Authenticator = authn
+	return cfg
 }
 
 // eventLog records every event OnEvent receives.
@@ -166,7 +180,7 @@ func (f *fixture) sessionPrincipal(t *testing.T, u *access.User, kind access.Ses
 	now := time.Now()
 	sess := &access.Session{
 		ID: newSessionID(t), UserID: u.ID, Kind: kind,
-		AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: authTime,
+		AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: authTime, Secure: true,
 	}
 	if kind == access.SessionRecovery {
 		sess.AuthMethod = access.MethodRecovery
@@ -196,8 +210,28 @@ func (f *fixture) principalOf(t testing.TB, sess *access.Session) (access.Princi
 func (f *fixture) authenticate(ctx context.Context, token access.Secret) (access.Principal, error) {
 	req := httptest.NewRequestWithContext(access.AllowRecoverySession(ctx), http.MethodGet, "https://example.com/", http.NoBody)
 	cookie := f.authn.Cookie()
-	req.AddCookie(&http.Cookie{Name: cookie.CookieName(req), Value: token.Reveal()})
+	req.AddCookie(&http.Cookie{Name: cookie.CookieName(true), Value: token.Reveal()})
 	return f.authn.Authenticate(req)
+}
+
+// plainPrincipalOf stores sess and returns the principal the Authenticator
+// grants for it over plain HTTP, under the plain cookie name; the fixture
+// runs PosturePerRequest.
+func (f *fixture) plainPrincipalOf(t testing.TB, sess *access.Session) access.Principal {
+	t.Helper()
+	token, hash := access.GenerateSessionToken()
+	sess.TokenHash = hash
+	if err := f.mem.CreateSession(t.Context(), sess); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.com/", http.NoBody)
+	cookie := f.authn.Cookie()
+	req.AddCookie(&http.Cookie{Name: cookie.CookieName(false), Value: token.Reveal()})
+	p, err := f.authn.Authenticate(req)
+	if err != nil {
+		t.Fatalf("Authenticate(plain session): %v", err)
+	}
+	return p
 }
 
 // keyPrincipal stores a key of u carrying scopes and returns the principal

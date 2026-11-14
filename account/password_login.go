@@ -14,15 +14,15 @@ type Credentials struct {
 }
 
 // PasswordLogin signs a user in with a password. Before any store call it answers
-// ErrPasswordLoginDisabled, a *UsernameError, a *ratelimit.RefusedError (the limiter's,
-// or Dimension "untrusted" once the untrusted allowance is spent) or access.ErrHashBusy.
-// Each later attempt is counted before it is compared, and FailureCap failures lock the
-// password in their trust context. An unknown, disabled, passwordless, locked or
-// wrong-password arm is one ErrInvalidCredentials after the same work; a stored hash
-// costlier than the hasher's can be access.ErrHashBusy after the count. A success returns
-// the device cookie, resets the failure records and rehashes an old hash.
+// access.ErrHTTPSRequired (plain c, PostureSecure), ErrPasswordLoginDisabled, a
+// *UsernameError, a *ratelimit.RefusedError (the limiter's, or Dimension "untrusted" past
+// its allowance) or access.ErrHashBusy. Each later attempt is counted before the compare,
+// and FailureCap failures lock the password in their trust context. An unknown, disabled,
+// passwordless, locked or wrong-password arm is one ErrInvalidCredentials after the same
+// work; a stored hash costlier than the hasher's can be access.ErrHashBusy after the
+// count. A success resets the failure records and rehashes an old hash.
 func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
-	r, err := s.begin()
+	r, err := s.beginOver(plainPerRequest, c.Secure)
 	if err != nil {
 		return SignedIn{}, err
 	}

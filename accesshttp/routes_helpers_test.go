@@ -167,7 +167,7 @@ func (e *env) recoveryCookie(t testing.TB, name string) *http.Cookie {
 
 func (e *env) startRecovery(t testing.TB, token access.Secret) *http.Cookie {
 	t.Helper()
-	rec, err := e.svc.StartRecovery(t.Context(), account.Client{}, token)
+	rec, err := e.svc.StartRecovery(t.Context(), account.Client{Secure: true}, token)
 	if err != nil {
 		t.Fatalf("StartRecovery: %v", err)
 	}
@@ -177,7 +177,7 @@ func (e *env) startRecovery(t testing.TB, token access.Secret) *http.Cookie {
 // cookie is the session cookie carrying token.
 func (e *env) cookie(token access.Secret) *http.Cookie {
 	cfg := e.authn.Cookie()
-	return &http.Cookie{Name: cfg.CookieName(httptest.NewRequest(http.MethodGet, testOrigin+"/", nil)), Value: token.Reveal()}
+	return &http.Cookie{Name: cfg.CookieName(true), Value: token.Reveal()}
 }
 
 // keyScopes configures ManageUsersScope as "manage_users" and lists it.
@@ -406,10 +406,9 @@ func cookieNamed(w *httptest.ResponseRecorder, name string) *http.Cookie {
 // names are the cookie names a request to testOrigin uses, the device
 // cookie's derived as §7.4 names it rather than through deviceCookie.
 func (e *env) names() (session, device string) {
-	r := httptest.NewRequest(http.MethodGet, testOrigin+"/", nil)
 	cfg := e.authn.Cookie()
 	dcfg := cfg.Derive("device", http.SameSiteLaxMode)
-	return cfg.CookieName(r), dcfg.CookieName(r)
+	return cfg.CookieName(true), dcfg.CookieName(true)
 }
 
 // requireSignedIn checks a SignedInResponse for name with a session and a

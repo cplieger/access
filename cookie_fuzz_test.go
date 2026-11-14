@@ -9,31 +9,26 @@ import (
 )
 
 func FuzzCookieConfigValidate(f *testing.F) {
-	f.Add("session", "/", "", uint8(http.SameSiteLaxMode), uint8(PostureSecure))
-	f.Add("session", "/app", "example.com", uint8(http.SameSiteStrictMode), uint8(PostureInsecureLAN))
-	f.Add("sess", "/", "", uint8(http.SameSiteNoneMode), uint8(PostureInsecureLAN))
-	f.Add("sess", "/", "", uint8(http.SameSiteDefaultMode), uint8(PosturePerRequest))
-	f.Add("", "", "", uint8(0), uint8(PosturePerRequest))
-	f.Add("a\x00b", "/\x1f", "dom\x7f", uint8(0), uint8(PostureInsecureLAN))
-	f.Add("spaces here", "/path;bad", "evil;domain", uint8(0), uint8(PostureInsecureLAN))
-	f.Add("a/b", "/", "", uint8(0), uint8(PostureInsecureLAN))
-	f.Add("sess", "app", "", uint8(0), uint8(PostureInsecureLAN))
-	f.Add("sess", "/\"", ".example.com", uint8(0), uint8(PostureInsecureLAN))
-	f.Add("日本語クッキー", "/", "", uint8(0), uint8(PostureInsecureLAN))
-	f.Add("__Secure-sess", "/", "", uint8(0), uint8(PostureInsecureLAN))
-	f.Add("__hOsT-sess", "/", "", uint8(0), uint8(PosturePerRequest))
-	f.Add("sess", "/", "", uint8(0), uint8(PosturePerRequest+1))
-	f.Add("__HTTP-sess", "/", "", uint8(0), uint8(PostureInsecureLAN))
-	f.Add("sess", "/"+strings.Repeat("p", 1024), "", uint8(0), uint8(PostureInsecureLAN))
+	f.Add("session", uint8(http.SameSiteLaxMode), uint8(PostureSecure))
+	f.Add("session", uint8(http.SameSiteStrictMode), uint8(PosturePerRequest))
+	f.Add("sess", uint8(http.SameSiteNoneMode), uint8(PosturePerRequest))
+	f.Add("sess", uint8(http.SameSiteDefaultMode), uint8(PosturePerRequest))
+	f.Add("", uint8(0), uint8(PosturePerRequest))
+	f.Add("a\x00b", uint8(0), uint8(PosturePerRequest))
+	f.Add("spaces here", uint8(0), uint8(PosturePerRequest))
+	f.Add("a/b", uint8(0), uint8(PosturePerRequest))
+	f.Add("日本語クッキー", uint8(0), uint8(PosturePerRequest))
+	f.Add("__Secure-sess", uint8(0), uint8(PosturePerRequest))
+	f.Add("__hOsT-sess", uint8(0), uint8(PosturePerRequest))
+	f.Add("sess", uint8(0), uint8(PosturePerRequest+1))
+	f.Add("__HTTP-sess", uint8(0), uint8(PostureSecure))
+	f.Add(strings.Repeat("n", MaxCookieNameBytes+1), uint8(0), uint8(PostureSecure))
 
-	f.Fuzz(func(t *testing.T, name, path, domain string, sameSite, posture uint8) {
+	f.Fuzz(func(t *testing.T, name string, sameSite, posture uint8) {
 		cfg := CookieConfig{
 			Name:     name,
-			Path:     path,
-			Domain:   domain,
 			SameSite: http.SameSite(sameSite),
 			Posture:  CookiePosture(posture),
-			HTTPS:    RequestIsHTTPS,
 		}
 		err := cfg.Validate()
 		if cfg.SameSite == http.SameSiteNoneMode && err == nil {
@@ -48,31 +43,23 @@ func FuzzCookieConfigValidate(f *testing.F) {
 		if l := strings.ToLower(cfg.baseName()); strings.HasPrefix(l, "__secure-") || strings.HasPrefix(l, "__host-") || strings.HasPrefix(l, "__http-") {
 			t.Fatalf("Validate() = nil with Name %q, which carries a cookie-name prefix", name)
 		}
-		if verr := (&http.Cookie{Name: cfg.EffectiveName(), Value: "x", Path: path, Domain: domain}).Valid(); verr != nil {
-			t.Fatalf("Validate() = nil but http.Cookie.Valid refuses the cookie: %v", verr)
-		}
-		if (path != "" && path[0] != '/') || len(path) > maxCookiePath {
-			t.Fatalf("Validate() = nil with Path %q, which a browser replaces by its default path", path)
+		if len(cfg.baseName()) > MaxCookieNameBytes {
+			t.Fatalf("Validate() = nil with a %d-byte Name", len(cfg.baseName()))
 		}
 		// A nil error promises http.SetCookie emits the cookie as configured
-		// on every scheme, rather than dropping or sanitizing it.
-		for _, target := range []string{"http://example.test/", "https://example.test/"} {
-			r := httptest.NewRequest(http.MethodGet, target, nil)
+		// for either transport, rather than dropping or sanitizing it.
+		for _, secure := range []bool{true, false} {
 			w := httptest.NewRecorder()
-			cfg.SetCookie(w, r, "tok", 60)
+			cfg.SetCookie(w, secure, "tok", 60)
 			lines := w.Header().Values("Set-Cookie")
 			if len(lines) != 1 {
-				t.Fatalf("Validate() = nil but SetCookie wrote %d Set-Cookie lines on %s", len(lines), target)
+				t.Fatalf("Validate() = nil but SetCookie(%t) wrote %d Set-Cookie lines", secure, len(lines))
 			}
 			line := lines[0]
-			want := []string{"; Path=" + cfg.effectivePath() + ";", "; HttpOnly"}
-			if domain != "" {
-				want = append(want, "; Domain="+strings.TrimPrefix(domain, "."))
+			if !strings.HasPrefix(line, cfg.CookieName(secure)+"=tok;") {
+				t.Errorf("Set-Cookie %q does not start with %s=tok", line, cfg.CookieName(secure))
 			}
-			if !strings.HasPrefix(line, cfg.CookieName(r)+"=tok;") {
-				t.Errorf("Set-Cookie %q does not start with %s=tok", line, cfg.CookieName(r))
-			}
-			for _, attr := range want {
+			for _, attr := range []string{"; Path=/", "; HttpOnly"} {
 				if !strings.Contains(line, attr) {
 					t.Errorf("Set-Cookie %q lacks %q", line, attr)
 				}
@@ -100,7 +87,7 @@ func FuzzReadCookie(f *testing.F) {
 		cfg := CookieConfig{Name: "sess"}
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
 		r.Header.Set("Cookie", prefix+"; "+name+"="+first+"; "+middle+"; "+name+"="+second+"; "+suffix)
-		if got := cfg.ReadCookie(r); got != "" {
+		if got := cfg.ReadCookie(r, true); got != "" {
 			t.Fatalf("ReadCookie(%q) = %q with two %s cookies, want \"\"", r.Header.Get("Cookie"), got, name)
 		}
 	})

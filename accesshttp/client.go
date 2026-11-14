@@ -12,12 +12,19 @@ import (
 // request from the app's one resolver.
 func (h *Handler) client(r *http.Request) account.Client {
 	authn := h.acct.Authenticator()
-	device := deviceCookie(authn.Cookie())
+	session := authn.Cookie()
+	device := deviceCookie(session)
+	ca := authn.ClientAddr(r)
+	var presented access.Hash
+	if token := session.ReadCookie(r, ca.Secure); token != "" {
+		presented = access.SessionHash(token)
+	}
 	return account.Client{
 		Host:       r.Host,
 		UserAgent:  r.UserAgent(),
-		Device:     access.NewSecret(device.ReadCookie(r)),
-		ClientAddr: authn.ClientAddr(r),
+		Device:     access.NewSecret(device.ReadCookie(r, ca.Secure)),
+		Presented:  presented,
+		ClientAddr: ca,
 	}
 }
 

@@ -97,7 +97,7 @@ type routeSpec struct {
 	oidc                     bool     // Path is under OIDCPrefix
 	passive, redirect, array bool
 	tokenBody                bool // a token is accepted only in the body
-	limited                  bool // accesshttp itself calls Limiter.Request
+	limited                  bool // its admission charges the IP's request window before anything else
 }
 
 // Names more than one spec shares, and the sign-in start's, which the query
@@ -124,7 +124,7 @@ var specs = []routeSpec{
 	{name: "authOIDCStartLink", method: http.MethodPost, path: "/start/link", oidc: true, class: ClassRecentAuth, request: typeOf[RedirectRequest](), response: typeOf[OIDCStartResponse](), op: opOIDCBegin, serve: serveOIDCStartLink},
 	{name: "authOIDCStartStepUp", method: http.MethodPost, path: "/start/stepup", oidc: true, class: ClassSession, request: typeOf[RedirectRequest](), response: typeOf[OIDCStartResponse](), op: opOIDCBegin, serve: serveOIDCStartStepUp},
 	{name: "authOIDCCallback", method: http.MethodGet, path: "/callback", oidc: true, class: ClassPublic, redirect: true, query: typeOf[OIDCCallbackQuery](), limited: true, op: "OIDCComplete", audit: "oidc.callback", serve: serveOIDCCallback},
-	{name: "authOIDCPending", method: http.MethodGet, path: "/oidc/pending", class: ClassPublic, passive: true, response: typeOf[PendingLinkResponse](), op: "OIDCPending", serve: serveOIDCPending},
+	{name: "authOIDCPending", method: http.MethodGet, path: "/oidc/pending", class: ClassPublic, passive: true, response: typeOf[PendingLinkResponse](), limited: true, op: "OIDCPending", serve: serveOIDCPending},
 	{name: "authOIDCLinkPending", method: http.MethodPost, path: "/oidc/link", class: ClassRecentAuth, response: typeOf[MeResponse](), op: "LinkPendingOIDC", serve: serveOIDCLinkPending},
 	{name: "authOIDCUnlink", method: http.MethodDelete, path: "/oidc/link", class: ClassRecentAuth, op: "UnlinkOIDC", serve: serveOIDCUnlink},
 	{name: "authRecoveryStart", method: http.MethodPost, path: "/recovery", class: ClassPublic, request: typeOf[TokenRequest](), response: typeOf[RecoveryResponse](), tokenBody: true, op: "StartRecovery", audit: "recovery.start", serve: serveRecoveryStart},
@@ -173,35 +173,35 @@ var specs = []routeSpec{
 // ErrSessionGone, which maps to CodeSessionExpired.
 var opCodes = map[string][]access.Code{
 	"State":                 {access.CodeUnavailable},
-	"SetupWithPassword":     {access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeSetupComplete, access.CodeSetupTokenRequired, access.CodeTokenInvalid},
-	"SetupPasskeyBegin":     {access.CodeRateLimited, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeSetupComplete, access.CodeSetupTokenRequired, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeOriginRefused},
-	"SetupPasskeyFinish":    {access.CodeForbidden, access.CodeUnavailable, access.CodeSetupComplete, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed},
-	"PasswordLogin":         {access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodePasswordLoginDisabled},
-	"PasskeyLoginBegin":     {access.CodeRateLimited, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused},
-	"PasskeyLoginFinish":    {access.CodeInvalidCredentials, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeUnknownCredential, access.CodeAssertionFailed},
+	"SetupWithPassword":     {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeSetupComplete, access.CodeSetupTokenRequired, access.CodeTokenInvalid},
+	"SetupPasskeyBegin":     {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeSetupComplete, access.CodeSetupTokenRequired, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeOriginRefused},
+	"SetupPasskeyFinish":    {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeUnavailable, access.CodeSetupComplete, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed},
+	"PasswordLogin":         {access.CodeHTTPSRequired, access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodePasswordLoginDisabled},
+	"PasskeyLoginBegin":     {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused},
+	"PasskeyLoginFinish":    {access.CodeHTTPSRequired, access.CodeInvalidCredentials, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeUnknownCredential, access.CodeAssertionFailed},
 	"Logout":                {access.CodeUnavailable},
-	"StartRecovery":         {access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid},
-	"RecoverWithPassword":   {access.CodeSessionExpired, access.CodeBusy, access.CodeUnavailable, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeTokenInvalid},
-	"RecoverPasskeyBegin":   {access.CodeSessionExpired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused},
-	"RecoverPasskeyFinish":  {access.CodeSessionExpired, access.CodeUnavailable, access.CodeTokenInvalid, access.CodeDuplicateCredential, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed},
-	"AcceptInvitePassword":  {access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeUsernameTaken, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeTokenInvalid},
-	"AdmitOIDC":             {access.CodeRateLimited, access.CodeUnavailable, access.CodeOIDCUnavailable},
-	opOIDCBegin:             {access.CodeBadRequest, access.CodeCrossOrigin, access.CodeOIDCUnavailable},
-	"OIDCComplete":          {access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeRecentAuthRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeUnavailable, access.CodeIdentityTaken, access.CodeAlreadyLinked, access.CodeOIDCUnavailable, access.CodeOIDCFailed},
-	"OIDCPending":           {access.CodeNotFound},
-	"LinkPendingOIDC":       {access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeIdentityTaken, access.CodeAlreadyLinked, access.CodeOIDCUnavailable, access.CodeNotFound},
+	"StartRecovery":         {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid},
+	"RecoverWithPassword":   {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeBusy, access.CodeUnavailable, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeTokenInvalid},
+	"RecoverPasskeyBegin":   {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused},
+	"RecoverPasskeyFinish":  {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeUnavailable, access.CodeTokenInvalid, access.CodeDuplicateCredential, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed},
+	"AcceptInvitePassword":  {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeUsernameTaken, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeTokenInvalid},
+	"AdmitOIDC":             {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeOIDCUnavailable},
+	opOIDCBegin:             {access.CodeHTTPSRequired, access.CodeUnavailable, access.CodeBadRequest, access.CodeCrossOrigin, access.CodeOIDCUnavailable},
+	"OIDCComplete":          {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeRecentAuthRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeUnavailable, access.CodeIdentityTaken, access.CodeAlreadyLinked, access.CodeOIDCUnavailable, access.CodeOIDCFailed},
+	"OIDCPending":           {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeOIDCUnavailable, access.CodeNotFound},
+	"LinkPendingOIDC":       {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeIdentityTaken, access.CodeAlreadyLinked, access.CodeOIDCUnavailable, access.CodeNotFound},
 	"UnlinkOIDC":            {access.CodeSessionExpired, access.CodeUnavailable, access.CodeLastMethod, access.CodeNotFound},
-	"StepUpPassword":        {access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodePasswordLoginDisabled, access.CodeSessionExpired},
+	"StepUpPassword":        {access.CodeHTTPSRequired, access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodePasswordLoginDisabled, access.CodeSessionExpired},
 	"SetPassword":           {access.CodeInvalidCredentials, access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeBadRequest, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeSessionExpired},
-	"RemovePassword":        {access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeBadRequest, access.CodeLastMethod, access.CodeNotFound, access.CodeSessionExpired},
+	"RemovePassword":        {access.CodeHTTPSRequired, access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeBadRequest, access.CodeLastMethod, access.CodeNotFound, access.CodeSessionExpired},
 	"Me":                    {access.CodeSessionExpired, access.CodeUnavailable},
 	"UpdateProfile":         {access.CodeSessionExpired, access.CodeUnavailable, access.CodeBadRequest},
 	"ReenableMethod":        {access.CodeRecentAuthRequired, access.CodeUnavailable, access.CodeMethodNotLocked},
-	"StepUpPasskeyBegin":    {access.CodeSessionExpired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused, access.CodeNotFound},
-	"StepUpPasskeyFinish":   {access.CodeSessionExpired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeUnknownCredential, access.CodeAssertionFailed},
+	"StepUpPasskeyBegin":    {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused, access.CodeNotFound},
+	"StepUpPasskeyFinish":   {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeUnknownCredential, access.CodeAssertionFailed},
 	"Passkeys":              {access.CodeUnavailable},
-	"PasskeyRegisterBegin":  {access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused},
-	"PasskeyRegisterFinish": {access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeDuplicateCredential, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed},
+	"PasskeyRegisterBegin":  {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused},
+	"PasskeyRegisterFinish": {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeDuplicateCredential, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed},
 	"RenamePasskey":         {access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
 	"RemovePasskey":         {access.CodeSessionExpired, access.CodeUnavailable, access.CodeLastMethod, access.CodeNotFound},
 	"WebAuthnSignals":       {access.CodeSessionExpired, access.CodeUnavailable, access.CodePasskeysUnavailable},
@@ -210,16 +210,16 @@ var opCodes = map[string][]access.Code{
 	"RevokeSession":         {access.CodeUnavailable, access.CodeNotFound},
 	"RevokeOtherSessions":   {access.CodeUnavailable},
 	"APIKeys":               {access.CodeUnavailable},
-	"CreateAPIKey":          {access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeUnknownScope, access.CodeKeyLabelTaken},
+	"CreateAPIKey":          {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeUnknownScope, access.CodeKeyLabelTaken},
 	"RenameAPIKey":          {access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound, access.CodeKeyLabelTaken},
-	"RotateAPIKey":          {access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
+	"RotateAPIKey":          {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
 	"RevokeAPIKey":          {access.CodeUnavailable, access.CodeNotFound},
 	"Users":                 {access.CodeForbidden, access.CodeUnavailable},
 	"CreateUser":            {access.CodeForbidden, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeUsernameTaken, access.CodePasswordRejected, access.CodeBreachCheckUnavailable},
 	"UpdateUser":            {access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
 	"DeleteUser":            {access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
-	"IssueRecovery":         {access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
-	"CreateInvite":          {access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest},
+	"IssueRecovery":         {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
+	"CreateInvite":          {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest},
 	"AllAPIKeys":            {access.CodeForbidden, access.CodeUnavailable},
 	"RevokeAnyAPIKey":       {access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
 	"Tokens":                {access.CodeForbidden, access.CodeUnavailable},
@@ -227,12 +227,14 @@ var opCodes = map[string][]access.Code{
 }
 
 // guardCodes is what a class's guard can answer: the Authenticator's
-// refusals on every class that authenticates, then the class predicate's.
+// refusals on every class that authenticates, auth_https_required among
+// them since a descriptor does not know the posture, then the class
+// predicate's.
 func guardCodes(c Class) []access.Code {
 	if c == ClassPublic {
 		return nil
 	}
-	codes := []access.Code{access.CodeAuthRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeKeyInvalid, access.CodeUnavailable, access.CodeSessionRequired}
+	codes := []access.Code{access.CodeAuthRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeKeyInvalid, access.CodeUnavailable, access.CodeSessionRequired, access.CodeHTTPSRequired}
 	switch c {
 	case ClassRecentAuth:
 		codes = append(codes, access.CodeRecentAuthRequired)

@@ -119,8 +119,8 @@ func TestOneSessionConfiguration(t *testing.T) {
 		origin string
 	}{
 		{name: "posture_secure", origin: testOrigin},
-		{name: "per_request_https", opts: perRequest(nil), origin: testOrigin},
-		{name: "per_request_http", opts: perRequest(nil), origin: "http://localhost"},
+		{name: "per_request_https", opts: perRequest, origin: testOrigin},
+		{name: "per_request_http", opts: perRequest, origin: "http://localhost"},
 	} {
 		t.Run("sign_in_cookie_"+tc.name, func(t *testing.T) {
 			e := newEnv(t, tc.opts)

@@ -6,6 +6,8 @@ import (
 	"net/netip"
 	"slices"
 	"time"
+
+	"github.com/cplieger/access/internal/failreason"
 )
 
 // Principal is the outcome of authenticating one request.
@@ -44,6 +46,9 @@ type Principal struct {
 	// custom verifier that fills SessionID and AuthTime, or Method and KeyID,
 	// cannot pass IsSession, IsRecoverySession, RequireRecentAuth or IsAPIKey.
 	source principalSource
+	// Secure is the [ClientAddr.Secure] of the request Authenticate verified,
+	// or Recheck's input's; false for a principal built elsewhere.
+	Secure bool
 }
 
 // principalSource is which verifier produced a Principal. Its zero value is
@@ -119,14 +124,21 @@ func (p Principal) LogValue() slog.Value { //nolint:gocritic // hugeParam: a val
 // RequireRecentAuth returns nil only for a principal for which IsSession is
 // true and whose AuthTime is within maxAge of now and not after it; every
 // other principal, a custom verifier's included, gets [ErrRecentAuthRequired].
-// An AuthTime after now is refused on purpose: this gate guards a sensitive
-// operation, a job apart from session validity, and fails closed where it
-// cannot place the proof of a recent sign-in.
+// The refusal of such a session over plain HTTP (Secure false) carries
+// [ReasonSignInAgain], since only a fresh sign-in refreshes its AuthTime. An
+// AuthTime after now is refused on purpose: this gate guards a sensitive
+// operation and fails closed where it cannot place the proof of a sign-in.
 func RequireRecentAuth(p Principal, maxAge time.Duration, now time.Time) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	if !p.IsSession() || p.AuthTime.Before(now.Add(-maxAge)) || p.AuthTime.After(now) {
+	switch {
+	case !p.IsSession():
+		return ErrRecentAuthRequired
+	case !p.AuthTime.Before(now.Add(-maxAge)) && !p.AuthTime.After(now):
+		return nil
+	case !p.Secure:
+		return failreason.Wrap(ErrRecentAuthRequired, failreason.SignInAgain)
+	default:
 		return ErrRecentAuthRequired
 	}
-	return nil
 }
 
 type (

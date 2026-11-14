@@ -12,16 +12,16 @@ const (
 	defaultAdminRecoveryTTL     = 24 * time.Hour
 )
 
-// IssueRecovery mints a recovery token for userID and voids the user's earlier
-// ones, for an out-of-band actor (ttl 0: 15 min) or an admin principal or
-// ManageUsersScope key (ttl 0: 24 h); above 7 × that default is ErrTTLTooLong.
-// A principal naming its own ID is self_recovery before any Policy call or
-// store read. Policy (OpIssueRecovery) answers before existence (ErrNotFound
-// after). A key is re-read inside the Update (key_not_current) and needs its
-// current secret (key_retiring), issues for a RoleUser only (admin_target),
-// and its token records IssuedByKey and expires no later than the key.
+// IssueRecovery mints a recovery token for userID, voiding earlier ones, for an
+// out-of-band actor (ttl 0: 15 min) or an admin principal or ManageUsersScope
+// key (ttl 0: 24 h; plain: access.ErrHTTPSRequired); above 7 × that default is
+// ErrTTLTooLong. A principal naming its own ID is self_recovery before any
+// Policy or store call. Policy (OpIssueRecovery) answers before existence
+// (ErrNotFound after). A key, re-read in the Update (key_not_current), needs
+// its current secret (key_retiring) and issues for a RoleUser only
+// (admin_target) a token recording IssuedByKey, expiring within the key's life.
 func (s *Service) IssueRecovery(ctx context.Context, a Actor, userID int64, ttl time.Duration) (IssuedToken, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
-	r, err := s.begin()
+	r, err := s.beginOver(plainRefused, a.secure())
 	if err != nil {
 		return IssuedToken{}, err
 	}

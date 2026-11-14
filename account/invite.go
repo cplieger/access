@@ -19,14 +19,15 @@ type AcceptInvite struct {
 }
 
 // CreateInvite mints an invite for an account of role (empty is
-// access.RoleUser), for an admin principal or a ManageUsersScope key, and
-// returns its plaintext once. Policy (OpInvite) decides inside the Update; a
-// key's authority is re-read there (key_not_current) and needs its current
-// secret (key_retiring), its invite may carry RoleUser only (admin_target),
-// records the key as IssuedByKey and expires no later than the key. A ttl of
-// 0 means 7 days; one above 7 × 7 days is ErrTTLTooLong.
+// access.RoleUser), for an admin principal or a ManageUsersScope key (plain:
+// access.ErrHTTPSRequired), and returns its plaintext once. Policy (OpInvite)
+// decides inside the Update; a key's authority is re-read there
+// (key_not_current) and needs its current secret (key_retiring), its invite may
+// carry RoleUser only (admin_target), records the key as IssuedByKey and
+// expires no later than the key. A ttl of 0 means 7 days; one above 7 × 7 days
+// is ErrTTLTooLong.
 func (s *Service) CreateInvite(ctx context.Context, p access.Principal, role access.Role, ttl time.Duration) (IssuedToken, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	r, err := s.begin()
+	r, err := s.beginOver(plainRefused, p.Secure)
 	if err != nil {
 		return IssuedToken{}, err
 	}
@@ -70,15 +71,16 @@ func (s *Service) CreateInvite(ctx context.Context, p access.Principal, role acc
 	return IssuedToken{Plaintext: plaintext, ExpiresAt: rec.ExpiresAt}, nil
 }
 
-// AcceptInvitePassword creates the invited account with a password and
-// signs it in. The username, password and Policy (ViaInvite) checks and the
-// IP limiter run before the hash; a refusal there, a taken name or a
-// backend error leaves the invite usable. One Update consumes the invite and
-// creates the user and session, re-checking a key-issued invite's issuer: a
-// refused issuer deletes the invite and answers access.ErrTokenInvalid, an
-// accepted one appends an invite_accepted attribution.
+// AcceptInvitePassword creates the invited account with a password and signs it
+// in; a plain c is access.ErrHTTPSRequired. The username, password and Policy
+// (ViaInvite) checks and the IP limiter run before the hash; a refusal there, a
+// taken name or a backend error leaves the invite usable. One Update consumes
+// the invite and creates the user and session, re-checking a key-issued
+// invite's issuer: a refused issuer deletes the invite and answers
+// access.ErrTokenInvalid, an accepted one appends an invite_accepted
+// attribution.
 func (s *Service) AcceptInvitePassword(ctx context.Context, c Client, in AcceptInvite) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
-	r, err := s.begin()
+	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {
 		return SignedIn{}, err
 	}

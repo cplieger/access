@@ -20,7 +20,8 @@ import (
 
 // agentHeader carries the custom verifier's credential: "ok" grants its
 // principal, "bad" is its refusal, "down" a store failure, "boom" an error
-// access does not map, and "ctx" the request's own context error.
+// access does not map, "recent" RequireRecentAuth's refusal, which no
+// verifier may return, and "ctx" the request's own context error.
 const agentHeader = "X-Agent"
 
 const agentMethod access.Method = "agent"
@@ -37,6 +38,8 @@ func (agentVerifier) Verify(ctx context.Context, r *http.Request) (access.Princi
 		return access.Principal{}, false, fmt.Errorf("%w: agent store down", access.ErrAuthBackend)
 	case "boom":
 		return access.Principal{}, false, errors.New("agent: verifier broke")
+	case "recent":
+		return access.Principal{}, false, fmt.Errorf("agent: %w", access.ErrRecentAuthRequired)
 	case "ctx":
 		return access.Principal{}, false, fmt.Errorf("agent: %w", ctx.Err())
 	default:
@@ -54,6 +57,7 @@ type fixture struct {
 	recovery string // a recovery session
 	expired  string // a session past its idle timeout
 	stale    string // a full session last active ten minutes ago
+	plain    string // a full session created over plain HTTP
 	keyRead  string // a key with scope "read"
 	keyNone  string // a key with no scope
 	// keyExpired is past its ExpiresAt, keyRetired a rotated key's previous
@@ -82,10 +86,11 @@ func newFixture(t *testing.T) *fixture {
 	}
 	f.userID = u.ID
 	now := time.Now()
-	f.session = f.addSession(t, &access.Session{ID: "full", AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: now})
-	f.recovery = f.addSession(t, &access.Session{ID: "recovery", Kind: access.SessionRecovery, AuthMethod: access.MethodRecovery, CreatedAt: now, LastActivity: now, AuthTime: now})
-	f.expired = f.addSession(t, &access.Session{ID: "expired", AuthMethod: access.MethodPassword, CreatedAt: now.Add(-3 * time.Hour), LastActivity: now.Add(-2 * time.Hour), AuthTime: now.Add(-3 * time.Hour)})
-	f.stale = f.addSession(t, &access.Session{ID: "stale", AuthMethod: access.MethodPassword, CreatedAt: now.Add(-time.Hour), LastActivity: now.Add(-10 * time.Minute), AuthTime: now.Add(-time.Hour)})
+	f.session = f.addSession(t, &access.Session{ID: "full", AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true})
+	f.recovery = f.addSession(t, &access.Session{ID: "recovery", Kind: access.SessionRecovery, AuthMethod: access.MethodRecovery, CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true})
+	f.expired = f.addSession(t, &access.Session{ID: "expired", AuthMethod: access.MethodPassword, CreatedAt: now.Add(-3 * time.Hour), LastActivity: now.Add(-2 * time.Hour), AuthTime: now.Add(-3 * time.Hour), Secure: true})
+	f.stale = f.addSession(t, &access.Session{ID: "stale", AuthMethod: access.MethodPassword, CreatedAt: now.Add(-time.Hour), LastActivity: now.Add(-10 * time.Minute), AuthTime: now.Add(-time.Hour), Secure: true})
+	f.plain = f.addSession(t, &access.Session{ID: "plain", AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: now})
 	f.keyRead, f.keyID = f.addKey(t, &access.Key{Label: "reader", Scopes: []string{"read"}})
 	f.keyNone, f.keyNoneID = f.addKey(t, &access.Key{Label: "plain"})
 	f.keyExpired, f.keyExpiredID = f.addKey(t, &access.Key{Label: "expired", ExpiresAt: now.Add(-time.Minute)})
@@ -96,7 +101,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f.keyDisabled, f.keyDisabledID = f.addKey(t, &access.Key{UserID: off.ID, Label: "bob's"})
-	f.disabledSession = f.addSession(t, &access.Session{ID: "bob", UserID: off.ID, AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: now})
+	f.disabledSession = f.addSession(t, &access.Session{ID: "bob", UserID: off.ID, AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true})
 	logger := f.logger()
 	var err error
 	if f.authn, err = access.New(f.store, access.Config{Verifier: agentVerifier{}, Logger: logger}); err != nil {
@@ -106,7 +111,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	c := f.authn.Cookie()
-	f.cookie = c.EffectiveName()
+	f.cookie = c.CookieName(true)
 	return f
 }
 
@@ -192,6 +197,7 @@ var (
 	recoveryCred = withCookie(func(f *fixture) string { return f.recovery })
 	expiredCred  = withCookie(func(f *fixture) string { return f.expired })
 	goneCred     = withCookie(func(*fixture) string { return "no-such-session" })
+	plainCred    = withCookie(func(f *fixture) string { return f.plain })
 	keyReadCred  = withBearer(func(f *fixture) string { return f.keyRead })
 	keyNoneCred  = withBearer(func(f *fixture) string { return f.keyNone })
 	unknownKey   = withBearer(func(*fixture) string { return "ak_test-key-unknown" })
@@ -276,10 +282,22 @@ func mustGate(t *testing.T, cfg gate.Config, routes []gate.Route, s *served) *ga
 	return g
 }
 
-// do serves one request on h and decodes a refusal's code.
+// do serves one request for target, a path, over https to the host
+// httptest uses by default, and decodes a refusal's code.
 func do(t *testing.T, f *fixture, h http.Handler, method, target string, creds ...cred) answer {
 	t.Helper()
-	r := httptest.NewRequestWithContext(t.Context(), method, target, nil)
+	return doAt(t, f, h, method, "https://example.com"+target, creds...)
+}
+
+// doPlain is do over plain HTTP.
+func doPlain(t *testing.T, f *fixture, h http.Handler, method, target string, creds ...cred) answer {
+	t.Helper()
+	return doAt(t, f, h, method, "http://example.com"+target, creds...)
+}
+
+func doAt(t *testing.T, f *fixture, h http.Handler, method, url string, creds ...cred) answer {
+	t.Helper()
+	r := httptest.NewRequestWithContext(t.Context(), method, url, nil)
 	for _, c := range creds {
 		c(f, r)
 	}

@@ -50,7 +50,7 @@ func (c *countingStore) addSession(t *testing.T, id string) string {
 	plaintext, hash := GenerateSessionToken()
 	now := time.Now()
 	if err := c.CreateSession(t.Context(), &Session{
-		ID: id, TokenHash: hash, UserID: 1, AuthMethod: MethodPassword, CreatedAt: now, LastActivity: now,
+		ID: id, TokenHash: hash, UserID: 1, AuthMethod: MethodPassword, CreatedAt: now, LastActivity: now, Secure: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -69,11 +69,12 @@ func setupThrottleSession(t *testing.T) (*countingStore, string) {
 	return cs, cs.addSession(t, "s1")
 }
 
-var throttleCookie = CookieConfig{Posture: PostureInsecureLAN, Name: "s"}
+// throttleCookie names a plain request's session cookie "s".
+var throttleCookie = CookieConfig{Posture: PosturePerRequest, Name: "s"}
 
 func throttleRequest(plaintext string) *http.Request {
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	r.AddCookie(&http.Cookie{Name: "s", Value: plaintext})
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/", nil)
+	r.AddCookie(&http.Cookie{Name: throttleCookie.CookieName(true), Value: plaintext})
 	return r
 }
 
@@ -103,7 +104,7 @@ func TestSessionThrottle_AtMostOncePerWindow(t *testing.T) {
 	t.Parallel()
 	const window = 30 * time.Minute
 	stale := sessionT0.Add(-window)
-	a, store, _, token := clockedSession(t, &Session{ID: "s", CreatedAt: stale, LastActivity: stale}, Config{ActivityThrottle: window})
+	a, store, _, token := clockedSession(t, &Session{ID: "s", CreatedAt: stale, LastActivity: stale, Secure: true}, Config{ActivityThrottle: window})
 	for range 5 {
 		mustAuthenticate(t, a, sessionRequest(t.Context(), token))
 	}
@@ -116,7 +117,7 @@ func TestSessionThrottle_WritesAgainAfterWindow(t *testing.T) {
 	t.Parallel()
 	const window = 10 * time.Minute
 	stale := sessionT0.Add(-window)
-	a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: stale, LastActivity: stale}, Config{ActivityThrottle: window})
+	a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: stale, LastActivity: stale, Secure: true}, Config{ActivityThrottle: window})
 	mustAuthenticate(t, a, sessionRequest(t.Context(), token))
 	clock.Set(sessionT0.Add(window - time.Nanosecond))
 	mustAuthenticate(t, a, sessionRequest(t.Context(), token))
@@ -164,7 +165,7 @@ func TestPassiveSkipsActivity(t *testing.T) {
 		t.Parallel()
 		f := newChainFixture(t)
 		old := time.Now().Add(-48 * time.Hour)
-		token := f.addSession(t, &Session{ID: "old", UserID: f.user.ID, CreatedAt: old, LastActivity: old})
+		token := f.addSession(t, &Session{ID: "old", UserID: f.user.ID, CreatedAt: old, LastActivity: old, Secure: true})
 		r := withSession(bearerRequest(""), token)
 		if _, err := mustAuthenticator(t, f.store, Config{}).Authenticate(r.WithContext(Passive(r.Context()))); err == nil {
 			t.Error("passive Authenticate of an expired session error = nil, want ErrSessionExpired")
@@ -177,7 +178,7 @@ func TestPassiveSkipsActivity(t *testing.T) {
 // expires between two throttled writes.
 func TestThrottleClampsToSessionIdleCap(t *testing.T) {
 	t.Parallel()
-	a, store, clock, token := clockedSession(t, &Session{ID: "c", CreatedAt: sessionT0, LastActivity: sessionT0, IdleCap: 30 * time.Minute}, Config{
+	a, store, clock, token := clockedSession(t, &Session{ID: "c", CreatedAt: sessionT0, LastActivity: sessionT0, IdleCap: 30 * time.Minute, Secure: true}, Config{
 		IdleTimeout:      7 * 24 * time.Hour,
 		AbsTimeout:       7 * 24 * time.Hour,
 		ActivityThrottle: time.Hour,
@@ -238,7 +239,7 @@ func TestActivityDueFromStoredTime(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 				last := sessionT0.Add(-tc.age)
-				a, store, _, token := clockedSession(t, &Session{ID: "s", CreatedAt: last, LastActivity: last}, cfg)
+				a, store, _, token := clockedSession(t, &Session{ID: "s", CreatedAt: last, LastActivity: last, Secure: true}, cfg)
 				for range 3 {
 					mustAuthenticate(t, a, sessionRequest(t.Context(), token))
 				}
@@ -250,7 +251,7 @@ func TestActivityDueFromStoredTime(t *testing.T) {
 		t.Run("a restarted Authenticator", func(t *testing.T) {
 			t.Parallel()
 			last := sessionT0.Add(-window)
-			a, store, _, token := clockedSession(t, &Session{ID: "s", CreatedAt: last, LastActivity: last}, cfg)
+			a, store, _, token := clockedSession(t, &Session{ID: "s", CreatedAt: last, LastActivity: last, Secure: true}, cfg)
 			mustAuthenticate(t, a, sessionRequest(t.Context(), token))
 			restarted := mustAuthenticator(t, store, cfg)
 			setVerifierClock(restarted, &testClock{at: sessionT0.Add(time.Minute)})
@@ -305,7 +306,7 @@ func TestActivityRetriesAfterFailedWrite(t *testing.T) {
 	t.Run("session", func(t *testing.T) {
 		t.Parallel()
 		last := sessionT0.Add(-window)
-		a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: last, LastActivity: last}, cfg)
+		a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: last, LastActivity: last, Secure: true}, cfg)
 		store.writeFails.Store(1)
 		mustAuthenticate(t, a, sessionRequest(t.Context(), token))
 		clock.Set(retried)
@@ -340,7 +341,7 @@ func TestActivityRetriesAfterFailedWrite(t *testing.T) {
 // once its LastActivity is 5 minutes old.
 func TestActivityClampToHalfIdle(t *testing.T) {
 	t.Parallel()
-	a, store, clock, token := clockedSession(t, &Session{ID: "c", CreatedAt: sessionT0, LastActivity: sessionT0, IdleCap: 10 * time.Minute}, Config{
+	a, store, clock, token := clockedSession(t, &Session{ID: "c", CreatedAt: sessionT0, LastActivity: sessionT0, IdleCap: 10 * time.Minute, Secure: true}, Config{
 		IdleTimeout:      7 * 24 * time.Hour,
 		AbsTimeout:       7 * 24 * time.Hour,
 		ActivityThrottle: time.Hour,
@@ -365,7 +366,7 @@ func TestActivityConcurrentWindowEdge(t *testing.T) {
 	t.Parallel()
 	const window = 30 * time.Minute
 	last := sessionT0.Add(-window)
-	a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: last, LastActivity: last}, Config{ActivityThrottle: window})
+	a, store, clock, token := clockedSession(t, &Session{ID: "s", CreatedAt: last, LastActivity: last, Secure: true}, Config{ActivityThrottle: window})
 	wave := func() {
 		var wg sync.WaitGroup
 		for range 32 {

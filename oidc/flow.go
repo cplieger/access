@@ -97,14 +97,14 @@ type Callback struct {
 	Error string
 }
 
-// Begin seals the flow into the flow cookie, session.Derive("oidc", Lax),
-// and returns the authorization URL, with max_age=0 and prompt=login for
-// IntentLink and IntentStepUp. Before any Set-Cookie it refuses a Redirect
+// Begin seals the flow into the flow cookie, session.Derive("oidc", Lax)
+// under its secure name, and returns the authorization URL, with max_age=0
+// and prompt=login for IntentLink and IntentStepUp. Before any Set-Cookie it refuses a Redirect
 // over MaxRedirectBytes with ErrRedirectTooLong, first; with ErrConfigInvalid,
 // a session config that fails Validate; with ErrFlowInvalid, an unknown intent
 // or IDs that do not fit it, and a link or step-up whose Sec-Fetch-Site is
 // present and not same-origin. NewProvider owns the flow cookie's size.
-func (p *Provider) Begin(w http.ResponseWriter, r *http.Request, session access.CookieConfig, req BeginRequest) (authURL string, err error) { //nolint:gocritic // hugeParam: the session config is plain data, passed as the caller holds it
+func (p *Provider) Begin(w http.ResponseWriter, r *http.Request, session access.CookieConfig, req BeginRequest) (authURL string, err error) {
 	if len(req.Redirect) > MaxRedirectBytes {
 		return "", ErrRedirectTooLong
 	}
@@ -146,24 +146,24 @@ func (p *Provider) Begin(w http.ResponseWriter, r *http.Request, session access.
 	}
 	cfg := p.oauth2Config()
 	authURL = cfg.AuthCodeURL(st.state, opts...)
-	cookie.SetCookie(w, r, sealed, int(flowLifetime/time.Second))
+	cookie.SetCookie(w, true, sealed, int(flowLifetime/time.Second))
 	return authURL, nil
 }
 
-// Finish reads and clears the flow cookie derived from session on every
-// outcome past session.Validate, checks cb.State, exchanges cb.Code and
-// verifies the ID token. It reads the request only for the cookie and its
+// Finish reads and clears the flow cookie derived from session, under its
+// secure name, on every outcome past session.Validate, checks cb.State,
+// exchanges cb.Code and verifies the ID token. It reads the request only for the cookie and its
 // context, never its URL. A session config that fails Validate is
 // ErrConfigInvalid with no Set-Cookie. An error after the cookie opened, for
 // this provider, comes with the opened Flow, so the caller can return the
 // browser to the page the flow began on; before that, Flow is zero.
-func (p *Provider) Finish(w http.ResponseWriter, r *http.Request, session access.CookieConfig, cb Callback) (Flow, Claims, error) { //nolint:gocritic // hugeParam: the session config is plain data, passed as the caller holds it
+func (p *Provider) Finish(w http.ResponseWriter, r *http.Request, session access.CookieConfig, cb Callback) (Flow, Claims, error) {
 	if err := session.Validate(); err != nil {
 		return Flow{}, Claims{}, fmt.Errorf("%w: session cookie: %w", ErrConfigInvalid, err)
 	}
 	cookie := session.Derive(flowCookieSuffix, http.SameSiteLaxMode)
-	sealed := cookie.ReadCookie(r)
-	cookie.ClearCookie(w, r)
+	sealed := cookie.ReadCookie(r, true)
+	cookie.ClearCookie(w, true)
 	st, err := p.openFlow(sealed)
 	if err != nil {
 		return Flow{}, Claims{}, err

@@ -7,16 +7,16 @@ import (
 	"github.com/cplieger/access/ratelimit"
 )
 
-// StepUpPassword re-proves p's user with password and rotates p's session
-// to AuthTime now and AuthMethod MethodPassword, returning the device cookie
-// in Issued. It needs a full session (ErrSessionRequired) and is refused
-// under Rules.DisablePasswordLogin (ErrPasswordLoginDisabled). The attempt is
-// limited on the account and device dimensions, never the client's IP, and
-// counted like PasswordLogin's on the user's name, without an untrusted
-// allowance slot. A wrong or locked password is ErrInvalidCredentials, and a
-// session rotated or ended meanwhile ErrSessionGone.
+// StepUpPassword re-proves p's user with password and rotates p's session to
+// AuthTime now and AuthMethod MethodPassword, with the device cookie in Issued.
+// A plain c or p is access.ErrHTTPSRequired, any but a full session
+// ErrSessionRequired, and Rules.DisablePasswordLogin ErrPasswordLoginDisabled.
+// The attempt is limited on the account and device dimensions, never the
+// client's IP, and counted like PasswordLogin's on the user's name, without an
+// untrusted allowance slot. A wrong or locked password is
+// ErrInvalidCredentials, a session rotated or ended meanwhile ErrSessionGone.
 func (s *Service) StepUpPassword(ctx context.Context, c Client, p access.Principal, password access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
-	r, err := s.begin()
+	r, err := s.beginOver(plainRefused, c.Secure && p.Secure)
 	if err != nil {
 		return Issued{}, err
 	}

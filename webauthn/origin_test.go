@@ -37,8 +37,11 @@ func TestParseOrigin_accepts(t *testing.T) {
 		{name: "scheme_and_host_lowercased", raw: "HTTPS://EXAMPLE.COM", wantStr: "https://example.com", wantHost: "example.com"},
 		{name: "root_path_normalized_away", raw: "https://example.com/", wantStr: "https://example.com", wantHost: "example.com"},
 		{name: "ipv6_rebracketed", raw: "https://[::1]:8443", wantStr: "https://[::1]:8443", wantHost: "::1"},
-		{name: "ipv6_uncanonical_form_kept_verbatim", raw: "https://[0:0:0:0:0:0:0:1]", wantStr: "https://[0:0:0:0:0:0:0:1]", wantHost: "0:0:0:0:0:0:0:1"},
-		{name: "ipv4_kept_verbatim", raw: "https://127.0.0.001", wantStr: "https://127.0.0.001", wantHost: "127.0.0.001"},
+		{name: "ipv4", raw: "https://127.0.0.1", wantStr: "https://127.0.0.1", wantHost: "127.0.0.1"},
+		{name: "ipv4_mapped_ipv6_hex", raw: "https://[::ffff:102:304]", wantStr: "https://[::ffff:102:304]", wantHost: "::ffff:102:304"},
+		{name: "numeric_label_not_last", raw: "https://1.example.com", wantStr: "https://1.example.com", wantHost: "1.example.com"},
+		{name: "underscore_label", raw: "https://my_app.lan", wantStr: "https://my_app.lan", wantHost: "my_app.lan"},
+		{name: "ipv6_bracketed", raw: "https://[2001:db8::1]", wantStr: "https://[2001:db8::1]", wantHost: "2001:db8::1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -90,6 +93,21 @@ func TestParseOrigin_refuses(t *testing.T) {
 		{name: "empty_label", raw: "https://sub..example.com", want: RejectEmptyLabel},
 		{name: "leading_dot", raw: "https://.example.com", want: RejectEmptyLabel},
 		{name: "non_ascii_host", raw: "https://ex\u00e4mple.com", want: RejectNonASCII},
+		{name: "host_dquote", raw: `https://example.com"x`, want: RejectMalformed},
+		{name: "host_angle", raw: "https://example.com<x", want: RejectMalformed},
+		{name: "host_bracket", raw: "https://example.com]x", want: RejectMalformed},
+		{name: "host_quote", raw: "https://a'b.example.com", want: RejectMalformed},
+		{name: "ipv6_zone", raw: "https://[fe80::1%25eth0]", want: RejectMalformed},
+		{name: "ipv6_uncompressed", raw: "https://[0:0:0:0:0:0:0:1]", want: RejectMalformed},
+		{name: "ipv6_mapped_dotted", raw: "https://[::ffff:1.2.3.4]", want: RejectMalformed},
+		{name: "ipv6_compatible_dotted", raw: "https://[::1.2.3.4]", want: RejectMalformed},
+		{name: "ipv4_leading_zero", raw: "https://127.0.0.001", want: RejectMalformed},
+		{name: "ipv4_out_of_range", raw: "https://256.1.1.1", want: RejectMalformed},
+		{name: "ipv4_short", raw: "https://1.2.3", want: RejectMalformed},
+		{name: "ipv4_hex_label", raw: "https://0x7f.1", want: RejectMalformed},
+		{name: "ipv4_hex_number", raw: "https://0x7f000001", want: RejectMalformed},
+		{name: "ipv4_decimal_number", raw: "https://2130706433", want: RejectMalformed},
+		{name: "ipv4_two_parts", raw: "https://127.1", want: RejectMalformed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

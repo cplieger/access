@@ -18,7 +18,7 @@ Every setting is a field of a configuration struct or a function argument. The l
 | `ActivityThrottle` | Writes an API key's last use once the stored one is this old, and always on its first use, and a session's activity once the stored one is as old as the lesser of this and half that session's idle limit | `0`, a write on every request |
 | `TimeoutSource` | Reads the two timeouts from a callback on every verification, for settings you reload at run time | _(unset)_ |
 | `Verifier` | Adds your own `CredentialVerifier` between the session cookie and the API key | _(unset)_ |
-| `ClientAddr` | Your resolver for how a request reached you and from which address, behind `Authenticator.ClientAddr`, the rate limiter, each session's last IP and the setup rule | the socket peer, with no proxy trusted |
+| `ClientAddr` | Your resolver for how a request reached you, from which address and whether over TLS, behind `Authenticator.ClientAddr`, the rate limiter, each session's last IP, each principal's transport and the setup rule | the socket peer, with no proxy trusted and only TLS at your server secure |
 | `Bypass` | A development hook that grants a synthetic admin user while it returns true | _(unset)_ |
 
 `New` returns an error for a configuration that cannot work. That is a timeout or throttle below zero, an activity throttle at or above the idle timeout, a realm holding `"`, `\` or a control character, or a cookie configuration that `CookieConfig.Validate` refuses. `New` also refuses a nil store, and a `Verifier` that holds a nil pointer, map, slice, func or chan; a nil `Verifier` means none.
@@ -33,7 +33,7 @@ The `Authenticator` writes no response itself. `access/gate` answers a request i
 
 The `Verifier` runs after the session cookie and before the API-key verifier, which refuses every Bearer value it cannot find. A verifier for another Bearer credential answers `ok` false and a nil error for every value that is not its own. Its principal may carry a user your app made up with no stored row. That user must be non-nil and enabled, the `Method` must be non-empty, and the `Authenticator` never looks the user up in the store.
 
-`ClientAddr` returns an `access.ClientAddr`. `Peer` is the connection's remote address, `Forwarded` is the client a trusted proxy sent, and `Via` says how the request reached you:
+`ClientAddr` returns an `access.ClientAddr`. `Peer` is the connection's remote address, `Forwarded` is the client a trusted proxy sent, `Via` says how the request reached you, and `Secure` says whether it crossed no network in clear:
 
 | `Via` | When your resolver answers it |
 | --- | --- |
@@ -43,13 +43,17 @@ The `Verifier` runs after the session cookie and before the API-key verifier, wh
 | `ViaProxyNoClient` | A proxy you trust forwarded no client address |
 | `ViaUnknown` | Never. It is the zero value, so a resolver that forgets `Via` reports no known client |
 
-`IP()` is the client's address: `Forwarded` under `ViaProxy`, and `Peer` otherwise. The rate limiter, each session's last IP and a principal's IP read it. `ClientKnown()` is true when `Via` is `ViaDirect` or `ViaProxy` and `IP()` is a valid address. A unix-socket listener has no valid address, so its clients are unknown. `SetupLocality` requires a setup token for every client whose `ClientKnown()` is false.
+`IP()` is the client's address: `Forwarded` under `ViaProxy`, and `Peer` otherwise. The rate limiter, each session's last IP and a principal's IP read it. Whether a client counts as local is `account.Locality`'s rule, which reads `Via` and `Peer` ([Local clients](#local-clients)).
 
-With the `github.com/cplieger/go/httpserver` resolver, map its `ClientResolution` in one switch:
+`Secure` is true when TLS ended at your server or at a proxy you trust. Each principal carries it as `Principal.Secure`. A resolver that leaves it false reads every request as plain HTTP.
+
+`Authenticate` calls your resolver once per request and hands that one answer to every verifier, and `accesshttp` and the gate call it again for the same request. Your resolver must give the same answer each time for one request. A resolver over a trusted-proxy list you reload at runtime can break that if a reload lands between two calls, so read the list once per request, for example into the request's context in an outer middleware.
+
+With the `github.com/cplieger/go/httpserver` resolver, v1.5.0-dev.1 or later, map its `ClientResolution` in one function:
 
 ```go
-func clientAddr(res httpserver.ClientResolution) access.ClientAddr {
-	c := access.ClientAddr{Peer: res.Peer}
+func clientAddr(r *http.Request, res httpserver.ClientResolution) access.ClientAddr {
+	c := access.ClientAddr{Peer: res.Peer, Secure: r.TLS != nil || res.ForwardedHTTPS}
 	switch {
 	case res.Forwarded:
 		c.Via, c.Forwarded = access.ViaProxy, res.IP
@@ -64,11 +68,15 @@ func clientAddr(res httpserver.ClientResolution) access.ClientAddr {
 }
 ```
 
-Keep `ViaDirect` as the last arm. Without the `PeerTrusted` arm, a trusted proxy that forwards no client address reads as a direct client, often a loopback one. Anything else you distrust from an untrusted peer, such as its `X-Forwarded-Proto`, also answers `ViaUntrustedForwarding`. When you pass a `SetupLocality.Local`, test it through your real resolver with whole requests. A trusted peer with no `X-Forwarded-For` must require a setup token. So must a trusted peer whose `X-Forwarded-For` holds only trusted hops.
+Keep `ViaDirect` as the last arm. Without the `PeerTrusted` arm, a trusted proxy that forwards no client address reads as a direct client, often a loopback one. Anything else you distrust from an untrusted peer, such as its `X-Forwarded-Proto`, also answers `ViaUntrustedForwarding`. Test your resolver with whole requests: a trusted peer with no `X-Forwarded-For` must answer `ViaProxyNoClient`, and so must a trusted peer whose `X-Forwarded-For` holds only trusted hops.
 
-A forwarded address is only the peer your proxy saw. A forwarder in front of the proxy, such as a container runtime's port proxy, a tunnel daemon or a masquerading router, arrives as `ViaProxy` with a loopback or private `Forwarded`. The library cannot see that hop. A port proxy or router directly in front of your app arrives as `ViaDirect` from its own address. Only a `Local` that requires `ViaDirect`, refuses your host's own forwarders (such as a route gateway or the container's own address), and then accepts only a loopback or private `IP()` bounds token-free setup to the host's own networks.
+`ForwardedHTTPS` is true only when a trusted peer sent exactly one `X-Forwarded-Proto` field holding the one token `https`, in any case. A list such as `https, http`, a repeated field and an untrusted peer all read as plain, so the check fails closed, and `Forwarded: proto=` is not read. A proxy you trust must set `X-Forwarded-Proto` itself, replacing the client's value rather than appending to it. Caddy does.
 
-Without `ClientAddr`, no peer is treated as a proxy. `Peer` is the connection's address, with an IPv4-mapped IPv6 address unmapped. `Via` is `ViaUntrustedForwarding` when the request carries `Forwarded`, `X-Forwarded-For` or `X-Real-IP`, which the default ignores, and `ViaDirect` otherwise.
+An app that serves a loopback origin by configuration, such as `http://localhost`, may also set `Secure` for a loopback request, because a browser treats that origin as secure. Set it only when `Via` is `ViaDirect`, the peer is a loopback address, and the hostname of `r.Host` is `localhost` or a loopback literal, since the browser decides by the origin it was given. Requiring the `Host` refuses a relay on the same host that delivers LAN traffic over loopback with a LAN `Host`, such as socat, `ssh -R` or a tunnel daemon. The library does not make this call itself, because it cannot see a forwarder on the same host.
+
+Without `ClientAddr`, no peer is treated as a proxy. `Peer` is the connection's address, with an IPv4-mapped IPv6 address unmapped. `Via` is `ViaUntrustedForwarding` when the request carries `Forwarded`, `X-Forwarded-For`, `X-Real-IP` or `X-Forwarded-Proto`, which the default ignores, and `ViaDirect` otherwise. `Secure` is true only for a request that reached your server over TLS.
+
+When a request is not `Secure` but the first token of its `X-Forwarded-Proto` is `https`, `Authenticate` logs a warning with the request's `peer`: that peer is most likely a TLS proxy missing from your resolver's trusted set. The warning logs at most once a minute, and the next one carries `suppressed`, the count held back, when there were any. The header decides nothing.
 
 `Bypass` logs one info line when `New` installs it. It logs a warning on each request that finds the hook on after a request that found it off, the first request included. The synthetic user's ID is 0, which no stored user has. Keep it off in production.
 
@@ -79,19 +87,15 @@ Without `ClientAddr`, no peer is treated as a proxy. `Peer` is the connection's 
 | Field | What it sets | Default |
 | --- | --- | --- |
 | `Name` | The base cookie name, without the `__Host-` prefix | `auth_session` |
-| `Posture` | The prefix and Secure flag strategy, in the next table | `PostureSecure` |
-| `Path` | The cookie's Path attribute | `/` |
-| `Domain` | The cookie's Domain attribute | _(unset)_ |
+| `Posture` | Which name and Secure flag each transport gets, in the next table | `PostureSecure` |
 | `SameSite` | The cookie's SameSite attribute: Lax or Strict | `http.SameSiteLaxMode` |
-| `HTTPS` | Tells whether a request arrived over HTTPS, under `PosturePerRequest`, where it is required. Pass `access.RequestIsHTTPS` | _(nil)_ |
-| `Persistent` | Tells whether a cookie set on a request may outlive the browser session. When it answers false, a cookie that would have a lifetime carries neither `Max-Age` nor `Expires`, so it ends with the browser session | _(nil: always persistent)_ |
+
+Every cookie is HttpOnly, with `Path=/` and no `Domain`, as the `__Host-` prefix requires. [Cookies](migration-v7.md#cookies) lists the posture and fields an earlier release had and what replaces each.
 
 ```go
 cfg := access.CookieConfig{
 	Name:     "my_session",
 	Posture:  access.PostureSecure,
-	Path:     "/",
-	Domain:   "", // must stay empty under a __Host- posture
 	SameSite: http.SameSiteLaxMode,
 }
 authenticator, err := access.New(myStore, access.Config{Cookie: cfg})
@@ -100,21 +104,20 @@ if err != nil {
 }
 ```
 
-| Posture | Behavior |
-| --- | --- |
-| `PostureSecure` | The default. The `__Host-` prefix with Secure, HttpOnly and SameSite=Lax, for any HTTPS deployment, self-signed certificates included |
-| `PostureInsecureLAN` | For plain-HTTP access by address and port on a LAN or a Docker network. The bare name without Secure, chosen only explicitly |
-| `PosturePerRequest` | Over HTTPS, as `HTTPS` reports it, the `__Host-` prefix with Secure. Over plain HTTP, the bare name without Secure |
+| Posture | A secure request | A plain request |
+| --- | --- | --- |
+| `PostureSecure` (the default) | `__Host-<Name>` with Secure | `__Host-<Name>` with Secure, the one name of the deployment |
+| `PosturePerRequest` | `__Host-<Name>` with Secure | `<Name>` without Secure |
 
-`PosturePerRequest` suits one instance that serves both plain-HTTP LAN traffic and HTTPS traffic through a proxy.
+Under `PostureSecure`, `Authenticate` refuses every plain request with `access.ErrHTTPSRequired`, which `ErrorFor` answers with 403 `auth_https_required`. It does so before the bypass and before any verifier, so a plain request reads no session, writes no activity and revokes nothing. Behind a TLS proxy your resolver does not trust, every request reads plain and is refused, and the warning above names the proxy's address.
 
-Every posture except `PostureInsecureLAN` uses the `__Host-` prefix. Under those, `Domain` must stay empty and `Path` must be `/`, because browsers silently drop a `__Host-` cookie that breaks either rule. `Validate` refuses such a configuration. It also refuses a posture other than the three above, a name, domain or path that `http.Cookie.Valid` refuses, a path that does not start with `/` or is longer than 1024 bytes, a `SameSite` other than unset (which means Lax), Lax or Strict, and a nil `HTTPS` under `PosturePerRequest`. It refuses a `Name` that starts with `__Secure-`, `__Host-` or `__Http-` in any letter case, because browsers drop such a cookie when it is sent without Secure. Browsers also drop a cookie whose name and value together pass 4096 bytes; `Validate` never sees the value, so keep the name short.
+`PosturePerRequest` suits one instance that serves both plain-HTTP LAN traffic and HTTPS traffic through a proxy. [Plain HTTP](plain-http.md) lists what a plain request may do under it.
 
-`RequestIsHTTPS` reports a request as HTTPS when it carries TLS or when the first token of `X-Forwarded-Proto` is `https`, from any peer. It never downgrades: a client that forges `https` only makes its own browser refuse the Secure cookie. Do not pass a predicate that trusts `X-Forwarded-Proto` only from listed proxies, because behind a TLS proxy you did not list it answers false and the cookie loses Secure.
+Each cookie method takes the request's transport, the `ClientAddr.Secure` your resolver answers for it ([Authenticator configuration](#authenticator-configuration)): `CookieName(secure)`, `SetCookie(w, secure, value, maxAge)`, `ReadCookie(r, secure)` and `ClearCookie(w, secure)`. The Authenticator and `accesshttp` pass it themselves. `SetCookie` always sets HttpOnly and sends `Cache-Control: no-store`. When `secure` is false it drops a positive `maxAge`, so a cookie set on a plain request carries neither `Max-Age` nor `Expires` and ends with the browser session; a clear sends `Max-Age=0` on either transport. `ReadCookie` reads only the name for the request's transport, never the other one, and only when the request carries exactly one cookie of that name.
 
-`SetCookie` always sets HttpOnly and also sends `Cache-Control: no-store`. `ClearCookie` expires the cookie, also when `Persistent` answers false. `ReadCookie` reads the name that fits the request, and only when the request carries exactly one cookie of that name.
+`Validate` refuses a posture other than the two above, a `Name` that `http.Cookie.Valid` refuses or that is longer than 64 bytes, and a `SameSite` other than unset (which means Lax), Lax or Strict. It refuses a `Name` that starts with `__Secure-`, `__Host-` or `__Http-` in any letter case, because browsers drop such a cookie when it is sent without Secure. Browsers also drop a cookie whose name and value together pass 4096 bytes; `Validate` never sees the value, so keep the name short.
 
-`Derive(suffix, sameSite)` returns the configuration of a companion cookie named `<Name>_<suffix>`, with the same posture, path, domain and `HTTPS`, and a nil `Persistent`. The suffix must match `^[a-z_]{1,16}$`, and `sameSite` must be unset (Lax), Lax or Strict. Any other value panics.
+`Derive(suffix, sameSite)` returns the configuration of a companion cookie named `<Name>_<suffix>`, with the same posture. The suffix must match `^[a-z_]{1,16}$`, and `sameSite` must be unset (Lax), Lax or Strict. Any other value panics.
 
 ## Password hasher
 
@@ -159,14 +162,14 @@ A stored hash outside the same bounds, or not in canonical PHC form, never match
 
 ## Rate limiter
 
-`ratelimit.DefaultConfig()` returns the rates and bounds below. Each rate is a limit per sliding window, per key: the limiter bounds the failed attempts, and the begin-route requests, each key makes in a window. Its windows live in memory, so a restart clears them.
+`ratelimit.DefaultConfig()` returns the rates and bounds below. Each rate is a limit per sliding window, per key: the limiter bounds the failed attempts, and the anonymous-route requests, each key makes in a window. Its windows live in memory, so a restart clears them.
 
 | Field | Default | Bounds |
 | --- | --- | --- |
 | `IP` | 10 per 15m | failed attempts per IP key |
 | `Account` | 100 per 1h | failures from untrusted clients per account |
 | `Device` | 10 per 1h | failures per account and device cookie |
-| `Request` | 60 per 1m | requests on an anonymous begin route per IP key |
+| `Request` | 60 per 1m | requests on an anonymous passkey begin route or OIDC route per IP key |
 | `IPv6Prefix` | 64 | the IPv6 prefix one IP key covers, 48 to 128 |
 | `MaxEntries` | 10000 | the keys, and so the memory, each dimension tracks |
 | `Prune` | 5m | how often windows with no live entry are dropped, and the eviction warning's interval |
@@ -185,7 +188,7 @@ The reservation counts as a failure until it is settled, so an abandoned one sti
 - `Fail` settles it as the failure it already counts.
 - `Cancel` removes it without crediting a success, for a refusal before the password was checked.
 
-Only the first of the three acts. `Request` counts one request on an anonymous begin route against the IP key's request window.
+Only the first of the three acts. `Request` counts one request on an anonymous passkey begin route or OIDC route against the IP key's request window.
 
 Set the device cookie `Succeed` returns for 180 days, and pass the browser's cookie back in `Attempt.Device`. The device protocol follows OWASP's [device cookies](https://owasp.org/www-community/Slow_Down_Online_Guessing_Attacks_with_Device_Cookies): locking an account for untrusted clients leaves the owner's trusted browsers working. With a `Devices` sealer over persisted keys, that trust survives a restart. With `access.NewEphemeralSealer()`, a restart makes every browser untrusted until it signs in again. After a sign-in that ran no `Attempt`, such as a passkey or OIDC sign-in, `DeviceCookie` returns the cookie to set, and it keeps the device of a valid cookie the browser presented.
 
@@ -196,7 +199,7 @@ Past those keys, the limiter bounds no spray of new keys. What bounds one depend
 - Password attempts on an account (`PasswordLogin`, `StepUpPassword`, and the current-password check of `SetPassword` and `RemovePassword`). The durable failure cap, `account.FailureCap`, locks the password for a name and trust context after 100 consecutive failures, so a spray gets at most 100 consecutive guesses at each account in each context. Every password hash draws on the `access.HashBudget`, which bounds how many hashes run at once.
 - Attempts with no account (`SetupWithPassword`, `AcceptInvitePassword` and `StartRecovery`). Nothing beyond the IP limit bounds their rate. Those that hash a password draw on the `access.HashBudget`.
 - Begin routes that hold a passkey ceremony (`SetupPasskeyBegin` and `PasskeyLoginBegin`). The pending-ceremony cache holds at most `account.Config.MaxPending` entries and evicts the oldest first. That bounds memory, not the request rate.
-- The OIDC sign-in start and callback. `account.Service.AdmitOIDC` charges the IP request limit on both before `oidc.Provider.Finish` and `OIDCComplete` run, and nothing beyond that limit bounds their rate. A callback without a flow cookie that `Begin` sealed fails when the cookie is opened, before any call to the identity provider.
+- The OIDC sign-in start, the callback and the pending-link read. `account.Service.AdmitOIDC` charges the IP request limit on each, before `oidc.Provider.Begin` or `Finish` runs and before the pending-link cookie is read, and nothing beyond that limit bounds their rate. A callback without a flow cookie that `Begin` sealed fails when the cookie is opened, before any call to the identity provider.
 
 Once per `Prune` interval, each dimension that evicted keys at their limit logs one warning with their count, after the limiter's locks are released. The prune goroutine stops when the context given to `New` ends, after logging the warnings its last interval had not yet logged. `Shutdown` stops it and blocks until it has exited, or until the context given to `Shutdown` ends.
 
@@ -218,7 +221,7 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 
 ## Account service
 
-`account.New(ctx, cfg)` takes an `account.Config`. It refuses a nil `Store`, `Policy`, `Authenticator`, `Hasher`, `Limiter` or `Rules`, a `FailureKey` that is not 32 bytes, a non-empty `AdminScope`, `ManageUsersScope` or `CreateKeysScope` that is not one [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3) scope-token (printable ASCII other than space, `"` and `\`), two equal non-empty scopes, a negative `CleanupInterval`, `MaxPending`, `LogMaxAge`, `LogMaxChanges` or `LogMaxSessions`, and a `Rules()` value that `Rules.Validate` refuses or whose breach mode has no `Breach` client. Before it returns, it trims the [security log](security-log.md) to its caps and `LogMaxAge` and sweeps the failure records, and it returns a store error from either.
+`account.New(ctx, cfg)` takes an `account.Config`. It refuses a nil `Store`, `Policy`, `Authenticator`, `Hasher`, `Limiter` or `Rules`, a `FailureKey` that is not 32 bytes, a non-empty `AdminScope`, `ManageUsersScope` or `CreateKeysScope` that is not one [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3) scope-token (printable ASCII other than space, `"` and `\`), two equal non-empty scopes, a negative `CleanupInterval`, `MaxPending`, `LogMaxAge`, `LogMaxChanges` or `LogMaxSessions`, and a `Rules()` value that `Rules.Validate` refuses or whose breach mode has no `Breach` client. Before it returns, it trims the [security log](security-log.md) to its caps and `LogMaxAge` and sweeps the failure records, and it returns a store error from either. It then registers the Service as its `Authenticator`'s session revoker, which ends a session presented on the other transport ([Sessions](primitives.md#sessions)). An Authenticator takes one revoker, so `New` fails for a second Service over the same Authenticator: give each Service its own.
 
 | Field | What it sets | Default |
 | --- | --- | --- |
@@ -256,7 +259,7 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 
 | Field | What it sets | Default |
 | --- | --- | --- |
-| `SetupTokenRequired` | Whether a first-user setup from a client needs a setup token | nil: always |
+| `SetupTokenRequired` | Whether a first-user setup from a client needs a setup token; `account.Locality`'s `TokenRequired` asks none of a local client ([Local clients](#local-clients)) | nil: always |
 | `MethodUsable` | Whether a held method can sign the user in now under your own rules, ANDed into the last-method guard and `Service.UsableMethods` ([Your own rules inside the transaction](storage.md#your-own-rules-inside-the-transaction)) | nil: every held method is usable |
 | `SessionCaps` | Per-session idle and absolute limits for a new session; a positive value lowers that limit for the session's life | nil: no cap |
 | `KeyPrefix` | The prefix of every minted key's plaintext | empty |
@@ -270,6 +273,7 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 | `DisablePasswordLogin` | Refuses password sign-in and step-up | false: allowed |
 | `SSOGoverned` | Makes linking an OIDC identity remove the password and passkeys; only recovery restores a local method | false |
 | `RevokeKeysOnCredentialChange` | Deletes the user's API keys, and the tokens they issued, when `SetPassword` sets or changes the password, and when an OIDC link under `SSOGoverned` migrates the account. Disabling and deleting a user always delete the keys, and a recovery does unless `RecoverOptions.KeepKeys` is set | false |
+| `HTTPSOrigin` | The app's HTTPS origin, `https://host` or `https://host:port`, which `Service.State` answers a plain request as `https_origin` so the sign-in screen can link there ([Plain HTTP](plain-http.md#what-the-screens-learn)). A link only; nothing trusts it. `Validate` refuses any other scheme, user info, a host that is not a hostname or an IP address in its browser form, an invalid port, the default port `:443`, an uppercase host, a path (`/` included), a query and a fragment | empty: none |
 
 An app may refuse a sign-in method in its own gate before `account` sees the attempt. `Rules` has no sign-in hook for that, and `MethodUsable` keeps the last-method guard from counting a method the app refuses.
 
@@ -286,6 +290,35 @@ An app may refuse a sign-in method in its own gate before `account` sees the att
 - A key's lineage holds at most `account.MaxKeyLineage` IDs, 8: a root key and seven generations of keys minted by keys. Minting below a full lineage is refused with the reason `lineage_too_deep`.
 
 Every key-authorized write re-reads the key and its owner inside its own transaction, so a key revoked or expired, or an owner disabled, deleted or demoted, authorises nothing that commits after the change. Leaving both scopes empty keeps all of these operations session-only under a recent sign-in.
+
+### Local clients
+
+`account.Locality` decides whether a client is local, one that a decision may trust more. Its `TokenRequired`, passed as `Rules.SetupTokenRequired`, lets a local client set up the first user with no setup token, and your app calls `Local(c.ClientAddr)` for any other such decision, since `account.Client` embeds the `access.ClientAddr`.
+
+```go
+check := httpserver.NewForwarderCheck()
+locality := account.Locality{Forwarder: check.IsForwarder, Hosts: []string{"nas.lan"}}
+rules.SetupTokenRequired = locality.TokenRequired
+```
+
+`Local` is true only when all of these hold:
+
+- `Via` is `ViaDirect`, so the client reached your app directly. `ViaProxy`, `ViaProxyNoClient`, `ViaUntrustedForwarding` and `ViaUnknown` are never local.
+- `Forwarder` is set.
+- `Peer` is a valid loopback or private address: 127.0.0.0/8, ::1, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 or fc00::/7, Go's `IsLoopback` and `IsPrivate`. An IPv4-mapped peer is judged as IPv4. Carrier-grade NAT (100.64.0.0/10), which providers share between customers, and link-local addresses (169.254.0.0/16, fe80::/10) are not local.
+- `Forwarder` answers false for the peer, which it receives unmapped and with no zone.
+
+`TokenRequired` asks for a token unless `Local` holds and the request's `Host`, with its port removed, lower-cased and one trailing dot dropped, is an IP literal with no zone, `localhost` or one of `Hosts`. The `Host` rule refuses DNS rebinding, where a page rebinds its own name to your server and sends that name from a local peer.
+
+The rule reads the socket peer and never a forwarded address. A forwarded address is only the peer your proxy saw: a forwarder in front of the proxy, or a proxy misconfigured to forward a private address, would make a remote client local. The peer depends only on the connection, and `Forwarder` refuses the forwarders your app's network namespace can see: a container bridge's gateway, the host's own addresses through a port proxy, a Swarm ingress. `Forwarder` is yours, since only your app can read its routes and interfaces. With `github.com/cplieger/go/httpserver` v1.5.0-dev.2 or later, pass the `IsForwarder` method of `httpserver.NewForwarderCheck(...)`, which answers true, so not local, on a failed read of the host's network, an invalid address or a nil check. An app with no forwarder at all passes `func(netip.Addr) bool { return false }`. A nil `Forwarder`, as in the zero `Locality`, makes no client local.
+
+Some peers look local and are not, and no address rule can tell them apart:
+
+- a relay on loopback, such as `ssh -R`, socat, frp, rathole or a TCP tunnel daemon, delivers a remote client as 127.0.0.1;
+- a NAT outside your app's namespace, such as a router's port forward that rewrites the source or a Kubernetes node's SNAT under `externalTrafficPolicy: Cluster`, delivers one as a private address your container never sees as a gateway;
+- an overlay network over IPv6 delivers its peers as unique-local addresses inside fc00::/7, such as Tailscale's fd7a:115c:a1e0::/48, so a tailnet peer is local over IPv6, though not over IPv4, whose 100.64.0.0/10 is excluded.
+
+The library adds no vendor prefixes, since no list could be complete. A peer behind one of these paths is local, so it may set up a fresh instance with no token, and use whatever else your app opens to a local client. Complete setup before you expose an instance through such a relay, NAT or overlay: a set-up instance asks no setup question. Your app may also give its operator a setting that passes a nil `Forwarder`, which makes no client local; that choice is your app's, since the library cannot see these paths. A client that reaches a fresh instance only through your reverse proxy is never local, so its admin pastes the setup token your app prints at start, once.
 
 ## HTTP handlers
 

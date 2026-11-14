@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/cplieger/access/internal/failreason"
 	"github.com/cplieger/access/internal/printcheck"
 )
 
@@ -189,7 +191,7 @@ func TestRequireRecentAuth(t *testing.T) {
 	f := newChainFixture(t)
 	now := time.Now()
 	a := mustAuthenticator(t, f.store, Config{})
-	r, _ := http.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/", nil)
 	r.AddCookie(&http.Cookie{Name: defaultSecureCookieName, Value: f.session})
 	session, err := a.Authenticate(r)
 	if err != nil || !session.IsSession() {
@@ -250,5 +252,139 @@ func TestRequestMarks(t *testing.T) {
 	}
 	if v, _ := Passive(ctx).Value(allowRecoveryKey{}).(bool); v {
 		t.Error("Passive marked the context as allowing a recovery session")
+	}
+}
+
+// TestPrincipalSecure pins Principal.Secure as the resolver's answer for the
+// request Authenticate verified, whichever verifier granted it, the bypass
+// included, and as Recheck's input's.
+func TestPrincipalSecure(t *testing.T) {
+	t.Parallel()
+	f := newChainFixture(t)
+	now := time.Now()
+	plain := f.addSession(t, &Session{ID: "plain", UserID: f.user.ID, AuthMethod: MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: now})
+	perRequest := CookieConfig{Posture: PosturePerRequest}
+	// A custom verifier's own Secure is not the request's.
+	custom := Principal{User: &User{Username: "agent", Enabled: true}, Method: "agent_key", Secure: true}
+	at := func(target string, r *http.Request) *http.Request {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+		req.Header = r.Header
+		return req
+	}
+	// session is the request carrying the session bound to the transport
+	// of target, under its cookie name.
+	session := func(target string) *http.Request {
+		if strings.HasPrefix(target, "https:") {
+			return withSession(bearerRequest(""), f.session)
+		}
+		r := bearerRequest("")
+		r.AddCookie(&http.Cookie{Name: perRequest.CookieName(false), Value: plain})
+		return r
+	}
+	targets := map[string]bool{"https://app.example/api": true, "http://app.example/api": false}
+	for _, tc := range []struct {
+		cfg  Config
+		req  func(target string) *http.Request
+		name string
+	}{
+		{name: "session", req: session},
+		{name: "key", req: func(string) *http.Request { return bearerRequest(f.key) }},
+		{name: "custom verifier", cfg: Config{Verifier: stubVerifier{p: custom, ok: true}}, req: func(string) *http.Request { return bearerRequest("") }},
+		{name: "bypass", cfg: Config{Bypass: func() bool { return true }}, req: func(string) *http.Request { return bearerRequest("") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tc.cfg.Cookie = perRequest
+			a := mustAuthenticator(t, f.store, tc.cfg)
+			for target, want := range targets {
+				if p := mustAuthenticate(t, a, at(target, tc.req(target))); p.Secure != want {
+					t.Errorf("Authenticate(%s).Secure = %v, want %v", target, p.Secure, want)
+				}
+			}
+		})
+	}
+	t.Run("recheck", func(t *testing.T) {
+		t.Parallel()
+		a := mustAuthenticator(t, f.store, Config{Cookie: perRequest})
+		for name, req := range map[string]func(string) *http.Request{
+			"session": session,
+			"key":     func(string) *http.Request { return bearerRequest(f.key) },
+		} {
+			for target, want := range targets {
+				p := mustAuthenticate(t, a, at(target, req(target)))
+				q, err := a.Recheck(t.Context(), p)
+				if err != nil {
+					t.Fatalf("Recheck(%s over %s) = %v", name, target, err)
+				}
+				if q.Secure != want {
+					t.Errorf("Recheck(%s over %s).Secure = %v, want the passed principal's %v", name, target, q.Secure, want)
+				}
+			}
+		}
+	})
+}
+
+// TestRequireRecentAuthSignInAgain pins the reason RequireRecentAuth's
+// refusal carries: sign_in_again for a full session over plain HTTP, whose
+// AuthTime nothing there refreshes, and none for a secure session or for any
+// principal a sign-in cannot help.
+func TestRequireRecentAuthSignInAgain(t *testing.T) {
+	t.Parallel()
+	f := newChainFixture(t)
+	now := time.Now()
+	perRequest := CookieConfig{Posture: PosturePerRequest}
+	// plainAt is a plain request carrying a new plain session of kind
+	// signed in at authTime.
+	plainAt := func(authTime time.Time, kind SessionKind) *http.Request {
+		method, created := MethodPassword, now.Add(-3*time.Hour)
+		if kind == SessionRecovery {
+			method, created = MethodRecovery, now
+		}
+		tok := f.addSession(t, &Session{ID: "plain-" + string(kind) + authTime.Format(time.RFC3339Nano), UserID: f.user.ID, AuthMethod: method, Kind: kind, CreatedAt: created, LastActivity: now, AuthTime: authTime})
+		r := httptest.NewRequestWithContext(AllowRecoverySession(t.Context()), http.MethodGet, "http://app.example/api", nil)
+		r.AddCookie(&http.Cookie{Name: perRequest.CookieName(false), Value: tok})
+		return r
+	}
+	// plain is r's headers on a plain request.
+	plain := func(r *http.Request) *http.Request {
+		q := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://app.example/api", nil)
+		q.Header = r.Header
+		return q
+	}
+	a := mustAuthenticator(t, f.store, Config{Cookie: perRequest})
+	staleSecure := mustAuthenticate(t, a, withSession(bearerRequest(""), f.session))
+	staleSecure.AuthTime = now.Add(-2 * time.Hour)
+	custom := Principal{User: &User{Username: "agent", Enabled: true}, Method: "agent_key", SessionID: "s", AuthTime: now.Add(-2 * time.Hour)}
+	for _, tc := range []struct {
+		p      Principal
+		name   string
+		reason string
+		ok     bool
+	}{
+		{name: "fresh_plain_session", p: mustAuthenticate(t, a, plainAt(now, SessionFull)), ok: true},
+		{name: "stale_plain_session", p: mustAuthenticate(t, a, plainAt(now.Add(-2*time.Hour), SessionFull)), reason: failreason.SignInAgain},
+		{name: "future_plain_session", p: mustAuthenticate(t, a, plainAt(now.Add(time.Hour), SessionFull)), reason: failreason.SignInAgain},
+		{name: "stale_secure_session", p: staleSecure},
+		{name: "plain_recovery_session", p: mustAuthenticate(t, a, plainAt(now, SessionRecovery))},
+		{name: "plain_key", p: mustAuthenticate(t, a, plain(bearerRequest(f.key)))},
+		{name: "plain_custom_verifier", p: mustAuthenticate(t, mustAuthenticator(t, f.store, Config{Cookie: perRequest, Verifier: stubVerifier{p: custom, ok: true}}), plain(bearerRequest("")))},
+		{name: "plain_bypass", p: mustAuthenticate(t, mustAuthenticator(t, f.store, Config{Cookie: perRequest, Bypass: func() bool { return true }}), plain(bearerRequest("")))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := RequireRecentAuth(tc.p, time.Minute, now)
+			if tc.ok {
+				if err != nil {
+					t.Errorf("RequireRecentAuth = %v, want nil", err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrRecentAuthRequired) || failreason.Of(err) != tc.reason {
+				t.Errorf("RequireRecentAuth(Secure %t) = %v, reason %q; want ErrRecentAuthRequired, reason %q", tc.p.Secure, err, failreason.Of(err), tc.reason)
+			}
+			if err != nil && err.Error() != ErrRecentAuthRequired.Error() {
+				t.Errorf("refusal text = %q, want the sentinel's", err)
+			}
+		})
 	}
 }

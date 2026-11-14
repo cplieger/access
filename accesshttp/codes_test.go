@@ -33,6 +33,7 @@ var accountSentinels = []struct {
 }{
 	{name: "invalid_credentials", err: account.ErrInvalidCredentials, code: access.CodeInvalidCredentials},
 	{name: "recent_auth", err: access.ErrRecentAuthRequired, code: access.CodeRecentAuthRequired},
+	{name: "https_required", err: access.ErrHTTPSRequired, code: access.CodeHTTPSRequired},
 	{name: "session_required", err: account.ErrSessionRequired, code: access.CodeSessionRequired},
 	{name: "scope_required", err: account.ErrScopeRequired, code: access.CodeScopeRequired},
 	{name: "policy", err: &account.PolicyError{Op: account.OpCreateUser, Reason: account.ReasonAdminTarget}, code: access.CodeForbidden},
@@ -392,9 +393,8 @@ func TestDescriptorCodes(t *testing.T) {
 }
 
 // sweepSentinels has rt's account call answer each sentinel in turn and
-// adds what rt answers with no contract break to answered. A route whose
-// only account call is OIDCProvider has one failure, a nil provider, and
-// one that makes no account call answers from its own state.
+// adds what rt answers with no contract break to answered. A route that
+// makes no account call answers from its own state.
 func (c *census) sweepSentinels(t *testing.T, rt Route, answered map[access.Code]bool) {
 	t.Helper()
 	s := specNamed(t, rt.Name)
@@ -410,18 +410,11 @@ func (c *census) sweepSentinels(t *testing.T, rt Route, answered map[access.Code
 		if breaks == 0 {
 			answered[got] = true
 		}
-		switch {
-		case c.reached.Load() == reachedBefore:
+		if c.reached.Load() == reachedBefore {
 			if breaks != 0 {
 				t.Errorf("with no account call: answered %s with %d contract-break logs, want none", got, breaks)
 			}
 			return
-		case *c.lastOp.Load() == "OIDCProvider":
-			if got != access.CodeOIDCUnavailable || breaks != 0 {
-				t.Errorf("with a nil provider: answered %s with %d contract-break logs, want auth_oidc_unavailable and none", got, breaks)
-			}
-			return
-		default:
 		}
 		want := sentinel.code
 		if want == "" {

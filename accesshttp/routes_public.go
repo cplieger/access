@@ -19,17 +19,17 @@ func canonical(username string) string {
 
 // signedIn sets the new session's cookies and answers SignedInResponse.
 func (h *Handler) signedIn(c *call, s account.SignedIn) { //nolint:gocritic // hugeParam: account's own result, read once
-	h.setSignedIn(c.w, c.r, s)
+	h.setSignedIn(c.w, c.client.Secure, s)
 	h.auditSuccess(c, s.User, s.Session)
 	writeJSON(c.w, http.StatusOK, signedInResponse(s))
 }
 
 func serveState(h *Handler, c *call) error {
-	st, err := h.acct.State(c.r.Context())
+	st, err := h.acct.State(c.r.Context(), c.client)
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, StateResponse{SetupRequired: st.SetupRequired, PasswordLogin: st.PasswordLogin, Passkeys: st.Passkeys, OIDC: st.OIDC})
+	writeJSON(c.w, http.StatusOK, stateResponse(&st))
 	return nil
 }
 
@@ -130,19 +130,14 @@ func serveLoginPasskeyFinish(h *Handler, c *call) error {
 	return nil
 }
 
-// serveLogout ends the session the cookie names, if any, and clears the
-// cookie. A refusal keeps the cookie, so the browser can retry the logout
-// instead of forgetting a token whose session still lives.
+// serveLogout ends the session the request presented, if any, and clears
+// the cookie. A refusal keeps the cookie, so the browser can retry the
+// logout instead of forgetting a token whose session still lives.
 func serveLogout(h *Handler, c *call) error {
-	cfg := h.acct.Authenticator().Cookie()
-	var hash access.Hash
-	if token := cfg.ReadCookie(c.r); token != "" {
-		hash = access.SessionHash(token)
-	}
-	if err := h.acct.Logout(c.r.Context(), hash); err != nil {
+	if err := h.acct.Logout(c.r.Context(), c.client.Presented); err != nil {
 		return err
 	}
-	h.clearSession(c.w, c.r)
+	h.clearSession(c.w, c.client.Secure)
 	noContent(c.w)
 	return nil
 }

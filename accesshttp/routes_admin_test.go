@@ -608,7 +608,7 @@ func TestShownOnceRoutes(t *testing.T) {
 		w := do(e.route(t, "authAdminRecovery"), e.at(t, "authAdminRecovery", e.userID(t, "alice"), `{}`, root))
 		resp := decoded[TokenResponse](t, e, w, http.StatusCreated)
 		once(t, w.Body.String(), resp.Token)
-		if rec, err := e.svc.StartRecovery(t.Context(), account.Client{}, access.NewSecret(resp.Token)); err != nil || rec.Username != "alice" {
+		if rec, err := e.svc.StartRecovery(t.Context(), account.Client{Secure: true}, access.NewSecret(resp.Token)); err != nil || rec.Username != "alice" {
 			t.Errorf("StartRecovery = %+v, %v; want alice's recovery", rec, err)
 		}
 	})
@@ -617,7 +617,7 @@ func TestShownOnceRoutes(t *testing.T) {
 		resp := decoded[TokenResponse](t, e, w, http.StatusCreated)
 		once(t, w.Body.String(), resp.Token)
 		in := account.AcceptInvite{Token: access.NewSecret(resp.Token), Username: "invitee", Password: access.NewSecret(testPassword)}
-		if _, err := e.svc.AcceptInvitePassword(t.Context(), account.Client{}, in); err != nil {
+		if _, err := e.svc.AcceptInvitePassword(t.Context(), account.Client{Secure: true}, in); err != nil {
 			t.Errorf("AcceptInvitePassword: %v", err)
 		}
 	})
@@ -719,7 +719,7 @@ func TestAdminSecurityLog(t *testing.T) {
 		if err := e.svc.RenameSession(t.Context(), rootP, account.SessionLabel{ID: rootP.SessionID, Label: "laptop"}); err != nil {
 			t.Fatalf("RenameSession: %v", err)
 		}
-		if _, err := e.svc.PasswordLogin(t.Context(), account.Client{UserAgent: "Firefox"}, account.Credentials{Username: "alice", Password: access.NewSecret(testPassword)}); err != nil {
+		if _, err := e.svc.PasswordLogin(t.Context(), account.Client{Secure: true, UserAgent: "Firefox"}, account.Credentials{Username: "alice", Password: access.NewSecret(testPassword)}); err != nil {
 			t.Fatalf("PasswordLogin: %v", err)
 		}
 		if _, err := e.svc.CreateInvite(t.Context(), rootP, access.RoleAdmin, 0); err != nil {

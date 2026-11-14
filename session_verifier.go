@@ -2,10 +2,10 @@ package access
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cplieger/access/internal/failreason"
@@ -23,14 +23,45 @@ type sessionVerifier struct {
 	store AuthenticatorStore
 	cfg   *Config
 	// now is the verifier's only clock.
-	now  func() time.Time
-	warn warnLimiter
+	now     func() time.Time
+	revoker atomic.Pointer[SessionRevoker]
+	warn    warnLimiter
+	// mismatchWarn limits the WARN for a transport mismatch left unrevoked.
+	mismatchWarn warnLimiter
 }
 
-// Verify grants the session the request's one session cookie names. No
-// cookie, or more than one, is not its credential.
-func (v *sessionVerifier) Verify(ctx context.Context, r *http.Request) (Principal, bool, error) {
-	token := v.cfg.Cookie.ReadCookie(r)
+// revokeTimeout bounds one transport-mismatch revoke. It runs detached
+// from the request's cancellation, so a client that hangs up cannot keep
+// its token alive.
+const revokeTimeout = 5 * time.Second
+
+// SessionRevoker ends a session the session verifier refused for its
+// transport (see [Session.Secure]).
+type SessionRevoker interface {
+	// RevokeTransportMismatch deletes the session ref names, answering nil
+	// when it is already gone.
+	RevokeTransportMismatch(ctx context.Context, ref SessionRef) error
+}
+
+// UseSessionRevoker registers r as the revoker of every session refused
+// for its transport. It refuses a nil r and a second registration; with
+// none registered, such a session is refused but left in the store.
+func (a *Authenticator) UseSessionRevoker(r SessionRevoker) error {
+	if isNilInterface(r) {
+		return errors.New("access: UseSessionRevoker: nil SessionRevoker")
+	}
+	if !a.sessions.revoker.CompareAndSwap(nil, &r) {
+		return errors.New("access: UseSessionRevoker: a revoker is already registered")
+	}
+	return nil
+}
+
+// verify grants the session the request's one session cookie names, read
+// for ca's transport. No cookie, or more than one, is not its credential. A
+// session whose Secure differs from ca's is refused with
+// [ErrSessionTransport]; revokeMismatch owns whether it is revoked.
+func (v *sessionVerifier) verify(ctx context.Context, r *http.Request, ca ClientAddr) (Principal, bool, error) {
+	token := v.cfg.Cookie.ReadCookie(r, ca.Secure)
 	if token == "" {
 		return Principal{}, false, nil
 	}
@@ -40,8 +71,12 @@ func (v *sessionVerifier) Verify(ctx context.Context, r *http.Request) (Principa
 	if err != nil {
 		return Principal{}, false, err
 	}
+	if sess.Secure != ca.Secure {
+		v.revokeMismatch(ctx, sess)
+		return Principal{}, false, failreason.Wrap(&InvalidCredentialError{Method: sess.AuthMethod, Err: ErrSessionTransport}, failreason.TransportChanged)
+	}
 	if !IsPassive(ctx) && v.activityDue(sess, ts, now) {
-		act := SessionActivity{At: now, IP: activityIP(v.cfg.ClientAddr(r).IP())}
+		act := SessionActivity{At: now, IP: activityIP(ca.IP())}
 		if err := v.store.UpdateSessionActivity(ctx, hash, act); err != nil {
 			v.warn.log(v.cfg.log(), "access: session activity update failed", "session_id", sess.ID, "error", err)
 		} else {
@@ -49,6 +84,23 @@ func (v *sessionVerifier) Verify(ctx context.Context, r *http.Request) (Principa
 		}
 	}
 	return sessionPrincipal(sess, user, hash, ts), true, nil
+}
+
+// revokeMismatch ends sess, refused for its transport, through the
+// registered revoker. With none, or when the revoke fails, the session
+// stays stored and a WARN says so; the refusal stands either way.
+func (v *sessionVerifier) revokeMismatch(ctx context.Context, sess *Session) {
+	const msg = "access: a session presented on the other transport was refused but not revoked"
+	r := v.revoker.Load()
+	if r == nil {
+		v.mismatchWarn.log(v.cfg.log(), msg, "session_id", sess.ID)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), revokeTimeout)
+	defer cancel()
+	if err := (*r).RevokeTransportMismatch(ctx, SessionRef{ID: sess.ID, UserID: sess.UserID}); err != nil {
+		v.mismatchWarn.log(v.cfg.log(), msg, "session_id", sess.ID, "error", err)
+	}
 }
 
 // recheck re-reads p's session and user and returns its principal anew,
@@ -113,48 +165,4 @@ func sessionPrincipal(sess *Session, user *User, hash Hash, ts SessionTimeouts) 
 		credential:       hash,
 		source:           sourceSession,
 	}
-}
-
-// activityWarnInterval is how long after a failed-write WARN further
-// failures are only counted: a store failing every write would otherwise log
-// once per request.
-const activityWarnInterval = time.Minute
-
-// warnLimiter rate-limits one verifier's failed-write WARN; it is the
-// verifiers' only mutable state.
-type warnLimiter struct {
-	last time.Time
-	// now is read only under mu, so the times allow compares never run
-	// backwards: a time read before the lock lets a later failure log first
-	// and date the interval from the later instant.
-	now        func() time.Time
-	mu         sync.Mutex
-	suppressed int
-}
-
-// allow reports whether a failure now logs and, when it does, the failures
-// counted since the last WARN, resetting the count.
-func (l *warnLimiter) allow() (ok bool, suppressed int) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := l.now()
-	if now.Sub(l.last) < activityWarnInterval {
-		l.suppressed++
-		return false, 0
-	}
-	suppressed, l.last, l.suppressed = l.suppressed, now, 0
-	return true, suppressed
-}
-
-// log writes msg with args at WARN unless allow refuses, adding the
-// suppressed count when it is not zero.
-func (l *warnLimiter) log(logger *slog.Logger, msg string, args ...any) {
-	ok, n := l.allow()
-	if !ok {
-		return
-	}
-	if n > 0 {
-		args = append(args, "suppressed", n)
-	}
-	logger.Warn(msg, args...)
 }

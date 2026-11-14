@@ -3,11 +3,13 @@ package account
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/internal/scopetoken"
 	"github.com/cplieger/access/oidc"
+	"github.com/cplieger/access/webauthn"
 )
 
 // BreachMode is what a password set does with the breached-password check.
@@ -34,7 +36,8 @@ const (
 type Rules struct {
 	// SetupTokenRequired reports whether a setup from c needs a token. It
 	// gets the request context and the resolved client with its
-	// provenance. Nil means always.
+	// provenance. Nil means always; [Locality.TokenRequired] is the
+	// library's rule for a local client.
 	SetupTokenRequired func(ctx context.Context, c Client) bool
 	// MethodUsable reports whether m can sign u in now under the app's own
 	// rules; the last-method guard and UsableMethods AND it into every
@@ -53,6 +56,10 @@ type Rules struct {
 	SessionCaps func(ctx context.Context, c Client) (idle, absolute time.Duration)
 	// KeyPrefix starts every minted key's plaintext; see access.GenerateAPIKey.
 	KeyPrefix string
+	// HTTPSOrigin is the app's HTTPS origin ("https://host[:port]"), which
+	// State answers a plain request so its screen can link there. It is a
+	// link only, and nothing trusts it. Empty means none.
+	HTTPSOrigin string
 	// ForbiddenWords join the username in the password context check.
 	ForbiddenWords []string
 	// Scopes is the key-scope vocabulary; CreateAPIKey refuses any other.
@@ -140,8 +147,8 @@ const (
 	maxKeyRotationOverlap     = 24 * time.Hour
 )
 
-// Validate checks every bounded field, KeyPrefix, Scopes and Provisioning.
-// The error is a *RulesError naming the field, which matches
+// Validate checks every bounded field, KeyPrefix, Scopes, Provisioning and
+// HTTPSOrigin. The error is a *RulesError naming the field, which matches
 // ErrRulesInvalid.
 func (r Rules) Validate() error { //nolint:gocritic // hugeParam: Rules is the value Config.Rules returns
 	switch {
@@ -167,7 +174,18 @@ func (r Rules) Validate() error { //nolint:gocritic // hugeParam: Rules is the v
 	if err := r.Provisioning.Validate(); err != nil {
 		return &RulesError{Field: "Provisioning", Reason: err.Error(), Err: err}
 	}
+	if r.HTTPSOrigin != "" && !isHTTPSOrigin(r.HTTPSOrigin) {
+		return &RulesError{Field: "HTTPSOrigin", Reason: fmt.Sprintf("%q is not an https origin in its canonical form, https://host or https://host:port", r.HTTPSOrigin)}
+	}
 	return nil
+}
+
+// isHTTPSOrigin reports whether s is an https origin's canonical
+// serialisation (RFC 6454 section 6.2): lowercase, with no default port, path,
+// query or fragment.
+func isHTTPSOrigin(s string) bool {
+	o, err := webauthn.ParseOrigin(s)
+	return err == nil && strings.HasPrefix(s, "https://") && o.String() == s
 }
 
 // withDefaults returns r with each zero field that has a default set to it.

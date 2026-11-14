@@ -170,8 +170,8 @@ func TestKeyMintingPolicy(t *testing.T) {
 		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(f.bypassPrincipal(t)), u.ID, account.NewKey{Label: uniqueLabel()}); !errors.Is(err, account.ErrScopeRequired) {
 			t.Errorf("the bypass principal with CreateKeysScope set = %v, want ErrScopeRequired", err)
 		}
-		if _, err := f.svc.CreateAPIKey(t.Context(), account.Actor{}, u.ID, account.NewKey{Label: uniqueLabel()}); !errors.Is(err, account.ErrSessionRequired) {
-			t.Errorf("the zero Actor = %v, want ErrSessionRequired", err)
+		if _, err := f.svc.CreateAPIKey(t.Context(), account.Actor{}, u.ID, account.NewKey{Label: uniqueLabel()}); !errors.Is(err, access.ErrHTTPSRequired) {
+			t.Errorf("the zero Actor, which is plain = %v, want access.ErrHTTPSRequired", err)
 		}
 	})
 }

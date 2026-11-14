@@ -13,6 +13,9 @@ const (
 	// ReenableNeedsOtherMethod is ReenableMethod refused for a session that
 	// signed in with the method being re-enabled.
 	ReenableNeedsOtherMethod = "reenable_needs_other_method"
+	// SignInAgain is a recent-auth refusal of a plain session: nothing over
+	// plain HTTP refreshes its AuthTime, so only a fresh sign-in passes.
+	SignInAgain = "sign_in_again"
 
 	// KeyUnknown is a Bearer value no stored key has as either secret. The
 	// verifiers' reasons are audit-only: the client sees the sentinel, so a
@@ -29,6 +32,11 @@ const (
 	SessionExpired = "session_expired"
 	// SessionUnknown is a session cookie no stored session has.
 	SessionUnknown = "session_unknown"
+	// TransportChanged is a session presented on the other transport than
+	// its own. Unlike the other verifier reasons it reaches the client: it
+	// names only the presenter's own token, which is revoked when a
+	// SessionRevoker is registered.
+	TransportChanged = "transport_changed"
 	// CredentialInvalid is a custom verifier's refusal.
 	CredentialInvalid = "credential_invalid" //nolint:gosec // G101: a refusal reason, not a credential
 )

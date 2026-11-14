@@ -3,8 +3,8 @@ package access
 import "errors"
 
 // Errors of authentication. A verifier's or the [Authenticator]'s refusal
-// carries one of the first three; the rest are details or the answers of
-// [RequireRecentAuth] and [Authenticator.Recheck].
+// carries one of the first three or [ErrHTTPSRequired]; the rest are
+// details or the answers of [RequireRecentAuth] and [Authenticator.Recheck].
 var (
 	// ErrUnauthenticated means no usable credential. It is bare when none
 	// was presented, and wraps [ErrSessionExpired] or [ErrSessionNotFound]
@@ -27,14 +27,23 @@ var (
 	// ErrRestrictedSession is the detail for a recovery session presented
 	// on a request that does not allow one (see [AllowRecoverySession]).
 	ErrRestrictedSession = errors.New("access: restricted session")
+	// ErrSessionTransport is the detail for a session presented on the
+	// other transport than the one it was created on (see
+	// [Session.Secure]); the session verifier revokes it.
+	ErrSessionTransport = errors.New("access: session bound to the other transport")
+	// ErrHTTPSRequired refuses a plain request ([ClientAddr.Secure] false)
+	// where only a secure one is served: [Authenticator.Authenticate]'s
+	// answer under [PostureSecure]. It wraps no other error, so it stops
+	// the chain.
+	ErrHTTPSRequired = errors.New("access: HTTPS required")
 )
 
 // InvalidCredentialError is the detail of [ErrInvalidCredential]; the error
 // matches both ErrInvalidCredential and Err.
 type InvalidCredentialError struct {
-	// Err is [ErrInvalidAPIKey], [ErrAccountDisabled] or
-	// [ErrRestrictedSession], or nil for a granted principal refused only
-	// for an empty Method.
+	// Err is [ErrInvalidAPIKey], [ErrAccountDisabled],
+	// [ErrRestrictedSession] or [ErrSessionTransport], or nil for a granted
+	// principal refused only for an empty Method.
 	Err error
 	// Method is the refused credential's: [MethodAPIKey] for an API key, a
 	// recovery session's AuthMethod, the granted principal's own Method for

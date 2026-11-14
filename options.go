@@ -35,11 +35,11 @@ type Config struct {
 	// quotes as it is.
 	Realm string
 	// Bypass reports whether authentication is bypassed. While it returns
-	// true, [Authenticator.Authenticate] grants every request [MethodBypass]
-	// with its own copy of a synthetic admin user whose ID is 0, which names
-	// no stored user. [New] logs one Info line when it is set; each request
-	// that finds it on after one that found it off, the first included, logs
-	// a WARN.
+	// true, [Authenticator.Authenticate] grants [MethodBypass] to every
+	// request, a plain one under [PostureSecure] excepted, with its own copy
+	// of a synthetic admin user whose ID is 0, which names no stored user.
+	// [New] logs one Info line when it is set; each request that finds it on
+	// after one that found it off, the first included, logs a WARN.
 	Bypass func() bool
 	// TimeoutSource is read on every verification, so a hot-reloaded value
 	// applies without a new Authenticator. Each non-positive field it
@@ -48,10 +48,11 @@ type Config struct {
 	TimeoutSource func() SessionTimeouts
 	// ClientAddr is the app's one client resolver, served by
 	// [Authenticator.ClientAddr]. Its answer's Via says how the request
-	// arrived, and one left zero ([ViaUnknown]) is no known client. Nil
-	// treats no peer as a proxy: Peer is r.RemoteAddr's address, unmapped,
-	// and Via is [ViaDirect], or [ViaUntrustedForwarding] when Forwarded,
-	// X-Forwarded-For or X-Real-IP is present.
+	// arrived. Authenticate calls it once per request and accesshttp and gate
+	// call it again, so it must answer the same for one request. Nil treats
+	// no peer as a proxy: Peer is r.RemoteAddr's address, unmapped, Secure is
+	// r.TLS != nil, and Via is [ViaDirect], or [ViaUntrustedForwarding] when
+	// Forwarded, X-Forwarded-For, X-Real-IP or X-Forwarded-Proto is present.
 	ClientAddr func(*http.Request) ClientAddr
 	// Verifier runs between the built-in session and API-key verifiers. The
 	// API-key verifier refuses every Bearer value it cannot find, so a

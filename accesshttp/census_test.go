@@ -232,6 +232,7 @@ func newCensus(t *testing.T, set, bypass bool) *census {
 		{name: "unknown_key", fault: access.CodeKeyInvalid, send: func(r *http.Request) { bearer(r, access.NewSecret("not-a-key")) }},
 		{name: "agent_refused", fault: access.CodeInvalidCredentials, send: fault("refused")},
 		{name: "agent_store_down", fault: access.CodeUnavailable, send: fault("down")},
+		{name: "plain_request", fault: access.CodeHTTPSRequired, send: func(r *http.Request) { r.TLS = nil }},
 	}
 	return c
 }
@@ -245,7 +246,7 @@ func (e *env) storedSession(t testing.TB, name string, authAge, activeAge time.D
 	now := time.Now()
 	s := &access.Session{
 		ID: hex.EncodeToString(randomBytes(16)), UserID: e.user(t, name).ID, TokenHash: hash, AuthMethod: access.MethodPassword, Kind: access.SessionFull,
-		CreatedAt: now.Add(-activeAge), LastActivity: now.Add(-activeAge), AuthTime: now.Add(-authAge),
+		CreatedAt: now.Add(-activeAge), LastActivity: now.Add(-activeAge), AuthTime: now.Add(-authAge), Secure: true,
 	}
 	if err := e.mem.CreateSession(t.Context(), s); err != nil {
 		t.Fatalf("CreateSession: %v", err)
@@ -386,11 +387,6 @@ func (c *census) cell(t *testing.T, rt Route, p *censusPrincipal) {
 	case viaPolicy:
 		if w.Code != http.StatusOK || len(errs) != 0 {
 			t.Errorf("status %d, errors %+v, want an admin's data", w.Code, errs)
-		}
-	case rt.Name == "authOIDCPending":
-		// It reads only its own cookie: past the guard, none is not found.
-		if len(errs) != 1 || errs[0].Code != access.CodeNotFound {
-			t.Errorf("status %d, errors %+v, want auth_not_found past the guard", w.Code, errs)
 		}
 	case !reached:
 		t.Errorf("status %d, errors %+v; the request never reached its operation", w.Code, errs)

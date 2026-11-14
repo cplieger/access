@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/cplieger/access"
@@ -37,6 +38,7 @@ type Route struct {
 	Scope   string // required on Scoped, optional on Key, refused on Public and Session; one RFC 6750 scope-token
 	Class   Class
 	Passive bool // authenticate under access.Passive; refused on Public
+	HTTPS   bool // admit only a secure request (access.ClientAddr.Secure); refused on Public
 }
 
 // Config configures a [Gate].
@@ -48,8 +50,9 @@ type Config struct {
 	Allow func(p access.Principal, scope string) bool
 	// Audit receives one event for each refusal of a presented credential,
 	// synchronously, before Errors runs: gate.failure for a 401 and
-	// gate.forbidden for a 403. A request with no credential and a 503 send
-	// none. Nil is none.
+	// gate.forbidden for a 403. A request with no credential, a 503 and
+	// auth_https_required, which refuses the transport, send none. Nil is
+	// none.
 	Audit func(r *http.Request, e access.AuditEvent)
 	// Logger receives the gate's log lines; nil is slog.Default() at each
 	// call.
@@ -82,6 +85,7 @@ var (
 	errMethodNotAllowed = errors.New("gate: method not allowed")
 	errCrossOrigin      = errors.New("gate: cross-origin request refused")
 	errClass            = errors.New("gate: the route's class refuses this principal")
+	errHTTPS            = errors.New("gate: the route needs a secure request")
 )
 
 // New builds the gate over the app's endpoint table and one handler per
@@ -89,8 +93,8 @@ var (
 // Authenticator or Errors; a duplicate Name; a Method or Path outside
 // Route's rules; two rows with one method and path; paths net/http.ServeMux
 // would refuse to register together; a Scope on the wrong class or outside
-// the scope-token charset; Passive on Public; a row with no handler; and a
-// handler with no row.
+// the scope-token charset; Passive or HTTPS on Public; a row with no
+// handler; and a handler with no row.
 func New(cfg Config, routes []Route, handlers map[string]http.Handler) (*Gate, error) {
 	if err := checkTable(&cfg, routes, handlers); err != nil {
 		return nil, err
@@ -182,7 +186,7 @@ func (g *Gate) allowed(r *http.Request) string {
 }
 
 // admit authenticates r for an authenticating row and serves it when the
-// row's class admits the principal.
+// row's class admits the principal and, on an HTTPS row, r is secure.
 func (rw *row) admit(w http.ResponseWriter, r *http.Request) {
 	g, rt := rw.g, &rw.route
 	if rt.Passive {
@@ -196,6 +200,10 @@ func (rw *row) admit(w http.ResponseWriter, r *http.Request) {
 	if code := g.decide(rt, p); code != "" {
 		g.auditForbidden(r, code, &p)
 		g.refuse(w, r, rt.Scope, access.NewError(code, "", errClass))
+		return
+	}
+	if rt.HTTPS && !p.Secure {
+		g.refuse(w, r, rt.Scope, access.NewError(access.CodeHTTPSRequired, "", errHTTPS))
 		return
 	}
 	rw.next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
@@ -229,10 +237,12 @@ func (g *Gate) decide(rt *Route, p access.Principal) access.Code { //nolint:gocr
 }
 
 // unauthenticated answers an Authenticate error. An error ErrorFor does not
-// map is the verifier's own and answers 503; only r.Context().Err() tells
-// a client walking away from a real failure.
+// map to an authenticating code is the verifier's own and answers 503, so a
+// row never answers a code its Codes lack; only r.Context().Err() tells a
+// client walking away from a real failure.
 func (g *Gate) unauthenticated(w http.ResponseWriter, r *http.Request, rt *Route, err error) {
 	e, mapped := access.ErrorFor(err)
+	mapped = mapped && slices.Contains(authenticatingCodes, e.Code)
 	ctx := r.Context()
 	switch ctxErr := ctx.Err(); {
 	case ctxErr != nil && errors.Is(err, ctxErr):

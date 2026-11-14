@@ -42,9 +42,11 @@ func tokenHash(token access.Secret) access.Hash {
 	return access.NewHash(access.HexSHA256(token.Reveal()))
 }
 
-// State reports whether setup is needed and which sign-in methods are
-// offered. It writes nothing.
-func (s *Service) State(ctx context.Context) (State, error) {
+// State reports whether setup is needed, which sign-in methods c's transport
+// admits, and what HTTPS would add (docs/plain-http.md owns the table). It
+// checks no transport, so it answers a plain c under both postures, and it
+// writes nothing.
+func (s *Service) State(ctx context.Context, c Client) (State, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	r, err := s.begin()
 	if err != nil {
 		return State{}, err
@@ -53,12 +55,28 @@ func (s *Service) State(ctx context.Context) (State, error) {
 	if err != nil {
 		return State{}, storeErr(err)
 	}
-	return State{
-		SetupRequired: n == 0,
-		PasswordLogin: !r.DisablePasswordLogin,
-		Passkeys:      s.passkeysAvailable(),
-		OIDC:          s.OIDCProvider() != nil,
-	}, nil
+	st := State{SetupRequired: n == 0, Secure: c.Secure}
+	// Each feature answers its sign-in operations' own plainRule, so the
+	// screen and the operations read one table.
+	admit := func(offered bool, f HTTPSFeature, rule plainRule) bool {
+		if offered && s.transport(rule, c.Secure) != nil {
+			st.HTTPSRequired = append(st.HTTPSRequired, f)
+			return false
+		}
+		return offered
+	}
+	st.PasswordLogin = admit(!r.DisablePasswordLogin, HTTPSPassword, plainPerRequest)
+	admit(st.SetupRequired, HTTPSSetup, plainPerRequest)
+	st.Passkeys = admit(s.passkeysAvailable(), HTTPSPasskeys, plainRefused)
+	st.OIDC = admit(s.provider() != nil, HTTPSOIDC, plainRefused)
+	if !c.Secure {
+		st.HTTPSOrigin = r.HTTPSOrigin
+		if s.transport(plainPerRequest, false) == nil { // a plain password sign-in is admitted
+			t := s.authn.Timeouts()
+			st.PlainSession = &access.SessionTimeouts{Idle: min(access.PlainSessionIdle, t.Idle), Absolute: min(access.PlainSessionAbsolute, t.Absolute)}
+		}
+	}
+	return st, nil
 }
 
 // IssueSetupToken mints the token for the first account. Only an
@@ -101,16 +119,16 @@ func (s *Service) IssueSetupToken(ctx context.Context, a Actor, ttl time.Duratio
 	return plaintext, nil
 }
 
-// SetupWithPassword creates the first account, an admin, and signs it in.
-// Every check that can refuse runs before the hash: the user count, the
-// token when Rules.SetupTokenRequired asks for one (nil: always), the
-// username and password rules, then the IP limiter. One Update then
-// consumes the token, asks the Policy (OpCreateUser, ViaSetup), creates the
-// user and the session; a concurrent setup that won makes it
-// ErrSetupComplete or access.ErrTokenInvalid, and a backend error leaves the
-// token usable.
+// SetupWithPassword creates the first account, an admin, and signs it in. Every
+// check that can refuse runs before the hash: access.ErrHTTPSRequired for a
+// plain c under access.PostureSecure, the user count, the token when
+// Rules.SetupTokenRequired asks for one (nil: always), the username and
+// password rules, then the IP limiter. One Update then consumes the token, asks
+// the Policy (OpCreateUser, ViaSetup), creates the user and the session; a
+// concurrent setup that won makes it ErrSetupComplete or
+// access.ErrTokenInvalid, and a backend error leaves the token usable.
 func (s *Service) SetupWithPassword(ctx context.Context, c Client, in SetupPassword) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
-	r, err := s.begin()
+	r, err := s.beginOver(plainPerRequest, c.Secure)
 	if err != nil {
 		return SignedIn{}, err
 	}

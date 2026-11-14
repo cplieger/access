@@ -219,7 +219,7 @@ func labeledPrincipal(t *testing.T, f *fixture, u *access.User, kind access.Sess
 	id := newSessionID(t)
 	sess := &access.Session{
 		ID: id, UserID: u.ID, Kind: kind, AuthMethod: method, CreatedAt: now, LastActivity: now, AuthTime: now,
-		Label: "label-" + id[:8], UserAgent: "agent-" + id[:8],
+		Label: "label-" + id[:8], UserAgent: "agent-" + id[:8], Secure: true,
 	}
 	p, _ := f.principalOf(t, sess)
 	return p

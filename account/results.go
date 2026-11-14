@@ -23,9 +23,34 @@ type Issued struct {
 	Session      access.Session
 }
 
-// State is what an anonymous caller may learn: whether setup is needed,
-// and which sign-in methods are offered.
-type State struct{ SetupRequired, PasswordLogin, Passkeys, OIDC bool }
+// State is what an anonymous caller may learn: whether setup is needed, which
+// sign-in methods the request's transport admits, and what HTTPS would add.
+type State struct {
+	// PlainSession is the longest a session signed in by this request may
+	// last; set only on a plain request under access.PosturePerRequest.
+	PlainSession *access.SessionTimeouts
+	// HTTPSOrigin is Rules.HTTPSOrigin on a plain request, else empty.
+	HTTPSOrigin string
+	// HTTPSRequired is each offered feature the request's transport
+	// withholds, in the HTTPSFeature constants' order; empty when secure.
+	HTTPSRequired []HTTPSFeature
+	// PasswordLogin, Passkeys and OIDC are each offered and admitted over
+	// the request's transport.
+	SetupRequired, PasswordLogin, Passkeys, OIDC bool
+	// Secure is the request's Client.Secure.
+	Secure bool
+}
+
+// HTTPSFeature is a sign-in feature a plain request is refused.
+type HTTPSFeature string
+
+// The features, in State.HTTPSRequired's order.
+const (
+	HTTPSPassword HTTPSFeature = "password"
+	HTTPSSetup    HTTPSFeature = "setup"
+	HTTPSPasskeys HTTPSFeature = "passkeys"
+	HTTPSOIDC     HTTPSFeature = "oidc"
+)
 
 // PendingCeremony is a begun WebAuthn ceremony, held by the service until
 // its finish call takes it.
@@ -112,6 +137,7 @@ type CurrentSession struct {
 	AuthTime, IdleDeadline, AbsoluteDeadline time.Time
 	ID                                       string
 	Method                                   access.Method
+	Secure                                   bool // the session's transport, access.Principal.Secure
 }
 
 // Me is the signed-in user's own view.

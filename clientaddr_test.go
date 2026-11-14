@@ -66,31 +66,62 @@ var (
 	testForwarded = netip.MustParseAddr("203.0.113.9")
 )
 
+// TestDefaultClientAddrSecure pins the default resolver's transport: TLS at
+// this server is secure, and an X-Forwarded-Proto from any peer is an
+// untrusted forwarding header that never makes a request secure.
+func TestDefaultClientAddrSecure(t *testing.T) {
+	t.Parallel()
+	peer := netip.MustParseAddr("192.0.2.1")
+	for _, tt := range []struct {
+		name   string
+		target string
+		proto  string
+		want   ClientAddr
+	}{
+		{name: "tls", target: "https://app.example/", want: ClientAddr{Peer: peer, Via: ViaDirect, Secure: true}},
+		{name: "plain", target: "http://app.example/", want: ClientAddr{Peer: peer, Via: ViaDirect}},
+		{name: "plain claiming https", target: "http://app.example/", proto: "https", want: ClientAddr{Peer: peer, Via: ViaUntrustedForwarding}},
+		{name: "tls with a proto header", target: "https://app.example/", proto: "https", want: ClientAddr{Peer: peer, Via: ViaUntrustedForwarding, Secure: true}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			a := mustAuthenticator(t, newFakeSessionStore(), Config{})
+			r := httptest.NewRequest(http.MethodGet, tt.target, nil)
+			r.RemoteAddr = "192.0.2.1:4711"
+			if tt.proto != "" {
+				r.Header.Set("X-Forwarded-Proto", tt.proto)
+			}
+			if got := a.ClientAddr(r); got != tt.want {
+				t.Errorf("ClientAddr(%s, X-Forwarded-Proto %q) = %+v, want %+v", tt.target, tt.proto, got, tt.want)
+			}
+		})
+	}
+}
+
 type clientAddrCase struct {
-	wantIP          netip.Addr
-	name            string
-	c               ClientAddr
-	wantClientKnown bool
+	wantIP netip.Addr
+	name   string
+	c      ClientAddr
 }
 
 // clientAddrTable is every Via value × {valid, invalid} Peer × {Forwarded
-// set, unset}, with the IP and ClientKnown answers their definitions give.
+// set, unset}, with the IP its definition gives.
 var clientAddrTable = []clientAddrCase{
 	{name: "unknown peer forwarded", c: ClientAddr{Peer: testPeer, Forwarded: testForwarded, Via: ViaUnknown}, wantIP: testPeer},
 	{name: "unknown peer", c: ClientAddr{Peer: testPeer, Via: ViaUnknown}, wantIP: testPeer},
 	{name: "unknown forwarded", c: ClientAddr{Forwarded: testForwarded, Via: ViaUnknown}},
 	{name: "unknown empty", c: ClientAddr{Via: ViaUnknown}},
-	{name: "direct peer forwarded", c: ClientAddr{Peer: testPeer, Forwarded: testForwarded, Via: ViaDirect}, wantIP: testPeer, wantClientKnown: true},
-	{name: "direct peer", c: ClientAddr{Peer: testPeer, Via: ViaDirect}, wantIP: testPeer, wantClientKnown: true},
+	{name: "direct peer forwarded", c: ClientAddr{Peer: testPeer, Forwarded: testForwarded, Via: ViaDirect}, wantIP: testPeer},
+	{name: "direct peer", c: ClientAddr{Peer: testPeer, Via: ViaDirect}, wantIP: testPeer},
 	{name: "direct forwarded", c: ClientAddr{Forwarded: testForwarded, Via: ViaDirect}},
 	{name: "direct empty", c: ClientAddr{Via: ViaDirect}},
 	{name: "untrusted peer forwarded", c: ClientAddr{Peer: testPeer, Forwarded: testForwarded, Via: ViaUntrustedForwarding}, wantIP: testPeer},
 	{name: "untrusted peer", c: ClientAddr{Peer: testPeer, Via: ViaUntrustedForwarding}, wantIP: testPeer},
 	{name: "untrusted forwarded", c: ClientAddr{Forwarded: testForwarded, Via: ViaUntrustedForwarding}},
 	{name: "untrusted empty", c: ClientAddr{Via: ViaUntrustedForwarding}},
-	{name: "proxy peer forwarded", c: ClientAddr{Peer: testPeer, Forwarded: testForwarded, Via: ViaProxy}, wantIP: testForwarded, wantClientKnown: true},
+	{name: "proxy peer forwarded", c: ClientAddr{Peer: testPeer, Forwarded: testForwarded, Via: ViaProxy}, wantIP: testForwarded},
 	{name: "proxy peer", c: ClientAddr{Peer: testPeer, Via: ViaProxy}},
-	{name: "proxy forwarded", c: ClientAddr{Forwarded: testForwarded, Via: ViaProxy}, wantIP: testForwarded, wantClientKnown: true},
+	{name: "proxy forwarded", c: ClientAddr{Forwarded: testForwarded, Via: ViaProxy}, wantIP: testForwarded},
 	{name: "proxy empty", c: ClientAddr{Via: ViaProxy}},
 	{name: "proxy no client peer forwarded", c: ClientAddr{Peer: testPeer, Forwarded: testForwarded, Via: ViaProxyNoClient}, wantIP: testPeer},
 	{name: "proxy no client peer", c: ClientAddr{Peer: testPeer, Via: ViaProxyNoClient}, wantIP: testPeer},
@@ -105,18 +136,6 @@ func TestClientAddrIP(t *testing.T) {
 			t.Parallel()
 			if got := tt.c.IP(); got != tt.wantIP {
 				t.Errorf("%+v.IP() = %v, want %v", tt.c, got, tt.wantIP)
-			}
-		})
-	}
-}
-
-func TestClientKnown(t *testing.T) {
-	t.Parallel()
-	for _, tt := range clientAddrTable {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if got := tt.c.ClientKnown(); got != tt.wantClientKnown {
-				t.Errorf("%+v.ClientKnown() = %v, want %v", tt.c, got, tt.wantClientKnown)
 			}
 		})
 	}
@@ -146,11 +165,11 @@ func TestViaString(t *testing.T) {
 // write records its IP as LastIP.
 func TestConfigClientAddrServed(t *testing.T) {
 	t.Parallel()
-	want := ClientAddr{Peer: netip.MustParseAddr("10.0.0.5"), Forwarded: netip.MustParseAddr("203.0.113.9"), Via: ViaProxy}
+	want := ClientAddr{Peer: netip.MustParseAddr("10.0.0.5"), Forwarded: netip.MustParseAddr("203.0.113.9"), Via: ViaProxy, Secure: true}
 	f := newChainFixture(t)
 	a := mustAuthenticator(t, f.store, Config{ClientAddr: func(*http.Request) ClientAddr { return want }})
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/", nil)
 	r.AddCookie(&http.Cookie{Name: defaultSecureCookieName, Value: f.session})
 	if got := a.ClientAddr(r); got != want {
 		t.Errorf("ClientAddr = %+v, want the resolver's %+v", got, want)

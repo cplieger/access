@@ -198,19 +198,19 @@ func (e *env) pendingCookie(t testing.TB, p pendingPayload) *http.Cookie {
 		t.Fatalf("Seal: %v", err)
 	}
 	cfg := pendingCookie(e.authn.Cookie())
-	return &http.Cookie{Name: cfg.CookieName(httptest.NewRequest(http.MethodGet, testOrigin+"/", nil)), Value: sealed}
+	return &http.Cookie{Name: cfg.CookieName(true), Value: sealed}
 }
 
 // flowCookieName is the flow cookie's name on testOrigin.
 func (e *env) flowCookieName() string {
 	cfg := e.authn.Cookie().Derive("oidc", http.SameSiteLaxMode)
-	return cfg.CookieName(httptest.NewRequest(http.MethodGet, testOrigin+"/", nil))
+	return cfg.CookieName(true)
 }
 
 // pendingCookieName is the pending-link cookie's name on testOrigin.
 func (e *env) pendingCookieName() string {
 	cfg := e.authn.Cookie().Derive("oidc_pending", http.SameSiteLaxMode)
-	return cfg.CookieName(httptest.NewRequest(http.MethodGet, testOrigin+"/", nil))
+	return cfg.CookieName(true)
 }
 
 // location is w's redirect target, failing unless w is a 302.

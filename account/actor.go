@@ -12,6 +12,11 @@ type Client struct {
 	Host      string
 	UserAgent string        // sanitised and capped before storage
 	Device    access.Secret // the device cookie as presented; zero when absent
+	// Presented is the hash of the session cookie the request carried under
+	// its own transport's name (access.CookieConfig.ReadCookie), never the
+	// other name's; zero when none. A full sign-in replaces that session
+	// when it is the same user's on the same transport.
+	Presented access.Hash
 	// ClientAddr is the Authenticator's resolver's answer for the request;
 	// account never reads a header.
 	access.ClientAddr

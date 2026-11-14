@@ -15,16 +15,16 @@ type RecoverOptions struct {
 	KeepKeys     bool // false: every API key of the user is deleted, with every token it issued
 }
 
-// StartRecovery consumes a recovery token and opens a SessionRecovery
-// session for its subject in one Update, under Rules.SessionCaps and
-// MaxSessionsPerUser; nobody is signed in. A zero, absent, expired or
-// non-recovery token, or a gone or disabled subject, is access.ErrTokenInvalid
-// before c's IP attempt limit. A key-issued token's issuer is re-checked as
-// at its issue: a refusal commits only the token's deletion
-// (access.ErrTokenInvalid), a pass records the key as Session.IssuedByKey with
-// a recovery_started attribution. EventRecoveryConsumed names the key.
+// StartRecovery consumes a recovery token and opens a SessionRecovery session
+// for its subject in one Update, under Rules.SessionCaps and
+// MaxSessionsPerUser; nobody signs in. A plain c is access.ErrHTTPSRequired; a
+// zero, absent, expired or non-recovery token, or a gone or disabled subject,
+// access.ErrTokenInvalid before c's IP attempt limit. A key-issued token's
+// issuer is re-checked as at issue: a refusal commits only the token's deletion
+// (access.ErrTokenInvalid), a pass records it as Session.IssuedByKey with a
+// recovery_started attribution and in EventRecoveryConsumed.
 func (s *Service) StartRecovery(ctx context.Context, c Client, token access.Secret) (Recovery, error) { //nolint:gocritic // hugeParam: the request's Client, read once
-	r, err := s.begin()
+	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {
 		return Recovery{}, err
 	}
@@ -126,16 +126,16 @@ func (s *Service) recoveryIssuer(ctx context.Context, tx Tx, keyID int64, subjec
 	return s.tokenIssuer(ctx, tx, keyID, Decision{Op: OpIssueRecovery, Target: subject}, subject.Role)
 }
 
-// RecoverWithPassword sets p's password for a recovery session
-// (ErrSessionRequired otherwise; ErrSessionGone once it ended). After the
-// password rules, one Update re-checks a key-issued session's issuer as
-// StartRecovery does (a refusal deletes the session alone:
+// RecoverWithPassword sets p's password for a recovery session (plain:
+// access.ErrHTTPSRequired; ErrSessionRequired otherwise; ErrSessionGone once it
+// ended). After the password rules, one Update re-checks a key-issued session's
+// issuer as StartRecovery does (a refusal deletes the session alone:
 // access.ErrTokenInvalid), writes the password and a key's recovered record,
-// ends the session and the recovery tokens, revokes the other sessions and
-// keys unless opts keeps them, and clears the failure records. Nobody signs
-// in; the events follow in addRecovered's order.
+// ends the session and the recovery tokens, revokes the other sessions and keys
+// unless opts keeps them, and clears the failure records. Nobody signs in; the
+// events follow in addRecovered's order.
 func (s *Service) RecoverWithPassword(ctx context.Context, p access.Principal, password access.Secret, opts RecoverOptions) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	r, err := s.begin()
+	r, err := s.beginOver(plainRefused, p.Secure)
 	if err != nil {
 		return err
 	}
@@ -155,11 +155,11 @@ func (s *Service) RecoverWithPassword(ctx context.Context, p access.Principal, p
 	})
 }
 
-// RecoverPasskeyBegin starts enrolling a passkey for p's user, for a
-// recovery session (ErrSessionRequired otherwise). A nil RP() is
-// ErrPasskeysUnavailable.
+// RecoverPasskeyBegin starts enrolling a passkey for p's user, for a recovery
+// session (ErrSessionRequired otherwise). A plain p is access.ErrHTTPSRequired
+// and a nil RP() ErrPasskeysUnavailable.
 func (s *Service) RecoverPasskeyBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (PendingCeremony, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	if _, err := s.begin(); err != nil {
+	if _, err := s.beginOver(plainRefused, p.Secure); err != nil {
 		return PendingCeremony{}, err
 	}
 	if err := requireRecovery(p); err != nil {
@@ -185,12 +185,13 @@ func (s *Service) RecoverPasskeyBegin(ctx context.Context, p access.Principal, o
 	return PendingCeremony{ID: id, Creation: cc}, nil
 }
 
-// RecoverPasskeyFinish verifies the registration ceremonyID began and
-// completes the recovery with that passkey, as RecoverWithPassword does with
-// a password. A ceremony another user began is ErrCeremonyInvalid, and a
-// credential registered to any user ErrDuplicateCredential.
+// RecoverPasskeyFinish verifies the registration ceremonyID began and completes
+// the recovery with that passkey, as RecoverWithPassword does with a password.
+// A plain p is access.ErrHTTPSRequired, a ceremony another user began
+// ErrCeremonyInvalid, and a credential registered to any user
+// ErrDuplicateCredential.
 func (s *Service) RecoverPasskeyFinish(ctx context.Context, p access.Principal, ceremonyID string, body io.Reader, opts RecoverOptions) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	if _, err := s.begin(); err != nil {
+	if _, err := s.beginOver(plainRefused, p.Secure); err != nil {
 		return err
 	}
 	if err := requireRecovery(p); err != nil {

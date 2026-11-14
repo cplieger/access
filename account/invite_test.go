@@ -185,7 +185,7 @@ func TestKeyIssuedTokens(t *testing.T) {
 	})
 	restart := func(scope string) func(t *testing.T, ki *keyIssuer) *account.Service {
 		return func(t *testing.T, ki *keyIssuer) *account.Service {
-			cfg := ki.f.cfg
+			cfg := ownAuthenticator(t, ki.f.cfg)
 			cfg.ManageUsersScope = scope
 			svc, err := account.New(t.Context(), cfg)
 			if err != nil {

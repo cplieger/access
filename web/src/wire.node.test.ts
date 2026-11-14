@@ -14,6 +14,7 @@ import {
 import type { WireField } from "./test-helpers/wire.js";
 import {
   CODES,
+  HTTPS_FEATURES,
   LOG_CLASSES,
   METHODS,
   REASONS,
@@ -25,6 +26,7 @@ import {
   parseCeremonyResponse,
   parseKeyView,
   parseSecurityLogView,
+  parseStateResponse,
   parseUserView,
 } from "./wire.js";
 
@@ -243,10 +245,14 @@ function enumSites(
   return rows.flatMap((row) => {
     const x = v[row.name];
     const path = [...at, row.name];
+    const values = row.values;
+    const site = (p: readonly (string | number)[]): EnumSite[] =>
+      values === undefined ? [] : [{ path: p, row: rowOf(p), values, open: row.open }];
+    // A list of values (https_required) has a site per element.
     const here =
-      row.values === undefined
-        ? []
-        : [{ path, row: rowOf(path), values: row.values, open: row.open }];
+      Array.isArray(x) && values !== undefined
+        ? x.flatMap((_: unknown, i) => site([...path, i]))
+        : site(path);
     const fields = row.fields;
     if (fields === undefined) {
       return here;
@@ -282,7 +288,13 @@ function withValue(v: unknown, path: readonly (string | number)[], value: unknow
 
 describe("value sets", () => {
   const sites = new Map(index.map((t) => [t, enumSites(fieldsOf(t), fixture(t))]));
-  const known: readonly (readonly string[])[] = [ROLES, METHODS, TOKEN_PURPOSES, LOG_CLASSES];
+  const known: readonly (readonly string[])[] = [
+    ROLES,
+    METHODS,
+    TOKEN_PURPOSES,
+    LOG_CLASSES,
+    HTTPS_FEATURES,
+  ];
 
   it.each(index)("%s: a fixture reaches every value set types.json lists", (type) => {
     const reached = new Set((sites.get(type) ?? []).map((x) => x.row));
@@ -368,6 +380,47 @@ describe("field narrowing", () => {
     for (const type of index) {
       expect(validatorFor(type)(v), type).toBeUndefined();
     }
+  });
+});
+
+describe("StateResponse", () => {
+  const state = fixture("StateResponse");
+
+  it("reads a secure answer with no plain_session and no https_origin", () => {
+    const secure = without(without(state, "plain_session"), "https_origin");
+    expect(parseStateResponse({ ...secure, https_required: [] })).toEqual({
+      ...secure,
+      https_required: [],
+    });
+  });
+
+  it("reads plain_session's limits", () => {
+    expect(parseStateResponse(state)?.plain_session).toEqual({
+      idle_seconds: 1800,
+      absolute_seconds: 43200,
+    });
+  });
+
+  it.each([
+    { idle_seconds: -1, absolute_seconds: 43200 },
+    { idle_seconds: 1.5, absolute_seconds: 43200 },
+    { idle_seconds: 1800 },
+    null,
+  ])("refuses the plain_session %j", (plainSession) => {
+    expect(
+      parseStateResponse({ ...without(state, "plain_session"), plain_session: plainSession }),
+    ).toBeUndefined();
+  });
+
+  it.each([null, "passkeys", [null]])("refuses the https_required %j", (list) => {
+    expect(
+      parseStateResponse({ ...without(state, "https_required"), https_required: list }),
+    ).toBeUndefined();
+  });
+
+  it("HTTPS_FEATURES is the value set types.json lists, in order", () => {
+    const row = fieldsOf("StateResponse").find((f) => f.name === "https_required");
+    expect(row?.values).toEqual([...HTTPS_FEATURES]);
   });
 });
 

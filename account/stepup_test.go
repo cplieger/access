@@ -19,7 +19,7 @@ func (f *fixture) signedInVia(t testing.TB, u *access.User, method access.Method
 	now := time.Now()
 	return f.principalOf(t, &access.Session{
 		ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull,
-		AuthMethod: method, CreatedAt: now, LastActivity: now, AuthTime: now,
+		AuthMethod: method, CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true,
 	})
 }
 
@@ -134,7 +134,7 @@ func TestStepUpPassword(t *testing.T) {
 			"key":      f.keyPrincipal(t, u, "read"),
 			"recovery": f.sessionPrincipal(t, u, access.SessionRecovery, time.Now()),
 			"bypass":   f.bypassPrincipal(t),
-			"zero":     {},
+			"zero":     {Secure: true},
 		} {
 			if _, err := p.stepUp(t.Context(), localClient, pr, goodPassword); !errors.Is(err, account.ErrSessionRequired) {
 				t.Errorf("StepUpPassword(%s) = %v, want ErrSessionRequired", name, err)

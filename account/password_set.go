@@ -7,16 +7,16 @@ import (
 	"github.com/cplieger/access/ratelimit"
 )
 
-// SetPassword sets p's own password, for a full session within RecentAuth;
-// a linked user under Rules.SSOGoverned is ErrSSOGoverned. A user holding a
-// password must give it as current (zero: ErrCurrentPasswordRequired before
-// any limiter call), counted like StepUpPassword's attempt. A user holding
-// none has current ignored and commits only while still holding none. One
-// Update writes the hash, rotates p's session into Issued (with the device
-// cookie after a verified current), revokes the other sessions and, under
-// Rules.RevokeKeysOnCredentialChange, the user's keys and their tokens.
+// SetPassword sets p's own password, for a full session within RecentAuth
+// (plain c or p under PostureSecure: access.ErrHTTPSRequired); a linked user
+// under Rules.SSOGoverned is ErrSSOGoverned. A user holding a password gives it
+// as current (zero: ErrCurrentPasswordRequired before any limiter call),
+// counted like StepUpPassword's attempt; one holding none has current ignored,
+// committing while it still holds none. One Update writes the hash, rotates p's
+// session into Issued, revokes the other sessions and, under
+// RevokeKeysOnCredentialChange, the user's keys and tokens.
 func (s *Service) SetPassword(ctx context.Context, c Client, p access.Principal, current, password access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
-	r, err := s.beginRecentSession(p)
+	r, err := s.beginRecentSession(plainPerRequest, c.Secure && p.Secure, p)
 	if err != nil {
 		return Issued{}, err
 	}
@@ -107,16 +107,16 @@ func (s *Service) changePassword(ctx context.Context, r Rules, c Client, p acces
 	return Issued{Token: ch.rot.token, DeviceCookie: device, Session: ch.rot.session}, nil
 }
 
-// RemovePassword removes p's own password, for a full session within
-// RecentAuth. current is that password: zero is ErrCurrentPasswordRequired
-// before any limiter call. A user holding no password is ErrNotFound, and
-// the last-method guard (ErrLastMethod) runs next, both before the count,
-// so neither refusal charges or counts anything. current is then counted
-// as SetPassword's. The removal commits only while the guard passes and the
-// verified hash is still stored, resets the password's failure records, and
-// rotates p's session into Issued with the device cookie.
+// RemovePassword removes p's own password, for a full session within RecentAuth
+// (plain c or p: access.ErrHTTPSRequired). current is that password: zero is
+// ErrCurrentPasswordRequired before any limiter call. A user holding no
+// password is ErrNotFound, and the last-method guard (ErrLastMethod) runs next,
+// both before the count, so neither refusal charges or counts anything. current
+// is then counted as SetPassword's. The removal commits only while the guard
+// passes and the verified hash is still stored, resets the password's failure
+// records, and rotates p's session into Issued with the device cookie.
 func (s *Service) RemovePassword(ctx context.Context, c Client, p access.Principal, current access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
-	r, err := s.beginRecentSession(p)
+	r, err := s.beginRecentSession(plainRefused, c.Secure && p.Secure, p)
 	if err != nil {
 		return Issued{}, err
 	}
@@ -179,17 +179,25 @@ func (s *Service) removePasswordIn(ctx context.Context, tx Tx, j *journal, r Rul
 	return rot, nil
 }
 
-// beginRecentSession is the head of a change to p's own credential: the
-// operation's Rules, then a full session within Rules().RecentAuth.
-func (s *Service) beginRecentSession(p access.Principal) (Rules, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	r, err := s.begin()
+// beginRecentSession is the head of a change to p's own credential:
+// beginOver, then recentSession.
+func (s *Service) beginRecentSession(rule plainRule, secure bool, p access.Principal) (Rules, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
+	r, err := s.beginOver(rule, secure)
 	if err != nil {
 		return Rules{}, err
 	}
-	if sessErr := requireSession(p); sessErr != nil {
-		return Rules{}, sessErr
+	if err := s.recentSession(r, p); err != nil {
+		return Rules{}, err
 	}
-	return r, s.recentAuth(r, p)
+	return r, nil
+}
+
+// recentSession admits a full session within r.RecentAuth.
+func (s *Service) recentSession(r Rules, p access.Principal) error { //nolint:gocritic // hugeParam: the operation's one Rules value and its Principal
+	if err := requireSession(p); err != nil {
+		return err
+	}
+	return s.recentAuth(r, p)
 }
 
 // ownUser reads p's user as stored; one deleted since p was verified is

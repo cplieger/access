@@ -189,7 +189,7 @@ func TestMeCurrentSessionCapped(t *testing.T) {
 	sess := &access.Session{
 		ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPasskey,
 		CreatedAt: now.Add(-2 * time.Hour), LastActivity: now, AuthTime: now.Add(-time.Hour),
-		IdleCap: 30 * time.Minute, AbsoluteCap: 12 * time.Hour,
+		IdleCap: 30 * time.Minute, AbsoluteCap: 12 * time.Hour, Secure: true,
 	}
 	pr, _ := f.principalOf(t, sess)
 	stored := storedSession(t, f.mem, u.ID, sess.ID)

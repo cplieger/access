@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 	"time"
+
+	"github.com/cplieger/access/internal/failreason"
 )
 
 // ErrorWriter renders one refusal in the app's own envelope. The library
@@ -35,6 +37,7 @@ const (
 	CodeSessionRequired        Code = "auth_session_required"
 	CodeScopeRequired          Code = "auth_scope_required"
 	CodeKeyRequired            Code = "auth_key_required"
+	CodeHTTPSRequired          Code = "auth_https_required"
 	CodeForbidden              Code = "auth_forbidden"
 	CodeRateLimited            Code = "auth_rate_limited"
 	CodeBusy                   Code = "auth_busy"
@@ -86,6 +89,7 @@ var codeTable = [...]codeRow{
 	{CodeSessionRequired, "A signed-in session is required.", http.StatusForbidden},
 	{CodeScopeRequired, "The key lacks the required scope.", http.StatusForbidden},
 	{CodeKeyRequired, "This route needs an API key.", http.StatusForbidden},
+	{CodeHTTPSRequired, "This needs HTTPS.", http.StatusForbidden},
 	{CodeForbidden, "This action is not allowed.", http.StatusForbidden},
 	{CodeRateLimited, "Too many attempts. Try again later.", http.StatusTooManyRequests},
 	{CodeBusy, "The server is busy. Try again shortly.", http.StatusServiceUnavailable},
@@ -173,22 +177,57 @@ func NewError(code Code, reason string, err error) Error {
 	return e
 }
 
-// ErrorFor maps an error [Authenticator.Authenticate] returned to its
-// refusal, with an empty Reason so the answer names no stored state. It
-// reports false for any other error.
+// The [Error] Reason values access assigns, in [ErrorReasons] order.
+const (
+	// ReasonTransportChanged is a session presented on the other transport,
+	// answered with [CodeSessionExpired] once the session is revoked.
+	ReasonTransportChanged = failreason.TransportChanged
+	// ReasonSignInAgain is [RequireRecentAuth] refusing a plain session,
+	// answered with [CodeRecentAuthRequired]: a step-up cannot run over
+	// plain HTTP, so the client asks for a fresh sign-in.
+	ReasonSignInAgain = failreason.SignInAgain
+)
+
+// ErrorReasons returns every Reason access assigns, in a stable order.
+func ErrorReasons() []string { return []string{ReasonTransportChanged, ReasonSignInAgain} }
+
+// ErrorFor maps an error [Authenticator.Authenticate] or [RequireRecentAuth]
+// returned to its refusal. Its Reason is empty, so the answer names no
+// stored state, except [ReasonTransportChanged] for a session presented on
+// the other transport, which the verifier revokes when a [SessionRevoker] is
+// registered, and for [ErrRecentAuthRequired] the reason the refusal carries, such as
+// [ReasonSignInAgain]. It reports false for any other error.
 func ErrorFor(err error) (Error, bool) {
 	code, ok := authenticationCode(err)
 	if !ok {
 		return Error{}, false
 	}
-	return NewError(code, "", err), true
+	var reason string
+	switch code {
+	case CodeSessionExpired:
+		if errors.Is(err, ErrSessionTransport) {
+			reason = ReasonTransportChanged
+		}
+	case CodeRecentAuthRequired:
+		reason = failreason.Of(err)
+	default:
+	}
+	return NewError(code, reason, err), true
 }
 
 func authenticationCode(err error) (Code, bool) {
+	if errors.Is(err, ErrHTTPSRequired) {
+		return CodeHTTPSRequired, true
+	}
+	if errors.Is(err, ErrRecentAuthRequired) {
+		return CodeRecentAuthRequired, true
+	}
 	if ice, isICE := errors.AsType[*InvalidCredentialError](err); isICE {
 		switch {
 		case errors.Is(err, ErrRestrictedSession):
 			return CodeSessionRequired, true
+		case errors.Is(err, ErrSessionTransport):
+			return CodeSessionExpired, true
 		case ice.Method == MethodAPIKey:
 			return CodeKeyInvalid, true
 		default:
