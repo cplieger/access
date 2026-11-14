@@ -505,7 +505,7 @@ func TestFinishRefusesUnboundCeremony(t *testing.T) {
 	}
 }
 
-func mustNew(t *testing.T, cfg RPConfig) *RelyingParty {
+func mustNew(t testing.TB, cfg RPConfig) *RelyingParty {
 	t.Helper()
 	rp, err := New(cfg)
 	if err != nil {
