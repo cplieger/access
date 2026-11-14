@@ -6,7 +6,8 @@
 // # Hashes
 //
 // Every hash the SPI carries, as a record field (User.PasswordHash,
-// Session.TokenHash, Key.KeyHash, OneTimeToken.Hash, Rotation.ExpectHash) or
+// Session.TokenHash, Key.KeyHash, OneTimeToken.Hash, RecoveryCode.Hash,
+// TemporaryPassword.Hash, Rotation.ExpectHash) or
 // as a by-hash key, is an [access.Hash], and so are the by-hash parameters of
 // the root roles ([access.SessionReader], [access.SessionActivityUpdater],
 // [access.APIKeyReader]). A store persists and indexes h.Reveal() when it
@@ -72,8 +73,9 @@
 //  5. Atomicity. RotateSession, ConsumeOneTimeToken and CreateInitialUser
 //     are each linearisable: concurrent calls on the same key give exactly
 //     one success. CreatePasskey's uniqueness holds under concurrent
-//     inserts. DeleteUser's cascade (sessions, passkeys, keys and the
-//     user's key attributions) is one transaction. A failed single-call write leaves no partial state. In
+//     inserts. DeleteUser's cascade (sessions, passkeys, keys, the user's
+//     key attributions, TOTP, recovery code and temporary password) is one
+//     transaction. A failed single-call write leaves no partial state. In
 //     Update, a callback returning an error, or panicking, leaves no write
 //     visible; a nil return makes every write visible at once and durably;
 //     concurrent Updates are serialisable, also when the store groups them
@@ -171,10 +173,10 @@
 //     ascending ID is append order whatever the clock says. CreateAPIKey
 //     appends the ID it assigns to the LineageIDs it was given, so a stored
 //     key's path ends with its own ID. Key.LineageIDs,
-//     KeyAttribution.KeyLineage, Session.IssuedByKey and
-//     OneTimeToken.IssuedByKey outlive the keys they name, and account
-//     refuses an issuer it cannot find, so a reused ID would let a later key
-//     stand in for a revoked one. bbolt's per-bucket NextSequence keeps the
+//     KeyAttribution.KeyLineage, OneTimeToken.IssuedByKey and
+//     TemporaryPassword's IssuedByKey and IssuedByUser outlive the keys and
+//     users they name, and account refuses an issuer it cannot find, so a
+//     reused ID would let a later key or user stand in for a revoked one. bbolt's per-bucket NextSequence keeps the
 //     rule, because the sequence commits with the row and only SetSequence
 //     lowers it; an allocator that takes the highest live ID plus one, or
 //     the lowest free one, breaks it, and such a store keeps a high-water
@@ -198,7 +200,8 @@
 //     rotated can therefore never bring it back.
 //  20. Fidelity. Every exported field of every record a store keeps
 //     (User, Session, PasskeyCredential, Key, OneTimeToken, KeyAttribution,
-//     [FailureCount], [LogEntry], and the structs they embed or hold,
+//     TOTP, RecoveryCode, TemporaryPassword, [FailureCount], [LogEntry],
+//     and the structs they embed or hold,
 //     OIDCIdentity, [FailureRef], [Event] and [EventActor]) reads back as it
 //     was written, apart from what the store assigns (IDs, the LineageIDs
 //     append of rule 17, Event.Seq of rule 22). The record fields
@@ -270,4 +273,23 @@
 //     a rotation committed meanwhile keeps its new previous secret. It
 //     clears at most limit keys, never writes KeyHash, and a count below
 //     limit left no key to clear at now.
+//  24. Per-user records. A user holds at most one TOTP, one RecoveryCode
+//     and one TemporaryPassword, each keyed by its UserID, and a write or
+//     delete for one user touches no other user's. A by-user lookup reports
+//     absence through found (rule 1). SetTOTP, SetRecoveryCode and
+//     SetTemporaryPassword write the whole record over any the user holds;
+//     DeleteTOTP, DeleteRecoveryCode and DeleteTemporaryPassword remove it,
+//     returning nil when there is none. ListTOTP pages in ascending UserID
+//     strictly above afterUserID, at most limit records (a limit below 1
+//     may be refused), so a walk that passes each page's last UserID meets
+//     every record once. DeleteUser removes all three (rule 5).
+//  25. Waiting users. UsersWaiting returns at most limit users whose
+//     WaitingApproval is set, oldest CreatedAt first and equal times in
+//     ascending ID; a limit below 1 may be refused. An UpdateUser that
+//     clears the flag takes the user off the list.
+//  26. The SSO mode. SSOMode answers the mode of the last committed
+//     SetSSOMode with set true, and SSOAlongside with set false until one
+//     commits. The set bit is stored beside the mode, never derived from
+//     it, so an SSOAlongside written reads set. Both commit and roll back
+//     with their Update (rule 5) and survive a close and a reopen (rule 20).
 package account

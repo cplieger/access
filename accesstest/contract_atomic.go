@@ -129,30 +129,42 @@ func (c *contract) deleteUserCascade(t *testing.T) {
 		if err := s.CreateKeyAttribution(ctx, &access.KeyAttribution{At: epoch, Action: access.AttributionCreated, KeyLineage: []int64{1}, UserID: owner.ID}); err != nil {
 			t.Fatalf("CreateKeyAttribution: %v", err)
 		}
+		check(t, "SetTOTP", s.SetTOTP(ctx, newTOTP(owner.ID, 1)))
+		check(t, "SetRecoveryCode", s.SetRecoveryCode(ctx, newRecoveryCode(owner.ID, 1)))
+		check(t, "SetTemporaryPassword", s.SetTemporaryPassword(ctx, newTemporaryPassword(owner.ID, 1)))
 	}
 	if err := s.DeleteUser(ctx, u.ID); err != nil {
 		t.Fatalf("DeleteUser: %v", err)
 	}
-	if got := userRows(t, s, u.ID); got != [4]int{} {
-		t.Errorf("after DeleteUser, sessions, passkeys, keys, attributions = %v, want none", got)
+	if got := userRows(t, s, u.ID); got != [7]int{} {
+		t.Errorf("after DeleteUser, sessions, passkeys, keys, attributions, TOTP, recovery code, temporary password = %v, want none", got)
 	}
-	if got := userRows(t, s, other.ID); got != [4]int{1, 1, 1, 1} {
+	if got := userRows(t, s, other.ID); got != [7]int{1, 1, 1, 1, 1, 1, 1} {
 		t.Errorf("another user's rows = %v, want one of each untouched", got)
 	}
 }
 
-// userRows counts id's sessions, passkeys, keys and key attributions.
-func userRows(t *testing.T, s account.Store, id int64) [4]int {
+// userRows counts id's sessions, passkeys, keys, key attributions, TOTP
+// record, recovery code and temporary password.
+func userRows(t *testing.T, s account.Store, id int64) [7]int {
 	t.Helper()
 	ctx := t.Context()
 	sessions, err1 := s.SessionsByUserID(ctx, id)
 	passkeys, err2 := s.PasskeysByUserID(ctx, id)
 	keys, err3 := s.ListAPIKeysByUserID(ctx, id)
 	attributions, err4 := s.ListKeyAttributions(ctx)
-	check(t, "reading the user's rows", errors.Join(err1, err2, err3, err4))
-	n := [4]int{len(sessions), len(passkeys), len(keys)}
-	n[3] = countIf(attributions, func(a *access.KeyAttribution) bool { return a.UserID == id })
-	return n
+	_, totp, err5 := s.TOTPByUserID(ctx, id)
+	_, code, err6 := s.RecoveryCodeByUserID(ctx, id)
+	_, temp, err7 := s.TemporaryPasswordByUserID(ctx, id)
+	check(t, "reading the user's rows", errors.Join(err1, err2, err3, err4, err5, err6, err7))
+	held := func(found bool) int {
+		if found {
+			return 1
+		}
+		return 0
+	}
+	attributed := countIf(attributions, func(a *access.KeyAttribution) bool { return a.UserID == id })
+	return [7]int{len(sessions), len(passkeys), len(keys), attributed, held(totp), held(code), held(temp)}
 }
 
 func countIf[T any](xs []T, match func(*T) bool) int {

@@ -29,7 +29,7 @@ var (
 	errNoCredentialID   = errors.New("accesstest: passkey has no credential ID")
 	errRotationIdentity = errors.New("accesstest: rotation changes the session's ID or user")
 	errIDsExhausted     = errors.New("accesstest: IDs exhausted")
-	errLimit            = errors.New("accesstest: cleanup limit below 1")
+	errLimit            = errors.New("accesstest: limit below 1")
 	errTimeouts         = errors.New("accesstest: cleanup timeouts not positive")
 	errLogClass         = errors.New("accesstest: log entry of no LogClasses class")
 	errLogLimit         = errors.New("accesstest: log limit below 1")
@@ -62,6 +62,9 @@ func NewMemStore() *MemStore {
 		keys:       map[int64]access.Key{},
 		keyHashes:  map[access.HashKey]int64{},
 		tokens:     map[access.HashKey]access.OneTimeToken{},
+		totp:       map[int64]access.TOTP{},
+		recovery:   map[int64]access.RecoveryCode{},
+		temporary:  map[int64]access.TemporaryPassword{},
 		failures:   map[account.FailureRef]account.FailureCount{},
 		log:        map[account.LogClass]classLog{},
 	})
@@ -83,9 +86,14 @@ type state struct {
 	keys         map[int64]access.Key
 	keyHashes    map[access.HashKey]int64
 	tokens       map[access.HashKey]access.OneTimeToken
+	totp         map[int64]access.TOTP // by UserID, as are recovery and temporary
+	recovery     map[int64]access.RecoveryCode
+	temporary    map[int64]access.TemporaryPassword
 	failures     map[account.FailureRef]account.FailureCount
 	log          map[account.LogClass]classLog
 	attributions []access.KeyAttribution // ascending ID
+	ssoMode      account.SSOMode
+	ssoSet       bool
 	// The high-water marks of rules 17 and 22: a delete or a prune never
 	// lowers them, and a rolled-back Update discards its copy, so no ID or
 	// Seq is ever handed out twice.
@@ -112,6 +120,9 @@ func (s *state) clone() *state {
 	c.keys = maps.Clone(s.keys)
 	c.keyHashes = maps.Clone(s.keyHashes)
 	c.tokens = maps.Clone(s.tokens)
+	c.totp = maps.Clone(s.totp)
+	c.recovery = maps.Clone(s.recovery)
+	c.temporary = maps.Clone(s.temporary)
 	c.failures = maps.Clone(s.failures)
 	c.attributions = slices.Clone(s.attributions)
 	c.log = make(map[account.LogClass]classLog, len(s.log))
@@ -287,10 +298,33 @@ func (t *memTx) DeleteUser(_ context.Context, id int64) error {
 	t.deleteUserPasskeys(id)
 	t.deleteUserKeys(id)
 	t.s.attributions = slices.DeleteFunc(t.s.attributions, func(a access.KeyAttribution) bool { return a.UserID == id })
+	delete(t.s.totp, id)
+	delete(t.s.recovery, id)
+	delete(t.s.temporary, id)
 	return nil
 }
 
 func (t *memTx) UserCount(context.Context) (int, error) { return len(t.s.users), nil }
+
+func (t *memTx) UsersWaiting(_ context.Context, limit int) ([]access.User, error) {
+	if limit < 1 {
+		return nil, errLimit
+	}
+	var ids []int64
+	for id := range t.s.users {
+		if t.s.users[id].WaitingApproval {
+			ids = append(ids, id)
+		}
+	}
+	slices.SortFunc(ids, func(a, b int64) int {
+		return cmp.Or(t.s.users[a].CreatedAt.Compare(t.s.users[b].CreatedAt), cmp.Compare(a, b))
+	})
+	out := make([]access.User, 0, min(limit, len(ids)))
+	for _, id := range ids[:min(limit, len(ids))] {
+		out = append(out, *new(t.s.users[id]).Clone())
+	}
+	return out, nil
+}
 
 // --- Sessions ---
 
@@ -763,6 +797,75 @@ func (t *memTx) DeleteOneTimeTokensIssuedBy(_ context.Context, keyIDs []int64) (
 	return t.deleteIssuedBy(keyIDs), nil
 }
 
+// --- Second factors, temporary passwords and the SSO mode ---
+
+func (t *memTx) TOTPByUserID(_ context.Context, userID int64) (access.TOTP, bool, error) {
+	rec, ok := t.s.totp[userID]
+	return rec, ok, nil
+}
+
+func (t *memTx) SetTOTP(_ context.Context, rec access.TOTP) error {
+	t.s.totp[rec.UserID] = rec
+	return nil
+}
+
+func (t *memTx) DeleteTOTP(_ context.Context, userID int64) error {
+	delete(t.s.totp, userID)
+	return nil
+}
+
+func (t *memTx) ListTOTP(_ context.Context, afterUserID int64, limit int) ([]access.TOTP, error) {
+	if limit < 1 {
+		return nil, errLimit
+	}
+	out := []access.TOTP{}
+	for _, id := range slices.Sorted(maps.Keys(t.s.totp)) {
+		if id > afterUserID && len(out) < limit {
+			out = append(out, t.s.totp[id])
+		}
+	}
+	return out, nil
+}
+
+func (t *memTx) RecoveryCodeByUserID(_ context.Context, userID int64) (access.RecoveryCode, bool, error) {
+	rec, ok := t.s.recovery[userID]
+	return rec, ok, nil
+}
+
+func (t *memTx) SetRecoveryCode(_ context.Context, rec access.RecoveryCode) error {
+	t.s.recovery[rec.UserID] = rec
+	return nil
+}
+
+func (t *memTx) DeleteRecoveryCode(_ context.Context, userID int64) error {
+	delete(t.s.recovery, userID)
+	return nil
+}
+
+func (t *memTx) TemporaryPasswordByUserID(_ context.Context, userID int64) (access.TemporaryPassword, bool, error) {
+	rec, ok := t.s.temporary[userID]
+	return rec, ok, nil
+}
+
+func (t *memTx) SetTemporaryPassword(_ context.Context, rec access.TemporaryPassword) error { //nolint:gocritic // hugeParam: account.TemporaryPasswordStore's signature
+	t.s.temporary[rec.UserID] = rec
+	return nil
+}
+
+func (t *memTx) DeleteTemporaryPassword(_ context.Context, userID int64) error {
+	delete(t.s.temporary, userID)
+	return nil
+}
+
+func (t *memTx) SSOMode(context.Context) (account.SSOMode, bool, error) {
+	return t.s.ssoMode, t.s.ssoSet, nil
+}
+
+func (t *memTx) SetSSOMode(_ context.Context, mode account.SSOMode) error {
+	t.s.ssoMode, t.s.ssoSet = mode, true
+	return nil
+}
+
 // --- Key attributions ---
 
 func (t *memTx) CreateKeyAttribution(_ context.Context, a *access.KeyAttribution) error {
@@ -1055,6 +1158,71 @@ func (m *MemStore) DeleteUser(ctx context.Context, id int64) error {
 
 // UserCount implements [account.UserStore].
 func (m *MemStore) UserCount(ctx context.Context) (int, error) { return m.view().UserCount(ctx) }
+
+// UsersWaiting implements [account.UserStore].
+func (m *MemStore) UsersWaiting(ctx context.Context, limit int) ([]access.User, error) {
+	return m.view().UsersWaiting(ctx, limit)
+}
+
+// TOTPByUserID implements [account.SecondFactorStore].
+func (m *MemStore) TOTPByUserID(ctx context.Context, userID int64) (access.TOTP, bool, error) {
+	return m.view().TOTPByUserID(ctx, userID)
+}
+
+// SetTOTP implements [account.SecondFactorStore].
+func (m *MemStore) SetTOTP(ctx context.Context, rec access.TOTP) error {
+	return m.write(func(tx *memTx) (bool, error) { return true, tx.SetTOTP(ctx, rec) })
+}
+
+// DeleteTOTP implements [account.SecondFactorStore].
+func (m *MemStore) DeleteTOTP(ctx context.Context, userID int64) error {
+	return m.write(func(tx *memTx) (bool, error) { return true, tx.DeleteTOTP(ctx, userID) })
+}
+
+// ListTOTP implements [account.SecondFactorStore].
+func (m *MemStore) ListTOTP(ctx context.Context, afterUserID int64, limit int) ([]access.TOTP, error) {
+	return m.view().ListTOTP(ctx, afterUserID, limit)
+}
+
+// RecoveryCodeByUserID implements [account.SecondFactorStore].
+func (m *MemStore) RecoveryCodeByUserID(ctx context.Context, userID int64) (access.RecoveryCode, bool, error) {
+	return m.view().RecoveryCodeByUserID(ctx, userID)
+}
+
+// SetRecoveryCode implements [account.SecondFactorStore].
+func (m *MemStore) SetRecoveryCode(ctx context.Context, rec access.RecoveryCode) error {
+	return m.write(func(tx *memTx) (bool, error) { return true, tx.SetRecoveryCode(ctx, rec) })
+}
+
+// DeleteRecoveryCode implements [account.SecondFactorStore].
+func (m *MemStore) DeleteRecoveryCode(ctx context.Context, userID int64) error {
+	return m.write(func(tx *memTx) (bool, error) { return true, tx.DeleteRecoveryCode(ctx, userID) })
+}
+
+// TemporaryPasswordByUserID implements [account.TemporaryPasswordStore].
+func (m *MemStore) TemporaryPasswordByUserID(ctx context.Context, userID int64) (access.TemporaryPassword, bool, error) {
+	return m.view().TemporaryPasswordByUserID(ctx, userID)
+}
+
+// SetTemporaryPassword implements [account.TemporaryPasswordStore].
+func (m *MemStore) SetTemporaryPassword(ctx context.Context, rec access.TemporaryPassword) error { //nolint:gocritic // hugeParam: account.TemporaryPasswordStore's signature
+	return m.write(func(tx *memTx) (bool, error) { return true, tx.SetTemporaryPassword(ctx, rec) })
+}
+
+// DeleteTemporaryPassword implements [account.TemporaryPasswordStore].
+func (m *MemStore) DeleteTemporaryPassword(ctx context.Context, userID int64) error {
+	return m.write(func(tx *memTx) (bool, error) { return true, tx.DeleteTemporaryPassword(ctx, userID) })
+}
+
+// SSOMode implements [account.SSOModeStore].
+func (m *MemStore) SSOMode(ctx context.Context) (account.SSOMode, bool, error) {
+	return m.view().SSOMode(ctx)
+}
+
+// SetSSOMode implements [account.SSOModeStore].
+func (m *MemStore) SetSSOMode(ctx context.Context, mode account.SSOMode) error {
+	return m.write(func(tx *memTx) (bool, error) { return true, tx.SetSSOMode(ctx, mode) })
+}
 
 // CreateSession implements [account.SessionStore].
 func (m *MemStore) CreateSession(ctx context.Context, sess *access.Session) error {

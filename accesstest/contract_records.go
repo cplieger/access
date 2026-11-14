@@ -3,6 +3,7 @@ package accesstest
 import (
 	"bytes"
 	"errors"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -43,6 +44,18 @@ func (c *contract) absence(t *testing.T) {
 			v, f, err := s.AuthFailure(ctx, account.FailureRef{Name: "absent", Method: access.MethodPassword})
 			return v.Name == "", f, err
 		},
+		"TOTPByUserID": func() (bool, bool, error) {
+			v, f, err := s.TOTPByUserID(ctx, 1)
+			return reflect.ValueOf(v).IsZero(), f, err
+		},
+		"RecoveryCodeByUserID": func() (bool, bool, error) {
+			v, f, err := s.RecoveryCodeByUserID(ctx, 1)
+			return reflect.ValueOf(v).IsZero(), f, err
+		},
+		"TemporaryPasswordByUserID": func() (bool, bool, error) {
+			v, f, err := s.TemporaryPasswordByUserID(ctx, 1)
+			return reflect.ValueOf(v).IsZero(), f, err
+		},
 	}
 	for name, lookup := range lookups {
 		if isNil, found, err := lookup(); !isNil || found || err != nil {
@@ -61,6 +74,8 @@ func (c *contract) absence(t *testing.T) {
 		},
 		"ListKeyAttributions": func() (int, error) { v, err := s.ListKeyAttributions(ctx); return len(v), err },
 		"UnreportedLocks":     func() (int, error) { v, err := s.UnreportedLocks(ctx); return len(v), err },
+		"ListTOTP":            func() (int, error) { v, err := s.ListTOTP(ctx, 0, 10); return len(v), err },
+		"UsersWaiting":        func() (int, error) { v, err := s.UsersWaiting(ctx, 10); return len(v), err },
 	}
 	for name, list := range lists {
 		if n, err := list(); n != 0 || err != nil {
@@ -352,6 +367,18 @@ func (c *contract) hashRoundTrip(t *testing.T) {
 	check(t, "RotateSession", s.RotateSession(ctx, account.Rotation{ID: sess.ID, UserID: u.ID, Next: next}))
 	gotSess, found, err = s.SessionByHash(ctx, fresher(next.TokenHash))
 	same("Rotation.Next.TokenHash", found, err, mustFind(t, opSessionByHash, gotSess, found, err).TokenHash, next.TokenHash)
+	code := newRecoveryCode(u.ID, 1)
+	check(t, "SetRecoveryCode", s.SetRecoveryCode(ctx, code))
+	gotCode, found, err := s.RecoveryCodeByUserID(ctx, u.ID)
+	if !mustFind(t, "RecoveryCodeByUserID", gotCode, found, err).Hash.Equal(code.Hash) {
+		t.Error("RecoveryCode.Hash reads back unequal to the hash written")
+	}
+	temp := newTemporaryPassword(u.ID, 1)
+	check(t, "SetTemporaryPassword", s.SetTemporaryPassword(ctx, temp))
+	gotTemp, found, err := s.TemporaryPasswordByUserID(ctx, u.ID)
+	if !mustFind(t, "TemporaryPasswordByUserID", gotTemp, found, err).Hash.Equal(temp.Hash) {
+		t.Error("TemporaryPassword.Hash reads back unequal to the hash written")
+	}
 }
 
 // flags: rule 8.
@@ -456,7 +483,23 @@ func timeRoundTripRest(t *testing.T, s account.Store, userID int64, at time.Time
 	check(t, "PutAuthFailure", s.PutAuthFailure(ctx, account.FailureCount{FailureRef: ref, Count: 1, Locked: true, LockedAt: at}))
 	failure, found, err := s.AuthFailure(ctx, ref)
 	same("FailureCount.LockedAt", mustFind(t, "AuthFailure", failure, found, err).LockedAt)
+	recordTimeRoundTrip(t, s, userID, at, same)
 	logTimeRoundTrip(t, s, at, same)
+}
+
+func recordTimeRoundTrip(t *testing.T, s account.Store, userID int64, at time.Time, same func(string, time.Time)) {
+	ctx := t.Context()
+	check(t, "SetTOTP", s.SetTOTP(ctx, access.TOTP{CreatedAt: at, Sealed: "sealed", UserID: userID}))
+	totp, found, err := s.TOTPByUserID(ctx, userID)
+	same("TOTP.CreatedAt", mustFind(t, "TOTPByUserID", totp, found, err).CreatedAt)
+	check(t, "SetRecoveryCode", s.SetRecoveryCode(ctx, access.RecoveryCode{CreatedAt: at, Hash: access.NewHash(fresh("time")), UserID: userID}))
+	code, found, err := s.RecoveryCodeByUserID(ctx, userID)
+	same("RecoveryCode.CreatedAt", mustFind(t, "RecoveryCodeByUserID", code, found, err).CreatedAt)
+	check(t, "SetTemporaryPassword", s.SetTemporaryPassword(ctx, access.TemporaryPassword{CreatedAt: at, ExpiresAt: at, Hash: access.NewHash(fresh("time")), UserID: userID}))
+	temp, found, err := s.TemporaryPasswordByUserID(ctx, userID)
+	temp = mustFind(t, "TemporaryPasswordByUserID", temp, found, err)
+	same("TemporaryPassword.CreatedAt", temp.CreatedAt)
+	same("TemporaryPassword.ExpiresAt", temp.ExpiresAt)
 }
 
 // mustFind returns v, failing the test unless the read that made it found

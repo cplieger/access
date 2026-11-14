@@ -48,6 +48,9 @@ func StoreContract(t *testing.T, newStore func(t *testing.T) account.Store, cfg 
 		{c.activity, "rule_21_activity"},
 		{c.securityLog, "rule_22_log"},
 		{c.keySecrets, "rule_23_key_secrets"},
+		{c.userRecords, "rule_24_user_records"},
+		{c.waitingUsers, "rule_25_waiting_users"},
+		{c.ssoMode, "rule_26_sso_mode"},
 	} {
 		t.Run(r.name, r.run)
 	}
@@ -65,8 +68,8 @@ type ContractConfig struct {
 	// Reopen closes old, a store newStore made and the suite wrote to, and
 	// returns a store over the same medium; rule 20's fidelity case, rule
 	// 14's deleted-set case, rule 17's never-reused cases for users and
-	// keys and rule 22's Seq and stats cases run across it. Nil skips those
-	// subtests.
+	// keys, rule 22's Seq and stats cases and rule 26's mode case run
+	// across it. Nil skips those subtests.
 	Reopen func(t *testing.T, old account.Store) account.Store
 }
 

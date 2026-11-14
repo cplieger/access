@@ -301,6 +301,58 @@ func (f *faultStore) DeleteUser(ctx context.Context, id int64) error {
 
 func (f *faultStore) UserCount(ctx context.Context) (int, error) { return f.view().UserCount(ctx) }
 
+func (f *faultStore) UsersWaiting(ctx context.Context, limit int) ([]access.User, error) {
+	return f.view().UsersWaiting(ctx, limit)
+}
+
+func (f *faultStore) TOTPByUserID(ctx context.Context, id int64) (access.TOTP, bool, error) {
+	return f.view().TOTPByUserID(ctx, id)
+}
+
+func (f *faultStore) SetTOTP(ctx context.Context, rec access.TOTP) error {
+	return f.commit(func(tx *memTx) error { return tx.SetTOTP(ctx, rec) })
+}
+
+func (f *faultStore) DeleteTOTP(ctx context.Context, id int64) error {
+	return f.commit(func(tx *memTx) error { return tx.DeleteTOTP(ctx, id) })
+}
+
+func (f *faultStore) ListTOTP(ctx context.Context, after int64, limit int) ([]access.TOTP, error) {
+	return f.view().ListTOTP(ctx, after, limit)
+}
+
+func (f *faultStore) RecoveryCodeByUserID(ctx context.Context, id int64) (access.RecoveryCode, bool, error) {
+	return f.view().RecoveryCodeByUserID(ctx, id)
+}
+
+func (f *faultStore) SetRecoveryCode(ctx context.Context, rec access.RecoveryCode) error {
+	return f.commit(func(tx *memTx) error { return tx.SetRecoveryCode(ctx, rec) })
+}
+
+func (f *faultStore) DeleteRecoveryCode(ctx context.Context, id int64) error {
+	return f.commit(func(tx *memTx) error { return tx.DeleteRecoveryCode(ctx, id) })
+}
+
+func (f *faultStore) TemporaryPasswordByUserID(ctx context.Context, id int64) (access.TemporaryPassword, bool, error) {
+	return f.view().TemporaryPasswordByUserID(ctx, id)
+}
+
+func (f *faultStore) SetTemporaryPassword(ctx context.Context, rec access.TemporaryPassword) error {
+	return f.commit(func(tx *memTx) error { return tx.SetTemporaryPassword(ctx, rec) })
+}
+
+func (f *faultStore) DeleteTemporaryPassword(ctx context.Context, id int64) error {
+	return f.commit(func(tx *memTx) error { return tx.DeleteTemporaryPassword(ctx, id) })
+}
+
+func (f *faultStore) SSOMode(ctx context.Context) (account.SSOMode, bool, error) {
+	return f.view().SSOMode(ctx)
+}
+
+func (f *faultStore) SetSSOMode(ctx context.Context, mode account.SSOMode) error {
+	return f.commit(func(tx *memTx) error { return tx.SetSSOMode(ctx, mode) })
+}
+
 func (f *faultStore) CreateSession(ctx context.Context, sess *access.Session) error {
 	return f.commit(func(tx *memTx) error { return tx.CreateSession(ctx, sess) })
 }

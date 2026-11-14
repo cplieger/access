@@ -176,8 +176,9 @@ func TestLogClausesRedChecked(t *testing.T) {
 func redCheckVariants() map[string]variant {
 	all := maps.Clone(variants)
 	maps.Copy(all, logVariants)
-	if len(all) != len(variants)+len(logVariants) {
-		panic("accesstest: a log variant reuses another variant's name")
+	maps.Copy(all, recordVariants)
+	if len(all) != len(variants)+len(logVariants)+len(recordVariants) {
+		panic("accesstest: a log or record variant reuses another variant's name")
 	}
 	return all
 }

@@ -426,7 +426,7 @@ func sweeperCalls(s account.Store) []namedCall {
 
 // txCalls is every Tx method, aimed at sd's rows, deletes last.
 func txCalls(tx account.Tx, sd *seeded) []namedCall {
-	return slices.Concat(userCalls(tx, sd), sessionCalls(tx, sd), credentialCalls(tx, sd), recordCalls(tx, sd), logCalls(tx), deleteCalls(tx, sd))
+	return slices.Concat(userCalls(tx, sd), sessionCalls(tx, sd), credentialCalls(tx, sd), recordCalls(tx, sd), perUserCalls(tx, sd), logCalls(tx), deleteCalls(tx, sd))
 }
 
 func userCalls(tx account.Tx, sd *seeded) []namedCall {
@@ -446,6 +446,22 @@ func userCalls(tx account.Tx, sd *seeded) []namedCall {
 		{func(ctx context.Context) error { _, err := tx.ListUsers(ctx); return err }, "ListUsers"},
 		{func(ctx context.Context) error { return tx.UpdateUser(ctx, sd.user.Clone()) }, "UpdateUser"},
 		{func(ctx context.Context) error { _, err := tx.UserCount(ctx); return err }, "UserCount"},
+		{func(ctx context.Context) error { _, err := tx.UsersWaiting(ctx, 10); return err }, "UsersWaiting"},
+	}
+}
+
+func perUserCalls(tx account.Tx, sd *seeded) []namedCall {
+	id := sd.user.ID
+	return []namedCall{
+		{func(ctx context.Context) error { return tx.SetTOTP(ctx, newTOTP(id, 1)) }, "SetTOTP"},
+		{func(ctx context.Context) error { _, _, err := tx.TOTPByUserID(ctx, id); return err }, "TOTPByUserID"},
+		{func(ctx context.Context) error { _, err := tx.ListTOTP(ctx, 0, 10); return err }, "ListTOTP"},
+		{func(ctx context.Context) error { return tx.SetRecoveryCode(ctx, newRecoveryCode(id, 1)) }, "SetRecoveryCode"},
+		{func(ctx context.Context) error { _, _, err := tx.RecoveryCodeByUserID(ctx, id); return err }, "RecoveryCodeByUserID"},
+		{func(ctx context.Context) error { return tx.SetTemporaryPassword(ctx, newTemporaryPassword(id, 1)) }, "SetTemporaryPassword"},
+		{func(ctx context.Context) error { _, _, err := tx.TemporaryPasswordByUserID(ctx, id); return err }, "TemporaryPasswordByUserID"},
+		{func(ctx context.Context) error { return tx.SetSSOMode(ctx, account.SSOForLinked) }, "SetSSOMode"},
+		{func(ctx context.Context) error { _, _, err := tx.SSOMode(ctx); return err }, "SSOMode"},
 	}
 }
 
@@ -538,6 +554,9 @@ func deleteCalls(tx account.Tx, sd *seeded) []namedCall {
 			return tx.DeleteAPIKey(ctx, access.KeyRef{ID: sd.key.ID, UserID: sd.user.ID})
 		}, opDeleteKey},
 		{func(ctx context.Context) error { _, err := tx.DeleteUserAPIKeys(ctx, sd.user.ID); return err }, "DeleteUserAPIKeys"},
+		{func(ctx context.Context) error { return tx.DeleteTOTP(ctx, sd.user.ID) }, "DeleteTOTP"},
+		{func(ctx context.Context) error { return tx.DeleteRecoveryCode(ctx, sd.user.ID) }, "DeleteRecoveryCode"},
+		{func(ctx context.Context) error { return tx.DeleteTemporaryPassword(ctx, sd.user.ID) }, "DeleteTemporaryPassword"},
 		{func(ctx context.Context) error { return tx.DeleteUser(ctx, sd.user.ID) }, "DeleteUser"},
 	}
 }

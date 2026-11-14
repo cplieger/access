@@ -726,6 +726,85 @@ func (t *faultTx) DeleteOneTimeTokensIssuedBy(ctx context.Context, keyIDs []int6
 	return t.inner.DeleteOneTimeTokensIssuedBy(ctx, keyIDs)
 }
 
+func (t *faultTx) UsersWaiting(ctx context.Context, limit int) ([]access.User, error) {
+	t.s.read(ctx, t.update, "UsersWaiting", "")
+	return t.inner.UsersWaiting(ctx, limit)
+}
+
+func (t *faultTx) TOTPByUserID(ctx context.Context, userID int64) (access.TOTP, bool, error) {
+	t.s.read(ctx, t.update, "TOTPByUserID", "")
+	return t.inner.TOTPByUserID(ctx, userID)
+}
+
+func (t *faultTx) SetTOTP(ctx context.Context, rec access.TOTP) error {
+	if err := t.s.write(ctx, t.update, "SetTOTP", ""); err != nil {
+		return err
+	}
+	return t.inner.SetTOTP(ctx, rec)
+}
+
+func (t *faultTx) DeleteTOTP(ctx context.Context, userID int64) error {
+	if err := t.s.write(ctx, t.update, "DeleteTOTP", ""); err != nil {
+		return err
+	}
+	return t.inner.DeleteTOTP(ctx, userID)
+}
+
+func (t *faultTx) ListTOTP(ctx context.Context, afterUserID int64, limit int) ([]access.TOTP, error) {
+	t.s.read(ctx, t.update, "ListTOTP", "")
+	return t.inner.ListTOTP(ctx, afterUserID, limit)
+}
+
+func (t *faultTx) RecoveryCodeByUserID(ctx context.Context, userID int64) (access.RecoveryCode, bool, error) {
+	t.s.read(ctx, t.update, "RecoveryCodeByUserID", "")
+	return t.inner.RecoveryCodeByUserID(ctx, userID)
+}
+
+func (t *faultTx) SetRecoveryCode(ctx context.Context, rec access.RecoveryCode) error {
+	if err := t.s.write(ctx, t.update, "SetRecoveryCode", ""); err != nil {
+		return err
+	}
+	return t.inner.SetRecoveryCode(ctx, rec)
+}
+
+func (t *faultTx) DeleteRecoveryCode(ctx context.Context, userID int64) error {
+	if err := t.s.write(ctx, t.update, "DeleteRecoveryCode", ""); err != nil {
+		return err
+	}
+	return t.inner.DeleteRecoveryCode(ctx, userID)
+}
+
+func (t *faultTx) TemporaryPasswordByUserID(ctx context.Context, userID int64) (access.TemporaryPassword, bool, error) {
+	t.s.read(ctx, t.update, "TemporaryPasswordByUserID", "")
+	return t.inner.TemporaryPasswordByUserID(ctx, userID)
+}
+
+func (t *faultTx) SetTemporaryPassword(ctx context.Context, rec access.TemporaryPassword) error {
+	if err := t.s.write(ctx, t.update, "SetTemporaryPassword", ""); err != nil {
+		return err
+	}
+	return t.inner.SetTemporaryPassword(ctx, rec)
+}
+
+func (t *faultTx) DeleteTemporaryPassword(ctx context.Context, userID int64) error {
+	if err := t.s.write(ctx, t.update, "DeleteTemporaryPassword", ""); err != nil {
+		return err
+	}
+	return t.inner.DeleteTemporaryPassword(ctx, userID)
+}
+
+func (t *faultTx) SSOMode(ctx context.Context) (account.SSOMode, bool, error) {
+	t.s.read(ctx, t.update, "SSOMode", "")
+	return t.inner.SSOMode(ctx)
+}
+
+func (t *faultTx) SetSSOMode(ctx context.Context, mode account.SSOMode) error {
+	if err := t.s.write(ctx, t.update, "SetSSOMode", ""); err != nil {
+		return err
+	}
+	return t.inner.SetSSOMode(ctx, mode)
+}
+
 func (t *faultTx) CreateKeyAttribution(ctx context.Context, a *access.KeyAttribution) error {
 	if err := t.s.write(ctx, t.update, "CreateKeyAttribution", ""); err != nil {
 		return err

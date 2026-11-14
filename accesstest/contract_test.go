@@ -36,6 +36,7 @@ func TestStoreContractMemStoreSkips(t *testing.T) {
 		"TestStoreContractMemStore/rule_22_log/seq_never_reused_reopen",
 		"TestStoreContractMemStore/rule_22_log/seq_re_run",
 		"TestStoreContractMemStore/rule_22_log/stats_reopen",
+		"TestStoreContractMemStore/rule_26_sso_mode/reopen",
 	}
 	if got := reported(out, "SKIP"); !slices.Equal(got, want) {
 		t.Errorf("skipped subtests = %v, want exactly %v", got, want)
