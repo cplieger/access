@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/rsa"
 	"errors"
 	"math/big"
@@ -596,5 +597,26 @@ func TestKey_Alg(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// CVE-2017-15361 (ROCA): a modulus from RSALib's primes factors by
+// Coppersmith's method, so anyone can recover the private key and forge
+// (Nemec et al., "The Return of Coppersmith's Attack", CCS 2017). Such a
+// key is skipped, as Wycheproof's json_web_key_test.json tc7 expects.
+func TestParse_ROCAFingerprint(t *testing.T) {
+	t.Parallel()
+	// Wycheproof json_web_key_test.json tc7, "jws_rsa_roca_key", public members.
+	const wycheproofTC7N = "AanFpofbj7KjD4Lf-N2hVMKR7yewSyXhhbirIMTGpfYEhZ_lnt5UoK98DnKIgArXGTu3MaW_HhFw16HGaTDUHqPrId7fe4r11CqRw09yBFuW79V8sYIwHdzCaWflUI6auImYbVfoN9_nD5n8N8SY9DwXw7mwZM9wREPXoDPgOoIWl6q_MPsp7n0zs3Z5ZaiQWOOzl1S9OhwAfSiiOwz6efnXEaxuTEtPd7BjSx7NaFka8Dx9U7YqXy2RFj1O9PjyaDGuRh7YXsX3iMUSP_wSyHQg_c_qHRtKUsNSGCT7OZg0hzm2KphtjnayKJvC64vAbROBR4Ubg6Bxg9IQVZ-QYyE"
+	assertSkipped(t, []skipCase{
+		{map[string]any{"kty": "RSA", "alg": "RS256", "use": "sig", "kid": "kid-rsa-roca-sign", "n": wycheproofTC7N, "e": "AQAB"}, "Wycheproof tc7", "CVE-2017-15361"},
+		{rsaJWK("bad", rocaModulus(t, 2048), 65537), "RSALib-form 2048", "CVE-2017-15361, CCS 2017 §2.2"},
+	})
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := mustParse(t, jwkSet(t, rsaJWK("ok", priv.N, int64(priv.E)))); s.Len() != 1 {
+		t.Errorf("a crypto/rsa 2048-bit key: Len = %d; want 1", s.Len())
 	}
 }

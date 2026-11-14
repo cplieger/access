@@ -208,10 +208,40 @@ func rsaKey(m map[string]jsontext.Value) (crypto.PublicKey, family, bool) {
 	if n.BitLen() < minRSABits || n.BitLen() > maxRSABits {
 		return nil, familyNone, false
 	}
-	if e.BitLen() > 31 || e.Int64() < 3 || e.Bit(0) == 0 {
+	if e.BitLen() > 31 || e.Int64() < 3 || e.Bit(0) == 0 || roca(n) {
 		return nil, familyNone, false
 	}
 	return &rsa.PublicKey{N: n, E: int(e.Int64())}, familyRSA, true
+}
+
+// rocaPrimes are the primes the ROCA detector of Nemec et al. checks
+// (https://github.com/crocs-muni/roca/blob/df6071d/roca/detect.py#L785).
+var rocaPrimes = [...]uint64{3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167}
+
+// roca reports whether n carries the fingerprint of Infineon RSALib's
+// primes, n mod p in the subgroup 65537 generates for every prime p above;
+// such a modulus factors by Coppersmith's method (CVE-2017-15361; Nemec et
+// al., "The Return of Coppersmith's Attack", CCS 2017).
+func roca(n *big.Int) bool {
+	var p, r big.Int
+	for _, prime := range rocaPrimes {
+		if !generatedBy65537(r.Mod(n, p.SetUint64(prime)).Uint64(), prime) {
+			return false
+		}
+	}
+	return true
+}
+
+// generatedBy65537 reports whether r is a power of 65537 mod the prime p.
+func generatedBy65537(r, p uint64) bool {
+	g := uint64(1)
+	for range p {
+		if g == r {
+			return true
+		}
+		g = g * 65537 % p
+	}
+	return false
 }
 
 func ecKey(m map[string]jsontext.Value) (crypto.PublicKey, family, bool) {

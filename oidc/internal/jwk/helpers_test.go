@@ -176,3 +176,45 @@ func smallOrderEncodings(t testing.TB) [][]byte {
 	}
 	return out
 }
+
+// rocaModulus builds n = p·q from primes of the form RSALib generated, k·M
+// + (65537^a mod M) with M the product of the primes up to 167 (Nemec et
+// al., "The Return of Coppersmith's Attack", CCS 2017, §2.2). Each prime
+// lies in [√2·2^(bits/2−1), 2^(bits/2)), so n has exactly bits bits.
+func rocaModulus(t testing.TB, bits int) *big.Int {
+	t.Helper()
+	m := big.NewInt(1)
+	for p := int64(2); p <= 167; p++ {
+		if big.NewInt(p).ProbablyPrime(0) {
+			m.Mul(m, big.NewInt(p))
+		}
+	}
+	lo := new(big.Int).Sqrt(new(big.Int).Lsh(big.NewInt(1), uint(bits-1)))
+	hi := new(big.Int).Lsh(big.NewInt(1), uint(bits/2))
+	kLo := new(big.Int).Div(lo, m)
+	kSpan := new(big.Int).Div(new(big.Int).Sub(hi, lo), m)
+	prime := func() *big.Int {
+		for range 1 << 16 {
+			a, err := rand.Int(rand.Reader, m)
+			if err != nil {
+				t.Fatal(err)
+			}
+			k, err := rand.Int(rand.Reader, kSpan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := new(big.Int).Mul(k.Add(k, kLo), m)
+			p.Add(p, new(big.Int).Exp(big.NewInt(65537), a, m))
+			if p.Cmp(lo) >= 0 && p.Cmp(hi) < 0 && p.ProbablyPrime(20) {
+				return p
+			}
+		}
+		t.Fatal("no RSALib-form prime found")
+		return nil
+	}
+	n := new(big.Int).Mul(prime(), prime())
+	if n.BitLen() != bits {
+		t.Fatalf("RSALib-form modulus of %d bits; want %d", n.BitLen(), bits)
+	}
+	return n
+}
