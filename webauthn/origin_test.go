@@ -474,13 +474,13 @@ func TestCeremonyBindsItsOrigin(t *testing.T) {
 				t.Errorf("IsOriginInHaystack(%q, [%q]) = true, want false", tt.responder, ceremony.origin())
 			}
 
-			_, err = FinishRegistration(rp, user, ceremony, registrationResponse(t, ceremony.data.Challenge, tt.responder))
+			_, err = FinishRegistration(rp, user, ceremony, registrationBody(t, ceremony.data.Challenge, tt.responder))
 			pe, ok := errors.AsType[*protocol.Error](err)
 			if !ok || pe.Details != "Error validating origin" {
 				t.Errorf("FinishRegistration with response from %q = %v, want the origin to be refused", tt.responder, err)
 			}
 
-			_, err = FinishRegistration(rp, user, ceremony, registrationResponse(t, ceremony.data.Challenge, tt.beginAt))
+			_, err = FinishRegistration(rp, user, ceremony, registrationBody(t, ceremony.data.Challenge, tt.beginAt))
 			if pe, ok := errors.AsType[*protocol.Error](err); ok && pe.Details == "Error validating origin" {
 				t.Errorf("FinishRegistration with response from %q refused the bound origin: %v", tt.beginAt, err)
 			}
@@ -514,11 +514,11 @@ func mustNew(t *testing.T, cfg RPConfig) *RelyingParty {
 	return rp
 }
 
-// registrationResponse builds a registration response whose client data
+// registrationBody builds a registration response whose client data
 // declares origin and carries the ceremony's challenge, over a minimal
 // attestation object that parses. It is enough to reach client-data
 // verification, which is the step under test; nothing past it can succeed.
-func registrationResponse(t *testing.T, challenge, origin string) io.Reader {
+func registrationBody(t *testing.T, challenge, origin string) io.Reader {
 	t.Helper()
 	clientData, err := json.Marshal(map[string]string{"type": "webauthn.create", "challenge": challenge, "origin": origin})
 	if err != nil {
