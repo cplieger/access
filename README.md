@@ -159,6 +159,17 @@ The gate serves `/api/me` to a signed-in session only, and answers every other r
 
 Neither `accesshttp` nor the gate writes an error body itself: every refusal reaches your `ErrorWriter` as an `access.Error` with a stable `Code` and `Reason`, so the envelope is yours. You may mount any subset of the auth routes. [Configuration](docs/configuration.md#http-handlers) explains both.
 
+## API
+
+- `access`: `New` builds the `Authenticator` that returns a `Principal`, with the refusal types `Error`, `Code` and `ErrorWriter`, the `Hasher`, the token generators, `Secret`, `Hash` and `Sealer`.
+- `access/gate`: `New` builds a `Gate` from a `Config` and a table of `Route` values, `Principal` reads the admitted caller, and `Codes` and `MountCodes` list the codes a route can answer.
+- `account`: `New` builds the `Service` that runs every operation over your `Store`, and `Actor` names who performs each operation.
+- `accesshttp`: `New` builds the `Handler` whose `Route` values carry each operation, and the request and view types are its wire format.
+- `ratelimit`, `oidc` and `webauthn`: the `Limiter`, the `Provider` with its `Flow`, and the `RelyingParty` with its ceremony functions.
+- `accesstest`: `MemStore`, the `IdP` fake and `StoreContract`.
+
+The full reference is on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access).
+
 ## The limits on guessing
 
 - The rate limiter counts failed attempts per IP address, per account and per trusted device. Its limits are exact for the `MaxEntries` keys each dimension used most recently, 10,000 by default. Past that, `MaxEntries` bounds its memory, not a spray of new keys, and the [rate limiter](docs/configuration.md#rate-limiter) section names what bounds each route.
@@ -206,7 +217,6 @@ The library has no TOTP or SMS second factor. A custom `CredentialVerifier` pass
 - [OIDC sign-in](docs/oidc.md) explains the sealed flow cookie, the link and step-up checks and the limits on outbound calls.
 - [Migrating from auth v6](docs/migration-v7.md) lists every change and its replacement.
 - [Non-goals](docs/non-goals.md) gives the reason for each feature left out.
-- The full reference is on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access).
 
 ## Contributing
 
