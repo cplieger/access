@@ -530,7 +530,7 @@ func TestPresentedButUnusable(t *testing.T) {
 		t.Parallel()
 		notFound := fmt.Errorf("%w: %w", ErrUnauthenticated, ErrSessionNotFound)
 		a := mustAuthenticator(t, newFakeSessionStore(), Config{})
-		a.chain = []CredentialVerifier{stubVerifier{err: notFound}, stubVerifier{err: expired}, stubVerifier{}}
+		a.chain = []verifyStep{addrless(stubVerifier{err: notFound}), addrless(stubVerifier{err: expired}), addrless(stubVerifier{})}
 		if _, err := a.Authenticate(bearerRequest("")); !errors.Is(err, ErrSessionNotFound) || errors.Is(err, ErrSessionExpired) {
 			t.Errorf("Authenticate error = %v, want the first unusable error (ErrSessionNotFound)", err)
 		}
@@ -547,7 +547,7 @@ func TestPresentedButUnusable(t *testing.T) {
 			var later atomic.Int32
 			a := mustAuthenticator(t, newFakeSessionStore(), Config{})
 			grant := Principal{User: &User{ID: 1, Enabled: true}, Method: "custom"}
-			a.chain = []CredentialVerifier{stubVerifier{err: stop}, stubVerifier{p: grant, ok: true, calls: &later}}
+			a.chain = []verifyStep{addrless(stubVerifier{err: stop}), addrless(stubVerifier{p: grant, ok: true, calls: &later})}
 			if p, err := a.Authenticate(bearerRequest("")); !errors.Is(err, stop) || !isZeroPrincipal(p) {
 				t.Errorf("%s: Authenticate = (%+v, %v), want (zero, %v)", name, p, err, stop)
 			}

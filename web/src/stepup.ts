@@ -59,13 +59,10 @@ function defaultRedirect(): string {
 
 /**
  * Runs action; on an auth_recent_auth_required refusal with no reason, asks prompt for a
- * method, re-authenticates and retries action once. On the reason sign_in_again, which a
- * plain session gets, it never prompts: it runs signInAgain and retries action once on true,
- * answers cancelled on false, and with no signInAgain returns the refusal as done. Any other
- * reason (such as reenable_needs_other_method) is one a step-up cannot cure, so it is returned
- * as done. The OIDC branch navigates away and never re-runs action: the app continues from its
- * own redirect. Keeps nothing in browser storage and sends no request of its own beyond the
- * client's me and step-up routes.
+ * method, re-authenticates and retries action once. On sign_in_again it never prompts: it runs
+ * signInAgain and retries once on true, answers cancelled on false, and with no signInAgain
+ * returns the refusal as done. Any other reason is returned as done. The OIDC branch navigates
+ * away and never re-runs action. Keeps nothing in browser storage.
  */
 export async function withStepUp<T>(
   c: AuthClient,

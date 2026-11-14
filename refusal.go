@@ -194,8 +194,8 @@ func ErrorReasons() []string { return []string{ReasonTransportChanged, ReasonSig
 // ErrorFor maps an error [Authenticator.Authenticate] or [RequireRecentAuth]
 // returned to its refusal. Its Reason is empty, so the answer names no
 // stored state, except [ReasonTransportChanged] for a session presented on
-// the other transport, which the verifier has revoked, and for
-// [ErrRecentAuthRequired] the reason the refusal carries, such as
+// the other transport, which the verifier revokes when a [SessionRevoker] is
+// registered, and for [ErrRecentAuthRequired] the reason the refusal carries, such as
 // [ReasonSignInAgain]. It reports false for any other error.
 func ErrorFor(err error) (Error, bool) {
 	code, ok := authenticationCode(err)

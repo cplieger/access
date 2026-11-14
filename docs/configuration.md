@@ -47,6 +47,8 @@ The `Verifier` runs after the session cookie and before the API-key verifier, wh
 
 `Secure` is true when TLS ended at your server or at a proxy you trust. Each principal carries it as `Principal.Secure`. A resolver that leaves it false reads every request as plain HTTP.
 
+`Authenticate` calls your resolver once per request and hands that one answer to every verifier, and `accesshttp` and the gate call it again for the same request. Your resolver must give the same answer each time for one request. A resolver over a trusted-proxy list you reload at runtime can break that if a reload lands between two calls, so read the list once per request, for example into the request's context in an outer middleware.
+
 With the `github.com/cplieger/go/httpserver` resolver, v1.5.0-dev.1 or later, map its `ClientResolution` in one function:
 
 ```go
@@ -271,7 +273,7 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 | `DisablePasswordLogin` | Refuses password sign-in and step-up | false: allowed |
 | `SSOGoverned` | Makes linking an OIDC identity remove the password and passkeys; only recovery restores a local method | false |
 | `RevokeKeysOnCredentialChange` | Deletes the user's API keys, and the tokens they issued, when `SetPassword` sets or changes the password, and when an OIDC link under `SSOGoverned` migrates the account. Disabling and deleting a user always delete the keys, and a recovery does unless `RecoverOptions.KeepKeys` is set | false |
-| `HTTPSOrigin` | The app's HTTPS origin, `https://host` or `https://host:port`, which `Service.State` answers a plain request as `https_origin` so the sign-in screen can link there ([Plain HTTP](plain-http.md#what-the-screens-learn)). A link only; nothing trusts it. `Validate` refuses any other scheme, user info, a path (`/` included), a query and a fragment | empty: none |
+| `HTTPSOrigin` | The app's HTTPS origin, `https://host` or `https://host:port`, which `Service.State` answers a plain request as `https_origin` so the sign-in screen can link there ([Plain HTTP](plain-http.md#what-the-screens-learn)). A link only; nothing trusts it. `Validate` refuses any other scheme, user info, a host that is not a hostname or IP address, an invalid port, the default port `:443`, an uppercase host, a path (`/` included), a query and a fragment | empty: none |
 
 An app may refuse a sign-in method in its own gate before `account` sees the attempt. `Rules` has no sign-in hook for that, and `MethodUsable` keeps the last-method guard from counting a method the app refuses.
 

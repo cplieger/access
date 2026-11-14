@@ -39,6 +39,8 @@ func TestParseOrigin_accepts(t *testing.T) {
 		{name: "ipv6_rebracketed", raw: "https://[::1]:8443", wantStr: "https://[::1]:8443", wantHost: "::1"},
 		{name: "ipv6_uncanonical_form_kept_verbatim", raw: "https://[0:0:0:0:0:0:0:1]", wantStr: "https://[0:0:0:0:0:0:0:1]", wantHost: "0:0:0:0:0:0:0:1"},
 		{name: "ipv4_kept_verbatim", raw: "https://127.0.0.001", wantStr: "https://127.0.0.001", wantHost: "127.0.0.001"},
+		{name: "underscore_label", raw: "https://my_app.lan", wantStr: "https://my_app.lan", wantHost: "my_app.lan"},
+		{name: "ipv6_bracketed", raw: "https://[2001:db8::1]", wantStr: "https://[2001:db8::1]", wantHost: "2001:db8::1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -90,6 +92,11 @@ func TestParseOrigin_refuses(t *testing.T) {
 		{name: "empty_label", raw: "https://sub..example.com", want: RejectEmptyLabel},
 		{name: "leading_dot", raw: "https://.example.com", want: RejectEmptyLabel},
 		{name: "non_ascii_host", raw: "https://ex\u00e4mple.com", want: RejectNonASCII},
+		{name: "host_dquote", raw: `https://example.com"x`, want: RejectMalformed},
+		{name: "host_angle", raw: "https://example.com<x", want: RejectMalformed},
+		{name: "host_bracket", raw: "https://example.com]x", want: RejectMalformed},
+		{name: "host_quote", raw: "https://a'b.example.com", want: RejectMalformed},
+		{name: "ipv6_zone", raw: "https://[fe80::1%25eth0]", want: RejectMalformed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

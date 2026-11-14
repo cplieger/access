@@ -48,10 +48,11 @@ type Config struct {
 	TimeoutSource func() SessionTimeouts
 	// ClientAddr is the app's one client resolver, served by
 	// [Authenticator.ClientAddr]. Its answer's Via says how the request
-	// arrived. Nil treats no peer as a proxy: Peer is r.RemoteAddr's
-	// address, unmapped, Secure is r.TLS != nil, and Via is [ViaDirect], or
-	// [ViaUntrustedForwarding] when Forwarded, X-Forwarded-For, X-Real-IP or
-	// X-Forwarded-Proto is present.
+	// arrived. Authenticate calls it once per request and accesshttp and gate
+	// call it again, so it must answer the same for one request. Nil treats
+	// no peer as a proxy: Peer is r.RemoteAddr's address, unmapped, Secure is
+	// r.TLS != nil, and Via is [ViaDirect], or [ViaUntrustedForwarding] when
+	// Forwarded, X-Forwarded-For, X-Real-IP or X-Forwarded-Proto is present.
 	ClientAddr func(*http.Request) ClientAddr
 	// Verifier runs between the built-in session and API-key verifiers. The
 	// API-key verifier refuses every Bearer value it cannot find, so a

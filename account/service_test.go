@@ -244,6 +244,15 @@ func TestRulesValidate(t *testing.T) {
 		"origin_upper_scheme":   {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "HTTPS://grelot.example"}},
 		"origin_unparsable":     {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example:port"}},
 		"origin_no_scheme":      {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "grelot.example"}},
+		"origin_host_dquote":    {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: `https://grelot.example"x`}},
+		"origin_host_angle":     {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example<x"}},
+		"origin_host_bracket":   {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example]x"}},
+		"origin_port_zero":      {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example:0"}},
+		"origin_port_range":     {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example:99999"}},
+		"origin_empty_port":     {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example:"}},
+		"origin_default_port":   {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example:443"}},
+		"origin_dot_host":       {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://."}},
+		"origin_upper_host":     {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://Grelot.example"}},
 	} {
 		err := tc.r.Validate()
 		var re *account.RulesError

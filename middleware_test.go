@@ -766,3 +766,26 @@ func TestPostureSecureRefusesPlain(t *testing.T) {
 		})
 	}
 }
+
+// TestAuthenticateResolvesOnce pins that Authenticate asks the resolver
+// once and every verifier reads that answer: a resolver whose second answer
+// differs cannot make a plain session pass the binding check and be
+// stamped Secure from the first.
+func TestAuthenticateResolvesOnce(t *testing.T) {
+	t.Parallel()
+	perRequest := CookieConfig{Posture: PosturePerRequest}
+	var calls atomic.Int32
+	flipping := func(r *http.Request) ClientAddr {
+		first := calls.Add(1) == 1
+		return ClientAddr{Peer: netip.MustParseAddrPort(r.RemoteAddr).Addr(), Via: ViaDirect, Secure: first}
+	}
+	s := &Session{ID: "s", CreatedAt: sessionT0, LastActivity: sessionT0}
+	a, _, _, token := clockedSession(t, s, Config{Cookie: perRequest, ClientAddr: flipping})
+	p, err := a.Authenticate(transportRequest(t.Context(), perRequest, "http://app.example/", false, token))
+	if n := calls.Load(); n != 1 {
+		t.Errorf("resolver calls = %d, want 1", n)
+	}
+	if !errors.Is(err, ErrUnauthenticated) || errors.Is(err, ErrInvalidCredential) {
+		t.Errorf("Authenticate = (%+v, %v), want bare ErrUnauthenticated: the one secure answer names the __Host- cookie, which is absent", p, err)
+	}
+}

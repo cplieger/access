@@ -33,7 +33,7 @@ type Authenticator struct {
 	// chain is sessions, Config.Verifier if set, then keys, which refuses
 	// every Bearer value it cannot find, so nothing after it would see a
 	// Bearer credential.
-	chain []CredentialVerifier
+	chain []verifyStep
 	cfg   Config
 	// bypassOn is the bypass hook's answer on the last request that asked
 	// it, so each off-to-on edge warns once.
@@ -59,15 +59,27 @@ func New(store AuthenticatorStore, cfg Config) (*Authenticator, error) { //nolin
 	a := &Authenticator{cfg: cfg, proxyWarn: warnLimiter{now: time.Now}}
 	a.sessions = &sessionVerifier{store: store, cfg: &a.cfg, now: time.Now, warn: warnLimiter{now: time.Now}, mismatchWarn: warnLimiter{now: time.Now}}
 	a.keys = &apiKeyVerifier{store: store, cfg: &a.cfg, now: time.Now, warn: warnLimiter{now: time.Now}}
-	a.chain = []CredentialVerifier{a.sessions}
+	a.chain = []verifyStep{a.sessions.verify}
 	if cfg.Verifier != nil {
-		a.chain = append(a.chain, cfg.Verifier)
+		a.chain = append(a.chain, addrless(cfg.Verifier))
 	}
-	a.chain = append(a.chain, a.keys)
+	a.chain = append(a.chain, addrless(a.keys))
 	if cfg.Bypass != nil {
 		a.cfg.log().Info("access: authentication bypass hook installed; requests are bypassed only while it reports true")
 	}
 	return a, nil
+}
+
+// verifyStep is one verifier of the chain, given the one resolver answer
+// Authenticate read for r: a verifier that resolved again could read a
+// different transport than the one Authenticate stamps on the principal.
+type verifyStep func(ctx context.Context, r *http.Request, ca ClientAddr) (Principal, bool, error)
+
+// addrless runs v, which reads no client address, as a chain step.
+func addrless(v CredentialVerifier) verifyStep {
+	return func(ctx context.Context, r *http.Request, _ ClientAddr) (Principal, bool, error) {
+		return v.Verify(ctx, r)
+	}
 }
 
 // syntheticAdminUser is the VALUE copied for each request the configured
@@ -105,8 +117,8 @@ func (a *Authenticator) Authenticate(r *http.Request) (Principal, error) {
 
 	ctx := r.Context()
 	var unusable error
-	for _, v := range a.chain {
-		p, ok, err := v.Verify(ctx, r)
+	for _, verify := range a.chain {
+		p, ok, err := verify(ctx, r, ca)
 		switch {
 		case err == nil:
 		case errors.Is(err, ErrInvalidCredential), errors.Is(err, ErrAuthBackend):

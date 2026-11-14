@@ -56,12 +56,11 @@ func (a *Authenticator) UseSessionRevoker(r SessionRevoker) error {
 	return nil
 }
 
-// Verify grants the session the request's one session cookie names. No
-// cookie, or more than one, is not its credential. A session whose Secure
-// differs from the request's is refused with [ErrSessionTransport] and
-// revoked.
-func (v *sessionVerifier) Verify(ctx context.Context, r *http.Request) (Principal, bool, error) {
-	ca := v.cfg.ClientAddr(r)
+// verify grants the session the request's one session cookie names, read
+// for ca's transport. No cookie, or more than one, is not its credential. A
+// session whose Secure differs from ca's is refused with
+// [ErrSessionTransport] and revoked.
+func (v *sessionVerifier) verify(ctx context.Context, r *http.Request, ca ClientAddr) (Principal, bool, error) {
 	token := v.cfg.Cookie.ReadCookie(r, ca.Secure)
 	if token == "" {
 		return Principal{}, false, nil

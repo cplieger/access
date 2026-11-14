@@ -3,6 +3,7 @@ package webauthn
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -126,9 +127,10 @@ func (r OriginRejection) clause() string {
 // ParseOrigin parses a browser origin as a browser serializes it, typically an
 // Origin request header; the error is a *[OriginError]. It applies only the
 // normalizations the response comparison also applies (ASCII case folding,
-// default-port elision) and refuses a trailing dot, an empty label or a non-ASCII
-// host, keeping an IP literal as written. A repair would turn a refusal before
-// the authenticator prompt into a mismatch after it.
+// default-port elision) and refuses a trailing dot, an empty label, a non-ASCII
+// host and one that is neither a hostname nor an IP address, keeping an IP
+// literal as written. A repair would turn a refusal before the authenticator
+// prompt into a mismatch after it.
 func ParseOrigin(raw string) (Origin, error) {
 	o, err := parseOrigin(raw)
 	if err != nil {
@@ -167,7 +169,9 @@ func parseOrigin(raw string) (Origin, *OriginError) {
 }
 
 // parseHost lowercases the host and refuses the three shapes no relying-party
-// ID can ever cover, each with its own reason; "" means accepted.
+// ID can ever cover, each with its own reason, then any host that is neither
+// a hostname nor an IP literal; "" means accepted. url.Parse keeps a host
+// holding '"', '<' or ']', which RFC 3986 section 3.2.2 does not allow.
 func parseHost(raw string) (string, OriginRejection) {
 	host := strings.ToLower(raw)
 	switch {
@@ -179,8 +183,35 @@ func parseHost(raw string) (string, OriginRejection) {
 		return "", RejectEmptyLabel
 	case !isASCII(host):
 		return "", RejectNonASCII
+	case !isHostname(host) && !isIPLiteral(host):
+		return "", RejectMalformed
 	}
 	return host, ""
+}
+
+// isHostname reports whether host is dot-separated, non-empty labels of
+// ASCII letters, digits, '-' and '_', the last of which WHATWG URL's domain
+// parsing admits (https://url.spec.whatwg.org/#forbidden-domain-code-point).
+func isHostname(host string) bool {
+	for label := range strings.SplitSeq(host, ".") {
+		if label == "" {
+			return false
+		}
+		for i := range len(label) {
+			c := label[i]
+			if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// isIPLiteral reports whether host is an IP address with no zone, which an
+// origin cannot carry.
+func isIPLiteral(host string) bool {
+	a, err := netip.ParseAddr(host)
+	return err == nil && a.Zone() == ""
 }
 
 // parsePort returns the port to carry, "" for the scheme's default, and false

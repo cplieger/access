@@ -3,12 +3,13 @@ package account
 import (
 	"context"
 	"fmt"
-	"net/url"
+	"strings"
 	"time"
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/internal/scopetoken"
 	"github.com/cplieger/access/oidc"
+	"github.com/cplieger/access/webauthn"
 )
 
 // BreachMode is what a password set does with the breached-password check.
@@ -174,17 +175,17 @@ func (r Rules) Validate() error { //nolint:gocritic // hugeParam: Rules is the v
 		return &RulesError{Field: "Provisioning", Reason: err.Error(), Err: err}
 	}
 	if r.HTTPSOrigin != "" && !isHTTPSOrigin(r.HTTPSOrigin) {
-		return &RulesError{Field: "HTTPSOrigin", Reason: fmt.Sprintf("%q is not an https origin with no path, query or fragment", r.HTTPSOrigin)}
+		return &RulesError{Field: "HTTPSOrigin", Reason: fmt.Sprintf("%q is not an https origin in its canonical form, https://host or https://host:port", r.HTTPSOrigin)}
 	}
 	return nil
 }
 
-// isHTTPSOrigin reports whether s is an https origin's serialisation, which
-// has no user info, path, query or fragment (RFC 6454 section 6.1): comparing
-// it to its rebuilt form refuses a bare trailing "/", "?" or "#" too.
+// isHTTPSOrigin reports whether s is an https origin's canonical
+// serialisation (RFC 6454 section 6.2): lowercase, with no default port, path,
+// query or fragment.
 func isHTTPSOrigin(s string) bool {
-	u, err := url.Parse(s)
-	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil && s == "https://"+u.Host
+	o, err := webauthn.ParseOrigin(s)
+	return err == nil && strings.HasPrefix(s, "https://") && o.String() == s
 }
 
 // withDefaults returns r with each zero field that has a default set to it.
