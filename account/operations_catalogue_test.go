@@ -18,6 +18,7 @@ var notOperations = map[string]string{
 	"Authenticator":           "accessor of Config.Authenticator",
 	"OIDCProvider":            "accessor resolving Config.OIDC; reads no store",
 	"AdmitOIDC":               "per-request rate-limit admission returning the provider; reads no store (TestAdmitOIDC)",
+	"AdmitOIDCSession":        "per-request admission returning the provider; reads no store (TestAdmitOIDCSession)",
 	"RequireAdminScope":       "principal guard for accesshttp's key_scope class; reads no store",
 	"RequireKeyPermission":    "principal guard for accesshttp's key_permission class; reads no store",
 	"RequireRecentAuth":       "principal guard for accesshttp's recent_auth class; reads no store",

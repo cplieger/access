@@ -12,12 +12,16 @@ import (
 )
 
 // AdmitOIDC is an anonymous OIDC request's one provider read, for the
-// sign-in start and the callback: ErrServiceClosed, then ErrOIDCUnavailable
-// for a nil OIDC(), both charging nothing, then Limiter.Request on c's IP
+// sign-in start and the callback: ErrServiceClosed, then
+// access.ErrHTTPSRequired for a plain c, then ErrOIDCUnavailable for a nil
+// OIDC(), each charging nothing, then Limiter.Request on c's IP
 // (*ratelimit.RefusedError), else the provider for the whole request.
 func (s *Service) AdmitOIDC(c Client) (*oidc.Provider, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	if s.closed.Load() {
 		return nil, ErrServiceClosed
+	}
+	if err := s.transport(plainRefused, c.Secure); err != nil {
+		return nil, err
 	}
 	p := s.OIDCProvider()
 	if p == nil {
@@ -29,16 +33,35 @@ func (s *Service) AdmitOIDC(c Client) (*oidc.Provider, error) { //nolint:gocriti
 	return p, nil
 }
 
+// AdmitOIDCSession is a session-bound OIDC start's one provider read, for
+// a link or a step-up by p from c: ErrServiceClosed, then
+// access.ErrHTTPSRequired unless c and p are both secure, then
+// ErrOIDCUnavailable for a nil OIDC(), else the provider for the whole
+// request. It charges no limiter.
+func (s *Service) AdmitOIDCSession(c Client, p access.Principal) (*oidc.Provider, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
+	if s.closed.Load() {
+		return nil, ErrServiceClosed
+	}
+	if err := s.transport(plainRefused, c.Secure && p.Secure); err != nil {
+		return nil, err
+	}
+	provider := s.OIDCProvider()
+	if provider == nil {
+		return nil, ErrOIDCUnavailable
+	}
+	return provider, nil
+}
+
 // OIDCComplete completes the callback oidc.Provider.Finish returned, after
-// AdmitOIDC admitted it and returned that provider; OIDCComplete charges no
-// limiter. A
-// nil OIDC() is ErrOIDCUnavailable; the outcome carries flow.Redirect. A
-// sign-in signs in the linked user (disabled: ErrInvalidCredentials) or one
-// Rules.Provisioning admits, else gives one same OutcomeNotLinked. A link
-// begun within RecentAuth, or a step-up of the linked identity (else
-// ErrInvalidCredentials), needs flow's live full session (else ErrSessionGone).
+// AdmitOIDC admitted it and returned that provider, charging no limiter. A
+// plain c is access.ErrHTTPSRequired and a nil OIDC() ErrOIDCUnavailable; the
+// outcome carries flow.Redirect. A sign-in signs in the linked user (disabled:
+// ErrInvalidCredentials) or one Rules.Provisioning admits, else gives one same
+// OutcomeNotLinked. A link begun within RecentAuth, or a step-up of the linked
+// identity (else ErrInvalidCredentials), needs flow's live full session (else
+// ErrSessionGone).
 func (s *Service) OIDCComplete(ctx context.Context, c Client, flow oidc.Flow, claims oidc.Claims) (OIDCOutcome, error) { //nolint:gocritic // hugeParam: the callback's Client, Flow and Claims, read once
-	r, err := s.begin()
+	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {
 		return OIDCOutcome{}, err
 	}
@@ -266,15 +289,15 @@ func sessionActor(u *access.User, sess *access.Session) Actor {
 }
 
 // LinkPendingOIDC links pending's identity to p's own user (a full session
-// within RecentAuth) in one Update that re-reads the user, rotates p's
-// session into Issued and reads the returned Me, so a failed read rolls the
-// link back. No identity is ErrNotFound, a disabled user ErrSessionGone, a
-// linked user ErrAlreadyLinked, an identity of another user
-// ErrOIDCIdentityTaken. Under Rules.SSOGoverned the link migrates the
-// account: Policy (OpMigrateToSSO), then the password, the passkeys, the
-// other sessions and, under RevokeKeysOnCredentialChange, the keys go.
+// within RecentAuth; plain: access.ErrHTTPSRequired) in one Update that
+// re-reads the user, rotates p's session into Issued and reads the returned Me,
+// so a failed read rolls the link back. No identity is ErrNotFound, a disabled
+// user ErrSessionGone, a linked user ErrAlreadyLinked, an identity of another
+// user ErrOIDCIdentityTaken. Under Rules.SSOGoverned the link migrates the
+// account: Policy (OpMigrateToSSO), then the password, the passkeys, the other
+// sessions and, under RevokeKeysOnCredentialChange, the keys go.
 func (s *Service) LinkPendingOIDC(ctx context.Context, p access.Principal, pending PendingLink) (Issued, Me, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	r, err := s.beginRecentSession(p)
+	r, err := s.beginRecentSession(plainRefused, p.Secure, p)
 	if err != nil {
 		return Issued{}, Me{}, err
 	}
@@ -408,7 +431,7 @@ func (s *Service) addLinked(j *journal, l *linked) {
 // removal that leaves no method able to sign the user in now ErrLastMethod,
 // both with nothing written.
 func (s *Service) UnlinkOIDC(ctx context.Context, p access.Principal) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	r, err := s.beginRecentSession(p)
+	r, err := s.beginRecentSession(plainAllowed, p.Secure, p)
 	if err != nil {
 		return err
 	}

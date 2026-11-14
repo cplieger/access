@@ -36,6 +36,26 @@ func operationScenarios() map[scenarioKey]scenario {
 	maps.Copy(out, oidcScenarios())
 	maps.Copy(out, selfScenarios())
 	maps.Copy(out, adminScenarios())
+	maps.Copy(out, plainScenarios())
+	return out
+}
+
+// plainScenarios are the anonymous routes whose operation refuses a plain
+// request under the env's PostureSecure: each one's census request without
+// TLS.
+func plainScenarios() map[scenarioKey]scenario {
+	out := map[scenarioKey]scenario{}
+	for _, route := range []string{
+		"authSetupPassword", "authSetupPasskeyBegin", "authSetupPasskeyFinish", "authLoginPassword", "authLoginPasskeyBegin",
+		"authLoginPasskeyFinish", "authRecoveryStart", "authInviteAcceptPassword", "authOIDCStartSignIn", "authOIDCCallback",
+	} {
+		out[scenarioKey{route, access.CodeHTTPSRequired}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+			rt := e.route(t, route)
+			r := requestFor(rt, censusPathValue(t, rt), censusBody(t, rt))
+			r.TLS = nil
+			return r
+		}}
+	}
 	return out
 }
 

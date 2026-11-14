@@ -50,10 +50,14 @@ func censusPrincipals() []censusPrincipal {
 	}
 }
 
-// censusAnswer is the census cell for a principal calling an operation of
-// class directly, with the three scopes set or empty: nil where the call
-// goes through.
-func censusAnswer(class opClass, scoped bool, who string) error {
+// censusAnswer is the census cell for a principal calling op directly in a
+// PostureSecure world, with the three scopes set or empty: nil where the
+// call goes through. The zero principal is plain, so an operation refusing
+// plain HTTP there refuses it first.
+func censusAnswer(op *operation, scoped bool, who string) error {
+	if who == "zero" && plainRefusedUnder(op, access.PostureSecure) {
+		return access.ErrHTTPSRequired
+	}
 	sessionAnswer := func(passes ...string) error {
 		switch {
 		case slices.Contains(passes, who):
@@ -74,7 +78,7 @@ func censusAnswer(class opClass, scoped bool, who string) error {
 		}
 		return session
 	}
-	switch class {
+	switch op.class {
 	case classSession:
 		return sessionAnswer("full", "recent", "recent_user")
 	case classRecentAuth:
@@ -141,7 +145,7 @@ func TestDirectCensusMatrix(t *testing.T) {
 					for _, who := range censusPrincipals() {
 						p := who.make(t, w)
 						call := op.prep(t, w, p)
-						want := censusAnswer(op.class, scoped, who.name)
+						want := censusAnswer(&op, scoped, who.name)
 						err := call.run(t.Context())
 						switch {
 						case want == nil && err != nil:

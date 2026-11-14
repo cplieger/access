@@ -16,16 +16,16 @@ type SetupPasskey struct {
 	Origin   webauthn.Origin
 }
 
-// SetupPasskeyBegin starts creating the first account, an admin signing in
-// with a passkey. A nil RP() is ErrPasskeysUnavailable; then, as
-// SetupWithPassword, a user present is ErrSetupComplete, a missing or
-// invalid token where Rules.SetupTokenRequired asks for one
-// ErrSetupTokenRequired or access.ErrTokenInvalid, and a refused name
-// *UsernameError. Only a call past those refusals counts against c's IP
-// request limit (*ratelimit.RefusedError). The token is only peeked; the
-// finish spends it.
+// SetupPasskeyBegin starts creating the first account, an admin signing in with
+// a passkey. A plain c is access.ErrHTTPSRequired and a nil RP()
+// ErrPasskeysUnavailable; then, as SetupWithPassword, a user present is
+// ErrSetupComplete, a missing or invalid token where Rules.SetupTokenRequired
+// asks for one ErrSetupTokenRequired or access.ErrTokenInvalid, and a refused
+// name *UsernameError. Only a call past those refusals counts against c's IP
+// request limit (*ratelimit.RefusedError). The token is only peeked; the finish
+// spends it.
 func (s *Service) SetupPasskeyBegin(ctx context.Context, c Client, in SetupPasskey) (PendingCeremony, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
-	r, err := s.begin()
+	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {
 		return PendingCeremony{}, err
 	}
@@ -57,14 +57,15 @@ func (s *Service) SetupPasskeyBegin(ctx context.Context, c Client, in SetupPassk
 	return PendingCeremony{ID: id, Creation: creation}, nil
 }
 
-// SetupPasskeyFinish verifies the attestation of the setup ceremonyID
-// began, then in one Update spends the token the begin peeked, asks the
-// Policy (OpCreateUser, ViaSetup), and creates the admin, its passkey and a
-// full session. A concurrent setup that won is ErrSetupComplete or
-// access.ErrTokenInvalid, with nothing written. An unknown, spent, expired or
-// other ceremony is ErrCeremonyInvalid.
+// SetupPasskeyFinish verifies the attestation of the setup ceremonyID began,
+// then in one Update spends the token the begin peeked, asks the Policy
+// (OpCreateUser, ViaSetup), and creates the admin, its passkey and a full
+// session. A concurrent setup that won is ErrSetupComplete or
+// access.ErrTokenInvalid, with nothing written. A plain c is
+// access.ErrHTTPSRequired, and an unknown, spent, expired or other ceremony
+// ErrCeremonyInvalid.
 func (s *Service) SetupPasskeyFinish(ctx context.Context, c Client, ceremonyID string, body io.Reader) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client, read once
-	r, err := s.begin()
+	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {
 		return SignedIn{}, err
 	}

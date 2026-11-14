@@ -33,6 +33,7 @@ var accountSentinels = []struct {
 }{
 	{name: "invalid_credentials", err: account.ErrInvalidCredentials, code: access.CodeInvalidCredentials},
 	{name: "recent_auth", err: access.ErrRecentAuthRequired, code: access.CodeRecentAuthRequired},
+	{name: "https_required", err: access.ErrHTTPSRequired, code: access.CodeHTTPSRequired},
 	{name: "session_required", err: account.ErrSessionRequired, code: access.CodeSessionRequired},
 	{name: "scope_required", err: account.ErrScopeRequired, code: access.CodeScopeRequired},
 	{name: "policy", err: &account.PolicyError{Op: account.OpCreateUser, Reason: account.ReasonAdminTarget}, code: access.CodeForbidden},

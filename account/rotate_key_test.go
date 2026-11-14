@@ -199,8 +199,7 @@ func TestRotateAPIKey(t *testing.T) {
 			"bypass":           account.As(w.f.bypassPrincipal(t)),
 			"custom":           account.As(w.f.customPrincipal(t, access.MethodAPIKey, w.key.Key.ID, scopeKeys)),
 			"recovery_session": account.As(w.f.sessionPrincipal(t, w.alice, access.SessionRecovery, time.Now())),
-			"zero_principal":   account.As(access.Principal{}),
-			"zero_actor":       {},
+			"zero_principal":   account.As(access.Principal{Secure: true}),
 		} {
 			t.Run(name, func(t *testing.T) {
 				w.fs.resetRecord()
@@ -212,6 +211,15 @@ func TestRotateAPIKey(t *testing.T) {
 				}
 			})
 		}
+		t.Run("zero_actor", func(t *testing.T) {
+			w.fs.resetRecord()
+			if _, err := w.f.svc.RotateAPIKey(t.Context(), account.Actor{}, w.key.Key.ID); !errors.Is(err, access.ErrHTTPSRequired) {
+				t.Errorf("RotateAPIKey by the zero Actor, which is plain = %v, want access.ErrHTTPSRequired", err)
+			}
+			if calls := w.fs.recorded(); len(calls) != 0 {
+				t.Errorf("store calls before the refusal = %v, want none", calls)
+			}
+		})
 		w.unchanged(t)
 	})
 	t.Run("stale_session", func(t *testing.T) {

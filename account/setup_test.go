@@ -984,10 +984,12 @@ func TestSetupLocality(t *testing.T) {
 			r.SetupTokenRequired = account.SetupLocality{Local: loopbackOnly}.TokenRequired
 		}), edit: withBusyHasher(t)})
 		in := account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)}
-		if _, err := f.svc.SetupWithPassword(t.Context(), account.Client{ClientAddr: loopback, Host: "localhost:8080"}, in); !errors.Is(err, access.ErrHashBusy) {
+		secure := loopback
+		secure.Secure = true
+		if _, err := f.svc.SetupWithPassword(t.Context(), account.Client{ClientAddr: secure, Host: "localhost:8080"}, in); !errors.Is(err, access.ErrHashBusy) {
 			t.Errorf("a local setup = %v, want it past the token rule", err)
 		}
-		if _, err := f.svc.SetupWithPassword(t.Context(), account.Client{ClientAddr: loopback, Host: "rebound.example"}, in); !errors.Is(err, account.ErrSetupTokenRequired) {
+		if _, err := f.svc.SetupWithPassword(t.Context(), account.Client{ClientAddr: secure, Host: "rebound.example"}, in); !errors.Is(err, account.ErrSetupTokenRequired) {
 			t.Errorf("a rebound Host = %v, want ErrSetupTokenRequired", err)
 		}
 	})
@@ -995,7 +997,7 @@ func TestSetupLocality(t *testing.T) {
 
 func TestSetupNilAlwaysAsks(t *testing.T) {
 	t.Parallel()
-	loopback := account.Client{Peer: netip.MustParseAddr("127.0.0.1"), Via: access.ViaDirect, Host: "localhost"}
+	loopback := account.Client{Peer: netip.MustParseAddr("127.0.0.1"), Via: access.ViaDirect, Host: "localhost", Secure: true}
 	f := newFixture(t, options{edit: withBusyHasher(t)})
 	in := account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)}
 	if _, err := f.svc.SetupWithPassword(t.Context(), loopback, in); !errors.Is(err, account.ErrSetupTokenRequired) {

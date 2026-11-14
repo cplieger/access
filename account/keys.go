@@ -33,16 +33,16 @@ func (m *minter) principal() access.Principal {
 	return p
 }
 
-// CreateAPIKey mints a key for userID and returns its plaintext once, for
-// OutOfBand (OpCreateKeyFor) or a principal of userID's own user that
-// RequireKeyPermission admits under CreateKeysScope (OpCreateOwnKey; another
-// user is other_user). Scopes come from Rules().Scopes (ErrUnknownScope), a
-// permission scope only on a RoleAdmin owner (permission_not_admin); Label and
-// ExpiresIn meet NewKey's rules. A key actor's parent is re-read in the Update,
-// needs its current secret (key_retiring), and bounds the child's scopes,
-// expiry and depth. Only a session actor's session rotates into Issued.
+// CreateAPIKey mints a key for userID, for OutOfBand (OpCreateKeyFor) or a
+// principal of userID's own user that RequireKeyPermission admits under
+// CreateKeysScope (OpCreateOwnKey; another user is other_user; plain:
+// access.ErrHTTPSRequired). Scopes come from Rules().Scopes (ErrUnknownScope),
+// a permission scope only on a RoleAdmin owner (permission_not_admin); Label
+// and ExpiresIn meet NewKey's rules. A key actor's parent is re-read in the
+// Update, needs its current secret (key_retiring), and bounds the child's
+// scopes, expiry and depth.
 func (s *Service) CreateAPIKey(ctx context.Context, a Actor, userID int64, in NewKey) (CreatedKey, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
-	r, err := s.begin()
+	r, err := s.beginOver(plainRefused, a.secure())
 	if err != nil {
 		return CreatedKey{}, err
 	}

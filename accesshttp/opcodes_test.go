@@ -138,6 +138,7 @@ var producerErrors = map[string]error{
 	modulePath + "/accesshttp.requestError":            &requestError{reason: "x"},
 	modulePath + ".ErrRecentAuthRequired":              access.ErrRecentAuthRequired,
 	modulePath + ".ErrHashBusy":                        access.ErrHashBusy,
+	modulePath + ".ErrHTTPSRequired":                   access.ErrHTTPSRequired,
 	modulePath + ".ErrBreachCheckUnavailable":          access.ErrBreachCheckUnavailable,
 	modulePath + ".ErrAuthBackend":                     access.ErrAuthBackend,
 	modulePath + ".ErrTokenInvalid":                    access.ErrTokenInvalid,

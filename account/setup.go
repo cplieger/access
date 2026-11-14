@@ -101,16 +101,16 @@ func (s *Service) IssueSetupToken(ctx context.Context, a Actor, ttl time.Duratio
 	return plaintext, nil
 }
 
-// SetupWithPassword creates the first account, an admin, and signs it in.
-// Every check that can refuse runs before the hash: the user count, the
-// token when Rules.SetupTokenRequired asks for one (nil: always), the
-// username and password rules, then the IP limiter. One Update then
-// consumes the token, asks the Policy (OpCreateUser, ViaSetup), creates the
-// user and the session; a concurrent setup that won makes it
-// ErrSetupComplete or access.ErrTokenInvalid, and a backend error leaves the
-// token usable.
+// SetupWithPassword creates the first account, an admin, and signs it in. Every
+// check that can refuse runs before the hash: access.ErrHTTPSRequired for a
+// plain c under access.PostureSecure, the user count, the token when
+// Rules.SetupTokenRequired asks for one (nil: always), the username and
+// password rules, then the IP limiter. One Update then consumes the token, asks
+// the Policy (OpCreateUser, ViaSetup), creates the user and the session; a
+// concurrent setup that won makes it ErrSetupComplete or
+// access.ErrTokenInvalid, and a backend error leaves the token usable.
 func (s *Service) SetupWithPassword(ctx context.Context, c Client, in SetupPassword) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
-	r, err := s.begin()
+	r, err := s.beginOver(plainPerRequest, c.Secure)
 	if err != nil {
 		return SignedIn{}, err
 	}
