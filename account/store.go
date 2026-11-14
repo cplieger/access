@@ -83,7 +83,8 @@ type KeyStore interface {
 	// session or an out-of-band actor mints (rule 17).
 	CreateAPIKey(ctx context.Context, key *access.Key) error
 	// APIKeyByHash finds the key whose KeyHash, or whose non-zero
-	// PreviousHash, equals hash; a zero hash finds nothing (rule 23).
+	// PreviousHash, equals hash, as its current record; a zero hash finds
+	// nothing (rule 23).
 	APIKeyByHash(ctx context.Context, hash access.Hash) (key *access.Key, found bool, err error)
 	ListAPIKeysByUserID(ctx context.Context, userID int64) ([]access.Key, error)
 	ListAPIKeys(ctx context.Context) ([]access.Key, error) // every user's

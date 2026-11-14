@@ -38,7 +38,8 @@ type UserReader interface {
 // APIKeyReader validates API keys (looked up by hash).
 type APIKeyReader interface {
 	// APIKeyByHash finds the key whose KeyHash, or whose non-zero
-	// PreviousHash, equals hash; a zero hash finds nothing.
+	// PreviousHash, equals hash, as its current record; a zero hash finds
+	// nothing.
 	APIKeyByHash(ctx context.Context, hash Hash) (key *Key, found bool, err error)
 }
 

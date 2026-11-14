@@ -46,6 +46,11 @@ func rotate(t *testing.T, s account.Store, k *access.Key, sec access.KeySecret) 
 	if err := s.UpdateAPIKeySecret(t.Context(), access.KeyRef{ID: k.ID, UserID: k.UserID}, sec); err != nil {
 		t.Fatalf("UpdateAPIKeySecret: %v", err)
 	}
+	applySecret(k, sec)
+}
+
+// applySecret is what a successful UpdateAPIKeySecret of sec makes of k.
+func applySecret(k *access.Key, sec access.KeySecret) {
 	k.KeyHash, k.KeyPrefix, k.KeySuffix = sec.KeyHash, sec.KeyPrefix, sec.KeySuffix
 	k.PreviousHash, k.PreviousUntil, k.LastUsedAt = sec.PreviousHash, sec.PreviousUntil, time.Time{}
 }
@@ -67,6 +72,10 @@ func keyBy(t *testing.T, s account.Store, h access.Hash) *access.Key {
 // want, or "".
 func sameKey(want, got *access.Key) string {
 	return firstDiff(reflect.ValueOf(*want), reflect.ValueOf(got), "Key")
+}
+
+func bothHashes(current, previous access.Hash) map[string]access.Hash {
+	return map[string]access.Hash{"current": current, "previous": previous}
 }
 
 // touched creates a key of userID whose current secret was used at at.
@@ -121,20 +130,39 @@ func (c *contract) staleTouch(t *testing.T) {
 		t.Errorf("rule 21: a touch carrying the superseded hash left %v, want LastUsedAt zero", got)
 	}
 	check(t, "TouchAPIKey", s.TouchAPIKey(ctx, k.ID, k.KeyHash, epoch.Add(2*time.Minute)))
-	if got := keyBy(t, s, k.KeyHash); got == nil || !got.LastUsedAt.Equal(epoch.Add(2*time.Minute)) {
-		t.Errorf("rule 21: a touch carrying the current hash left %v, want LastUsedAt t+2m", got)
+	k.LastUsedAt = epoch.Add(2 * time.Minute)
+	for name, h := range bothHashes(k.KeyHash, old) {
+		if d := sameKey(k, keyBy(t, s, h)); d != "" {
+			t.Errorf("rules 21 and 23: after a touch carrying the current hash, the %s hash finds a key differing at %s, want the touched record", name, d)
+		}
 	}
 }
 
 func (c *contract) rotateDuringOverlap(t *testing.T) {
-	s := c.store(t)
-	k := newKey(mustUser(t, s, "overlap").ID)
-	mustKey(t, s, k)
-	rotate(t, s, k, rotation(k, overlapEnd))
-	second := rotation(k, overlapEnd.Add(time.Minute))
-	rotate(t, s, k, second)
-	if d := sameKey(k, keyBy(t, s, k.KeyHash)); d != "" {
-		t.Errorf("rule 23: a rotation during an overlap left a key differing at %s, want the superseded secret as PreviousHash with the new bound", d)
+	s, ctx := c.store(t), t.Context()
+	u := mustUser(t, s, "overlap")
+	for _, w := range []struct {
+		write func(ref access.KeyRef, sec access.KeySecret) error
+		path  string
+	}{
+		{func(ref access.KeyRef, sec access.KeySecret) error {
+			return s.Update(ctx, func(tx account.Tx) error { return tx.UpdateAPIKeySecret(ctx, ref, sec) })
+		}, "inside an Update"},
+		{func(ref access.KeyRef, sec access.KeySecret) error { return s.UpdateAPIKeySecret(ctx, ref, sec) }, "in a single call"},
+	} {
+		k := newKey(u.ID)
+		mustKey(t, s, k)
+		rotate(t, s, k, rotation(k, overlapEnd))
+		second := rotation(k, overlapEnd.Add(time.Minute))
+		if err := w.write(access.KeyRef{ID: k.ID, UserID: u.ID}, second); err != nil {
+			t.Fatalf("UpdateAPIKeySecret %s: %v", w.path, err)
+		}
+		applySecret(k, second)
+		for name, h := range bothHashes(k.KeyHash, k.PreviousHash) {
+			if d := sameKey(k, keyBy(t, s, h)); d != "" {
+				t.Errorf("rule 23: after a rotation during an overlap %s, the %s hash finds a key differing at %s, want the superseded secret as PreviousHash with the new bound", w.path, name, d)
+			}
+		}
 	}
 }
 
@@ -264,20 +292,29 @@ func (c *contract) secretScopedInUpdate(t *testing.T) {
 func (c *contract) labelWrite(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
 	u := mustUser(t, s, "label")
-	k := touched(t, s, u.ID, epoch)
-	rotate(t, s, k, rotation(k, overlapEnd))
-	if err := s.UpdateAPIKeyLabel(ctx, access.KeyRef{ID: k.ID, UserID: u.ID}, "renamed"); err != nil {
-		t.Fatalf("UpdateAPIKeyLabel: %v", err)
+	for _, w := range []struct {
+		write func(ref access.KeyRef) error
+		path  string
+	}{
+		{func(ref access.KeyRef) error {
+			return s.Update(ctx, func(tx account.Tx) error { return tx.UpdateAPIKeyLabel(ctx, ref, "renamed") })
+		}, "inside an Update"},
+		{func(ref access.KeyRef) error { return s.UpdateAPIKeyLabel(ctx, ref, "renamed") }, "in a single call"},
+	} {
+		k := touched(t, s, u.ID, epoch)
+		rotate(t, s, k, rotation(k, overlapEnd))
+		if err := w.write(access.KeyRef{ID: k.ID, UserID: u.ID}); err != nil {
+			t.Fatalf("UpdateAPIKeyLabel %s: %v", w.path, err)
+		}
+		k.Label = "renamed"
+		for name, h := range bothHashes(k.KeyHash, k.PreviousHash) {
+			if d := sameKey(k, keyBy(t, s, h)); d != "" {
+				t.Errorf("rules 6 and 23: after UpdateAPIKeyLabel %s, the %s hash finds a key differing at %s, want only the label written", w.path, name, d)
+			}
+		}
 	}
-	k.Label = "renamed"
-	if d := sameKey(k, keyBy(t, s, k.KeyHash)); d != "" {
-		t.Errorf("rule 6: UpdateAPIKeyLabel changed %s, want only the label written", d)
-	}
-	if got := keyBy(t, s, k.PreviousHash); got == nil || got.ID != k.ID {
-		t.Errorf("rule 23: after UpdateAPIKeyLabel the previous hash = %v, want key %d", got, k.ID)
-	}
-	for name, ref := range map[string]access.KeyRef{"an unknown ID": {ID: 4242, UserID: u.ID}, "a zero ref": {}} {
-		if err := s.UpdateAPIKeyLabel(ctx, ref, "x"); !errors.Is(err, account.ErrNotFound) {
+	for name, bad := range map[string]access.KeyRef{"an unknown ID": {ID: 4242, UserID: u.ID}, "a zero ref": {}} {
+		if err := s.UpdateAPIKeyLabel(ctx, bad, "x"); !errors.Is(err, account.ErrNotFound) {
 			t.Errorf("rule 6: UpdateAPIKeyLabel(%s) = %v, want ErrNotFound", name, err)
 		}
 	}

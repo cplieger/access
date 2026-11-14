@@ -195,6 +195,28 @@ var variants = map[string]variant{
 		make:  memVariant(func(m *MemStore) account.Store { return &staleIndexStore{m} }),
 		fails: []string{"rule_23_key_secrets/rotation_chain"}, only: true,
 	},
+	"previous-hash-reads-stale-record": {
+		make: memVariant(func(m *MemStore) account.Store {
+			return &previousSnapshotStore{MemStore: m, prev: map[access.HashKey]access.Key{}}
+		}),
+		fails: []string{"rule_23_key_secrets/stale_touch", "rule_23_key_secrets/label_write"}, only: true,
+	},
+	"overlap-rotation-keeps-stale-previous": {
+		make: memVariant(func(m *MemStore) account.Store {
+			return &overlapRotationStore{MemStore: m, prev: map[access.HashKey]access.Key{}}
+		}),
+		fails: []string{"rule_23_key_secrets/rotate_during_overlap"}, only: true,
+	},
+	"tx-overlap-rotation-keeps-stale-previous": {
+		make: memVariant(func(m *MemStore) account.Store {
+			return &overlapRotationStore{MemStore: m, prev: map[access.HashKey]access.Key{}, viaTx: true}
+		}),
+		fails: []string{"rule_23_key_secrets/rotate_during_overlap"}, only: true,
+	},
+	"tx-label-drops-previous": {
+		make:  memVariant(func(m *MemStore) account.Store { return &txLabelDropsPreviousStore{m} }),
+		fails: []string{"rule_23_key_secrets/label_write"}, only: true,
+	},
 	"secret-ignores-owner": {
 		make:  memVariant(func(m *MemStore) account.Store { return &ownerlessSecretStore{m} }),
 		fails: []string{"rule_06_scoping/wrong_owner", "rule_23_key_secrets/secret_scoped_in_update"}, only: true,
@@ -851,6 +873,100 @@ func (s *staleIndexStore) UpdateAPIKeySecret(ctx context.Context, ref access.Key
 	return edit(s.MemStore, func(st *state) { st.keyHashes[before.PreviousHash.Key()] = ref.ID })
 }
 
+// previousSnapshotStore keeps, under a rotated key's previous hash, the
+// record as the rotation wrote it, so a later touch or label write shows
+// through the current hash alone: a store that indexes records by hash and
+// re-indexes only KeyHash on a write.
+type previousSnapshotStore struct {
+	*MemStore
+	mu   sync.Mutex
+	prev map[access.HashKey]access.Key
+}
+
+func (s *previousSnapshotStore) UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, sec access.KeySecret) error {
+	if err := s.MemStore.UpdateAPIKeySecret(ctx, ref, sec); err != nil {
+		return err
+	}
+	after := s.snap.Load().keys[ref.ID]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.prev[sec.PreviousHash.Key()] = *after.Clone()
+	return nil
+}
+
+func (s *previousSnapshotStore) APIKeyByHash(ctx context.Context, h access.Hash) (*access.Key, bool, error) {
+	return servePrevious(ctx, s.MemStore, &s.mu, s.prev, h)
+}
+
+// overlapRotationStore keeps, under the hash a rotation during an overlap
+// supersedes, the record as it stood while that hash was current: its
+// KeyHash still names the superseded secret. With viaTx it does so only
+// for a rotation inside an Update, else only for the single call.
+type overlapRotationStore struct {
+	*MemStore
+	prev  map[access.HashKey]access.Key
+	mu    sync.Mutex
+	viaTx bool
+}
+
+func (s *overlapRotationStore) keep(before access.Key, sec access.KeySecret) {
+	if before.PreviousHash.IsZero() {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.prev[sec.PreviousHash.Key()] = *before.Clone()
+}
+
+func (s *overlapRotationStore) UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, sec access.KeySecret) error {
+	before := s.snap.Load().keys[ref.ID]
+	if err := s.MemStore.UpdateAPIKeySecret(ctx, ref, sec); err != nil || s.viaTx {
+		return err
+	}
+	s.keep(before, sec)
+	return nil
+}
+
+func (s *overlapRotationStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	if !s.viaTx {
+		return s.MemStore.Update(ctx, fn)
+	}
+	return s.MemStore.Update(ctx, func(tx account.Tx) error { return fn(overlapRotationTx{tx.(*memTx), s}) })
+}
+
+type overlapRotationTx struct {
+	*memTx
+	store *overlapRotationStore
+}
+
+func (t overlapRotationTx) UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, sec access.KeySecret) error {
+	before := t.s.keys[ref.ID]
+	if err := t.memTx.UpdateAPIKeySecret(ctx, ref, sec); err != nil {
+		return err
+	}
+	t.store.keep(before, sec)
+	return nil
+}
+
+func (s *overlapRotationStore) APIKeyByHash(ctx context.Context, h access.Hash) (*access.Key, bool, error) {
+	return servePrevious(ctx, s.MemStore, &s.mu, s.prev, h)
+}
+
+// servePrevious answers a lookup that matched a key's previous hash with
+// the copy prev holds for that hash.
+func servePrevious(ctx context.Context, m *MemStore, mu *sync.Mutex, prev map[access.HashKey]access.Key, h access.Hash) (*access.Key, bool, error) {
+	k, found, err := m.APIKeyByHash(ctx, h)
+	if err != nil || !found || k.KeyHash.Equal(h) {
+		return k, found, err
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if snap, ok := prev[h.Key()]; ok {
+		return snap.Clone(), true, nil
+	}
+	return k, true, nil
+}
+
 // ownerlessSecretStore rotates a key whatever ref.UserID names, in a
 // single call and inside an Update.
 type ownerlessSecretStore struct{ *MemStore }
@@ -928,4 +1044,25 @@ func (s *labelDropsPreviousStore) UpdateAPIKeyLabel(ctx context.Context, ref acc
 		func(_ access.Key, after *access.Key) {
 			after.PreviousHash, after.PreviousUntil = access.Hash{}, time.Time{}
 		})
+}
+
+// txLabelDropsPreviousStore drops the previous secret on a label write
+// inside an Update, and only there.
+type txLabelDropsPreviousStore struct{ *MemStore }
+
+type txLabelDropsPreviousTx struct{ *memTx }
+
+func (s *txLabelDropsPreviousStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.MemStore.Update(ctx, func(tx account.Tx) error { return fn(txLabelDropsPreviousTx{tx.(*memTx)}) })
+}
+
+func (t txLabelDropsPreviousTx) UpdateAPIKeyLabel(ctx context.Context, ref access.KeyRef, label string) error {
+	if err := t.memTx.UpdateAPIKeyLabel(ctx, ref, label); err != nil {
+		return err
+	}
+	k := t.s.keys[ref.ID]
+	t.unindexKey(ref.ID)
+	k.PreviousHash, k.PreviousUntil = access.Hash{}, time.Time{}
+	t.putKey(&k)
+	return nil
 }
