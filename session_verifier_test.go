@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cplieger/access/internal/capture"
+	"github.com/cplieger/access/internal/failreason"
 )
 
 // sessionT0 is the fixed instant the clocked session tests start from.
@@ -45,26 +46,29 @@ func sessionRequest(ctx context.Context, token string) *http.Request {
 	return withSession(r, token)
 }
 
+// TestSessionVerifierRefusals pins each refusal of a presented session
+// cookie: the sentinel a client sees, and the audit reason it carries.
 func TestSessionVerifierRefusals(t *testing.T) {
 	t.Parallel()
+	live := Session{ID: "s", CreatedAt: sessionT0, LastActivity: sessionT0}
 	for _, tt := range []struct {
-		want    error
-		session Session
-		name    string
-		token   string
+		want     error
+		session  Session
+		name     string
+		token    string
+		reason   string
+		disabled bool
 	}{
+		{name: "unknown cookie", token: "no-such-session", want: ErrSessionNotFound, reason: failreason.SessionUnknown, session: live},
 		{
-			name: "unknown cookie", token: "no-such-session", want: ErrSessionNotFound,
-			session: Session{ID: "s", CreatedAt: sessionT0, LastActivity: sessionT0},
-		},
-		{
-			name: "past idle", want: ErrSessionExpired,
+			name: "past idle", want: ErrSessionExpired, reason: failreason.SessionExpired,
 			session: Session{ID: "s", CreatedAt: sessionT0.Add(-2 * time.Hour), LastActivity: sessionT0.Add(-time.Hour - time.Nanosecond)},
 		},
 		{
-			name: "past absolute", want: ErrSessionExpired,
+			name: "past absolute", want: ErrSessionExpired, reason: failreason.SessionExpired,
 			session: Session{ID: "s", CreatedAt: sessionT0.Add(-24*time.Hour - time.Nanosecond), LastActivity: sessionT0},
 		},
+		{name: "owner disabled", want: ErrSessionNotFound, reason: failreason.AccountDisabled, session: live, disabled: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -72,9 +76,18 @@ func TestSessionVerifierRefusals(t *testing.T) {
 			if tt.token != "" {
 				token = tt.token
 			}
+			if tt.disabled {
+				store.users = map[int64]userAnswer{tt.session.UserID: {user: &User{ID: tt.session.UserID}, found: true}}
+			}
 			p, err := a.Authenticate(sessionRequest(t.Context(), token))
 			if !errors.Is(err, ErrUnauthenticated) || !errors.Is(err, tt.want) || !isZeroPrincipal(p) {
 				t.Errorf("Authenticate = (%+v, %v), want ErrUnauthenticated wrapping %v", p, err, tt.want)
+			}
+			if got := failreason.Of(err); got != tt.reason {
+				t.Errorf("reason = %q, want %q", got, tt.reason)
+			}
+			if e, ok := ErrorFor(err); !ok || e.Code != CodeSessionExpired || e.Reason != "" {
+				t.Errorf("ErrorFor = (%+v, %v), want auth_session_expired with no reason", e, ok)
 			}
 			if n := store.activities.Load(); n != 0 {
 				t.Errorf("store saw %d activity writes, want 0", n)
@@ -131,20 +144,15 @@ func TestSessionStoreErrorIs503(t *testing.T) {
 			f := newChainFixture(t)
 			tt.fail(f.store)
 			a := mustAuthenticator(t, f.store, Config{})
-			r := func() *http.Request { return withSession(bearerRequest(f.key), f.session) }
-			_, err := a.Authenticate(r())
+			_, err := a.Authenticate(withSession(bearerRequest(f.key), f.session))
 			if !errors.Is(err, ErrAuthBackend) || !errors.Is(err, down) || errors.Is(err, ErrUnauthenticated) {
 				t.Errorf("Authenticate error = %v, want ErrAuthBackend wrapping the store's error", err)
 			}
 			if n := f.store.keyReads.Load(); n != 0 {
 				t.Errorf("store saw %d key reads after the outage, want 0 (the chain stops)", n)
 			}
-			rec := httptest.NewRecorder()
-			if _, ok := a.RequireAuth(rec, r()); ok {
-				t.Fatal("RequireAuth ok = true, want false")
-			}
-			if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") != "5" {
-				t.Errorf("RequireAuth = %d with Retry-After %q, want 503 with Retry-After 5", rec.Code, rec.Header().Get("Retry-After"))
+			if e, ok := ErrorFor(err); !ok || e.Status != http.StatusServiceUnavailable || e.RetryAfter != 5*time.Second {
+				t.Errorf("ErrorFor = %+v, %t, want 503 with RetryAfter 5s", e, ok)
 			}
 		})
 	}

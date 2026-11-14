@@ -208,7 +208,7 @@ func TestCallbackRedirects(t *testing.T) {
 			rt := e.route(t, route)
 			w := b.send(rt, request(rt, jsonBody(t, RedirectRequest{Redirect: "/" + strings.Repeat("a", 512)})))
 			errs := e.errs.all()
-			if w.Code != http.StatusBadRequest || len(errs) != 1 || errs[0].Code != CodeBadRequest || errs[0].Reason != "redirect_too_long" {
+			if w.Code != http.StatusBadRequest || len(errs) != 1 || errs[0].Code != access.CodeBadRequest || errs[0].Reason != "redirect_too_long" {
 				t.Errorf("%s: status %d errors %+v, want 400 auth_bad_request redirect_too_long", route, w.Code, errs)
 			}
 			if fc := cookieNamed(w, e.flowCookieName()); fc != nil {
@@ -290,7 +290,7 @@ func TestCrossSiteOIDCStart(t *testing.T) {
 				set(r)
 				w := b.send(rt, r)
 				errs := e.errs.all()
-				if w.Code != http.StatusForbidden || len(errs) != 1 || errs[0].Code != CodeCrossOrigin {
+				if w.Code != http.StatusForbidden || len(errs) != 1 || errs[0].Code != access.CodeCrossOrigin {
 					t.Errorf("status %d errors %+v, want 403 auth_cross_origin", w.Code, errs)
 				}
 				if fc := cookieNamed(w, e.flowCookieName()); fc != nil {
@@ -332,7 +332,7 @@ func TestOIDCProviderSwap(t *testing.T) {
 		t.Errorf("OIDC off callback: Location %q Set-Cookie %v, want /signin?auth_error=auth_oidc_unavailable and none", loc, cb.Result().Cookies())
 	}
 	for _, er := range e.errs.all() {
-		if er.Code != CodeOIDCUnavailable {
+		if er.Code != access.CodeOIDCUnavailable {
 			t.Errorf("OIDC off answered %s, want auth_oidc_unavailable", er.Code)
 		}
 	}
@@ -402,7 +402,7 @@ func TestOIDCStartFloodNoState(t *testing.T) {
 		t.Errorf("the flood made %d store calls, want none", n)
 	}
 	errs := e.errs.all()
-	if len(errs) != refused || slices.ContainsFunc(errs, func(er Error) bool { return er.Code != CodeRateLimited }) {
+	if len(errs) != refused || slices.ContainsFunc(errs, func(er access.Error) bool { return er.Code != access.CodeRateLimited }) {
 		t.Errorf("%d refusals not all auth_rate_limited: %+v", len(errs), errs[:min(3, len(errs))])
 	}
 }
@@ -451,7 +451,7 @@ func TestNotLinkedIdenticalShape(t *testing.T) {
 }
 
 func TestExchangeErrorClassAudited(t *testing.T) {
-	failure := func(t *testing.T, e *env) AuditEvent {
+	failure := func(t *testing.T, e *env) access.AuditEvent {
 		t.Helper()
 		audits := e.audits.all()
 		if len(audits) != 1 || audits[0].Kind != "oidc.callback.failure" {
@@ -664,7 +664,7 @@ func TestOIDCPendingRoutes(t *testing.T) {
 			r.AddCookie(&http.Cookie{Name: e.pendingCookieName(), Value: value})
 			w := do(rt, r)
 			errs := e.errs.all()
-			if w.Code != http.StatusNotFound || len(errs) == 0 || errs[len(errs)-1].Code != CodeNotFound {
+			if w.Code != http.StatusNotFound || len(errs) == 0 || errs[len(errs)-1].Code != access.CodeNotFound {
 				t.Errorf("%s: status %d errors %+v, want 404 auth_not_found", name, w.Code, errs)
 			}
 			if len(w.Result().Cookies()) != 0 {
@@ -686,7 +686,7 @@ func TestOIDCPendingRoutes(t *testing.T) {
 		inUpdate.Store(true)
 		w := b.send(rt, request(rt, ""))
 		inUpdate.Store(false)
-		if errs := e.errs.all(); w.Code != http.StatusServiceUnavailable || len(errs) != 1 || errs[0].Code != CodeUnavailable {
+		if errs := e.errs.all(); w.Code != http.StatusServiceUnavailable || len(errs) != 1 || errs[0].Code != access.CodeUnavailable {
 			t.Errorf("status %d errors %+v, want 503 auth_unavailable", w.Code, errs)
 		}
 		if len(w.Result().Cookies()) != 0 {
@@ -707,7 +707,7 @@ func TestOIDCPendingRoutes(t *testing.T) {
 		e.linkUser(t, "alice", otherIdentity)
 		rt := e.route(t, "authOIDCLinkPending")
 		w := b.send(rt, request(rt, ""))
-		if errs := e.errs.all(); w.Code != http.StatusConflict || len(errs) != 1 || errs[0].Code != CodeAlreadyLinked {
+		if errs := e.errs.all(); w.Code != http.StatusConflict || len(errs) != 1 || errs[0].Code != access.CodeAlreadyLinked {
 			t.Errorf("status %d errors %+v, want 409 auth_already_linked", w.Code, errs)
 		}
 		if pc := cookieNamed(w, e.pendingCookieName()); pc != nil {

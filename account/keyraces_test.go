@@ -139,16 +139,16 @@ func newRaceEnv(t *testing.T, scope string, policy account.Policy) *raceEnv {
 	if scope == scopeKeys {
 		parentScopes = []string{scopeKeys, "read"}
 	}
-	e.parent = f.mint(t, account.As(e.pr), e.admin.ID, account.NewKey{Scopes: parentScopes})
+	e.parent = f.mint(t, account.As(e.pr), e.admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: parentScopes})
 	e.pr = f.sessionPrincipal(t, e.admin, access.SessionFull, time.Now())
 	kScopes := []string{scope}
 	if scope == scopeKeys {
 		kScopes = []string{scopeKeys, "read"}
 	}
-	e.k = f.mint(t, account.As(e.parent.p), e.admin.ID, account.NewKey{Scopes: kScopes, ExpiresIn: time.Hour})
+	e.k = f.mint(t, account.As(e.parent.p), e.admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: kScopes, ExpiresIn: time.Hour})
 	e.t = e.k.key.ExpiresAt
 	e.alice = mustUser(t, f.mem, "alice", access.RoleUser)
-	e.target = f.mint(t, account.OutOfBand("admin-socket"), e.alice.ID, account.NewKey{Scopes: []string{"read"}})
+	e.target = f.mint(t, account.OutOfBand("admin-socket"), e.alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 	return e
 }
 
@@ -206,7 +206,7 @@ func mintOf(scopes ...string) keyWrite {
 	return keyWrite{
 		name: "CreateAPIKey", scope: scopeKeys,
 		run: func(t *testing.T, e *raceEnv) error {
-			created, err := e.f.svc.CreateAPIKey(t.Context(), account.As(e.k.p), e.admin.ID, account.NewKey{Scopes: scopes, ExpiresIn: 30 * time.Minute})
+			created, err := e.f.svc.CreateAPIKey(t.Context(), account.As(e.k.p), e.admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: scopes, ExpiresIn: 30 * time.Minute})
 			if err == nil {
 				e.lastChild = created
 			}
@@ -293,7 +293,7 @@ var (
 	revokeAnyWrite = keyWrite{
 		name: "RevokeAnyAPIKey", scope: scopeAdmin,
 		run: func(t *testing.T, e *raceEnv) error {
-			return e.f.svc.RevokeAnyAPIKey(t.Context(), e.k.p, e.target.key.ID)
+			return e.f.svc.RevokeAnyAPIKey(t.Context(), account.As(e.k.p), e.target.key.ID)
 		},
 		produced: func(t *testing.T, e *raceEnv) int {
 			gone := !slices.Contains(keyIDs(keysOf(t, e.f.mem, e.target.key.UserID)), e.target.key.ID)
@@ -392,7 +392,7 @@ func (e *raceEnv) childExpired(t *testing.T) {
 	if _, err := e.f.bearer(t, e.lastChild.Plaintext); !errors.Is(err, access.ErrInvalidCredential) {
 		t.Errorf("the expired child at the API-key verifier = %v, want ErrInvalidCredential", err)
 	}
-	if _, err := e.f.svc.CreateAPIKey(t.Context(), account.As(e.childPrincipal), e.admin.ID, account.NewKey{Scopes: []string{"read"}, ExpiresIn: time.Minute}); reason(err) != "key_not_current" {
+	if _, err := e.f.svc.CreateAPIKey(t.Context(), account.As(e.childPrincipal), e.admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}, ExpiresIn: time.Minute}); reason(err) != "key_not_current" {
 		t.Errorf("a mint from the expired child = %v, want key_not_current", err)
 	}
 }

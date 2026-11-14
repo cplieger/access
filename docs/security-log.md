@@ -32,7 +32,8 @@ Each operation appends its entries in the order it reports its events to `OnEven
 | `passkey_removed` | change | `RemovePasskey`, and one per passkey for an OIDC link under `Rules.SSOGoverned` |
 | `oidc_linked`, `oidc_unlinked` | change | `OIDCComplete` finishing a link and `LinkPendingOIDC`; `UnlinkOIDC` |
 | `key_minted` | change | `CreateAPIKey` |
-| `key_revoked` | change | one per key: `RevokeAPIKey` and `RevokeAnyAPIKey`, with the keys minted below the revoked key; a disable through `UpdateUser`; `DeleteUser`; a recovery unless `RecoverOptions.KeepKeys` is set; and, only when `Rules.RevokeKeysOnCredentialChange` is set, `SetPassword` and an OIDC link under `Rules.SSOGoverned`. Removing a password and adding or removing a passkey revoke no key |
+| `key_rotated` | change | `RotateAPIKey`, naming the key and its owner. The end of the overlap appends nothing: it happens when a request verifies the new secret, and the key list shows it |
+| `key_revoked` | change | one per key: `RevokeAPIKey` and `RevokeAnyAPIKey`, with the keys minted below the revoked key. A `RevokeAnyAPIKey` by `account.OutOfBand(channel)` names that channel in `Event.Actor.OutOfBand`; a disable through `UpdateUser`; `DeleteUser`; a recovery unless `RecoverOptions.KeepKeys` is set; and, only when `Rules.RevokeKeysOnCredentialChange` is set, `SetPassword` and an OIDC link under `Rules.SSOGoverned`. Removing a password and adding or removing a passkey revoke no key |
 | `role_changed`, `user_disabled`, `user_enabled` | change | `UpdateUser` |
 | `user_deleted` | change | `DeleteUser` |
 | `invite_issued` | change | `CreateInvite` |
@@ -65,6 +66,8 @@ What the log records is the lock. The password locks for a name after 100 consec
 A lock that `ReenableMethod` or a recovery clears before the sweep reports it gets its `method_locked` entry in that clearing change, before the change's `method_reenabled` entries. A password check clears only the lock its own attempt set: each attempt is counted before it is compared, so the attempt that reaches the cap locks the password, and its success then removes that lock. A lock that a successful password check clears before it is reported (a sign-in, a step-up, `SetPassword` or `RemovePassword`) gets no entry, as it gets no event.
 
 To see failed attempts, and bursts that lock nothing, set `accesshttp.Config.Audit`. It reports each refusal with its IP address and reason, and you keep those records as long as you choose.
+
+`gate.Config.Audit` does the same for your own routes. It reports `gate.failure`, a refused credential, and `gate.forbidden`, a principal a route's class refuses, each with its reason ([Guarding your own routes](gate.md#the-audit)). They are request-level kinds, like the auth routes' audit events: neither is written to the security log.
 
 ## App entries
 

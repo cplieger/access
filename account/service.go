@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/internal/scopetoken"
 	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/ratelimit"
 	"github.com/cplieger/access/webauthn"
@@ -70,9 +71,9 @@ type testHooks struct {
 }
 
 // New refuses a nil Store, Policy, Authenticator, Hasher, Limiter or Rules,
-// a FailureKey that is not 32 bytes (naming the field, never the bytes), two
-// equal non-empty scopes among AdminScope, ManageUsersScope and
-// CreateKeysScope, a negative CleanupInterval, MaxPending or Log* field, and
+// a FailureKey that is not 32 bytes (naming the field, never the bytes), a
+// non-empty AdminScope, ManageUsersScope or CreateKeysScope that is not one
+// RFC 6750 scope-token, two equal non-empty ones, a negative CleanupInterval, MaxPending or Log* field, and
 // a Rules() value Rules.Validate refuses or whose breach mode lacks
 // Config.Breach. It drains the security log to its caps and LogMaxAge and
 // runs the failure-record sweep, returning either's store error, then
@@ -136,6 +137,29 @@ func newService(ctx context.Context, cfg Config, hooks testHooks) (*Service, err
 	return s, nil
 }
 
+// validateScopes refuses a set scope that is not one scope-token, and two
+// equal set scopes.
+func validateScopes(admin, users, keys string) error {
+	scopes := map[string]string{}
+	for _, f := range []struct{ name, scope string }{
+		{"AdminScope", admin},
+		{"ManageUsersScope", users},
+		{"CreateKeysScope", keys},
+	} {
+		if f.scope == "" {
+			continue
+		}
+		if !scopetoken.Valid(f.scope) {
+			return fmt.Errorf("account: Config.%s %q is not an RFC 6750 scope-token", f.name, f.scope)
+		}
+		if other, dup := scopes[f.scope]; dup {
+			return fmt.Errorf("account: Config.%s equals Config.%s; no scope may grant another", f.name, other)
+		}
+		scopes[f.scope] = f.name
+	}
+	return nil
+}
+
 func validateConfig(cfg Config) error { //nolint:gocritic // hugeParam: as New
 	for _, f := range []struct {
 		v    any
@@ -155,19 +179,8 @@ func validateConfig(cfg Config) error { //nolint:gocritic // hugeParam: as New
 	if len(cfg.FailureKey) != failureKeySize {
 		return fmt.Errorf("account: Config.FailureKey is %d bytes, want %d", len(cfg.FailureKey), failureKeySize)
 	}
-	scopes := map[string]string{}
-	for _, f := range []struct{ name, scope string }{
-		{"AdminScope", cfg.AdminScope},
-		{"ManageUsersScope", cfg.ManageUsersScope},
-		{"CreateKeysScope", cfg.CreateKeysScope},
-	} {
-		if f.scope == "" {
-			continue
-		}
-		if other, dup := scopes[f.scope]; dup {
-			return fmt.Errorf("account: Config.%s equals Config.%s; no scope may grant another", f.name, other)
-		}
-		scopes[f.scope] = f.name
+	if err := validateScopes(cfg.AdminScope, cfg.ManageUsersScope, cfg.CreateKeysScope); err != nil {
+		return err
 	}
 	if cfg.CleanupInterval < 0 {
 		return fmt.Errorf("account: Config.CleanupInterval must not be negative, got %s", cfg.CleanupInterval)

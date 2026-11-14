@@ -98,7 +98,7 @@ func (e *env) floodBegins(t *testing.T, n int, remote func(int) string) (admitte
 		}
 	}
 	errs := e.errs.all()[before:]
-	if len(errs) != refused || slices.ContainsFunc(errs, func(er Error) bool { return er.Code != CodeRateLimited }) {
+	if len(errs) != refused || slices.ContainsFunc(errs, func(er access.Error) bool { return er.Code != access.CodeRateLimited }) {
 		t.Errorf("the ErrorWriter got %+v for %d refusals, want auth_rate_limited each", errs, refused)
 	}
 	return admitted, refused
@@ -128,7 +128,7 @@ func (e *env) requireLive(t *testing.T, dev *accesstest.PasskeyDevice, admitted 
 		t.Errorf("%d of %d admitted ceremonies signed in, want MaxPending %d", signedIn, len(admitted), live)
 	}
 	errs := e.errs.all()[before:]
-	if len(errs) != invalid || slices.ContainsFunc(errs, func(er Error) bool { return er.Code != CodeCeremonyInvalid }) {
+	if len(errs) != invalid || slices.ContainsFunc(errs, func(er access.Error) bool { return er.Code != access.CodeCeremonyInvalid }) {
 		t.Errorf("the ErrorWriter got %+v for %d refused finishes, want auth_ceremony_invalid each", errs, invalid)
 	}
 }

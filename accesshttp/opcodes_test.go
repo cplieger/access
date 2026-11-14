@@ -42,7 +42,7 @@ func TestOpCodesFromProducers(t *testing.T) {
 	t.Parallel()
 	p := loadProducers(t)
 	used := make([]bool, len(refuted))
-	refutedAt := func(route string, code Code, leaf string) bool {
+	refutedAt := func(route string, code access.Code, leaf string) bool {
 		for i, r := range refuted {
 			if r.route == route && r.code == code && r.leaf == leaf {
 				used[i] = true
@@ -53,7 +53,7 @@ func TestOpCodesFromProducers(t *testing.T) {
 	}
 	for i := range specs {
 		s := &specs[i]
-		produced := map[Code]string{}
+		produced := map[access.Code]string{}
 		for _, c := range p.routeErrors(p.serveFunc(t, s)) {
 			vals, ok := values(c)
 			if !ok || len(vals) == 0 && s.cer == ceremonyNone {
@@ -72,7 +72,7 @@ func TestOpCodesFromProducers(t *testing.T) {
 				t.Errorf("%s can return %s, which the error table does not name", s.name, chainString(c))
 			}
 		}
-		listed := map[Code]bool{}
+		listed := map[access.Code]bool{}
 		for _, dc := range []DescriptorConfig{{}, {AdminScope: "a", ManageUsersScope: "u", CreateKeysScope: "k"}} {
 			class, _ := s.classFor(&dc)
 			for _, c := range slices.Concat(guardCodes(class), s.transportCodes(), opCodes[s.op]) {
@@ -107,21 +107,22 @@ func TestOpCodesFromProducers(t *testing.T) {
 
 // oidcConfigRefuted is why no validated configuration reaches an
 // oidc.ErrConfigInvalid arm of Begin or Finish.
-const oidcConfigRefuted = "Begin's and Finish's session cookie arms (oidc/flow.go:112, :162) are ruled out by access.New validating the Authenticator's cookie config (options.go:86); Begin's seal arm (oidc/flow.go:140) by NewProvider's checkFlowFits (oidc/config.go:134), which seals the largest flow under a cookie Name of at most access.MaxCookieNameBytes (cookie_config.go:303)"
+const oidcConfigRefuted = "Begin's and Finish's session-cookie Validate arms are ruled out by access.New validating the Authenticator's cookie config in Config.resolve; Begin's seal arm by NewProvider's checkFlowFits, which seals the largest flow under a cookie Name of at most access.MaxCookieNameBytes, the cap CookieConfig.Validate enforces"
 
 // refuted is each path the analysis follows that the runtime rules out: a
 // code the route's producers seem to answer, or, with leaf set, an error
 // the error table does not name, each with the invariant that rules it out.
 var refuted = []struct {
 	route, leaf, invariant string
-	code                   Code
+	code                   access.Code
 }{
-	{route: "authKeyCreate", code: CodeNotFound, invariant: "serveKeyCreate passes account.As(c.p), which is never out of band, so admitMinter picks OpCreateOwnKey (account/keys.go:105) and the ErrNotFound arm for OpCreateKeyFor (account/keys.go:168) cannot run"},
-	{route: "authOIDCStartSignIn", code: CodeBadRequest, invariant: "the sign-in query decode replaces a redirect over oidc.MaxRedirectBytes with / (accesshttp/query.go:161), so Begin's ErrRedirectTooLong (oidc/flow.go:110) cannot fire"},
-	{route: "authOIDCStartSignIn", code: CodeOIDCFailed, invariant: "serveOIDCStartSignIn begins IntentSignIn with no session or user, which BeginRequest.check accepts (oidc/flow.go:49-53), and Begin skips its Sec-Fetch-Site check for a sign-in (oidc/flow.go:118)"},
-	{route: "authOIDCStartLink", code: CodeOIDCFailed, invariant: "startSessionFlow refuses a Sec-Fetch-Site other than same-origin before Begin (accesshttp/routes_oidc.go:60) and passes the guard's session ID, 32 hex characters under maxSessionIDBytes, and user ID, which BeginRequest.check accepts (oidc/flow.go:51-53)"},
-	{route: "authOIDCStartStepUp", code: CodeOIDCFailed, invariant: "startSessionFlow refuses a Sec-Fetch-Site other than same-origin before Begin (accesshttp/routes_oidc.go:60) and passes the guard's session ID, 32 hex characters under maxSessionIDBytes, and user ID, which BeginRequest.check accepts (oidc/flow.go:51-53)"},
-	{route: "authKeyCreate", leaf: modulePath + ".ErrInvalidKeyPrefix", invariant: "begin validates the Rules value CreateAPIKey mints under (account/service.go:319), and Rules.Validate refuses a KeyPrefix access.ValidateKeyPrefix refuses (account/rules.go:136), so GenerateAPIKey (account/keys.go:54) cannot"},
+	{route: "authKeyCreate", code: access.CodeNotFound, invariant: "serveKeyCreate passes account.As(c.p), which is never out of band, so admitMinter picks OpCreateOwnKey and the ErrNotFound arm for OpCreateKeyFor in authorizeMint cannot run"},
+	{route: "authOIDCStartSignIn", code: access.CodeBadRequest, invariant: "the sign-in query decode's signInTarget replaces a redirect over oidc.MaxRedirectBytes with /, so Begin's ErrRedirectTooLong arm cannot fire"},
+	{route: "authOIDCStartSignIn", code: access.CodeOIDCFailed, invariant: "serveOIDCStartSignIn begins IntentSignIn with no session or user, which BeginRequest.check's sign-in arm accepts, and Begin skips its Sec-Fetch-Site check for a sign-in"},
+	{route: "authOIDCStartLink", code: access.CodeOIDCFailed, invariant: "startSessionFlow refuses a Sec-Fetch-Site other than same-origin before Begin and passes the guard's session ID, 32 hex characters under maxSessionIDBytes, and user ID, which BeginRequest.check's session-bound arms accept"},
+	{route: "authOIDCStartStepUp", code: access.CodeOIDCFailed, invariant: "startSessionFlow refuses a Sec-Fetch-Site other than same-origin before Begin and passes the guard's session ID, 32 hex characters under maxSessionIDBytes, and user ID, which BeginRequest.check's session-bound arms accept"},
+	{route: "authKeyCreate", leaf: modulePath + ".ErrInvalidKeyPrefix", invariant: "CreateAPIKey's begin validates the Rules value it mints under, and Rules.Validate's KeyPrefix check refuses a KeyPrefix access.ValidateKeyPrefix refuses, so GenerateAPIKey in CreateAPIKey cannot"},
+	{route: "authKeyRotate", leaf: modulePath + ".ErrInvalidKeyPrefix", invariant: "admitRotation's begin validates the Rules value RotateAPIKey generates under, and Rules.Validate's KeyPrefix check refuses a KeyPrefix access.ValidateKeyPrefix refuses, so GenerateAPIKey in RotateAPIKey cannot"},
 	{route: "authOIDCStartSignIn", leaf: modulePath + "/oidc.ErrConfigInvalid", invariant: oidcConfigRefuted},
 	{route: "authOIDCStartLink", leaf: modulePath + "/oidc.ErrConfigInvalid", invariant: oidcConfigRefuted},
 	{route: "authOIDCStartStepUp", leaf: modulePath + "/oidc.ErrConfigInvalid", invariant: oidcConfigRefuted},
@@ -153,6 +154,7 @@ var producerErrors = map[string]error{
 	modulePath + "/account.ErrKeyExpiryInvalid":        account.ErrKeyExpiryInvalid,
 	modulePath + "/account.ErrCurrentPasswordRequired": account.ErrCurrentPasswordRequired,
 	modulePath + "/account.ErrUsernameTaken":           account.ErrUsernameTaken,
+	modulePath + "/account.ErrKeyLabelTaken":           account.ErrKeyLabelTaken,
 	modulePath + "/account.ErrPasswordLoginDisabled":   account.ErrPasswordLoginDisabled,
 	modulePath + "/account.ErrSetupComplete":           account.ErrSetupComplete,
 	modulePath + "/account.ErrSetupTokenRequired":      account.ErrSetupTokenRequired,

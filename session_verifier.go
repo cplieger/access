@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/cplieger/access/internal/failreason"
 )
 
 // The session verifier's "presented but unusable" answers.
@@ -68,10 +70,10 @@ func (v *sessionVerifier) resolve(ctx context.Context, hash Hash, now time.Time)
 		return nil, nil, ts, fmt.Errorf("%w: %w", ErrAuthBackend, err)
 	}
 	if !found || sess == nil {
-		return nil, nil, ts, errSessionGone
+		return nil, nil, ts, failreason.Wrap(errSessionGone, failreason.SessionUnknown)
 	}
 	if ValidateSession(sess, ts, now) != nil {
-		return nil, nil, ts, errSessionExpired
+		return nil, nil, ts, failreason.Wrap(errSessionExpired, failreason.SessionExpired)
 	}
 	user, found, err := v.store.UserByID(ctx, sess.UserID)
 	if err != nil {
@@ -79,7 +81,7 @@ func (v *sessionVerifier) resolve(ctx context.Context, hash Hash, now time.Time)
 	}
 	if !found || user == nil || !user.Enabled {
 		v.cfg.log().Debug("access: session user missing or disabled", "session_id", sess.ID, "user_id", sess.UserID)
-		return nil, nil, ts, errSessionGone
+		return nil, nil, ts, failreason.Wrap(errSessionGone, failreason.AccountDisabled)
 	}
 	if sess.Kind == SessionRecovery && !allowsRecoverySession(ctx) {
 		return nil, nil, ts, &InvalidCredentialError{Method: sess.AuthMethod, Err: ErrRestrictedSession}

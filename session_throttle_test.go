@@ -136,7 +136,9 @@ func TestPassiveSkipsActivity(t *testing.T) {
 		t.Parallel()
 		f := newChainFixture(t)
 		a := mustAuthenticator(t, f.store, Config{})
-		passive := func(r *http.Request) *http.Request { return r.WithContext(Passive(r.Context())) }
+		// The key's first use is written even under Passive (TestPreviousSecret).
+		mustAuthenticate(t, a, bearerRequest(f.key))
+		used := f.store.writes()
 		var wg sync.WaitGroup
 		for range 32 {
 			wg.Go(func() {
@@ -149,13 +151,13 @@ func TestPassiveSkipsActivity(t *testing.T) {
 			})
 		}
 		wg.Wait()
-		if n := f.store.writes(); n != 0 {
+		if n := f.store.writes() - used; n != 0 {
 			t.Errorf("passive requests made %d writes, want 0", n)
 		}
 		mustAuthenticate(t, a, withSession(bearerRequest(""), f.session))
 		mustAuthenticate(t, a, bearerRequest(f.key))
-		if a, k := f.store.activities.Load(), f.store.touches.Load(); a != 1 || k != 1 {
-			t.Errorf("active requests made (%d activity, %d touch) writes, want (1, 1)", a, k)
+		if a, k := f.store.activities.Load(), f.store.touches.Load(); a != 1 || k != 2 {
+			t.Errorf("active requests made (%d activity, %d touch) writes, want (1, 2): the first use and this one", a, k)
 		}
 	})
 	t.Run("an expired session is still refused", func(t *testing.T) {

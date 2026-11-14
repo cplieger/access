@@ -424,7 +424,7 @@ func (c *contract) timeRoundTrip(t *testing.T) {
 	k := newKey(u.ID)
 	k.CreatedAt, k.ExpiresAt = at, at
 	mustKey(t, s, k)
-	check(t, "TouchAPIKey", s.TouchAPIKey(ctx, k.ID, at))
+	check(t, "TouchAPIKey", s.TouchAPIKey(ctx, k.ID, k.KeyHash, at))
 	gotKey, found, err := s.APIKeyByHash(ctx, k.KeyHash)
 	gotKey = mustFind(t, "APIKeyByHash", gotKey, found, err)
 	same("Key.CreatedAt", gotKey.CreatedAt)
@@ -476,7 +476,7 @@ func (c *contract) absentRows(t *testing.T) {
 	if err := s.UpdateSessionActivity(ctx, access.NewHash(fresh("nobody")), access.SessionActivity{At: epoch, IP: ipA}); err != nil {
 		t.Errorf("UpdateSessionActivity(unknown hash) = %v, want nil", err)
 	}
-	if err := s.TouchAPIKey(ctx, 4242, epoch); err != nil {
+	if err := s.TouchAPIKey(ctx, 4242, access.NewHash(fresh("nokey")), epoch); err != nil {
 		t.Errorf("TouchAPIKey(unknown key) = %v, want nil", err)
 	}
 	if got, _ := s.SessionsByUserID(ctx, 0); len(got) != 0 {

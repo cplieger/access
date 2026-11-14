@@ -105,7 +105,7 @@ func TestAuditInternalReason(t *testing.T) {
 			}
 			do(rt, request(rt, tc.body, cookies...))
 			errs, events := e.errs.all()[errsBefore:], e.audits.all()[auditsBefore:]
-			if len(errs) != 1 || errs[0].Code != CodeInvalidCredentials || errs[0].Reason != "" {
+			if len(errs) != 1 || errs[0].Code != access.CodeInvalidCredentials || errs[0].Reason != "" {
 				t.Errorf("errors %+v, want one auth_invalid_credentials with no Reason", errs)
 			}
 			if len(events) != 1 || events[0].Kind != tc.kind || events[0].Reason != "method_locked" {

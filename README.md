@@ -16,7 +16,7 @@ access is built for a Go service that owns its login pages and its database.
 - Your store keeps only the SHA-256 hash of each 256-bit random session token. The session cookie holds only the token, and the cookies that carry state are sealed with AES-256-GCM.
 - Passkey ceremonies accept only your exact origin by default, and the API exposes no go-webauthn type.
 - OIDC sign-in sends a PKCE S256 challenge, checks the ID token's nonce and keeps the flow in a sealed cookie, with nothing stored on the server.
-- API keys can carry scopes, and two permissions you grant explicitly let a key manage regular users or mint narrower keys, each act attributed to the key's whole lineage.
+- API keys can carry scopes, and two permissions you grant explicitly let a key manage regular users or mint narrower keys, each act attributed to the key's whole lineage. A key rotates to a new secret in place, and its old secret keeps working through a short overlap.
 - Every credential is an `access.Secret` or an `access.Hash`, which print as redacted wherever they are logged.
 - Sign-ins and credential, key, role and account changes append a security-log entry in the same transaction that makes the change, so the change and its record commit together, and the next failure-record sweep records each lock. The [security log](docs/security-log.md) lists what it leaves out, such as renames and failed attempts.
 
@@ -26,7 +26,8 @@ Consider [Authboss](https://github.com/aarondl/authboss) if you want ready-made 
 
 | Package | What it does |
 | --- | --- |
-| `access` | The building blocks: the `Authenticator` that guards a route, the password hasher, session and API-key tokens, cookies, `Secret`, `Hash` and `Sealer` |
+| `access` | The building blocks: the `Authenticator` that verifies a request, the refusal codes, the password hasher, session and API-key tokens, cookies, `Secret`, `Hash` and `Sealer` |
+| `access/gate` | Guards your own routes: one table of routes, each with the class of caller it admits, answered through your error writer. It needs nothing of passkeys or OIDC |
 | `account` | Sign-in, sessions, passkeys, OIDC, keys, invites, recovery, the user set and the [security log](docs/security-log.md), run over your `account.Store` |
 | `accesshttp` | Every `account` operation as a JSON route with a descriptor, for your own mux |
 | `ratelimit` | Per-IP, per-account and per-device limits on failed attempts, with trusted-device cookies |
@@ -66,6 +67,7 @@ import (
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/accesshttp"
 	"github.com/cplieger/access/accesstest"
+	"github.com/cplieger/access/gate"
 	"github.com/cplieger/access/ratelimit"
 )
 
@@ -123,18 +125,21 @@ func main() {
 	for _, rt := range routes.Routes() {
 		mux.Handle(rt.Method+" "+rt.Path, rt.Handler)
 	}
-	mux.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) {
-		p, ok := authn.RequireAuth(w, r)
-		if !ok {
-			return // RequireAuth has already answered
-		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"user": p.User.Username})
-	})
+	app, err := gate.New(gate.Config{Authenticator: authn, Errors: writeError},
+		[]gate.Route{{Name: "me", Method: http.MethodGet, Path: "/api/me", Class: gate.Session}},
+		map[string]http.Handler{"me": http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, _ := gate.Principal(r.Context()) // the session the gate admitted
+			_ = json.NewEncoder(w).Encode(map[string]string{"user": p.User.Username})
+		})})
+	if err != nil {
+		log.Fatal(err)
+	}
+	mux.Handle("/api/", app)
 	log.Fatal(http.ListenAndServe(":8080", mux))
 }
 
 // writeError renders every refusal in the app's own JSON envelope.
-func writeError(w http.ResponseWriter, _ *http.Request, e accesshttp.Error) {
+func writeError(w http.ResponseWriter, _ *http.Request, e access.Error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(e.Status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"code": string(e.Code), "reason": e.Reason, "detail": e.Detail})
@@ -150,9 +155,20 @@ func loadKey(path string) []byte {
 }
 ```
 
-`RequireAuth` returns the request's `Principal`, which names the user, the method that authenticated it, and the session or key behind it. It reads the session cookie first, then a verifier you add as `Config.Verifier`, then an `Authorization: Bearer` API key. A request it refuses gets a 401 JSON body, or a 503 when the store fails, and `Config.Unauthorized` replaces that answer.
+The gate serves `/api/me` to a signed-in session only, and answers every other request under `/api/` itself. The handler reads the request's `Principal`, which names the user, the method that authenticated it, and the session or key behind it. The `Authenticator` reads the session cookie first, then a verifier you add as `Config.Verifier`, then an `Authorization: Bearer` API key. [Guarding your own routes](docs/gate.md) explains the route classes, the codes and how to mount the gate.
 
-`accesshttp` writes no error body itself: every refusal reaches your `ErrorWriter` with a stable `Code` and `Reason`, so the envelope is yours. You may mount any subset of the routes. [Configuration](docs/configuration.md#http-handlers) explains both.
+Neither `accesshttp` nor the gate writes an error body itself: every refusal reaches your `ErrorWriter` as an `access.Error` with a stable `Code` and `Reason`, so the envelope is yours. You may mount any subset of the auth routes. [Configuration](docs/configuration.md#http-handlers) explains both.
+
+## API
+
+- `access`: `New` builds the `Authenticator` that returns a `Principal`, with the refusal types `Error`, `Code` and `ErrorWriter`, the `Hasher`, the token generators, `Secret`, `Hash` and `Sealer`.
+- `access/gate`: `New` builds a `Gate` from a `Config` and a table of `Route` values, `Principal` reads the admitted caller, and `Codes` and `MountCodes` list the codes a route can answer.
+- `account`: `New` builds the `Service` that runs every operation over your `Store`, and `Actor` names who performs each operation.
+- `accesshttp`: `New` builds the `Handler` whose `Route` values carry each operation, and the request and view types are its wire format.
+- `ratelimit`, `oidc` and `webauthn`: the `Limiter`, the `Provider` with its `Flow`, and the `RelyingParty` with its ceremony functions.
+- `accesstest`: `MemStore`, the `IdP` fake and `StoreContract`.
+
+The full reference is on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access).
 
 ## The limits on guessing
 
@@ -170,7 +186,7 @@ access hardens the building blocks, and the security of your service depends on 
 - Every unsafe-method route applies Go's `http.CrossOriginProtection` itself, whatever your own middleware does.
 - `Config.Bypass` grants a synthetic admin user, whose ID is 0 and names no stored user, to every request while its callback returns true. `account` refuses every write made under it. Keep it off in production.
 - When hosts you do not control share your relying-party domain, keep the default exact origin. [Passkeys](docs/webauthn.md#the-origin-policy) explains `AllowSubdomains` and `Origins`.
-- Three rules stay with you. Guard every route of your own with `RequireAuth`, match your [cookie settings](docs/configuration.md#session-cookie) to where TLS ends, and keep the store contract. [Implementing the store](docs/storage.md) states the contract, and `accesstest.StoreContract` checks it.
+- Three rules stay with you. Guard every route of your own with `access/gate`, match your [cookie settings](docs/configuration.md#session-cookie) to where TLS ends, and keep the store contract. [Implementing the store](docs/storage.md) states the contract, and `accesstest.StoreContract` checks it.
 - Fuzz targets cover password hashes and checks, cookie settings, API keys, opaque tokens, sealed values, redirect paths, the JSON body decoder, OIDC claims, the rate limiter, and WebAuthn origins and stored credentials.
 - The cryptography has had no independent third-party audit.
 
@@ -192,6 +208,7 @@ The library has no TOTP or SMS second factor. A custom `CredentialVerifier` pass
 
 ## Documentation
 
+- [Guarding your own routes](docs/gate.md) explains the gate's route classes, matching, codes, challenge and audit events.
 - [Configuration](docs/configuration.md) lists every setting and default, the cookie postures, the rate limiter's limits, the key permissions and the HTTP handlers' error contract.
 - [Passwords, sessions and tokens](docs/primitives.md) covers each building block in detail.
 - [Implementing the store](docs/storage.md) explains the transaction boundary, the store contract and what each write costs.
@@ -200,7 +217,6 @@ The library has no TOTP or SMS second factor. A custom `CredentialVerifier` pass
 - [OIDC sign-in](docs/oidc.md) explains the sealed flow cookie, the link and step-up checks and the limits on outbound calls.
 - [Migrating from auth v6](docs/migration-v7.md) lists every change and its replacement.
 - [Non-goals](docs/non-goals.md) gives the reason for each feature left out.
-- The full reference is on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access).
 
 ## Contributing
 

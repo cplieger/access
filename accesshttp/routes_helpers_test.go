@@ -339,6 +339,13 @@ func (x ending) CreateAPIKey(ctx context.Context, a account.Actor, userID int64,
 	return x.accountAPI.CreateAPIKey(ctx, a, userID, in)
 }
 
+func (x ending) RotateAPIKey(ctx context.Context, a account.Actor, id int64) (account.RotatedKey, error) {
+	if p, ok := a.Principal(); ok {
+		x.drop(ctx, p)
+	}
+	return x.accountAPI.RotateAPIKey(ctx, a, id)
+}
+
 // ends wraps the account in ending.
 var ends = envOptions{wrap: func(e *env, s *account.Service) accountAPI { return ending{accountAPI: s, mem: e.mem} }}
 

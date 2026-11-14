@@ -126,13 +126,13 @@ func (s *Service) Users(ctx context.Context, p access.Principal, f UserFilter) (
 }
 
 // UpdateUser changes a user's role, enabled state or both (neither is
-// ErrNoChange; the Policy decides self-changes), for an admin principal or
-// a ManageUsersScope key. One Update asks OpSetRole, then OpSetEnabled on
-// the user set with the role applied, for every set field even when
-// unchanged, so a refusal answers before existence (ErrNotFound after). A
-// key sets and acts on RoleUser only (admin_target). A role change revokes
-// the sessions; a disable revokes every session, key and token those keys
-// issued, and re-enabling restores none. It returns the user as committed.
+// ErrNoChange; the Policy decides self-changes) for an admin principal or a
+// ManageUsersScope key, and returns the user as committed. One Update asks
+// OpSetRole, then OpSetEnabled with the role applied, for each set field, so
+// a refusal answers before existence (ErrNotFound after). A key sets and acts
+// on RoleUser only (admin_target) and enables only with its current secret
+// (key_retiring). A role change revokes the sessions; a disable, every
+// session, key and token those keys issued, and re-enabling restores none.
 func (s *Service) UpdateUser(ctx context.Context, p access.Principal, userID int64, ch UserChange) (*access.User, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	r, err := s.begin()
 	if err != nil {
@@ -175,6 +175,12 @@ func (s *Service) updateUser(ctx context.Context, tx Tx, j *journal, op Operatio
 	ua, err := s.userAdminIn(ctx, tx, j, op, a)
 	if err != nil {
 		return err
+	}
+	if ch.Enabled != nil && *ch.Enabled {
+		p, _ := a.Principal()
+		if keyErr := requireCurrentSecret(OpSetEnabled, ua.key, p); keyErr != nil {
+			return keyErr
+		}
 	}
 	target, found, users, err := targetIn(ctx, tx, userID)
 	if err != nil {

@@ -35,7 +35,7 @@ if (passkey.kind === "signed-in") {
 }
 ```
 
-Every call returns an `ApiResult`: `ok` with the decoded `data`, or the refusal. `authCode` and `authReason` read the refusal's code and reason as the `AuthCode` and `AuthReason` unions, which mirror the server's `Codes()` and `Reasons()`.
+Every call returns an `ApiResult`: `ok` with the decoded `data`, or the refusal. `authCode` and `authReason` read the refusal's code and reason as the `AuthCode` and `AuthReason` unions, which mirror the server's `access.Codes()` and `accesshttp.Reasons()`.
 
 `withStepUp` runs an action that needs a recent sign-in. On an `auth_recent_auth_required` refusal with no reason, it asks your `prompt` which method to use, re-authenticates with it and retries the action once. A refusal that carries a reason, such as `reenable_needs_other_method`, is returned as it is, because a step-up cannot cure it:
 
@@ -51,6 +51,7 @@ The OIDC branch navigates to the identity provider and never returns to the acti
 ## What it exports
 
 - `createAuthClient` returns an `AuthClient` with one method per route, such as `me`, `loginPassword`, `sessions` and `createKey`. `adminSecurityLog` reads a page of the [security log](https://github.com/cplieger/access/blob/main/docs/security-log.md) with its per-class counts, newest first, or oldest first when `oldestFirst` is set; `after` and `before` are bounds only.
+- `keys`, `createKey`, `renameKey`, `rotateKey` and `revokeKey` manage the user's own API keys. `createKey` and `rotateKey` return the secret once. After `rotateKey` the old secret keeps working until the new one is first used or `details.previous_until` passes, so a leaked key is revoked instead.
 - `signInWithPasskey`, `registerPasskey`, `setupWithPasskey`, `stepUpWithPasskey` and `recoverWithPasskey` run the WebAuthn ceremonies. `passkeySupport` reports what the browser offers, and `sendSignals` keeps the credential manager's passkey list in step with the server.
 - `oidcSignInURL`, `startOIDC`, `readOIDCReturn`, `pendingLink` and `completePendingLink` handle the OIDC sign-in, link and step-up redirects.
 - `withStepUp` retries an action after a step-up, and `createSessionsModel` keeps a reactive list of the user's sessions.

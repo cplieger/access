@@ -79,7 +79,7 @@ type PasswordRemoveRequest struct {
 	CurrentPassword string `json:"current_password"`
 }
 
-// NameRequest renames a passkey or a session.
+// NameRequest renames a passkey, a session or an API key.
 type NameRequest struct {
 	Name string `json:"name"`
 }
@@ -246,17 +246,20 @@ type SessionView struct {
 
 // KeyView is one API key, never its secret or hash.
 type KeyView struct {
-	CreatedAt   time.Time `json:"created_at"`
-	ExpiresAt   time.Time `json:"expires_at,omitzero"`
-	LastUsedAt  time.Time `json:"last_used_at,omitzero"`
-	Owner       string    `json:"owner,omitempty"` // username; set on the admin list only
-	Label       string    `json:"label"`
-	Prefix      string    `json:"prefix"`
-	Suffix      string    `json:"suffix"`
-	Scopes      []string  `json:"scopes"`
-	ID          int64     `json:"id"`
-	UserID      int64     `json:"user_id"`
-	ParentKeyID int64     `json:"parent_key_id,omitempty"` // Key.ParentKeyID()
+	CreatedAt  time.Time `json:"created_at"`
+	ExpiresAt  time.Time `json:"expires_at,omitzero"`
+	LastUsedAt time.Time `json:"last_used_at,omitzero"`
+	// PreviousUntil is the overlap's bound, set only while the superseded
+	// secret still verifies at the response's now.
+	PreviousUntil time.Time `json:"previous_until,omitzero"`
+	Owner         string    `json:"owner,omitempty"` // username; set on the admin list only
+	Label         string    `json:"label"`
+	Prefix        string    `json:"prefix"`
+	Suffix        string    `json:"suffix"`
+	Scopes        []string  `json:"scopes"`
+	ID            int64     `json:"id"`
+	UserID        int64     `json:"user_id"`
+	ParentKeyID   int64     `json:"parent_key_id,omitempty"` // Key.ParentKeyID()
 }
 
 // KeyCreatedResponse is a minted key. Only writeShownOnce fills Key.
@@ -440,13 +443,17 @@ func sessionView(s *access.Session, t access.SessionTimeouts, current string) Se
 	}
 }
 
-// keyView is k without its hash; owner is set on the admin list only.
-func keyView(k *access.Key, owner string) KeyView {
-	return KeyView{
+// keyView is k at now without its hashes; owner is set on the admin list only.
+func keyView(k *access.Key, owner string, now time.Time) KeyView {
+	v := KeyView{
 		ID: k.ID, UserID: k.UserID, Owner: owner, Label: k.Label, Prefix: k.KeyPrefix, Suffix: k.KeySuffix,
 		Scopes: append([]string{}, k.Scopes...), CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt, LastUsedAt: k.LastUsedAt,
 		ParentKeyID: k.ParentKeyID(),
 	}
+	if k.PreviousSecretUsable(now) {
+		v.PreviousUntil = k.PreviousUntil
+	}
+	return v
 }
 
 // tokenView is a listed token without the token or its hash.

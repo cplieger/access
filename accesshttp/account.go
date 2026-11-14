@@ -60,6 +60,8 @@ type accountAPI interface {
 	RevokeOtherSessions(ctx context.Context, p access.Principal) error
 	APIKeys(ctx context.Context, p access.Principal) ([]access.Key, error)
 	CreateAPIKey(ctx context.Context, a account.Actor, userID int64, in account.NewKey) (account.CreatedKey, error)
+	RenameAPIKey(ctx context.Context, p access.Principal, id int64, label string) error
+	RotateAPIKey(ctx context.Context, a account.Actor, id int64) (account.RotatedKey, error)
 	RevokeAPIKey(ctx context.Context, p access.Principal, id int64) error
 	Users(ctx context.Context, p access.Principal, f account.UserFilter) ([]account.ListedUser, error)
 	CreateUser(ctx context.Context, a account.Actor, in account.NewUser) (*access.User, error)
@@ -67,8 +69,8 @@ type accountAPI interface {
 	DeleteUser(ctx context.Context, p access.Principal, userID int64) error
 	IssueRecovery(ctx context.Context, a account.Actor, userID int64, ttl time.Duration) (account.IssuedToken, error)
 	CreateInvite(ctx context.Context, p access.Principal, role access.Role, ttl time.Duration) (account.IssuedToken, error)
-	AllAPIKeys(ctx context.Context, p access.Principal) ([]account.ListedKey, error)
-	RevokeAnyAPIKey(ctx context.Context, p access.Principal, id int64) error
+	AllAPIKeys(ctx context.Context, a account.Actor) ([]account.ListedKey, error)
+	RevokeAnyAPIKey(ctx context.Context, a account.Actor, id int64) error
 	Tokens(ctx context.Context, p access.Principal) ([]account.ListedToken, error)
 	SecurityLog(ctx context.Context, p access.Principal, f account.LogFilter) (account.LogPage, error)
 }

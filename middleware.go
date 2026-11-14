@@ -2,7 +2,6 @@ package access
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -10,6 +9,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/cplieger/access/internal/failreason"
 )
 
 // AuthenticatorStore is the store [New] takes: the session, user and API-key
@@ -39,12 +40,12 @@ type Authenticator struct {
 
 // New builds the one session configuration (cookie, timeouts, throttle) and
 // the chain: the session verifier, cfg.Verifier if set, then the API-key
-// verifier. Every zero field of cfg means its default (see [Config]). A nil
-// store, or an interface holding a nil pointer, map, slice, func or chan, is
-// refused, and so is such a cfg.Verifier, before any verifier is built, so a
-// miswired app fails at startup and not at its first request. So are a
-// negative timeout or throttle, a throttle not below the idle timeout, and a
-// Cookie [CookieConfig.Validate] refuses.
+// verifier. Every zero field of cfg means its default (see [Config]). It
+// refuses, before building any verifier, a nil store, a store or
+// cfg.Verifier holding a nil pointer, map, slice, func or chan, a
+// negative timeout or throttle, a throttle not below the idle timeout, a
+// Realm holding '"', '\' or a control character, and a Cookie
+// [CookieConfig.Validate] refuses, so a miswired app fails at startup.
 func New(store AuthenticatorStore, cfg Config) (*Authenticator, error) { //nolint:gocritic // hugeParam: by-value Config is the public signature, so a caller builds it inline
 	if isNilInterface(store) {
 		return nil, errors.New("access: New: nil AuthenticatorStore")
@@ -197,31 +198,12 @@ func (a *Authenticator) bypassed() bool {
 func refuseGrant(p *Principal) error {
 	switch {
 	case p.User == nil, !p.User.Enabled:
-		return &InvalidCredentialError{Method: p.Method, Err: ErrAccountDisabled}
+		return failreason.Wrap(&InvalidCredentialError{Method: p.Method, Err: ErrAccountDisabled}, failreason.AccountDisabled)
 	case p.Method == "":
 		return &InvalidCredentialError{Method: p.Method}
 	default:
 		return nil
 	}
-}
-
-// RequireAuth authenticates r and returns its principal. If r is not
-// authenticated, it writes the Config.Unauthorized response, or the
-// default one that field describes, and returns ok=false.
-func (a *Authenticator) RequireAuth(w http.ResponseWriter, r *http.Request) (Principal, bool) {
-	p, err := a.Authenticate(r)
-	if err == nil {
-		return p, true
-	}
-	if !errors.Is(err, ErrUnauthenticated) && !errors.Is(err, ErrInvalidCredential) {
-		a.cfg.log().Warn("access: authentication failed", "error", err)
-	}
-	if a.cfg.Unauthorized != nil {
-		a.cfg.Unauthorized(w, r, err)
-	} else {
-		writeUnauthorized(w, err)
-	}
-	return Principal{}, false
 }
 
 // Cookie returns the session cookie configuration the session verifier
@@ -310,24 +292,4 @@ func CanDisableMethod(method Method, avail MethodAvailability) bool {
 		remaining++
 	}
 	return remaining > 0
-}
-
-// writeUnauthorized writes the default unauthorized response for err; see
-// Config.Unauthorized.
-func writeUnauthorized(w http.ResponseWriter, err error) {
-	w.Header().Set("Content-Type", "application/json")
-	body := map[string]string{"error": ErrUnauthenticated.Error(), "code": "auth_required"}
-	switch {
-	case errors.Is(err, ErrAuthBackend):
-		w.Header().Set("Retry-After", "5")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		body = map[string]string{"error": "unavailable", "code": "auth_unavailable"}
-	case errors.Is(err, ErrSessionExpired), errors.Is(err, ErrSessionNotFound):
-		body["code"] = "auth_session_expired"
-		fallthrough
-	default:
-		w.Header().Set("WWW-Authenticate", "Bearer")
-		w.WriteHeader(http.StatusUnauthorized)
-	}
-	_ = json.NewEncoder(w).Encode(body)
 }

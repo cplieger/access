@@ -202,7 +202,7 @@ func TestSetupProvenanceHTTP(t *testing.T) {
 				t.Errorf("setup rule received %+v, resolver returned %+v; want one Client carrying the resolver's answer and Host %q", got, addrs, tc.host)
 			}
 			if tc.refused {
-				if errs := e.errs.all(); w.Code != http.StatusUnauthorized || len(errs) != 1 || errs[0].Code != CodeSetupTokenRequired {
+				if errs := e.errs.all(); w.Code != http.StatusUnauthorized || len(errs) != 1 || errs[0].Code != access.CodeSetupTokenRequired {
 					t.Errorf("status %d errors %+v, want 401 auth_setup_token_required before any hash", w.Code, errs)
 				}
 				if _, found, err := e.mem.UserByUsername(t.Context(), "owner"); err != nil || found {

@@ -21,13 +21,13 @@ func TestReasonLists(t *testing.T) {
 		got, want []string
 	}{
 		{"PolicyReasons", account.PolicyReasons(), []string{
-			"out_of_band_only", "key_not_current", "admin_target", "scopes_not_subset", "expiry_after_parent",
+			"out_of_band_only", "key_not_current", "key_retiring", "key_expired", "admin_target", "scopes_not_subset", "expiry_after_parent",
 			"lineage_too_deep", "permission_not_admin", "self_recovery", "other_user", "target_not_eligible",
 			"not_principal", "unknown_operation", "not_enabled_user", "not_admin", "self_delete", "last_admin",
 			"last_local_admin", "single_owner", "not_owner", "unknown_via", "via_with_actor",
 		}},
 		{"UsernameReasons", account.UsernameReasons(), []string{"empty", "disallowed_character", "too_long"}},
-		{"TextErrorReasons", account.TextErrorReasons(), []string{"disallowed_character", "too_long"}},
+		{"TextErrorReasons", account.TextErrorReasons(), []string{"empty", "disallowed_character", "too_long"}},
 		{"TextErrorFields", account.TextErrorFields(), []string{"label", "display_name"}},
 		{"LogFilterReasons", account.LogFilterReasons(), []string{"log_limit", "log_range", "log_kind", "log_id"}},
 		{"AppEntryReasons", account.AppEntryReasons(), []string{"app_kind", "app_detail", "app_method"}},
@@ -38,6 +38,20 @@ func TestReasonLists(t *testing.T) {
 				t.Errorf("%s() = %v, want %v", tc.name, tc.got, tc.want)
 			}
 		})
+	}
+}
+
+func TestTextErrors(t *testing.T) {
+	t.Parallel()
+	want := []account.TextError{
+		{Field: "label", Reason: "empty"},
+		{Field: "label", Reason: "disallowed_character"},
+		{Field: "label", Reason: "too_long"},
+		{Field: "display_name", Reason: "disallowed_character"},
+		{Field: "display_name", Reason: "too_long"},
+	}
+	if got := account.TextErrors(); !slices.Equal(got, want) {
+		t.Errorf("TextErrors() = %v, want %v", got, want)
 	}
 }
 

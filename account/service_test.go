@@ -48,6 +48,11 @@ func TestNewRefuses(t *testing.T) {
 		{name: "keys_equals_admin", field: "CreateKeysScope", edit: func(c *account.Config) {
 			c.AdminScope, c.CreateKeysScope = "admin", "admin"
 		}},
+		// RFC 6750 §3: each scope is quoted bare in a WWW-Authenticate
+		// scope attribute, so only a scope-token is a scope.
+		{name: "admin_scope_space", field: "AdminScope", edit: func(c *account.Config) { c.AdminScope = "all admin" }},
+		{name: "users_scope_dquote", field: "ManageUsersScope", edit: func(c *account.Config) { c.ManageUsersScope = `manage"users` }},
+		{name: "keys_scope_backslash", field: "CreateKeysScope", edit: func(c *account.Config) { c.CreateKeysScope = `create\keys` }},
 		{name: "negative_interval", field: "CleanupInterval", edit: func(c *account.Config) { c.CleanupInterval = -time.Second }},
 		{name: "negative_max_pending", field: "MaxPending", edit: func(c *account.Config) { c.MaxPending = -1 }},
 		{name: "invalid_rules", field: "RecentAuth", edit: func(c *account.Config) {
@@ -197,6 +202,9 @@ func TestRulesValidate(t *testing.T) {
 		{},
 		{RecentAuth: time.Minute, MaxSessionsPerUser: 50, Breach: account.BreachFailClosed},
 		{Provisioning: oidc.Provisioning{Enabled: true, Claim: "groups", AllowedValues: []string{"staff"}}},
+		{Scopes: []string{"read", "manage_users", "files:write"}},
+		{KeyRotationOverlap: time.Minute},
+		{KeyRotationOverlap: 24 * time.Hour},
 	}
 	for i, r := range valid {
 		if err := r.Validate(); err != nil {
@@ -212,8 +220,15 @@ func TestRulesValidate(t *testing.T) {
 		"breach_unknown":        {field: "Breach", r: account.Rules{Breach: account.BreachFailClosed + 1}},
 		"breach_negative":       {field: "Breach", r: account.Rules{Breach: -1}},
 		"max_sessions_negative": {field: "MaxSessionsPerUser", r: account.Rules{MaxSessionsPerUser: -1}},
+		"overlap_below_1m":      {field: "KeyRotationOverlap", r: account.Rules{KeyRotationOverlap: time.Minute - time.Nanosecond}},
+		"overlap_negative":      {field: "KeyRotationOverlap", r: account.Rules{KeyRotationOverlap: -time.Hour}},
+		"overlap_above_24h":     {field: "KeyRotationOverlap", r: account.Rules{KeyRotationOverlap: 24*time.Hour + time.Nanosecond}},
 		"provisioning":          {field: "Provisioning", r: account.Rules{Provisioning: oidc.Provisioning{Enabled: true, Claim: "groups"}}},
 		"key_prefix_invalid":    {field: "KeyPrefix", r: account.Rules{KeyPrefix: "ak-"}},
+		"scope_space":           {field: "Scopes", r: account.Rules{Scopes: []string{"read", "read write"}}},
+		"scope_empty":           {field: "Scopes", r: account.Rules{Scopes: []string{""}}},
+		"scope_dquote":          {field: "Scopes", r: account.Rules{Scopes: []string{`re"ad`}}},
+		"scope_non_ascii":       {field: "Scopes", r: account.Rules{Scopes: []string{"caf\u00e9"}}},
 	} {
 		err := tc.r.Validate()
 		var re *account.RulesError

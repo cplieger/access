@@ -66,6 +66,12 @@ func TestCurrentKeyActor(t *testing.T) {
 	_, parent := f.keyPrincipalFor(t, nil, admin, time.Time{}, nil, usersScope)
 	_, child := f.keyPrincipalFor(t, nil, admin, start.Add(time.Hour), parent.LineageIDs, usersScope, keysScope)
 
+	if err := f.mem.Update(ctx, func(tx account.Tx) error {
+		return tx.UpdateAPIKeyLabel(ctx, access.KeyRef{ID: child.ID, UserID: admin.ID}, "deploy")
+	}); err != nil {
+		t.Fatalf("UpdateAPIKeyLabel: %v", err)
+	}
+
 	t.Run("current", func(t *testing.T) {
 		for name, ref := range map[string]access.KeyRef{
 			"principal_ref": {ID: child.ID, UserID: admin.ID},
@@ -78,6 +84,9 @@ func TestCurrentKeyActor(t *testing.T) {
 			p, ok := actor.Principal()
 			if !ok || p.User == nil || p.User.ID != admin.ID || p.User.Role != access.RoleAdmin || p.KeyID != child.ID || p.Method != access.MethodAPIKey {
 				t.Errorf("%s: actor = %+v, want the stored admin owner acting through key %d", name, p, child.ID)
+			}
+			if p.KeyLabel != "deploy" || !p.KeyHash().IsZero() {
+				t.Errorf("%s: actor KeyLabel %q, KeyHash zero %v, want the stored label and no credential", name, p.KeyLabel, p.KeyHash().IsZero())
 			}
 			if want := []int64{parent.ID, child.ID}; key == nil || !slices.Equal(key.LineageIDs, want) {
 				t.Errorf("%s: key lineage = %v, want %v", name, key, want)

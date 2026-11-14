@@ -75,6 +75,14 @@ type CreatedKey struct {
 	Issued    Issued // zero for an out-of-band or a key actor
 }
 
+// RotatedKey is a key RotateAPIKey gave a new secret; Plaintext is shown
+// once.
+type RotatedKey struct {
+	Plaintext access.Secret
+	Key       access.Key // PreviousUntil set, LastUsedAt zero
+	Issued    Issued     // zero for an out-of-band actor
+}
+
 // IssuedToken is a minted invite or recovery token; Plaintext is shown
 // once.
 type IssuedToken struct {

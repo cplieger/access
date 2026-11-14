@@ -52,46 +52,46 @@ func adminScenarios() map[scenarioKey]scenario {
 	enable := `{"enabled":false}`
 
 	for _, name := range []string{"authAdminUsers", "authAdminKeys", "authAdminTokens", "authAdminSecurityLog"} {
-		out[scenarioKey{name, CodeForbidden}] = byAlice(name, "")
-		out[scenarioKey{name, CodeUnavailable}] = closing(envOptions{}, byRoot(name, missing, ""))
+		out[scenarioKey{name, access.CodeForbidden}] = byAlice(name, "")
+		out[scenarioKey{name, access.CodeUnavailable}] = closing(envOptions{}, byRoot(name, missing, ""))
 	}
 
-	out[scenarioKey{"authAdminSecurityLog", CodeBadRequest}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{"authAdminSecurityLog", access.CodeBadRequest}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.securityLog(t, "kinds=a.b,", e.rootSession(t))
 	}}
 
 	const create = "authAdminUserCreate"
-	out[scenarioKey{create, CodeForbidden}] = byAlice(create, newUser("carol", testPassword))
-	out[scenarioKey{create, CodeBusy}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{create, access.CodeForbidden}] = byAlice(create, newUser("carol", testPassword))
+	out[scenarioKey{create, access.CodeBusy}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		r := byRoot(create, missing, newUser("carol", testPassword))(t, e)
 		e.holdBudget(t)
 		return r
 	}}
-	out[scenarioKey{create, CodeUnavailable}] = closing(envOptions{}, byRoot(create, missing, newUser("carol", testPassword)))
-	out[scenarioKey{create, CodeUsernameInvalid}] = scenario{arrange: byRoot(create, missing, newUser("", testPassword))}
-	out[scenarioKey{create, CodeUsernameTaken}] = scenario{arrange: byRoot(create, missing, newUser("alice", testPassword))}
-	out[scenarioKey{create, CodePasswordRejected}] = scenario{arrange: byRoot(create, missing, newUser("carol", "short"))}
-	out[scenarioKey{create, CodeBreachCheckUnavailable}] = scenario{opts: breachDown, arrange: byRoot(create, missing, newUser("carol", testPassword))}
+	out[scenarioKey{create, access.CodeUnavailable}] = closing(envOptions{}, byRoot(create, missing, newUser("carol", testPassword)))
+	out[scenarioKey{create, access.CodeUsernameInvalid}] = scenario{arrange: byRoot(create, missing, newUser("", testPassword))}
+	out[scenarioKey{create, access.CodeUsernameTaken}] = scenario{arrange: byRoot(create, missing, newUser("alice", testPassword))}
+	out[scenarioKey{create, access.CodePasswordRejected}] = scenario{arrange: byRoot(create, missing, newUser("carol", "short"))}
+	out[scenarioKey{create, access.CodeBreachCheckUnavailable}] = scenario{opts: breachDown, arrange: byRoot(create, missing, newUser("carol", testPassword))}
 
 	const update, del = "authAdminUserUpdate", "authAdminUserDelete"
-	out[scenarioKey{update, CodeForbidden}] = byAlice(update, enable)
-	out[scenarioKey{update, CodeUnavailable}] = closing(envOptions{}, byRoot(update, aliceID, enable))
-	out[scenarioKey{update, CodeBadRequest}] = scenario{arrange: byRoot(update, aliceID, `{}`)}
-	out[scenarioKey{update, CodeNotFound}] = scenario{arrange: byRoot(update, missing, enable)}
-	out[scenarioKey{del, CodeForbidden}] = byAlice(del, "")
-	out[scenarioKey{del, CodeUnavailable}] = closing(envOptions{}, byRoot(del, aliceID, ""))
-	out[scenarioKey{del, CodeNotFound}] = scenario{arrange: byRoot(del, missing, "")}
+	out[scenarioKey{update, access.CodeForbidden}] = byAlice(update, enable)
+	out[scenarioKey{update, access.CodeUnavailable}] = closing(envOptions{}, byRoot(update, aliceID, enable))
+	out[scenarioKey{update, access.CodeBadRequest}] = scenario{arrange: byRoot(update, aliceID, `{}`)}
+	out[scenarioKey{update, access.CodeNotFound}] = scenario{arrange: byRoot(update, missing, enable)}
+	out[scenarioKey{del, access.CodeForbidden}] = byAlice(del, "")
+	out[scenarioKey{del, access.CodeUnavailable}] = closing(envOptions{}, byRoot(del, aliceID, ""))
+	out[scenarioKey{del, access.CodeNotFound}] = scenario{arrange: byRoot(del, missing, "")}
 
 	const recovery, invite = "authAdminRecovery", "authAdminInvite"
 	hours := func(n int) string { return `{"hours":` + strconv.Itoa(n) + `}` }
-	out[scenarioKey{recovery, CodeForbidden}] = scenario{arrange: byRoot(recovery, rootID, hours(0))}
-	out[scenarioKey{recovery, CodeUnavailable}] = closing(envOptions{}, byRoot(recovery, aliceID, hours(0)))
-	out[scenarioKey{recovery, CodeBadRequest}] = scenario{arrange: byRoot(recovery, aliceID, hours(7*24+1))}
-	out[scenarioKey{recovery, CodeNotFound}] = scenario{arrange: byRoot(recovery, missing, hours(0))}
+	out[scenarioKey{recovery, access.CodeForbidden}] = scenario{arrange: byRoot(recovery, rootID, hours(0))}
+	out[scenarioKey{recovery, access.CodeUnavailable}] = closing(envOptions{}, byRoot(recovery, aliceID, hours(0)))
+	out[scenarioKey{recovery, access.CodeBadRequest}] = scenario{arrange: byRoot(recovery, aliceID, hours(7*24+1))}
+	out[scenarioKey{recovery, access.CodeNotFound}] = scenario{arrange: byRoot(recovery, missing, hours(0))}
 	inviteBody := func(n int) string { return `{"role":"user","hours":` + strconv.Itoa(n) + `}` }
-	out[scenarioKey{invite, CodeForbidden}] = byAlice(invite, inviteBody(0))
-	out[scenarioKey{invite, CodeUnavailable}] = closing(envOptions{}, byRoot(invite, missing, inviteBody(0)))
-	out[scenarioKey{invite, CodeBadRequest}] = scenario{arrange: byRoot(invite, missing, inviteBody(7*7*24+1))}
+	out[scenarioKey{invite, access.CodeForbidden}] = byAlice(invite, inviteBody(0))
+	out[scenarioKey{invite, access.CodeUnavailable}] = closing(envOptions{}, byRoot(invite, missing, inviteBody(0)))
+	out[scenarioKey{invite, access.CodeBadRequest}] = scenario{arrange: byRoot(invite, missing, inviteBody(7*7*24+1))}
 
 	const revoke = "authAdminKeyRevoke"
 	aliceKey := func(t *testing.T, e *env) string {
@@ -101,8 +101,8 @@ func adminScenarios() map[scenarioKey]scenario {
 		}
 		return strconv.FormatInt(created.Key.ID, 10)
 	}
-	out[scenarioKey{revoke, CodeForbidden}] = byAlice(revoke, "")
-	out[scenarioKey{revoke, CodeUnavailable}] = closing(envOptions{}, byRoot(revoke, aliceKey, ""))
-	out[scenarioKey{revoke, CodeNotFound}] = scenario{arrange: byRoot(revoke, missing, "")}
+	out[scenarioKey{revoke, access.CodeForbidden}] = byAlice(revoke, "")
+	out[scenarioKey{revoke, access.CodeUnavailable}] = closing(envOptions{}, byRoot(revoke, aliceKey, ""))
+	out[scenarioKey{revoke, access.CodeNotFound}] = scenario{arrange: byRoot(revoke, missing, "")}
 	return out
 }

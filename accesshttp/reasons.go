@@ -7,7 +7,7 @@ import (
 	"github.com/cplieger/access/webauthn"
 )
 
-// The Error.Reason values accesshttp assigns itself, in Reasons order.
+// The access.Error Reason values accesshttp assigns itself, in Reasons order.
 const (
 	ReasonSSOGoverned              = "sso_governed"
 	ReasonTTLTooLong               = "ttl_too_long"
@@ -52,9 +52,9 @@ var ownReasons = []string{
 // carries the IdP's error code after it.
 const providerErrorPrefix = "provider_error:"
 
-// Reasons returns every fixed Error.Reason, each once, in a stable order:
+// Reasons returns every fixed access.Error Reason, each once, in a stable order:
 // accesshttp's own, then access's PasswordRejections, account's PolicyReasons,
-// UsernameReasons, TextError reasons and LogFilterReasons, and webauthn's
+// UsernameReasons, TextErrors and LogFilterReasons, and webauthn's
 // OriginRejections.
 // Two families stay open and are not listed: "provider_error:" followed by
 // an IdP's error code on auth_oidc_failed, and on auth_bad_request the name
@@ -67,10 +67,8 @@ func Reasons() []string {
 	}
 	all = append(all, account.PolicyReasons()...)
 	all = append(all, account.UsernameReasons()...)
-	for _, field := range account.TextErrorFields() {
-		for _, r := range account.TextErrorReasons() {
-			all = append(all, textReason(field, r))
-		}
+	for _, te := range account.TextErrors() {
+		all = append(all, textReason(te.Field, te.Reason))
 	}
 	all = append(all, account.LogFilterReasons()...)
 	for _, r := range webauthn.OriginRejections() {

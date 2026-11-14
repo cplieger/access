@@ -17,16 +17,23 @@ const (
 	DefaultAbsTimeout  = 24 * time.Hour
 )
 
+// DefaultRealm is what an empty Config.Realm means.
+const DefaultRealm = "access"
+
 // Config configures an [Authenticator]. Every zero value is the default: a
 // nil Logger is slog.Default() at call time, a nil Bypass is none, a nil
-// Unauthorized is the default 401 or 503 writer, a nil TimeoutSource is the
-// static timeouts, a nil ClientAddr is the default resolver, a nil Verifier
-// is none, the zero Cookie is the default session cookie, zero IdleTimeout
-// and AbsTimeout are [DefaultIdleTimeout] and [DefaultAbsTimeout], and a zero
+// TimeoutSource is the static timeouts, a nil ClientAddr is the default
+// resolver, a nil Verifier is none, the zero Cookie is the default session
+// cookie, an empty Realm is [DefaultRealm], zero IdleTimeout and AbsTimeout
+// are [DefaultIdleTimeout] and [DefaultAbsTimeout], and a zero
 // ActivityThrottle writes activity on every request.
 type Config struct {
 	// Logger receives the warnings and debug lines.
 	Logger *slog.Logger
+	// Realm is the realm of every challenge [Authenticator.Challenge] writes.
+	// [New] refuses one holding '"', '\' or a control character, so it
+	// quotes as it is.
+	Realm string
 	// Bypass reports whether authentication is bypassed. While it returns
 	// true, [Authenticator.Authenticate] grants every request [MethodBypass]
 	// with its own copy of a synthetic admin user whose ID is 0, which names
@@ -34,13 +41,6 @@ type Config struct {
 	// that finds it on after one that found it off, the first included, logs
 	// a WARN.
 	Bypass func() bool
-	// Unauthorized writes [Authenticator.RequireAuth]'s answer to a request
-	// that is not authenticated, given [Authenticator.Authenticate]'s error.
-	// Nil answers 503 with Retry-After: 5 for [ErrAuthBackend], and otherwise
-	// 401 with WWW-Authenticate: Bearer and a JSON body whose code is
-	// auth_session_expired when the error wraps [ErrSessionExpired] or
-	// [ErrSessionNotFound], and auth_required otherwise.
-	Unauthorized func(w http.ResponseWriter, r *http.Request, err error)
 	// TimeoutSource is read on every verification, so a hot-reloaded value
 	// applies without a new Authenticator. Each non-positive field it
 	// returns falls back to IdleTimeout or AbsTimeout, and ActivityThrottle's
@@ -68,13 +68,13 @@ type Config struct {
 	// AbsTimeout is how long a session may live at most.
 	AbsTimeout time.Duration
 	// ActivityThrottle is how old a key's stored LastUsedAt must be before a
-	// request writes it again through [APIKeyToucher.TouchAPIKey]. A session's
-	// activity is written once its stored LastActivity is the lesser of it and
-	// half the session's idle limit old, that limit lowered by its IdleCap
-	// and, for a recovery session, by [RecoverySessionLifetime], so a session
-	// in use never expires between two writes. A failed write is logged,
-	// never fatal, and the next request retries it. [New] refuses a negative
-	// throttle and one at or above the idle timeout.
+	// request writes it again through [APIKeyToucher.TouchAPIKey]; a key's
+	// first use, LastUsedAt zero, is written whatever the throttle. A
+	// session's activity is written once its stored LastActivity is the
+	// lesser of it and half the session's idle limit old (that limit lowered
+	// by its IdleCap and, for a recovery session, [RecoverySessionLifetime]),
+	// so a session in use never expires between two writes. [New] refuses a
+	// negative throttle and one at or above the idle timeout.
 	ActivityThrottle time.Duration
 }
 
@@ -86,6 +86,10 @@ func (cfg Config) resolve() (Config, error) { //nolint:gocritic // hugeParam: th
 	}
 	if err := cfg.Cookie.Validate(); err != nil {
 		return Config{}, err
+	}
+	cfg.Realm = cmp.Or(cfg.Realm, DefaultRealm)
+	if !quotable(cfg.Realm) {
+		return Config{}, fmt.Errorf("access: realm %q holds a quote, a backslash or a control character", cfg.Realm)
 	}
 	cfg.IdleTimeout = cmp.Or(cfg.IdleTimeout, DefaultIdleTimeout)
 	cfg.AbsTimeout = cmp.Or(cfg.AbsTimeout, DefaultAbsTimeout)
@@ -136,6 +140,17 @@ func (cfg *Config) log() *slog.Logger {
 		return cfg.Logger
 	}
 	return slog.Default()
+}
+
+// quotable reports whether s goes inside an RFC 9110 §5.6.4 quoted-string
+// with no quoted-pair: no '"', no '\' and no control character.
+func quotable(s string) bool {
+	for i := range len(s) {
+		if c := s[i]; c < 0x20 || c == 0x7f || c == '"' || c == '\\' {
+			return false
+		}
+	}
+	return true
 }
 
 // isNilInterface reports a nil v, or one holding a nil pointer, map, slice,

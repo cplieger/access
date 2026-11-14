@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"slices"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -67,7 +68,7 @@ type passthroughCase struct {
 	run   func(t *testing.T, e *env) *httptest.ResponseRecorder
 	name  string
 	route string
-	want  Code
+	want  access.Code
 	opts  envOptions
 }
 
@@ -105,7 +106,7 @@ func passthroughCases() []passthroughCase {
 			e.createUser(t, "alice", access.RoleUser)
 			return serve(t, e, "authLoginPassword", e.post(t, "authLoginPassword", signInBody(t, "alice")))
 		}},
-		{name: "login_password_counted_failure", route: "authLoginPassword", want: CodeInvalidCredentials, run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+		{name: "login_password_counted_failure", route: "authLoginPassword", want: access.CodeInvalidCredentials, run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
 			e.createUser(t, "alice", access.RoleUser)
 			return serve(t, e, "authLoginPassword", e.post(t, "authLoginPassword", jsonBody(t, LoginRequest{Username: "alice", Password: "not-" + testPassword})))
 		}},
@@ -164,6 +165,11 @@ func passthroughCases() []passthroughCase {
 			r := bearer(e.post(t, "authKeyCreate", jsonBody(t, NewKeyRequest{Label: "child"})), parent.Plaintext)
 			return serve(t, e, "authKeyCreate", r)
 		}},
+		{name: "key_rotate_session", route: "authKeyRotate", run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+			cookie := e.aliceSession(t)
+			key := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+			return serve(t, e, "authKeyRotate", e.at(t, "authKeyRotate", strconv.FormatInt(key.Key.ID, 10), "", cookie))
+		}},
 	}
 }
 
@@ -171,7 +177,7 @@ func passthroughCases() []passthroughCase {
 // session.
 var sessionResults = []reflect.Type{
 	reflect.TypeFor[account.SignedIn](), reflect.TypeFor[account.Issued](), reflect.TypeFor[account.Recovery](),
-	reflect.TypeFor[account.OIDCOutcome](), reflect.TypeFor[account.Registered](), reflect.TypeFor[account.CreatedKey](),
+	reflect.TypeFor[account.OIDCOutcome](), reflect.TypeFor[account.Registered](), reflect.TypeFor[account.CreatedKey](), reflect.TypeFor[account.RotatedKey](),
 }
 
 // sessionRoutes are the routes whose operation returns a session result:

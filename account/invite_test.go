@@ -145,8 +145,8 @@ func newKeyIssuer(t *testing.T, expiresIn time.Duration) *keyIssuer {
 	w := newAdminWorld(t, options{edit: func(c *account.Config) { c.Now = clock.now }}, nil)
 	ki := &keyIssuer{adminWorld: w, clock: clock, boss: mustUser(t, w.f.mem, "boss", access.RoleAdmin)}
 	ki.bp = w.f.sessionPrincipal(t, ki.boss, access.SessionFull, time.Now())
-	ki.p = w.key(t, account.NewKey{Scopes: []string{scopeUsers, scopeKeys}})
-	ki.k = w.f.mint(t, account.As(ki.p.p), w.root.ID, account.NewKey{Scopes: []string{scopeUsers}, ExpiresIn: expiresIn})
+	ki.p = w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
+	ki.k = w.f.mint(t, account.As(ki.p.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}, ExpiresIn: expiresIn})
 	return ki
 }
 
@@ -296,7 +296,7 @@ func TestKeyExpiryRefusesEveryUse(t *testing.T) {
 		w := newAdminWorld(t, options{edit: func(c *account.Config) { c.CleanupInterval = 2 * time.Hour }}, nil)
 		ctx := t.Context()
 		bob := mustUser(t, w.f.mem, "bob", access.RoleUser)
-		kc, err := w.f.svc.CreateAPIKey(ctx, account.As(w.pr), w.root.ID, account.NewKey{Scopes: []string{scopeUsers, scopeKeys}, ExpiresIn: time.Hour})
+		kc, err := w.f.svc.CreateAPIKey(ctx, account.As(w.pr), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}, ExpiresIn: time.Hour})
 		if err != nil {
 			t.Fatalf("mint K = %v", err)
 		}
@@ -305,7 +305,7 @@ func TestKeyExpiryRefusesEveryUse(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Authenticate(K) = %v", err)
 		}
-		k2c, err := w.f.svc.CreateAPIKey(ctx, account.As(k), w.root.ID, account.NewKey{Scopes: []string{scopeUsers, scopeKeys}, ExpiresIn: time.Until(at)})
+		k2c, err := w.f.svc.CreateAPIKey(ctx, account.As(k), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}, ExpiresIn: time.Until(at)})
 		if err != nil || !k2c.Key.ExpiresAt.Equal(at) {
 			t.Fatalf("mint K2 = %+v, %v; want it expiring at K's %v", k2c.Key, err, at)
 		}
@@ -358,7 +358,7 @@ func TestKeyExpiryRefusesEveryUse(t *testing.T) {
 					return err
 				},
 				"CreateAPIKey": func() error {
-					_, err := w.f.svc.CreateAPIKey(ctx, account.As(p), w.root.ID, account.NewKey{Scopes: []string{scopeUsers}, ExpiresIn: time.Minute})
+					_, err := w.f.svc.CreateAPIKey(ctx, account.As(p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}, ExpiresIn: time.Minute})
 					return err
 				},
 			}

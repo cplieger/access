@@ -464,6 +464,10 @@ func sessionOperations() []operation {
 		{name: "APIKeys", class: classSession, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
 			return opCall{run: func(ctx context.Context) error { _, err := w.svc.APIKeys(ctx, p); return err }, want: none}
 		}},
+		{name: "RenameAPIKey", class: classSession, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			k, label := w.storedKey(t, w.owner(t, p), "read"), w.name("renamed ")
+			return opCall{run: func(ctx context.Context) error { return w.svc.RenameAPIKey(ctx, p, k.ID, label) }, want: none}
+		}},
 		{name: "RevokeAPIKey", class: classSession, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			u := w.owner(t, p)
 			k := w.storedKey(t, u, "read")
@@ -556,6 +560,18 @@ func recentOperations() []operation {
 				want: events(account.Event{Kind: account.EventOIDCLinked, UserID: u.ID, Actor: actorOf(p)}),
 			}
 		}},
+		{name: "RotateAPIKey", class: classRecentAuth, asks: []account.Operation{account.OpRotateKey}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			u := w.owner(t, p)
+			k := w.storedKey(t, u, "read")
+			return opCall{
+				actor: actorOf(p), target: u.ID,
+				run: func(ctx context.Context) error {
+					_, err := w.svc.RotateAPIKey(ctx, account.As(p), k.ID)
+					return err
+				},
+				want: events(account.Event{Kind: account.EventKeyRotated, UserID: u.ID, KeyID: k.ID, Actor: actorOf(p)}),
+			}
+		}},
 		{name: "UnlinkOIDC", class: classRecentAuth, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			u := w.owner(t, p)
 			linkIdentity(t, w.mem, u, access.OIDCIdentity{Issuer: oidcIssuer, Subject: w.name("linked-")})
@@ -633,7 +649,7 @@ func adminOperations() []operation {
 			return opCall{run: func(ctx context.Context) error { _, err := w.svc.Users(ctx, p, account.UserFilter{}); return err }, want: none, actor: actorOf(p)}
 		}},
 		{name: "AllAPIKeys", class: classAdminScope, readOnly: true, asks: []account.Operation{account.OpManageAllKeys}, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
-			return opCall{run: func(ctx context.Context) error { _, err := w.svc.AllAPIKeys(ctx, p); return err }, want: none, actor: actorOf(p)}
+			return opCall{run: func(ctx context.Context) error { _, err := w.svc.AllAPIKeys(ctx, account.As(p)); return err }, want: none, actor: actorOf(p)}
 		}},
 		{name: "Tokens", class: classAdminScope, readOnly: true, asks: []account.Operation{account.OpListUsers}, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
 			return opCall{run: func(ctx context.Context) error { _, err := w.svc.Tokens(ctx, p); return err }, want: none, actor: actorOf(p)}
@@ -645,7 +661,7 @@ func adminOperations() []operation {
 			k := w.storedKey(t, w.alice, "read")
 			return opCall{
 				actor: actorOf(p),
-				run:   func(ctx context.Context) error { return w.svc.RevokeAnyAPIKey(ctx, p, k.ID) },
+				run:   func(ctx context.Context) error { return w.svc.RevokeAnyAPIKey(ctx, account.As(p), k.ID) },
 				want:  events(account.Event{Kind: account.EventKeyRevoked, UserID: w.alice.ID, KeyID: k.ID, Actor: actorOf(p)}),
 			}
 		}},
@@ -710,7 +726,7 @@ func adminOperations() []operation {
 			return opCall{
 				actor: actorOf(p), target: u.ID,
 				run: func(ctx context.Context) (err error) {
-					created, err = w.svc.CreateAPIKey(ctx, account.As(p), u.ID, account.NewKey{Scopes: scopes})
+					created, err = w.svc.CreateAPIKey(ctx, account.As(p), u.ID, account.NewKey{Label: uniqueLabel(), Scopes: scopes})
 					return err
 				},
 				want: func() []account.Event {

@@ -2,7 +2,6 @@ package access
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/cplieger/access/internal/failreason"
 )
 
 // stubVerifier answers every request with p, ok and err, and counts its
@@ -136,7 +137,7 @@ func (s *recordingStore) UpdateSessionActivity(ctx context.Context, h Hash, act 
 	return s.fakeSessionStore.UpdateSessionActivity(ctx, h, act)
 }
 
-func (s *recordingStore) TouchAPIKey(ctx context.Context, keyID int64, at time.Time) error {
+func (s *recordingStore) TouchAPIKey(ctx context.Context, keyID int64, hash Hash, at time.Time) error {
 	s.touches.Add(1)
 	if s.beforeWrite != nil {
 		s.beforeWrite()
@@ -144,14 +145,14 @@ func (s *recordingStore) TouchAPIKey(ctx context.Context, keyID int64, at time.T
 	if s.failWrite() {
 		return errWriteFailed
 	}
-	return s.fakeSessionStore.TouchAPIKey(ctx, keyID, at)
+	return s.fakeSessionStore.TouchAPIKey(ctx, keyID, hash, at)
 }
 
 // writes is the number of activity writes and key touches s has seen.
 func (s *recordingStore) writes() int32 { return s.activities.Load() + s.touches.Load() }
 
 // chainFixture is a store holding one enabled user with a live session and
-// a persisted key.
+// a persisted key labelled "ci".
 type chainFixture struct {
 	store   *recordingStore
 	user    *User
@@ -181,7 +182,7 @@ func newChainFixture(t *testing.T) chainFixture {
 		t.Fatal(err)
 	}
 	if err := store.CreateAPIKey(ctx, &Key{
-		ID: 77, UserID: user.ID, KeyHash: key.Hash, KeyPrefix: key.DisplayPrefix, Scopes: []string{"read"},
+		ID: 77, UserID: user.ID, KeyHash: key.Hash, KeyPrefix: key.DisplayPrefix, Label: "ci", Scopes: []string{"read"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -223,19 +224,19 @@ func withSession(r *http.Request, token string) *http.Request {
 	return r
 }
 
-// answer runs RequireAuth's default response on r and returns its status
-// and body code.
-func answer(t *testing.T, a *Authenticator, r *http.Request) (status int, code string) {
+// answer authenticates r and returns the status and code ErrorFor answers
+// its refusal with, or 200 for a grant.
+func answer(t *testing.T, a *Authenticator, r *http.Request) (status int, code Code) {
 	t.Helper()
-	rec := httptest.NewRecorder()
-	if _, ok := a.RequireAuth(rec, r); ok {
+	_, err := a.Authenticate(r)
+	if err == nil {
 		return http.StatusOK, ""
 	}
-	var body map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("RequireAuth body %q: %v", rec.Body.String(), err)
+	e, ok := ErrorFor(err)
+	if !ok {
+		t.Fatalf("ErrorFor(%v) is unmapped", err)
 	}
-	return rec.Code, body["code"]
+	return e.Status, e.Code
 }
 
 func bearerRequest(token string) *http.Request {
@@ -435,7 +436,7 @@ func TestPresentedButUnusable(t *testing.T) {
 			t.Errorf("Authenticate error = %v, want ErrUnauthenticated wrapping ErrSessionExpired", err)
 		}
 		if status, code := answer(t, a, withSession(bearerRequest(""), token)); status != http.StatusUnauthorized || code != "auth_session_expired" {
-			t.Errorf("RequireAuth = %d %s, want 401 auth_session_expired", status, code)
+			t.Errorf("answer = %d %s, want 401 auth_session_expired", status, code)
 		}
 	})
 	t.Run("revoked session cookie is session not found", func(t *testing.T) {
@@ -447,7 +448,7 @@ func TestPresentedButUnusable(t *testing.T) {
 			t.Errorf("Authenticate error = %v, want ErrUnauthenticated wrapping ErrSessionNotFound", err)
 		}
 		if status, code := answer(t, a, withSession(bearerRequest(""), f.session)); status != http.StatusUnauthorized || code != "auth_session_expired" {
-			t.Errorf("RequireAuth = %d %s, want 401 auth_session_expired", status, code)
+			t.Errorf("answer = %d %s, want 401 auth_session_expired", status, code)
 		}
 	})
 	t.Run("stale cookie and a valid key grants the key", func(t *testing.T) {
@@ -471,8 +472,8 @@ func TestPresentedButUnusable(t *testing.T) {
 		if _, err := a.Authenticate(r()); !errors.Is(err, ErrInvalidCredential) || errors.Is(err, ErrUnauthenticated) {
 			t.Errorf("Authenticate error = %v, want ErrInvalidCredential alone", err)
 		}
-		if status, code := answer(t, a, r()); status != http.StatusUnauthorized || code != "auth_required" {
-			t.Errorf("RequireAuth = %d %s, want 401 auth_required", status, code)
+		if status, code := answer(t, a, r()); status != http.StatusUnauthorized || code != CodeKeyInvalid {
+			t.Errorf("answer = %d %s, want 401 auth_key_invalid", status, code)
 		}
 	})
 	t.Run("stale cookie and a key store outage", func(t *testing.T) {
@@ -485,7 +486,7 @@ func TestPresentedButUnusable(t *testing.T) {
 			t.Errorf("Authenticate error = %v, want ErrAuthBackend wrapping the store's error", err)
 		}
 		if status, code := answer(t, a, r()); status != http.StatusServiceUnavailable || code != "auth_unavailable" {
-			t.Errorf("RequireAuth = %d %s, want 503 auth_unavailable", status, code)
+			t.Errorf("answer = %d %s, want 503 auth_unavailable", status, code)
 		}
 	})
 	for name, ans := range map[string]userAnswer{
@@ -502,7 +503,7 @@ func TestPresentedButUnusable(t *testing.T) {
 				t.Errorf("Authenticate error = %v, want ErrUnauthenticated wrapping ErrSessionNotFound", err)
 			}
 			if status, code := answer(t, a, withSession(bearerRequest(""), f.session)); status != http.StatusUnauthorized || code != "auth_session_expired" {
-				t.Errorf("RequireAuth = %d %s, want 401 auth_session_expired", status, code)
+				t.Errorf("answer = %d %s, want 401 auth_session_expired", status, code)
 			}
 			if n := f.store.activities.Load(); n != 0 {
 				t.Errorf("store saw %d activity writes, want 0", n)
@@ -551,10 +552,11 @@ func TestCustomPrincipalRefused(t *testing.T) {
 	for _, tt := range []struct {
 		wantErr error
 		name    string
+		reason  string
 		p       Principal
 	}{
-		{name: "nil user", p: Principal{Method: "custom", Scopes: []string{"all"}}, wantErr: ErrAccountDisabled},
-		{name: "disabled user", p: Principal{User: &User{ID: 5, Enabled: false}, Method: "custom"}, wantErr: ErrAccountDisabled},
+		{name: "nil user", p: Principal{Method: "custom", Scopes: []string{"all"}}, wantErr: ErrAccountDisabled, reason: failreason.AccountDisabled},
+		{name: "disabled user", p: Principal{User: &User{ID: 5, Enabled: false}, Method: "custom"}, wantErr: ErrAccountDisabled, reason: failreason.AccountDisabled},
 		{name: "empty method", p: Principal{User: &User{ID: 5, Enabled: true}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -571,6 +573,9 @@ func TestCustomPrincipalRefused(t *testing.T) {
 			}
 			if ice.Method != tt.p.Method || !errors.Is(ice.Err, tt.wantErr) || (tt.wantErr == nil && ice.Err != nil) {
 				t.Errorf("detail = {Method: %q, Err: %v}, want {Method: %q, Err: %v}", ice.Method, ice.Err, tt.p.Method, tt.wantErr)
+			}
+			if got := failreason.Of(err); got != tt.reason {
+				t.Errorf("reason = %q, want %q", got, tt.reason)
 			}
 		})
 	}

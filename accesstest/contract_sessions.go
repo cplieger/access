@@ -410,7 +410,7 @@ func (c *contract) activityKey(t *testing.T) {
 	k := newKey(1)
 	mustKey(t, s, k)
 	for _, at := range []time.Time{epoch.Add(30 * time.Minute), epoch} {
-		if err := s.TouchAPIKey(ctx, k.ID, at); err != nil {
+		if err := s.TouchAPIKey(ctx, k.ID, k.KeyHash, at); err != nil {
 			t.Fatalf("TouchAPIKey: %v", err)
 		}
 	}
@@ -448,7 +448,7 @@ func (c *contract) activityConcurrent(t *testing.T) {
 		if err := s.UpdateSessionActivity(ctx, sess.TokenHash, access.SessionActivity{At: at(i), IP: fmt.Sprintf("192.0.2.%d", order[i])}); err != nil {
 			t.Errorf("UpdateSessionActivity: %v", err)
 		}
-		if err := s.TouchAPIKey(ctx, k.ID, at(i)); err != nil {
+		if err := s.TouchAPIKey(ctx, k.ID, k.KeyHash, at(i)); err != nil {
 			t.Errorf("TouchAPIKey: %v", err)
 		}
 	})

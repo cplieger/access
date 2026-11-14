@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -38,10 +39,10 @@ func (e *env) requireStatus(t testing.TB, w *httptest.ResponseRecorder, status i
 }
 
 // requireRefused checks that w answered exactly one code.
-func (e *env) requireRefused(t testing.TB, w *httptest.ResponseRecorder, code Code) Error {
+func (e *env) requireRefused(t testing.TB, w *httptest.ResponseRecorder, code access.Code) access.Error {
 	t.Helper()
 	errs := e.errs.all()
-	if len(errs) == 0 || errs[len(errs)-1].Code != code || w.Code != codeTable[codeIndex[code]].status {
+	if len(errs) == 0 || errs[len(errs)-1].Code != code || w.Code != access.NewError(code, "", nil).Status {
 		t.Fatalf("status %d, errors %+v, want %s", w.Code, errs, code)
 	}
 	return errs[len(errs)-1]
@@ -132,7 +133,7 @@ func TestProfileViewReadFails(t *testing.T) {
 	e := newEnv(t, envOptions{edit: func(c *account.Config) { c.Store = passkeyReadFails{c.Store} }})
 	cookie := e.aliceSession(t)
 	w := do(e.route(t, "authProfile"), e.post(t, "authProfile", jsonBody(t, ProfileRequest{DisplayName: "Alice A."}), cookie))
-	e.requireRefused(t, w, CodeUnavailable)
+	e.requireRefused(t, w, access.CodeUnavailable)
 	if got := e.user(t, "alice").DisplayName; got != "" {
 		t.Errorf("stored display name %q after the failed update, want it unchanged", got)
 	}
@@ -250,7 +251,7 @@ func TestPasswordSetCurrentHTTP(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		cookie := e.aliceSession(t)
 		before := e.user(t, "alice").PasswordHash
-		if got := e.requireRefused(t, send(e, cookie, ""), CodeBadRequest); got.Reason != ReasonCurrentPasswordRequired {
+		if got := e.requireRefused(t, send(e, cookie, ""), access.CodeBadRequest); got.Reason != ReasonCurrentPasswordRequired {
 			t.Errorf("reason %q, want %s", got.Reason, ReasonCurrentPasswordRequired)
 		}
 		if !e.user(t, "alice").PasswordHash.Equal(before) {
@@ -261,7 +262,7 @@ func TestPasswordSetCurrentHTTP(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		cookie := e.aliceSession(t)
 		w := send(e, cookie, "not-"+testPassword)
-		e.requireRefused(t, w, CodeInvalidCredentials)
+		e.requireRefused(t, w, access.CodeInvalidCredentials)
 		if len(w.Result().Cookies()) != 0 || !e.authenticates(t, cookie) || !e.signsIn(t, "alice", testPassword) {
 			t.Errorf("cookies %v, want none, the session kept and the password unchanged", w.Result().Cookies())
 		}
@@ -315,20 +316,20 @@ func TestPasswordRemoveCurrentHTTP(t *testing.T) {
 	}
 	t.Run("missing", func(t *testing.T) {
 		e, cookie := setup(t)
-		if got := e.requireRefused(t, remove(t, e, cookie, ""), CodeBadRequest); got.Reason != ReasonCurrentPasswordRequired {
+		if got := e.requireRefused(t, remove(t, e, cookie, ""), access.CodeBadRequest); got.Reason != ReasonCurrentPasswordRequired {
 			t.Errorf("reason %q, want %s", got.Reason, ReasonCurrentPasswordRequired)
 		}
 		if e.user(t, "alice").PasswordHash.IsZero() {
 			t.Fatal("the password was removed")
 		}
 		w := do(e.route(t, "authPasswordSet"), e.post(t, "authPasswordSet", passwordSetBody(t, "", newPassword), cookie))
-		if got := e.requireRefused(t, w, CodeBadRequest); got.Reason != ReasonCurrentPasswordRequired {
+		if got := e.requireRefused(t, w, access.CodeBadRequest); got.Reason != ReasonCurrentPasswordRequired {
 			t.Errorf("set after the refused removal: reason %q, want %s", got.Reason, ReasonCurrentPasswordRequired)
 		}
 	})
 	t.Run("wrong", func(t *testing.T) {
 		e, cookie := setup(t)
-		e.requireRefused(t, remove(t, e, cookie, "not-"+testPassword), CodeInvalidCredentials)
+		e.requireRefused(t, remove(t, e, cookie, "not-"+testPassword), access.CodeInvalidCredentials)
 		if !e.signsIn(t, "alice", testPassword) {
 			t.Error("the password no longer signs in")
 		}
@@ -586,7 +587,7 @@ func TestRouteAuthKeys(t *testing.T) {
 		own := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
 		e.mintKey(t, "bob", account.NewKey{Label: "bob's"})
 		views := decoded[[]KeyView](t, e, do(e.route(t, "authKeys"), e.post(t, "authKeys", "", cookie)), http.StatusOK)
-		if want := keyView(&own.Key, ""); len(views) != 1 || views[0].ID != want.ID || views[0].Label != "ci" || views[0].Owner != "" || views[0].Prefix != want.Prefix {
+		if want := keyView(&own.Key, "", time.Now()); len(views) != 1 || views[0].ID != want.ID || views[0].Label != "ci" || views[0].Owner != "" || views[0].Prefix != want.Prefix {
 			t.Errorf("keys %+v, want alice's one %+v with no owner", views, want)
 		}
 	})
@@ -608,6 +609,123 @@ func TestRouteAuthKeyCreate(t *testing.T) {
 		if d.Prefix != keys[0].KeyPrefix || d.Suffix != keys[0].KeySuffix || !d.CreatedAt.Equal(keys[0].CreatedAt) || d.Owner != "" {
 			t.Errorf("details %+v, want the stored key's prefix, suffix and creation time with no owner", d)
 		}
+	})
+}
+
+// TestRouteAuthKeyCreateLabel: a label is required and unique among the
+// owner's unexpired keys, compared after NFC and case folding.
+func TestRouteAuthKeyCreateLabel(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		cookie := e.aliceSession(t)
+		w := do(e.route(t, "authKeyCreate"), e.post(t, "authKeyCreate", keyBody(t, ""), cookie))
+		if got := e.requireRefused(t, w, access.CodeBadRequest); got.Reason != "label_empty" {
+			t.Errorf("reason %q, want label_empty", got.Reason)
+		}
+		if keys, _ := e.mem.ListAPIKeysByUserID(t.Context(), e.user(t, "alice").ID); len(keys) != 0 {
+			t.Errorf("stored keys %d, want none", len(keys))
+		}
+	})
+	t.Run("taken", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		cookie := e.aliceSession(t)
+		e.mintKey(t, "alice", account.NewKey{Label: "Agent"})
+		w := do(e.route(t, "authKeyCreate"), e.post(t, "authKeyCreate", keyBody(t, "agent"), cookie))
+		if got := e.requireRefused(t, w, access.CodeKeyLabelTaken); w.Code != http.StatusConflict || got.Reason != "" {
+			t.Errorf("status %d reason %q, want 409 with no reason", w.Code, got.Reason)
+		}
+		if keys, _ := e.mem.ListAPIKeysByUserID(t.Context(), e.user(t, "alice").ID); len(keys) != 1 {
+			t.Errorf("stored keys %d, want the first one only", len(keys))
+		}
+	})
+}
+
+func TestRouteAuthKeyRename(t *testing.T) {
+	rename := func(t *testing.T, e *env, id int64, name string, cookie *http.Cookie) *httptest.ResponseRecorder {
+		t.Helper()
+		return do(e.route(t, "authKeyRename"), e.at(t, "authKeyRename", strconv.FormatInt(id, 10), jsonBody(t, NameRequest{Name: name}), cookie))
+	}
+	t.Run("success", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		cookie := e.aliceSession(t)
+		key := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+		e.requireStatus(t, rename(t, e, key.Key.ID, "deploy", cookie), http.StatusNoContent)
+		views := decoded[[]KeyView](t, e, do(e.route(t, "authKeys"), e.post(t, "authKeys", "", cookie)), http.StatusOK)
+		if len(views) != 1 || views[0].ID != key.Key.ID || views[0].Label != "deploy" {
+			t.Errorf("keys %+v, want key %d labelled deploy", views, key.Key.ID)
+		}
+	})
+	t.Run("empty", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		cookie := e.aliceSession(t)
+		key := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+		if got := e.requireRefused(t, rename(t, e, key.Key.ID, "", cookie), access.CodeBadRequest); got.Reason != "label_empty" {
+			t.Errorf("reason %q, want label_empty", got.Reason)
+		}
+	})
+	t.Run("taken", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		cookie := e.aliceSession(t)
+		e.mintKey(t, "alice", account.NewKey{Label: "Agent"})
+		key := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+		w := rename(t, e, key.Key.ID, "agent", cookie)
+		if e.requireRefused(t, w, access.CodeKeyLabelTaken); w.Code != http.StatusConflict {
+			t.Errorf("status %d, want 409", w.Code)
+		}
+	})
+}
+
+func TestRouteAuthKeyRotate(t *testing.T) {
+	rotate := func(t *testing.T, e *env, id int64, cookie *http.Cookie) *httptest.ResponseRecorder {
+		t.Helper()
+		return do(e.route(t, "authKeyRotate"), e.at(t, "authKeyRotate", strconv.FormatInt(id, 10), "", cookie))
+	}
+	t.Run("success", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		cookie := e.aliceSession(t)
+		old := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+		e.keyPrincipal(t, old.Plaintext)
+		w := rotate(t, e, old.Key.ID, cookie)
+		if strings.Contains(w.Body.String(), `"last_used_at"`) {
+			t.Errorf("body %s carries last_used_at, want it absent until the new secret is used", w.Body)
+		}
+		rotated := decoded[KeyCreatedResponse](t, e, w, http.StatusOK)
+		d := rotated.Details
+		if rotated.Key == "" || rotated.Key == old.Plaintext.Reveal() {
+			t.Fatalf("key %q, want a new plaintext", rotated.Key)
+		}
+		if d.ID != old.Key.ID || d.Label != "ci" || !d.CreatedAt.Equal(old.Key.CreatedAt) || d.Prefix == old.Key.KeyPrefix && d.Suffix == old.Key.KeySuffix {
+			t.Errorf("details %+v, want key %d with its label and creation time and the new secret's display parts", d, old.Key.ID)
+		}
+		if until := time.Until(d.PreviousUntil).Round(time.Minute); until != time.Hour {
+			t.Errorf("previous_until in %v, want the default overlap of 1h", until)
+		}
+		if p := e.keyPrincipal(t, old.Plaintext); p.KeyID != old.Key.ID {
+			t.Errorf("the old secret authenticates key %d, want %d through the overlap", p.KeyID, old.Key.ID)
+		}
+		e.keyPrincipal(t, access.NewSecret(rotated.Key))
+		sessionName, _ := e.names()
+		views := decoded[[]KeyView](t, e, do(e.route(t, "authKeys"), e.post(t, "authKeys", "", cookieNamed(w, sessionName))), http.StatusOK)
+		if len(views) != 1 || !views[0].PreviousUntil.IsZero() || views[0].LastUsedAt.IsZero() {
+			t.Errorf("keys %+v, want the one key used, with no previous_until once its new secret is used", views)
+		}
+	})
+	t.Run("other_users_key", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		cookie := e.aliceSession(t)
+		e.createUser(t, "bob", access.RoleUser)
+		bobs := e.mintKey(t, "bob", account.NewKey{Label: "ci"})
+		e.requireRefused(t, rotate(t, e, bobs.Key.ID, cookie), access.CodeNotFound)
+		if p := e.keyPrincipal(t, bobs.Plaintext); p.KeyID != bobs.Key.ID {
+			t.Errorf("bob's secret authenticates key %d, want %d unrotated", p.KeyID, bobs.Key.ID)
+		}
+	})
+	t.Run("guard_key_principal_refused", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		e.aliceSession(t)
+		key := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+		r := bearer(e.at(t, "authKeyRotate", strconv.FormatInt(key.Key.ID, 10), ""), key.Plaintext)
+		e.requireRefused(t, do(e.route(t, "authKeyRotate"), r), access.CodeSessionRequired)
 	})
 }
 
@@ -651,6 +769,10 @@ func TestRotationSetsCookie(t *testing.T) {
 		}},
 		{name: "authKeyCreate", build: func(t *testing.T, e *env, c *http.Cookie) *http.Request {
 			return e.post(t, "authKeyCreate", keyBody(t, "ci"), c)
+		}},
+		{name: "authKeyRotate", build: func(t *testing.T, e *env, c *http.Cookie) *http.Request {
+			key := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+			return e.at(t, "authKeyRotate", strconv.FormatInt(key.Key.ID, 10), "", c)
 		}},
 	}
 	for _, tc := range cases {

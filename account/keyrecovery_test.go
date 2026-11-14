@@ -31,8 +31,8 @@ func newKeyRec(t *testing.T, expiresIn time.Duration) *keyRec {
 	w := newRecWorld(t, pwOptions{edit: func(c *account.Config) { c.Now = clock.now }}, nil)
 	kr := &keyRec{recWorld: w, clock: clock, boss: mustUser(t, w.mem, "boss", access.RoleAdmin)}
 	kr.bp = w.sessionPrincipal(t, kr.boss, access.SessionFull, time.Now())
-	kr.p = w.key(t, account.NewKey{Scopes: []string{scopeUsers, scopeKeys}})
-	kr.k = w.mint(t, account.As(kr.p.p), w.root.ID, account.NewKey{Scopes: []string{scopeUsers}, ExpiresIn: expiresIn})
+	kr.p = w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
+	kr.k = w.mint(t, account.As(kr.p.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}, ExpiresIn: expiresIn})
 	return kr
 }
 
@@ -225,7 +225,7 @@ func TestKeyIssuedRecovery(t *testing.T) {
 			if err := kr.svc.RevokeAPIKey(t.Context(), kr.pr, kr.k.key.ID); err != nil {
 				t.Fatalf("RevokeAPIKey(K) = %v", err)
 			}
-			k2 := kr.key(t, account.NewKey{Scopes: []string{scopeUsers}})
+			k2 := kr.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 			if k2.key.ID == kr.k.key.ID {
 				t.Fatalf("K2 received K's ID %d", k2.key.ID)
 			}
@@ -343,9 +343,9 @@ func TestKeyAttributionLineage(t *testing.T) {
 	bp := w.sessionPrincipal(t, boss, access.SessionFull, time.Now())
 	r := passwordUser(t, w.mem, w.hasher, "taken", goodPassword)
 	u3 := passwordUser(t, w.mem, w.hasher, "layered", goodPassword)
-	k := w.key(t, account.NewKey{Scopes: []string{scopeUsers, scopeKeys}})
-	k2 := w.mint(t, account.As(k.p), w.root.ID, account.NewKey{Scopes: []string{scopeUsers, scopeKeys}})
-	k3 := w.mint(t, account.As(k2.p), w.root.ID, account.NewKey{Scopes: []string{scopeUsers}})
+	k := w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
+	k2 := w.mint(t, account.As(k.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
+	k3 := w.mint(t, account.As(k2.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 	path1, path2, path3 := []int64{k.key.ID}, []int64{k.key.ID, k2.key.ID}, []int64{k.key.ID, k2.key.ID, k3.key.ID}
 	if !slices.Equal(k3.key.LineageIDs, path3) {
 		t.Fatalf("K3's LineageIDs = %v, want %v", k3.key.LineageIDs, path3)

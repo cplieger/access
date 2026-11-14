@@ -299,14 +299,22 @@ type KeyRef struct {
 
 // Key represents a machine-to-machine API key for a user.
 type Key struct {
-	CreatedAt  time.Time `json:"created_at"`
-	ExpiresAt  time.Time `json:"expires_at,omitzero"`   // zero = never
-	LastUsedAt time.Time `json:"last_used_at,omitzero"` // written through a throttled touch
-	KeyHash    Hash      `json:"-"`
-	KeyPrefix  string    `json:"key_prefix"`
-	KeySuffix  string    `json:"key_suffix"`
-	Label      string    `json:"label"`
-	Scopes     []string  `json:"scopes"` // opaque to the library; the app's vocabulary
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at,omitzero"` // zero = never
+	// LastUsedAt is the current secret's last use, as the Authenticator's
+	// touch records it; a rotation zeroes it, so zero after a rotation means
+	// the new secret is unused.
+	LastUsedAt time.Time `json:"last_used_at,omitzero"`
+	// PreviousUntil bounds the overlap in which PreviousHash still verifies.
+	PreviousUntil time.Time `json:"previous_until,omitzero"`
+	KeyHash       Hash      `json:"-"`
+	// PreviousHash is the secret the last rotation superseded, zero when
+	// none; it verifies while [Key.PreviousSecretUsable].
+	PreviousHash Hash     `json:"-"`
+	KeyPrefix    string   `json:"key_prefix"`
+	KeySuffix    string   `json:"key_suffix"`
+	Label        string   `json:"label"`
+	Scopes       []string `json:"scopes"` // opaque to the library; the app's vocabulary
 	// LineageIDs is the key's ancestor path, fixed at mint: root first, the
 	// key's own ID last. A key minted by a key has its parent's path plus its
 	// own ID; a key a session or an out-of-band actor minted has its own ID
@@ -318,6 +326,16 @@ type Key struct {
 	UserID     int64   `json:"user_id"`
 }
 
+// KeySecret is the part of a [Key] a rotation replaces: the new secret's
+// hash and display parts, and the superseded secret with its overlap bound.
+type KeySecret struct {
+	PreviousUntil time.Time
+	KeyHash       Hash
+	PreviousHash  Hash
+	KeyPrefix     string
+	KeySuffix     string
+}
+
 // ParentKeyID is the key that minted k (the second-last ID of LineageIDs),
 // or 0 for a key a session or an out-of-band actor minted.
 func (k Key) ParentKeyID() int64 { //nolint:gocritic // hugeParam: a value receiver keeps it callable on a non-addressable Key
@@ -325,6 +343,13 @@ func (k Key) ParentKeyID() int64 { //nolint:gocritic // hugeParam: a value recei
 		return k.LineageIDs[n-2]
 	}
 	return 0
+}
+
+// PreviousSecretUsable reports whether k's previous secret verifies at now:
+// PreviousHash is set, now is before PreviousUntil, and the current secret
+// is unused (LastUsedAt zero).
+func (k *Key) PreviousSecretUsable(now time.Time) bool {
+	return !k.PreviousHash.IsZero() && now.Before(k.PreviousUntil) && k.LastUsedAt.IsZero()
 }
 
 // Clone returns a deep copy, or nil for a nil k.

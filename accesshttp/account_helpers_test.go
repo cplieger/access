@@ -212,6 +212,14 @@ func (s stubAccount) CreateAPIKey(ctx context.Context, a account.Actor, userID i
 	return stubbed(s, "CreateAPIKey", func() (account.CreatedKey, error) { return s.accountAPI.CreateAPIKey(ctx, a, userID, in) })
 }
 
+func (s stubAccount) RenameAPIKey(ctx context.Context, p access.Principal, id int64, label string) error {
+	return stubbedErr(s, "RenameAPIKey", func() error { return s.accountAPI.RenameAPIKey(ctx, p, id, label) })
+}
+
+func (s stubAccount) RotateAPIKey(ctx context.Context, a account.Actor, id int64) (account.RotatedKey, error) {
+	return stubbed(s, "RotateAPIKey", func() (account.RotatedKey, error) { return s.accountAPI.RotateAPIKey(ctx, a, id) })
+}
+
 func (s stubAccount) RevokeAPIKey(ctx context.Context, p access.Principal, id int64) error {
 	return stubbedErr(s, "RevokeAPIKey", func() error { return s.accountAPI.RevokeAPIKey(ctx, p, id) })
 }
@@ -240,12 +248,12 @@ func (s stubAccount) CreateInvite(ctx context.Context, p access.Principal, role 
 	return stubbed(s, "CreateInvite", func() (account.IssuedToken, error) { return s.accountAPI.CreateInvite(ctx, p, role, ttl) })
 }
 
-func (s stubAccount) AllAPIKeys(ctx context.Context, p access.Principal) ([]account.ListedKey, error) {
-	return stubbed(s, "AllAPIKeys", func() ([]account.ListedKey, error) { return s.accountAPI.AllAPIKeys(ctx, p) })
+func (s stubAccount) AllAPIKeys(ctx context.Context, a account.Actor) ([]account.ListedKey, error) {
+	return stubbed(s, "AllAPIKeys", func() ([]account.ListedKey, error) { return s.accountAPI.AllAPIKeys(ctx, a) })
 }
 
-func (s stubAccount) RevokeAnyAPIKey(ctx context.Context, p access.Principal, id int64) error {
-	return stubbedErr(s, "RevokeAnyAPIKey", func() error { return s.accountAPI.RevokeAnyAPIKey(ctx, p, id) })
+func (s stubAccount) RevokeAnyAPIKey(ctx context.Context, a account.Actor, id int64) error {
+	return stubbedErr(s, "RevokeAnyAPIKey", func() error { return s.accountAPI.RevokeAnyAPIKey(ctx, a, id) })
 }
 
 func (s stubAccount) Tokens(ctx context.Context, p access.Principal) ([]account.ListedToken, error) {

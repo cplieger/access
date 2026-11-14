@@ -732,3 +732,187 @@ func TestSweepTokenLegRetries(t *testing.T) {
 		}
 	})
 }
+
+// keySweepStore wraps a Store's retired-secret sweep: it records each
+// call, can fail chosen calls, and can run a hook inside one.
+type keySweepStore struct {
+	account.Store
+	fail   func(call int) bool
+	inside func(ctx context.Context, call int)
+	calls  []keySweepCall
+	mu     sync.Mutex
+}
+
+// keySweepCall is one ClearRetiredAPIKeySecrets call as the store saw it.
+type keySweepCall struct {
+	now     time.Time
+	limit   int
+	cleared int
+	failed  bool
+}
+
+func (s *keySweepStore) ClearRetiredAPIKeySecrets(ctx context.Context, now time.Time, limit int) (int, error) {
+	s.mu.Lock()
+	n := len(s.calls) + 1
+	s.mu.Unlock()
+	if s.inside != nil {
+		s.inside(ctx, n)
+	}
+	call := keySweepCall{now: now, limit: limit}
+	var cleared int
+	var err error
+	if s.fail != nil && s.fail(n) {
+		err = errors.New("clear failed")
+	} else {
+		cleared, err = s.Store.ClearRetiredAPIKeySecrets(ctx, now, limit)
+	}
+	call.cleared, call.failed = cleared, err != nil
+	s.mu.Lock()
+	s.calls = append(s.calls, call)
+	s.mu.Unlock()
+	return cleared, err
+}
+
+func (s *keySweepStore) recorded() []keySweepCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.calls)
+}
+
+// rotatedKeys stores n keys of userID in one Update, each holding a
+// previous secret whose overlap ends at until, and returns their IDs.
+func rotatedKeys(t *testing.T, f *fixture, userID int64, n int, until time.Time) []int64 {
+	t.Helper()
+	ids := make([]int64, n)
+	err := f.mem.Update(t.Context(), func(tx account.Tx) error {
+		for i := range ids {
+			cur, err := access.GenerateAPIKey("")
+			if err != nil {
+				return err
+			}
+			prev, err := access.GenerateAPIKey("")
+			if err != nil {
+				return err
+			}
+			k := &access.Key{
+				UserID: userID, KeyHash: cur.Hash, KeyPrefix: cur.DisplayPrefix, KeySuffix: cur.DisplaySuffix,
+				Label: fmt.Sprintf("rotated %d", i), CreatedAt: until.Add(-48 * time.Hour), PreviousHash: prev.Hash, PreviousUntil: until,
+			}
+			if err := tx.CreateAPIKey(t.Context(), k); err != nil {
+				return err
+			}
+			ids[i] = k.ID
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Update(keys): %v", err)
+	}
+	return ids
+}
+
+// previousHeld is how many of ids still hold a previous secret.
+func previousHeld(t *testing.T, f *fixture, userID int64, ids []int64) int {
+	t.Helper()
+	n := 0
+	for _, k := range keysOf(t, f.mem, userID) {
+		if slices.Contains(ids, k.ID) && !k.PreviousHash.IsZero() {
+			n++
+		}
+	}
+	return n
+}
+
+func TestSweepClearsRetiredKeySecrets(t *testing.T) {
+	const total = account.MaxSweepBatch*2 + 1
+	setup := func(t *testing.T, ks *keySweepStore) (*fixture, int64) {
+		t.Helper()
+		f := newFixture(t, options{edit: func(c *account.Config) {
+			withInterval(c)
+			ks.Store = c.Store
+			c.Store = ks
+		}})
+		return f, mustUser(t, f.mem, "alice", access.RoleUser).ID
+	}
+	t.Run("drains_in_one_tick", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			ks := &keySweepStore{}
+			f, alice := setup(t, ks)
+			retired := rotatedKeys(t, f, alice, total, time.Now().Add(-time.Minute))
+			live := rotatedKeys(t, f, alice, 1, time.Now().Add(48*time.Hour))
+			tick()
+			calls := ks.recorded()
+			if len(calls) != 3 {
+				t.Fatalf("clear calls in one tick = %d, want 3", len(calls))
+			}
+			for i, c := range calls {
+				if c.limit != account.MaxSweepBatch || !c.now.Equal(calls[0].now) || c.failed {
+					t.Errorf("call %d = %+v, want limit %d at the tick's one now", i, c, account.MaxSweepBatch)
+				}
+			}
+			if n := previousHeld(t, f, alice, retired); n != 0 {
+				t.Errorf("retired keys still holding a previous secret = %d, want 0", n)
+			}
+			if n := previousHeld(t, f, alice, live); n != 1 {
+				t.Error("the sweep cleared a previous secret still in its overlap")
+			}
+			var reported []int64
+			for _, rec := range f.logs.Records("account: sweep finished") {
+				rec.Attrs(func(a slog.Attr) bool {
+					if a.Key == "keys" {
+						reported = append(reported, a.Value.Int64())
+					}
+					return true
+				})
+			}
+			if len(reported) == 0 || reported[len(reported)-1] != total {
+				t.Errorf("sweep finished reported keys %v, want the tick's line naming all %d", reported, total)
+			}
+		})
+	})
+	t.Run("failed_call_retried_next_tick", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			var failNext atomic.Bool
+			failNext.Store(true)
+			ks := &keySweepStore{fail: func(int) bool { return failNext.Load() }}
+			f, alice := setup(t, ks)
+			retired := rotatedKeys(t, f, alice, 3, time.Now().Add(-time.Minute))
+			tick()
+			if calls := ks.recorded(); len(calls) != 1 || !calls[0].failed {
+				t.Fatalf("calls in the failing tick = %+v, want one failed call", calls)
+			}
+			if n := f.logs.CountMsg("retired key-secret sweep failed"); n != 1 || warnings(f.logs) != 1 {
+				t.Errorf("the failed call logged %d matching lines and %d WARN lines, want one WARN", n, warnings(f.logs))
+			}
+			failNext.Store(false)
+			tick()
+			if n := previousHeld(t, f, alice, retired); n != 0 {
+				t.Errorf("retired keys still holding a previous secret after the retry = %d, want 0", n)
+			}
+		})
+	})
+	t.Run("shutdown_between_calls", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			inside := make(chan struct{})
+			ks := &keySweepStore{inside: func(ctx context.Context, call int) {
+				if call == 1 {
+					close(inside)
+					<-ctx.Done()
+				}
+			}}
+			f, alice := setup(t, ks)
+			rotatedKeys(t, f, alice, total, time.Now().Add(-time.Minute))
+			select {
+			case <-inside:
+			case <-time.After(time.Hour):
+				t.Fatal("the first clear call never ran")
+			}
+			if err := f.svc.Shutdown(t.Context()); err != nil {
+				t.Errorf("Shutdown during the leg = %v, want nil", err)
+			}
+			if calls := ks.recorded(); len(calls) != 1 {
+				t.Errorf("clear calls = %d, want 1: the leg stops once ctx ends", len(calls))
+			}
+		})
+	})
+}

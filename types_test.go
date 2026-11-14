@@ -104,6 +104,32 @@ func TestCloneIsDeep(t *testing.T) {
 	})
 }
 
+func TestKeyPreviousSecretUsable(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	previous := APIKeyHash("superseded")
+	cases := []struct {
+		name string
+		key  Key
+		want bool
+	}{
+		{"never_rotated", Key{}, false},
+		{"inside_the_overlap_unused", Key{PreviousHash: previous, PreviousUntil: now.Add(time.Second)}, true},
+		{"at_the_bound", Key{PreviousHash: previous, PreviousUntil: now}, false},
+		{"past_the_bound", Key{PreviousHash: previous, PreviousUntil: now.Add(-time.Second)}, false},
+		{"new_secret_used", Key{PreviousHash: previous, PreviousUntil: now.Add(time.Hour), LastUsedAt: now.Add(-time.Second)}, false},
+		{"bound_with_no_previous_hash", Key{PreviousUntil: now.Add(time.Hour)}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.key.PreviousSecretUsable(now); got != tc.want {
+				t.Errorf("PreviousSecretUsable(%v) = %t, want %t", now, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestKeyLineage(t *testing.T) {
 	t.Parallel()
 	parents := []struct {

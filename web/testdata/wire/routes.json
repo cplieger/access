@@ -360,6 +360,24 @@
     "array": false
   },
   {
+    "request": "NameRequest",
+    "response": null,
+    "name": "authKeyRename",
+    "method": "PUT",
+    "path": "{prefix}/apikeys/{id}",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "KeyCreatedResponse",
+    "name": "authKeyRotate",
+    "method": "POST",
+    "path": "{prefix}/apikeys/{id}/rotate",
+    "kind": "json",
+    "array": false
+  },
+  {
     "request": null,
     "response": null,
     "name": "authKeyRevoke",

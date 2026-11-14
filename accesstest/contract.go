@@ -52,6 +52,7 @@ func StoreContract(t *testing.T, newStore func(t *testing.T) account.Store, cfg 
 		{c.fidelity, "rule_20_fidelity"},
 		{c.activity, "rule_21_activity"},
 		{c.securityLog, "rule_22_log"},
+		{c.keySecrets, "rule_23_key_secrets"},
 	} {
 		t.Run(r.name, r.run)
 	}
@@ -161,6 +162,7 @@ const (
 	opUserByUsername = "UserByUsername"
 	opListAllKeys    = "ListAPIKeys"
 	opListUserKeys   = "ListAPIKeysByUserID"
+	opDeleteKey      = "DeleteAPIKey"
 )
 
 // epoch is the suite's clock origin: millisecond-aligned and in UTC.

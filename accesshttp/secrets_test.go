@@ -133,7 +133,7 @@ type secretCase struct {
 
 // secretsFixture is a Handler over a recordingAccount, with a case per
 // secret-bearing request route; errs is handed every refusal.
-func secretsFixture(t *testing.T, errs func(accesshttp.Error)) (*accesshttp.Handler, *recordingAccount, map[string]secretCase) {
+func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler, *recordingAccount, map[string]secretCase) {
 	t.Helper()
 	svc, authn := newService(t)
 	u, err := svc.CreateUser(t.Context(), account.OutOfBand("test"), account.NewUser{Username: "alice", Password: access.NewSecret(secretsPassword), Role: access.RoleAdmin})
@@ -159,7 +159,7 @@ func secretsFixture(t *testing.T, errs func(accesshttp.Error)) (*accesshttp.Hand
 
 	fake := &recordingAccount{AccountAPI: svc, got: map[string][]string{}}
 	h, err := accesshttp.NewWithAccount(accesshttp.Config{
-		Errors: func(w http.ResponseWriter, _ *http.Request, e accesshttp.Error) {
+		Errors: func(w http.ResponseWriter, _ *http.Request, e access.Error) {
 			errs(e)
 			w.WriteHeader(e.Status)
 		},
@@ -222,7 +222,7 @@ func (a *recordingAccount) received(op string) []string {
 }
 
 func TestHandlerWrapsSecrets(t *testing.T) {
-	h, fake, cases := secretsFixture(t, func(e accesshttp.Error) { t.Errorf("refused: %+v", e) })
+	h, fake, cases := secretsFixture(t, func(e access.Error) { t.Errorf("refused: %+v", e) })
 	for _, rt := range h.Routes() {
 		tc, ok := cases[rt.Name]
 		if !ok {
@@ -239,8 +239,8 @@ func TestHandlerWrapsSecrets(t *testing.T) {
 
 func TestRequiredSecretMissing(t *testing.T) {
 	var mu sync.Mutex
-	var refused []accesshttp.Error
-	h, fake, cases := secretsFixture(t, func(e accesshttp.Error) {
+	var refused []access.Error
+	h, fake, cases := secretsFixture(t, func(e access.Error) {
 		mu.Lock()
 		defer mu.Unlock()
 		refused = append(refused, e)
@@ -262,7 +262,7 @@ func TestRequiredSecretMissing(t *testing.T) {
 					mu.Lock()
 					got := slices.Clone(refused[before:])
 					mu.Unlock()
-					if len(got) != 1 || got[0].Code != accesshttp.CodeBadRequest || got[0].Status != http.StatusBadRequest || got[0].Reason != field {
+					if len(got) != 1 || got[0].Code != access.CodeBadRequest || got[0].Status != http.StatusBadRequest || got[0].Reason != field {
 						t.Errorf("refusals %+v, want one 400 auth_bad_request naming %s", got, field)
 					}
 					if calls := fake.received(rt.Name); len(calls) != 0 {

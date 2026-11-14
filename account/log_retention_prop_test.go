@@ -84,7 +84,7 @@ func TestLogBoundAtAnyTime(t *testing.T) {
 				}
 				step(rt)
 				id := rapid.SampledFrom(live).Draw(rt, "keyOwner")
-				if _, err := f.svc.CreateAPIKey(t.Context(), account.OutOfBand("prop"), id, account.NewKey{Scopes: []string{"read"}}); err != nil {
+				if _, err := f.svc.CreateAPIKey(t.Context(), account.OutOfBand("prop"), id, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}}); err != nil {
 					rt.Fatalf("CreateAPIKey: %v", err)
 				}
 				logged()

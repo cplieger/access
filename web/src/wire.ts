@@ -563,7 +563,10 @@ export const parseSessionView: Validator<SessionView> = object({
   current: req(bool),
 });
 
-/** owner is set on the admin list only. */
+/**
+ * owner is set on the admin list only. previous_until is set only while a
+ * rotated key's old secret still verifies; a list re-read shows it gone.
+ */
 export interface KeyView {
   readonly id: number;
   readonly user_id: number;
@@ -575,6 +578,7 @@ export interface KeyView {
   readonly created_at: string;
   readonly expires_at?: string;
   readonly last_used_at?: string;
+  readonly previous_until?: string;
   readonly parent_key_id?: number;
 }
 export const parseKeyView: Validator<KeyView> = object({
@@ -588,6 +592,7 @@ export const parseKeyView: Validator<KeyView> = object({
   created_at: req(time),
   expires_at: opt(time),
   last_used_at: opt(time),
+  previous_until: opt(time),
   parent_key_id: opt(id),
 });
 
@@ -743,7 +748,7 @@ export const parseWebAuthnSignals: Validator<WebAuthnSignals> = object({
 
 // Error codes and reasons.
 
-/** accesshttp.Codes(), in its order. @internal */
+/** access.Codes(), in its order. @internal */
 export const CODES = [
   "auth_required",
   "auth_session_expired",
@@ -752,6 +757,7 @@ export const CODES = [
   "auth_recent_auth_required",
   "auth_session_required",
   "auth_scope_required",
+  "auth_key_required",
   "auth_forbidden",
   "auth_rate_limited",
   "auth_busy",
@@ -760,6 +766,7 @@ export const CODES = [
   "auth_body_too_large",
   "auth_username_invalid",
   "auth_username_taken",
+  "auth_key_label_taken",
   "auth_password_rejected",
   "auth_breach_check_unavailable",
   "auth_password_login_disabled",
@@ -786,7 +793,7 @@ export const CODES = [
   "auth_method_not_allowed",
 ] as const;
 
-/** Every code accesshttp answers, as accesshttp.Codes() lists them. */
+/** Every code the server answers, as access.Codes() lists them. */
 export type AuthCode = (typeof CODES)[number];
 
 /** accesshttp.Reasons(), in its order. @internal */
@@ -826,6 +833,8 @@ export const REASONS = [
   "breached",
   "out_of_band_only",
   "key_not_current",
+  "key_retiring",
+  "key_expired",
   "admin_target",
   "scopes_not_subset",
   "expiry_after_parent",
@@ -847,6 +856,7 @@ export const REASONS = [
   "via_with_actor",
   "empty",
   "disallowed_character",
+  "label_empty",
   "label_disallowed_character",
   "label_too_long",
   "display_name_disallowed_character",

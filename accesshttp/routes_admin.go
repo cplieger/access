@@ -89,20 +89,20 @@ func serveAdminInvite(h *Handler, c *call) error {
 }
 
 func serveAdminKeys(h *Handler, c *call) error {
-	keys, err := h.acct.AllAPIKeys(c.r.Context(), c.p)
+	keys, err := h.acct.AllAPIKeys(c.r.Context(), account.As(c.p))
 	if err != nil {
 		return err
 	}
-	views := make([]KeyView, len(keys))
+	views, now := make([]KeyView, len(keys)), time.Now()
 	for i := range keys {
-		views[i] = keyView(&keys[i].Key, keys[i].Owner)
+		views[i] = keyView(&keys[i].Key, keys[i].Owner, now)
 	}
 	writeJSON(c.w, http.StatusOK, views)
 	return nil
 }
 
 func serveAdminKeyRevoke(h *Handler, c *call) error {
-	if err := h.acct.RevokeAnyAPIKey(c.r.Context(), c.p, c.id); err != nil {
+	if err := h.acct.RevokeAnyAPIKey(c.r.Context(), account.As(c.p), c.id); err != nil {
 		return err
 	}
 	noContent(c.w)

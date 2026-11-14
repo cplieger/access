@@ -259,41 +259,6 @@ func TestAuthenticate_disabled_user_session(t *testing.T) {
 	}
 }
 
-func TestRequireAuth_unauthenticated_browser_gets_401(t *testing.T) {
-	t.Parallel()
-	a := mustAuthenticator(t, newFakeSessionStore(), Config{IdleTimeout: time.Hour, AbsTimeout: 24 * time.Hour})
-	r, _ := http.NewRequest(http.MethodGet, "/api/config", nil)
-	r.Header.Set("Accept", "text/html")
-	w := httptest.NewRecorder()
-
-	_, ok := a.RequireAuth(w, r)
-	if ok {
-		t.Fatal("expected ok=false")
-	}
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
-	}
-	if loc := w.Header().Get("Location"); loc != "" {
-		t.Errorf("Location = %q, want none (no browser redirect)", loc)
-	}
-}
-
-func TestRequireAuth_unauthenticated_api_returns_401(t *testing.T) {
-	t.Parallel()
-	a := mustAuthenticator(t, newFakeSessionStore(), Config{IdleTimeout: time.Hour, AbsTimeout: 24 * time.Hour})
-	r, _ := http.NewRequest(http.MethodGet, "/api/config", nil)
-	r.Header.Set("Accept", "application/json")
-	w := httptest.NewRecorder()
-
-	_, ok := a.RequireAuth(w, r)
-	if ok {
-		t.Fatal("expected ok=false")
-	}
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
-	}
-}
-
 func TestAuthenticate_api_key_query_param_rejected(t *testing.T) {
 	t.Parallel()
 	db := newFakeSessionStore()
@@ -362,37 +327,6 @@ func TestAuthenticate_disabled_user_api_key(t *testing.T) {
 	_, gotErr := a.Authenticate(r)
 	if !errors.Is(gotErr, ErrInvalidCredential) || !errors.Is(gotErr, ErrAccountDisabled) {
 		t.Errorf("Authenticate(disabled user API key) error = %v, want ErrInvalidCredential wrapping ErrAccountDisabled", gotErr)
-	}
-}
-
-func TestRequireAuth_authenticated_returns_user(t *testing.T) {
-	t.Parallel()
-	db := newFakeSessionStore()
-	ctx := t.Context()
-
-	user := &User{Username: "authuser", PasswordHash: NewHash("dummy"), Role: "admin", Enabled: true}
-	if err := db.CreateUser(ctx, user); err != nil {
-		t.Fatal(err)
-	}
-
-	plaintext, hash, prefix, suffix := mustAPIKey(t)
-	if err := db.CreateAPIKey(ctx, &Key{
-		UserID: user.ID, KeyHash: hash, KeyPrefix: prefix, KeySuffix: suffix, Label: "test",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	a := mustAuthenticator(t, db, Config{IdleTimeout: time.Hour, AbsTimeout: 24 * time.Hour})
-	r, _ := http.NewRequest(http.MethodGet, "/api/search", nil)
-	r.Header.Set("Authorization", "Bearer "+plaintext)
-	w := httptest.NewRecorder()
-
-	p, ok := a.RequireAuth(w, r)
-	if !ok {
-		t.Fatal("RequireAuth() returned ok=false for authenticated request")
-	}
-	if p.User.ID != user.ID {
-		t.Errorf("RequireAuth() user ID = %d, want %d", p.User.ID, user.ID)
 	}
 }
 
@@ -525,8 +459,8 @@ func TestHasRole_nilUser_failsClosed(t *testing.T) {
 	}
 }
 
-// errVerifier is a CredentialVerifier that always returns a backend error,
-// exercising the non-ErrUnauthenticated error path of Authenticate/RequireAuth.
+// errVerifier is a CredentialVerifier that always returns its error,
+// exercising the non-ErrUnauthenticated error path of Authenticate.
 type errVerifier struct{ err error }
 
 func (e errVerifier) Verify(context.Context, *http.Request) (Principal, bool, error) {
@@ -535,24 +469,14 @@ func (e errVerifier) Verify(context.Context, *http.Request) (Principal, bool, er
 
 func TestAuthenticator_injectedVerifierError_failsClosed(t *testing.T) {
 	t.Parallel()
-	// A verifier that returns a backend error must fail closed: Authenticate
-	// propagates the error (not ErrUnauthenticated) and RequireAuth denies the
-	// request (ok=false, 401) rather than treating the error as success.
+	// A verifier error that is not ErrUnauthenticated stops the chain and is
+	// returned with no principal, never treated as a grant.
 	wantErr := errors.New("backend down")
 	a := mustAuthenticator(t, newFakeSessionStore(), Config{Verifier: errVerifier{err: wantErr}})
 
-	if _, err := a.Authenticate(httptest.NewRequest(http.MethodGet, "/api/x", nil)); !errors.Is(err, wantErr) {
-		t.Fatalf("Authenticate() error = %v, want %v", err, wantErr)
-	}
-
-	r := httptest.NewRequest(http.MethodGet, "/api/x", nil)
-	r.Header.Set("Accept", "application/json")
-	w := httptest.NewRecorder()
-	if _, ok := a.RequireAuth(w, r); ok {
-		t.Fatal("RequireAuth() ok = true on verifier error, want false (fail closed)")
-	}
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("RequireAuth() status = %d, want %d", w.Code, http.StatusUnauthorized)
+	p, err := a.Authenticate(httptest.NewRequest(http.MethodGet, "/api/x", nil))
+	if !errors.Is(err, wantErr) || !isZeroPrincipal(p) {
+		t.Fatalf("Authenticate() = (%+v, %v), want the zero Principal and %v", p, err, wantErr)
 	}
 }
 
@@ -695,7 +619,7 @@ func TestAuthenticatorPrinting(t *testing.T) {
 	checkTypes(t, printcheck.Allow{Fields: []string{
 		"access.Authenticator.chain",
 		"access.sessionVerifier.store", "access.apiKeyVerifier.store",
-		"access.Config.Logger", "access.Config.Verifier",
+		"access.Config.Logger", "access.Config.Verifier", "access.Config.Realm",
 		"access.CookieConfig.Name", "access.CookieConfig.Path", "access.CookieConfig.Domain",
 	}, Types: []string{"time.Time"}}, reflect.TypeFor[*Authenticator]())
 }

@@ -8,7 +8,8 @@ import (
 
 // fakeSessionStore is an in-memory AuthenticatorStore plus the setup methods
 // access tests need. Its activity and touch writes keep the account store
-// contract's rule 21: an older or equal time writes nothing.
+// contract's rule 21: an older or equal time writes nothing, and a touch
+// carrying a hash other than the stored KeyHash writes nothing.
 type fakeSessionStore struct {
 	users    map[int64]*User
 	sessions map[HashKey]*Session // keyed by TokenHash.Key()
@@ -51,11 +52,18 @@ func (f *fakeSessionStore) UserByID(_ context.Context, id int64) (*User, bool, e
 func (f *fakeSessionStore) APIKeyByHash(_ context.Context, hash Hash) (*Key, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	k, ok := f.apiKeys[hash.Key()]
-	if !ok {
+	if hash.IsZero() {
 		return nil, false, nil
 	}
-	return new(*k), true, nil
+	if k, ok := f.apiKeys[hash.Key()]; ok {
+		return new(*k), true, nil
+	}
+	for _, k := range f.apiKeys {
+		if !k.PreviousHash.IsZero() && k.PreviousHash.Equal(hash) {
+			return new(*k), true, nil
+		}
+	}
+	return nil, false, nil
 }
 
 func (f *fakeSessionStore) UpdateSessionActivity(_ context.Context, tokenHash Hash, act SessionActivity) error {
@@ -68,11 +76,11 @@ func (f *fakeSessionStore) UpdateSessionActivity(_ context.Context, tokenHash Ha
 	return nil
 }
 
-func (f *fakeSessionStore) TouchAPIKey(_ context.Context, keyID int64, at time.Time) error {
+func (f *fakeSessionStore) TouchAPIKey(_ context.Context, keyID int64, hash Hash, at time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, k := range f.apiKeys {
-		if k.ID == keyID && at.After(k.LastUsedAt) {
+		if k.ID == keyID && k.KeyHash.Equal(hash) && at.After(k.LastUsedAt) {
 			k.LastUsedAt = at
 		}
 	}
@@ -106,6 +114,35 @@ func (f *fakeSessionStore) CreateAPIKey(_ context.Context, k *Key) error {
 		f.nextID++
 	}
 	f.apiKeys[cp.KeyHash.Key()] = &cp
+	return nil
+}
+
+// updateAPIKeySecret writes s over the key with id and zeroes its
+// LastUsedAt in one step, as account's rotation does through
+// Tx.UpdateAPIKeySecret.
+func (f *fakeSessionStore) updateAPIKeySecret(id int64, s KeySecret) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for hash, k := range f.apiKeys {
+		if k.ID == id {
+			delete(f.apiKeys, hash)
+			k.KeyHash, k.KeyPrefix, k.KeySuffix = s.KeyHash, s.KeyPrefix, s.KeySuffix
+			k.PreviousHash, k.PreviousUntil, k.LastUsedAt = s.PreviousHash, s.PreviousUntil, time.Time{}
+			f.apiKeys[k.KeyHash.Key()] = k
+			return
+		}
+	}
+}
+
+// apiKey returns a copy of the stored key with id, or nil.
+func (f *fakeSessionStore) apiKey(id int64) *Key {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, k := range f.apiKeys {
+		if k.ID == id {
+			return new(*k)
+		}
+	}
 	return nil
 }
 

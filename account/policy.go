@@ -22,6 +22,7 @@ const (
 	OpMigrateToSSO  Operation = "migrate_to_sso"  // an OIDC link under Rules.SSOGoverned
 	OpCreateKeyFor  Operation = "create_key_for"  // an out-of-band actor mints a key for Target
 	OpCreateOwnKey  Operation = "create_own_key"  // a session or a key mints a key for its own user
+	OpRotateKey     Operation = "rotate_key"      // a new secret for Target's key, by OutOfBand or Target's own session
 )
 
 // CreateVia names what authorises an OpCreateUser. account alone sets it,
@@ -37,9 +38,9 @@ const (
 )
 
 // Decision is one question to the Policy. A write that decides on stored
-// rows asks it inside its Update, with the rows read there; a list read,
-// and an invite acceptance's OpCreateUser, which no row decides, ask it
-// before.
+// rows asks it inside its Update, with the rows read there, and so does
+// AllAPIKeys, whose key actor is re-read there; the other list reads, and
+// an invite acceptance's OpCreateUser, which no row decides, ask it before.
 type Decision struct {
 	// Target is nil for OpCreateUser, OpInvite and the list operations, and
 	// for a user operation whose target does not exist; the policy then
@@ -55,7 +56,10 @@ type Decision struct {
 	Enabled bool  // OpSetEnabled: the value being set
 }
 
-// Policy decides who may change the user set and mint credentials.
+// Policy decides who may change the user set and mint credentials. An
+// OutOfBand actor reaches it for OpCreateUser, OpIssueRecovery,
+// OpCreateKeyFor, OpManageAllKeys and OpRotateKey, so an app's own Policy
+// decides each. OpRotateKey's Target is the key's owner as stored.
 type Policy interface {
 	// Authorize returns nil, or a *PolicyError.
 	Authorize(ctx context.Context, d Decision) error
@@ -68,7 +72,8 @@ type RolePolicy struct {
 	// SSO the last enabled admin who holds a password.
 	KeepLocalAdmin bool
 	// KeysAdminOnly lets only an admin mint keys for itself
-	// (OpCreateOwnKey); false lets any enabled user.
+	// (OpCreateOwnKey) and rotate its own (OpRotateKey); false lets any
+	// enabled user.
 	KeysAdminOnly bool
 }
 
@@ -90,10 +95,12 @@ func (p RolePolicy) Authorize(_ context.Context, d Decision) error { //nolint:go
 		}
 		return requireAdmin(d, actor, isPrincipal)
 	case OpCreateOwnKey:
-		return p.createOwnKey(d, actor, isPrincipal)
+		return p.ownKey(d, actor, isPrincipal)
 	case OpCreateKeyFor:
-		return createKeyFor(d, func(u *access.User) bool { return u.Enabled })
-	case OpIssueRecovery:
+		return outOfBandOn(d, enabled)
+	case OpRotateKey:
+		return p.rotateKey(d, actor, isPrincipal)
+	case OpIssueRecovery, OpManageAllKeys:
 		if d.Actor.isOutOfBand() {
 			return nil
 		}
@@ -105,19 +112,39 @@ func (p RolePolicy) Authorize(_ context.Context, d Decision) error { //nolint:go
 		return p.keepLocalAdmin(d)
 	case OpDeleteUser, OpSetRole, OpSetEnabled:
 		return p.changeUser(d, actor, isPrincipal)
-	case OpInvite, OpListUsers, OpManageAllKeys:
+	case OpInvite, OpListUsers:
 		return requireAdmin(d, actor, isPrincipal)
 	default:
 		return &PolicyError{Op: d.Op, Reason: ReasonUnknownOperation}
 	}
 }
 
-func (p RolePolicy) createOwnKey(d Decision, actor *access.User, isPrincipal bool) error { //nolint:gocritic // hugeParam: the Decision Authorize received
+// ownKey is the rule on a principal acting on a key of its own user: an
+// enabled user, and an admin under KeysAdminOnly.
+func (p RolePolicy) ownKey(d Decision, actor *access.User, isPrincipal bool) error { //nolint:gocritic // hugeParam: the Decision Authorize received
 	if !isPrincipal || !actor.Enabled {
 		return &PolicyError{Op: d.Op, Reason: ReasonNotEnabledUser}
 	}
 	if p.KeysAdminOnly && actor.Role != access.RoleAdmin {
 		return &PolicyError{Op: d.Op, Reason: ReasonNotAdmin}
+	}
+	return nil
+}
+
+// rotateKey allows an out-of-band actor on an enabled target, and a
+// principal on its own enabled user under ownKey's rule.
+func (p RolePolicy) rotateKey(d Decision, actor *access.User, isPrincipal bool) error { //nolint:gocritic // hugeParam: the Decision Authorize received
+	if d.Actor.isOutOfBand() {
+		return outOfBandOn(d, enabled)
+	}
+	if err := p.ownKey(d, actor, isPrincipal); err != nil {
+		return err
+	}
+	switch {
+	case d.Target == nil || d.Target.ID != actor.ID:
+		return &PolicyError{Op: d.Op, Reason: ReasonOtherUser}
+	case !d.Target.Enabled:
+		return &PolicyError{Op: d.Op, Reason: ReasonNotEnabledUser}
 	}
 	return nil
 }
@@ -137,8 +164,9 @@ func (p RolePolicy) changeUser(d Decision, actor *access.User, isPrincipal bool)
 	return p.keepLocalAdmin(d)
 }
 
-// createKeyFor allows an out-of-band mint for a target eligible holds for.
-func createKeyFor(d Decision, eligible func(*access.User) bool) error { //nolint:gocritic // hugeParam: the Decision Authorize received
+// outOfBandOn allows only an out-of-band actor, on a target eligible holds
+// for.
+func outOfBandOn(d Decision, eligible func(*access.User) bool) error { //nolint:gocritic // hugeParam: the Decision Authorize received
 	if !d.Actor.isOutOfBand() {
 		return &PolicyError{Op: d.Op, Reason: ReasonOutOfBandOnly}
 	}
@@ -166,6 +194,12 @@ func (SingleOwnerPolicy) Authorize(_ context.Context, d Decision) error { //noli
 	refuse := func(reason string) error { return &PolicyError{Op: d.Op, Reason: reason} }
 	actor, isPrincipal := d.Actor.user()
 	isOwner := func(u *access.User) bool { return u.Enabled && u.Role == access.RoleAdmin }
+	requireOwner := func() error {
+		if !isPrincipal || !isOwner(actor) {
+			return refuse(ReasonNotOwner)
+		}
+		return nil
+	}
 	switch d.Op {
 	case OpCreateUser:
 		if d.Via != ViaSetup {
@@ -177,13 +211,15 @@ func (SingleOwnerPolicy) Authorize(_ context.Context, d Decision) error { //noli
 			return refuse(ReasonOutOfBandOnly)
 		}
 		return nil
-	case OpCreateOwnKey, OpListUsers, OpManageAllKeys:
-		if !isPrincipal || !isOwner(actor) {
-			return refuse(ReasonNotOwner)
+	case OpManageAllKeys, OpRotateKey:
+		if d.Actor.isOutOfBand() {
+			return nil
 		}
-		return nil
+		return requireOwner()
+	case OpCreateOwnKey, OpListUsers:
+		return requireOwner()
 	case OpCreateKeyFor:
-		return createKeyFor(d, isOwner)
+		return outOfBandOn(d, isOwner)
 	default:
 		return refuse(ReasonSingleOwner)
 	}
@@ -220,6 +256,8 @@ func changed(d Decision, target access.User) access.User { //nolint:gocritic // 
 	}
 	return target
 }
+
+func enabled(u *access.User) bool { return u.Enabled }
 
 func requireAdmin(d Decision, actor *access.User, isPrincipal bool) error { //nolint:gocritic // hugeParam: the Decision Authorize received
 	if !isPrincipal || !actor.Enabled || actor.Role != access.RoleAdmin {

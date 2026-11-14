@@ -57,10 +57,8 @@ func wireReasons(t *testing.T) []string {
 	for _, r := range account.UsernameReasons() {
 		errs = append(errs, &account.UsernameError{Reason: r})
 	}
-	for _, f := range account.TextErrorFields() {
-		for _, r := range account.TextErrorReasons() {
-			errs = append(errs, &account.TextError{Field: f, Reason: r})
-		}
+	for _, te := range account.TextErrors() {
+		errs = append(errs, &te)
 	}
 	for _, r := range account.LogFilterReasons() {
 		errs = append(errs, &account.LogFilterError{Reason: r})
@@ -118,6 +116,12 @@ func TestReasonTable(t *testing.T) {
 			t.Errorf("Reasons() starts %v, want %v", got[:min(len(got), len(designOwnReasons))], designOwnReasons)
 		}
 	})
+	t.Run("no_display_name_empty", func(t *testing.T) {
+		t.Parallel()
+		if !slices.Contains(got, "label_empty") || slices.Contains(got, "display_name_empty") {
+			t.Errorf("Reasons() = %v, want label_empty and no display_name_empty", got)
+		}
+	})
 	t.Run("composition", func(t *testing.T) {
 		t.Parallel()
 		want := slices.Clone(designOwnReasons)
@@ -126,7 +130,7 @@ func TestReasonTable(t *testing.T) {
 		}
 		want = append(want, account.PolicyReasons()...)
 		want = append(want, account.UsernameReasons()...)
-		want = append(want, "label_disallowed_character", "label_too_long", "display_name_disallowed_character", "display_name_too_long")
+		want = append(want, "label_empty", "label_disallowed_character", "label_too_long", "display_name_disallowed_character", "display_name_too_long")
 		want = append(want, "log_limit", "log_range", "log_kind", "log_id")
 		for _, r := range webauthn.OriginRejections() {
 			want = append(want, string(r))
@@ -161,7 +165,7 @@ func TestReasonTable(t *testing.T) {
 }
 
 // TestReasonLiterals parses accesshttp's non-test files. A producer's fixed
-// Reason is a Reason constant and a code a Code constant, and every Reason
+// Reason is a Reason constant and a code an access.Code constant, and every Reason
 // constant is in ownReasons, so a reason written at a producer fails
 // here instead of going missing from Reasons or Codes; only the open
 // families (a refused field, path or query key name, provider_error:<code>)
@@ -175,7 +179,10 @@ func TestReasonLiterals(t *testing.T) {
 	fset := token.NewFileSet()
 	var files []*ast.File
 	consts := map[string]bool{}
-	literals := map[string]string{} // a Code or Reason constant's value: its name
+	literals := map[string]string{} // a code's or Reason constant's value: its name
+	for _, c := range access.Codes() {
+		literals[string(c)] = "its access.Code constant"
+	}
 	var reasonConsts []string
 	var owned []string // the identifiers ownReasons lists
 	for _, name := range names {
@@ -191,13 +198,12 @@ func TestReasonLiterals(t *testing.T) {
 			if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.CONST {
 				for _, spec := range gd.Specs {
 					vs := spec.(*ast.ValueSpec)
-					isCode := isIdentNamed(vs.Type, "Code")
 					for i, n := range vs.Names {
 						consts[n.Name] = true
 						if strings.HasPrefix(n.Name, "Reason") {
 							reasonConsts = append(reasonConsts, n.Name)
 						}
-						if i >= len(vs.Values) || (!isCode && !strings.HasPrefix(n.Name, "Reason")) {
+						if i >= len(vs.Values) || !strings.HasPrefix(n.Name, "Reason") {
 							continue
 						}
 						if lit, ok := vs.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
@@ -209,8 +215,8 @@ func TestReasonLiterals(t *testing.T) {
 			}
 		}
 	}
-	if len(literals) < len(Codes()) {
-		t.Fatalf("found %d Code and Reason constants, fewer than the %d codes", len(literals), len(Codes()))
+	if len(reasonConsts) == 0 {
+		t.Fatal("found no Reason constants")
 	}
 	// fixed reports a reason expression that is a literal or a constant
 	// other than a Reason constant; "" (no reason) is allowed where allowEmpty.
@@ -249,9 +255,9 @@ func TestReasonLiterals(t *testing.T) {
 			case *ast.CallExpr:
 				switch {
 				case isIdentNamed(v.Fun, "badRequest") && fixed(v.Args[0], false),
-					isIdentNamed(v.Fun, "newError") && fixed(v.Args[1], true):
+					isAccessSelector(v.Fun, "NewError") && fixed(v.Args[1], true):
 					report(v, "a fixed reason that is not a Reason constant")
-				case isIdentNamed(v.Fun, "Code") && len(v.Args) == 1:
+				case isAccessSelector(v.Fun, "Code") && len(v.Args) == 1:
 					if _, lit := v.Args[0].(*ast.BasicLit); lit {
 						report(v, "a Code conversion of a literal")
 					}
@@ -291,6 +297,12 @@ func TestReasonLiterals(t *testing.T) {
 			t.Errorf("%s is not in ownReasons, so Reasons() omits it", name)
 		}
 	}
+}
+
+// isAccessSelector reports the expression access.name.
+func isAccessSelector(e ast.Expr, name string) bool {
+	sel, ok := e.(*ast.SelectorExpr)
+	return ok && isIdentNamed(sel.X, "access") && sel.Sel.Name == name
 }
 
 func isIdentNamed(e ast.Expr, name string) bool {

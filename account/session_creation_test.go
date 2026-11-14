@@ -505,7 +505,7 @@ func noUserPaths() []noUserPath {
 		{name: "invite_refused_issuer", made: invitee, refused: func(t *testing.T, e *noUserEnv) error {
 			// Revoking the key would delete its invite, so the Policy refuses
 			// the issuer's OpInvite when the Update re-checks it.
-			k := e.mint(t, account.As(e.session(t)), e.root.ID, account.NewKey{Scopes: []string{scopeUsers}})
+			k := e.mint(t, account.As(e.session(t)), e.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 			inv := e.invite(t, k.p)
 			e.issuerOff.Store(true)
 			defer e.issuerOff.Store(false)
@@ -521,7 +521,7 @@ func noUserPaths() []noUserPath {
 			return start(t, e, tok)
 		}},
 		{name: "recovery_refused_issuer", made: recoverySession, refused: func(t *testing.T, e *noUserEnv) error {
-			k := e.mint(t, account.As(e.session(t)), e.root.ID, account.NewKey{Scopes: []string{scopeUsers}})
+			k := e.mint(t, account.As(e.session(t)), e.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 			tok, err := e.svc.IssueRecovery(t.Context(), account.As(k.p), e.subject.ID, 0)
 			if err != nil {
 				t.Fatalf("IssueRecovery from the key = %v", err)

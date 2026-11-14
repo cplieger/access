@@ -243,9 +243,9 @@ func serveKeys(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	views := make([]KeyView, len(keys))
+	views, now := make([]KeyView, len(keys)), time.Now()
 	for i := range keys {
-		views[i] = keyView(&keys[i], "")
+		views[i] = keyView(&keys[i], "", now)
 	}
 	writeJSON(c.w, http.StatusOK, views)
 	return nil
@@ -266,7 +266,31 @@ func serveKeyCreate(h *Handler, c *call) error {
 	if !created.Issued.Token.IsZero() {
 		h.setIssued(c.w, c.r, created.Issued)
 	}
-	writeShownOnce(c.w, http.StatusCreated, KeyCreatedResponse{Details: keyView(&created.Key, "")}, created.Plaintext)
+	writeShownOnce(c.w, http.StatusCreated, KeyCreatedResponse{Details: keyView(&created.Key, "", time.Now())}, created.Plaintext)
+	return nil
+}
+
+func serveKeyRename(h *Handler, c *call) error {
+	req, err := decodeJSON[NameRequest](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	if err := h.acct.RenameAPIKey(c.r.Context(), c.p, c.id, req.Name); err != nil {
+		return err
+	}
+	noContent(c.w)
+	return nil
+}
+
+// serveKeyRotate gives one of the session's keys a new secret; the
+// rotated session comes back in Issued, as on serveKeyCreate.
+func serveKeyRotate(h *Handler, c *call) error {
+	rotated, err := h.acct.RotateAPIKey(c.r.Context(), account.As(c.p), c.id)
+	if err != nil {
+		return err
+	}
+	h.setIssued(c.w, c.r, rotated.Issued)
+	writeShownOnce(c.w, http.StatusOK, KeyCreatedResponse{Details: keyView(&rotated.Key, "", time.Now())}, rotated.Plaintext)
 	return nil
 }
 

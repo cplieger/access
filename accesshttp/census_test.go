@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -44,14 +45,14 @@ type censusPrincipal struct {
 	name   string
 	scopes []string // a key's scopes
 	kind   credential
-	fault  Code // what the Authenticator refuses a fault principal with
-	recent bool // a full session inside RecentAuth
-	admin  bool // the principal's user is an admin
+	fault  access.Code // what the Authenticator refuses a fault principal with
+	recent bool        // a full session inside RecentAuth
+	admin  bool        // the principal's user is an admin
 }
 
 // guardAnswer is the census cell for p on d: the code the guard refuses
 // with, or "" when p passes it.
-func (p *censusPrincipal) guardAnswer(d *Descriptor) Code {
+func (p *censusPrincipal) guardAnswer(d *Descriptor) access.Code {
 	if d.Class == ClassPublic {
 		return ""
 	}
@@ -61,9 +62,9 @@ func (p *censusPrincipal) guardAnswer(d *Descriptor) Code {
 	keyClass := d.Class == ClassKeyScope || d.Class == ClassKeyPermission
 	switch p.kind {
 	case credNone:
-		return CodeAuthRequired
+		return access.CodeAuthRequired
 	case credStale:
-		return CodeSessionExpired
+		return access.CodeSessionExpired
 	case credRecovery:
 		if d.Class == ClassRecovery {
 			return ""
@@ -76,7 +77,7 @@ func (p *censusPrincipal) guardAnswer(d *Descriptor) Code {
 			if p.recent {
 				return ""
 			}
-			return CodeRecentAuthRequired
+			return access.CodeRecentAuthRequired
 		default:
 		}
 	case credKey:
@@ -84,14 +85,14 @@ func (p *censusPrincipal) guardAnswer(d *Descriptor) Code {
 			return ""
 		}
 		if keyClass {
-			return CodeScopeRequired
+			return access.CodeScopeRequired
 		}
 	default:
 		if keyClass {
-			return CodeScopeRequired
+			return access.CodeScopeRequired
 		}
 	}
-	return CodeSessionRequired
+	return access.CodeSessionRequired
 }
 
 // census is a handler whose operations it counts and, while stub is set,
@@ -194,8 +195,10 @@ func newCensus(t *testing.T, set, bypass bool) *census {
 	c.createUser(t, "alice", access.RoleUser)
 	c.createUser(t, "kim", access.RoleAdmin)
 	cookie := func(ck *http.Cookie) func(*http.Request) { return func(r *http.Request) { r.AddCookie(ck) } }
+	minted := 0
 	key := func(owner string, scopes ...string) func(*http.Request) {
-		k := c.mintKey(t, owner, account.NewKey{Label: owner, Scopes: scopes})
+		minted++
+		k := c.mintKey(t, owner, account.NewKey{Label: owner + " " + strconv.Itoa(minted), Scopes: scopes})
 		return func(r *http.Request) { bearer(r, k.Plaintext) }
 	}
 	agent := func(scopes string) func(*http.Request) {
@@ -226,9 +229,9 @@ func newCensus(t *testing.T, set, bypass bool) *census {
 		return func(r *http.Request) { r.Header.Set("X-Agent-Fault", how) }
 	}
 	c.faults = []censusPrincipal{
-		{name: "unknown_key", fault: CodeKeyInvalid, send: func(r *http.Request) { bearer(r, access.NewSecret("not-a-key")) }},
-		{name: "agent_refused", fault: CodeInvalidCredentials, send: fault("refused")},
-		{name: "agent_store_down", fault: CodeUnavailable, send: fault("down")},
+		{name: "unknown_key", fault: access.CodeKeyInvalid, send: func(r *http.Request) { bearer(r, access.NewSecret("not-a-key")) }},
+		{name: "agent_refused", fault: access.CodeInvalidCredentials, send: fault("refused")},
+		{name: "agent_store_down", fault: access.CodeUnavailable, send: fault("down")},
 	}
 	return c
 }
@@ -290,7 +293,7 @@ func censusBody(t testing.TB, rt Route) string {
 
 // serve sends p's request on rt and returns the response, the Errors it
 // recorded and the account store calls it made.
-func (c *census) serve(t *testing.T, rt Route, p *censusPrincipal, body string) (w *httptest.ResponseRecorder, errs []Error, calls int64) {
+func (c *census) serve(t *testing.T, rt Route, p *censusPrincipal, body string) (w *httptest.ResponseRecorder, errs []access.Error, calls int64) {
 	t.Helper()
 	r := requestFor(rt, censusPathValue(t, rt), body)
 	p.send(r)
@@ -366,18 +369,18 @@ func (c *census) cell(t *testing.T, rt Route, p *censusPrincipal) {
 	reached := c.reached.Load() > reachedBefore
 	switch {
 	case want != "":
-		if len(errs) != 1 || errs[0].Code != want || w.Code != codeTable[codeIndex[want]].status {
+		if len(errs) != 1 || errs[0].Code != want || w.Code != access.NewError(want, "", nil).Status {
 			t.Errorf("status %d, errors %+v, want %s", w.Code, errs, want)
 		}
 		if calls != 0 || reached {
 			t.Errorf("the refused request made %d account store calls (operation called: %v)", calls, reached)
 		}
 	case viaPolicy && !p.admin:
-		if len(errs) != 1 || errs[0].Code != CodeForbidden {
+		if len(errs) != 1 || errs[0].Code != access.CodeForbidden {
 			t.Errorf("status %d, errors %+v, want auth_forbidden from the policy", w.Code, errs)
 		}
 	case viaPolicy && rt.Method == http.MethodDelete:
-		if len(errs) != 1 || errs[0].Code != CodeNotFound {
+		if len(errs) != 1 || errs[0].Code != access.CodeNotFound {
 			t.Errorf("status %d, errors %+v, want an admin's auth_not_found for a missing key", w.Code, errs)
 		}
 	case viaPolicy:
@@ -386,7 +389,7 @@ func (c *census) cell(t *testing.T, rt Route, p *censusPrincipal) {
 		}
 	case rt.Name == "authOIDCPending":
 		// It reads only its own cookie: past the guard, none is not found.
-		if len(errs) != 1 || errs[0].Code != CodeNotFound {
+		if len(errs) != 1 || errs[0].Code != access.CodeNotFound {
 			t.Errorf("status %d, errors %+v, want auth_not_found past the guard", w.Code, errs)
 		}
 	case !reached:
@@ -414,16 +417,16 @@ func TestCensusUserNamingAdminRoutes(t *testing.T) {
 			for name, body := range bodies {
 				t.Run(name, func(t *testing.T) {
 					rt := c.route(t, name)
-					send := func(p *censusPrincipal, id string) (*httptest.ResponseRecorder, Error) {
+					send := func(p *censusPrincipal, id string) (*httptest.ResponseRecorder, access.Error) {
 						r := requestFor(rt, id, body)
 						p.send(r)
 						before := len(c.errs.all())
 						w := do(rt, r)
 						errs := c.errs.all()[before:]
-						if len(errs) != 1 || errs[0].Code != CodeForbidden || strings.Contains(w.Body.String(), "username") {
+						if len(errs) != 1 || errs[0].Code != access.CodeForbidden || strings.Contains(w.Body.String(), "username") {
 							t.Fatalf("id %s: status %d, errors %+v, body %q; want auth_forbidden and no UserView", id, w.Code, errs, w.Body.String())
 						}
-						return w, Error{Code: errs[0].Code, Detail: errs[0].Detail, Reason: errs[0].Reason, Status: errs[0].Status}
+						return w, access.Error{Code: errs[0].Code, Detail: errs[0].Detail, Reason: errs[0].Reason, Status: errs[0].Status}
 					}
 					existing, existingErr := send(userSession, rootID)
 					missing, missingErr := send(userSession, "999999")

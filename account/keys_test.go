@@ -30,7 +30,7 @@ func TestKeyPermissionScopesAdminOnly(t *testing.T) {
 		pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
 		for _, scope := range permissions {
 			for name, a := range map[string]account.Actor{"session": account.As(pr), "out_of_band": account.OutOfBand("admin-socket")} {
-				_, err := f.svc.CreateAPIKey(t.Context(), a, u.ID, account.NewKey{Scopes: []string{"read", scope}})
+				_, err := f.svc.CreateAPIKey(t.Context(), a, u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read", scope}})
 				if reason(err) != "permission_not_admin" {
 					t.Errorf("%s minting %s for a RoleUser = %v, want permission_not_admin", name, scope, err)
 				}
@@ -45,7 +45,7 @@ func TestKeyPermissionScopesAdminOnly(t *testing.T) {
 		if !unrotated(t, f.mem, pr) {
 			t.Error("a refused mint rotated the session")
 		}
-		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(pr), u.ID, account.NewKey{Scopes: []string{"read"}}); err != nil {
+		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(pr), u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}}); err != nil {
 			t.Errorf("the RoleUser minting read only = %v, want a key", err)
 		}
 	})
@@ -55,16 +55,16 @@ func TestKeyPermissionScopesAdminOnly(t *testing.T) {
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
 		for _, scope := range permissions {
 			pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
-			if _, err := f.svc.CreateAPIKey(t.Context(), account.As(pr), admin.ID, account.NewKey{Scopes: []string{scope}}); err != nil {
+			if _, err := f.svc.CreateAPIKey(t.Context(), account.As(pr), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scope}}); err != nil {
 				t.Errorf("an admin session minting %s = %v", scope, err)
 			}
-			if _, err := f.svc.CreateAPIKey(t.Context(), account.OutOfBand("admin-socket"), admin.ID, account.NewKey{Scopes: []string{scope}}); err != nil {
+			if _, err := f.svc.CreateAPIKey(t.Context(), account.OutOfBand("admin-socket"), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scope}}); err != nil {
 				t.Errorf("out of band minting %s for an admin = %v", scope, err)
 			}
 		}
 		pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
-		parent := f.mint(t, account.As(pr), admin.ID, account.NewKey{Scopes: permissions})
-		child, err := f.svc.CreateAPIKey(t.Context(), account.As(parent.p), admin.ID, account.NewKey{Scopes: []string{scopeUsers, scopeAdmin}})
+		parent := f.mint(t, account.As(pr), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: permissions})
+		child, err := f.svc.CreateAPIKey(t.Context(), account.As(parent.p), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeAdmin}})
 		if err != nil {
 			t.Fatalf("an admin's create_keys key minting the permissions it holds = %v", err)
 		}
@@ -81,7 +81,7 @@ func TestKeyPermissionScopesAdminOnly(t *testing.T) {
 		entered, release := fs.holdUpdate()
 		done := make(chan error, 1)
 		go func() {
-			_, err := f.svc.CreateAPIKey(t.Context(), account.As(pr), admin.ID, account.NewKey{Scopes: []string{scopeUsers}})
+			_, err := f.svc.CreateAPIKey(t.Context(), account.As(pr), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 			done <- err
 		}()
 		<-entered
@@ -109,7 +109,7 @@ func TestKeyMintingPolicy(t *testing.T) {
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
 		pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
-		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(pr), u.ID, account.NewKey{Scopes: []string{"read"}}); !errors.Is(err, account.ErrPolicyRefused) {
+		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(pr), u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}}); !errors.Is(err, account.ErrPolicyRefused) {
 			t.Errorf("a RoleUser session under KeysAdminOnly = %v, want ErrPolicyRefused", err)
 		}
 		decisions := rec.taken()
@@ -123,10 +123,10 @@ func TestKeyMintingPolicy(t *testing.T) {
 			t.Error("the refused mint wrote a key or rotated the session")
 		}
 		apr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
-		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(apr), admin.ID, account.NewKey{Scopes: []string{"read"}}); err != nil {
+		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(apr), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}}); err != nil {
 			t.Errorf("an admin session = %v, want a key", err)
 		}
-		oob, err := f.svc.CreateAPIKey(t.Context(), account.OutOfBand("admin-socket"), u.ID, account.NewKey{Scopes: []string{"read"}})
+		oob, err := f.svc.CreateAPIKey(t.Context(), account.OutOfBand("admin-socket"), u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 		if err != nil {
 			t.Fatalf("out of band for the RoleUser = %v, want a key", err)
 		}
@@ -144,7 +144,7 @@ func TestKeyMintingPolicy(t *testing.T) {
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
 		other := mustUser(t, f.mem, "bob", access.RoleUser)
 		pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
-		created, err := f.svc.CreateAPIKey(t.Context(), account.As(pr), u.ID, account.NewKey{Scopes: []string{"read"}})
+		created, err := f.svc.CreateAPIKey(t.Context(), account.As(pr), u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 		if err != nil {
 			t.Fatalf("a RoleUser session under RolePolicy{} = %v, want a key", err)
 		}
@@ -152,7 +152,7 @@ func TestKeyMintingPolicy(t *testing.T) {
 			t.Error("a session mint did not rotate the session into Issued")
 		}
 		pr2 := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
-		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(pr2), other.ID, account.NewKey{Scopes: []string{"read"}}); reason(err) != "other_user" {
+		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(pr2), other.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}}); reason(err) != "other_user" {
 			t.Errorf("a session naming another user = %v, want other_user", err)
 		}
 		if n := len(keysOf(t, f.mem, other.ID)); n != 0 {
@@ -164,13 +164,13 @@ func TestKeyMintingPolicy(t *testing.T) {
 		f := newFixture(t, keyOptions(options{}, nil))
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
 		stale := f.sessionPrincipal(t, u, access.SessionFull, time.Now().Add(-time.Hour))
-		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(stale), u.ID, account.NewKey{}); !errors.Is(err, access.ErrRecentAuthRequired) {
+		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(stale), u.ID, account.NewKey{Label: uniqueLabel()}); !errors.Is(err, access.ErrRecentAuthRequired) {
 			t.Errorf("a stale session = %v, want ErrRecentAuthRequired", err)
 		}
-		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(f.bypassPrincipal(t)), u.ID, account.NewKey{}); !errors.Is(err, account.ErrScopeRequired) {
+		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(f.bypassPrincipal(t)), u.ID, account.NewKey{Label: uniqueLabel()}); !errors.Is(err, account.ErrScopeRequired) {
 			t.Errorf("the bypass principal with CreateKeysScope set = %v, want ErrScopeRequired", err)
 		}
-		if _, err := f.svc.CreateAPIKey(t.Context(), account.Actor{}, u.ID, account.NewKey{}); !errors.Is(err, account.ErrSessionRequired) {
+		if _, err := f.svc.CreateAPIKey(t.Context(), account.Actor{}, u.ID, account.NewKey{Label: uniqueLabel()}); !errors.Is(err, account.ErrSessionRequired) {
 			t.Errorf("the zero Actor = %v, want ErrSessionRequired", err)
 		}
 	})
@@ -182,7 +182,7 @@ func TestOutOfBandMinting(t *testing.T) {
 	u := mustUser(t, f.mem, "alice", access.RoleUser)
 	oob := account.OutOfBand("admin-socket")
 	var textErr *account.TextError
-	if _, err := f.svc.CreateAPIKey(t.Context(), oob, u.ID, account.NewKey{Scopes: []string{"delete_everything"}}); !errors.Is(err, account.ErrUnknownScope) {
+	if _, err := f.svc.CreateAPIKey(t.Context(), oob, u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"delete_everything"}}); !errors.Is(err, account.ErrUnknownScope) {
 		t.Errorf("an unknown scope = %v, want ErrUnknownScope", err)
 	}
 	if _, err := f.svc.CreateAPIKey(t.Context(), oob, u.ID, account.NewKey{Label: strings.Repeat("a", 129)}); !errors.As(err, &textErr) || textErr.Reason != "too_long" {
@@ -191,10 +191,10 @@ func TestOutOfBandMinting(t *testing.T) {
 	if _, err := f.svc.CreateAPIKey(t.Context(), oob, u.ID, account.NewKey{Label: "a\nb"}); !errors.As(err, &textErr) || textErr.Reason != "disallowed_character" {
 		t.Errorf("a two-line label = %v, want label disallowed_character", err)
 	}
-	if _, err := f.svc.CreateAPIKey(t.Context(), oob, u.ID, account.NewKey{ExpiresIn: -time.Second}); !errors.Is(err, account.ErrKeyExpiryInvalid) {
+	if _, err := f.svc.CreateAPIKey(t.Context(), oob, u.ID, account.NewKey{Label: uniqueLabel(), ExpiresIn: -time.Second}); !errors.Is(err, account.ErrKeyExpiryInvalid) {
 		t.Errorf("a negative expiry = %v, want ErrKeyExpiryInvalid", err)
 	}
-	if _, err := f.svc.CreateAPIKey(t.Context(), oob, 9999, account.NewKey{}); !errors.Is(err, account.ErrPolicyRefused) {
+	if _, err := f.svc.CreateAPIKey(t.Context(), oob, 9999, account.NewKey{Label: uniqueLabel()}); !errors.Is(err, account.ErrPolicyRefused) {
 		t.Errorf("a missing target = %v, want ErrPolicyRefused", err)
 	}
 	created, err := f.svc.CreateAPIKey(t.Context(), oob, u.ID, account.NewKey{Label: strings.Repeat("ß", 128), Scopes: []string{"read"}, ExpiresIn: time.Hour})
@@ -213,14 +213,14 @@ func TestOutOfBandMinting(t *testing.T) {
 	if err := f.mem.UpdateUser(t.Context(), disabled); err != nil {
 		t.Fatalf("UpdateUser: %v", err)
 	}
-	if _, err := f.svc.CreateAPIKey(t.Context(), oob, disabled.ID, account.NewKey{}); !errors.Is(err, account.ErrPolicyRefused) {
+	if _, err := f.svc.CreateAPIKey(t.Context(), oob, disabled.ID, account.NewKey{Label: uniqueLabel()}); !errors.Is(err, account.ErrPolicyRefused) {
 		t.Errorf("a disabled target = %v, want ErrPolicyRefused", err)
 	}
 	t.Run("single_owner", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, keyOptions(options{}, account.SingleOwnerPolicy{}))
 		owner := mustUser(t, f.mem, "owner", access.RoleAdmin)
-		if _, err := f.svc.CreateAPIKey(t.Context(), account.OutOfBand("admin-socket"), owner.ID, account.NewKey{Scopes: []string{"read"}}); err != nil {
+		if _, err := f.svc.CreateAPIKey(t.Context(), account.OutOfBand("admin-socket"), owner.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}}); err != nil {
 			t.Errorf("out-of-band mint for the owner under SingleOwnerPolicy = %v, want a key", err)
 		}
 	})
@@ -233,14 +233,14 @@ func TestAdminKeyListRevoke(t *testing.T) {
 	u := mustUser(t, f.mem, "alice", access.RoleUser)
 	apr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
 	upr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
-	adminKey := f.mint(t, account.OutOfBand("admin-socket"), admin.ID, account.NewKey{Scopes: []string{"read"}})
-	userKey := f.mint(t, account.As(upr), u.ID, account.NewKey{Scopes: []string{"read"}})
-	ownKey := f.mint(t, account.OutOfBand("admin-socket"), u.ID, account.NewKey{Scopes: []string{"write"}})
-	all, err := f.svc.AllAPIKeys(t.Context(), apr)
+	adminKey := f.mint(t, account.OutOfBand("admin-socket"), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
+	userKey := f.mint(t, account.As(upr), u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
+	ownKey := f.mint(t, account.OutOfBand("admin-socket"), u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"write"}})
+	all, err := f.svc.AllAPIKeys(t.Context(), account.As(apr))
 	if err != nil || !slices.Equal(listedKeyIDs(all), []int64{adminKey.key.ID, userKey.key.ID, ownKey.key.ID}) {
 		t.Errorf("AllAPIKeys = %v, %v; want every user's keys by ID", listedKeyIDs(all), err)
 	}
-	if err := f.svc.RevokeAnyAPIKey(t.Context(), apr, userKey.key.ID); err != nil {
+	if err := f.svc.RevokeAnyAPIKey(t.Context(), account.As(apr), userKey.key.ID); err != nil {
 		t.Fatalf("an admin revoking a RoleUser's key = %v", err)
 	}
 	if keys := keysOf(t, f.mem, u.ID); !slices.Equal(keyIDs(keys), []int64{ownKey.key.ID}) {
@@ -250,15 +250,15 @@ func TestAdminKeyListRevoke(t *testing.T) {
 	if len(revoked) != 1 || revoked[0].UserID != u.ID || revoked[0].KeyID != userKey.key.ID || revoked[0].Actor.UserID != admin.ID {
 		t.Errorf("EventKeyRevoked = %+v, want one for the RoleUser's key with the admin as actor", revoked)
 	}
-	if err := f.svc.RevokeAnyAPIKey(t.Context(), apr, 9999); !errors.Is(err, account.ErrNotFound) {
+	if err := f.svc.RevokeAnyAPIKey(t.Context(), account.As(apr), 9999); !errors.Is(err, account.ErrNotFound) {
 		t.Errorf("an admin revoking an unknown key = %v, want ErrNotFound", err)
 	}
 	upr2 := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
-	if _, err := f.svc.AllAPIKeys(t.Context(), upr2); !errors.Is(err, account.ErrPolicyRefused) {
+	if _, err := f.svc.AllAPIKeys(t.Context(), account.As(upr2)); !errors.Is(err, account.ErrPolicyRefused) {
 		t.Errorf("a RoleUser's AllAPIKeys = %v, want ErrPolicyRefused", err)
 	}
 	for _, id := range []int64{adminKey.key.ID, 9999} {
-		if err := f.svc.RevokeAnyAPIKey(t.Context(), upr2, id); !errors.Is(err, account.ErrPolicyRefused) {
+		if err := f.svc.RevokeAnyAPIKey(t.Context(), account.As(upr2), id); !errors.Is(err, account.ErrPolicyRefused) {
 			t.Errorf("a RoleUser's RevokeAnyAPIKey(%d) = %v, want ErrPolicyRefused whether or not the key exists", id, err)
 		}
 	}
@@ -276,15 +276,15 @@ func TestAdminKeyListRevoke(t *testing.T) {
 		t.Errorf("the admin's keys = %d, want 1", n)
 	}
 	t.Run("admin_scope_key", func(t *testing.T) {
-		scoped := f.mint(t, account.OutOfBand("admin-socket"), admin.ID, account.NewKey{Scopes: []string{scopeAdmin}})
-		target := f.mint(t, account.OutOfBand("admin-socket"), u.ID, account.NewKey{Scopes: []string{"read"}})
-		if _, err := f.svc.AllAPIKeys(t.Context(), scoped.p); err != nil {
+		scoped := f.mint(t, account.OutOfBand("admin-socket"), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeAdmin}})
+		target := f.mint(t, account.OutOfBand("admin-socket"), u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
+		if _, err := f.svc.AllAPIKeys(t.Context(), account.As(scoped.p)); err != nil {
 			t.Errorf("AllAPIKeys from an AdminScope key = %v", err)
 		}
-		if err := f.svc.RevokeAnyAPIKey(t.Context(), scoped.p, target.key.ID); err != nil {
+		if err := f.svc.RevokeAnyAPIKey(t.Context(), account.As(scoped.p), target.key.ID); err != nil {
 			t.Errorf("RevokeAnyAPIKey from an AdminScope key = %v", err)
 		}
-		if err := f.svc.RevokeAnyAPIKey(t.Context(), adminKey.p, ownKey.key.ID); !errors.Is(err, account.ErrScopeRequired) {
+		if err := f.svc.RevokeAnyAPIKey(t.Context(), account.As(adminKey.p), ownKey.key.ID); !errors.Is(err, account.ErrScopeRequired) {
 			t.Errorf("RevokeAnyAPIKey from a key without AdminScope = %v, want ErrScopeRequired", err)
 		}
 	})
@@ -295,12 +295,12 @@ func TestKeyMintsNarrowerKey(t *testing.T) {
 	f := newFixture(t, keyOptions(options{}, nil))
 	admin := mustUser(t, f.mem, "root", access.RoleAdmin)
 	pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
-	root := f.mint(t, account.As(pr), admin.ID, account.NewKey{Scopes: []string{scopeKeys, "read"}, ExpiresIn: 2 * time.Hour})
+	root := f.mint(t, account.As(pr), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeKeys, "read"}, ExpiresIn: 2 * time.Hour})
 	if !slices.Equal(root.key.LineageIDs, []int64{root.key.ID}) {
 		t.Errorf("a session-minted key's path = %v, want its own ID alone", root.key.LineageIDs)
 	}
 	watcher := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
-	child, err := f.svc.CreateAPIKey(t.Context(), account.As(root.p), admin.ID, account.NewKey{Scopes: []string{"read"}, ExpiresIn: time.Hour})
+	child, err := f.svc.CreateAPIKey(t.Context(), account.As(root.p), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}, ExpiresIn: time.Hour})
 	if err != nil {
 		t.Fatalf("the key minting a narrower key = %v", err)
 	}
@@ -317,7 +317,7 @@ func TestKeyMintsNarrowerKey(t *testing.T) {
 	if last := ev[len(ev)-1]; last.Actor.KeyID != root.key.ID || last.KeyID != child.Key.ID || last.Actor.SessionID != "" {
 		t.Errorf("the key's EventKeyMinted = %+v, want the parent key as actor", last)
 	}
-	oob := f.mint(t, account.OutOfBand("admin-socket"), admin.ID, account.NewKey{})
+	oob := f.mint(t, account.OutOfBand("admin-socket"), admin.ID, account.NewKey{Label: uniqueLabel()})
 	if !slices.Equal(oob.key.LineageIDs, []int64{oob.key.ID}) {
 		t.Errorf("an out-of-band key's path = %v, want its own ID alone", oob.key.LineageIDs)
 	}
@@ -328,16 +328,16 @@ func TestKeyLineageDepth(t *testing.T) {
 	f := newFixture(t, keyOptions(options{}, nil))
 	admin := mustUser(t, f.mem, "root", access.RoleAdmin)
 	pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
-	cur := f.mint(t, account.As(pr), admin.ID, account.NewKey{Scopes: []string{scopeKeys}})
+	cur := f.mint(t, account.As(pr), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeKeys}})
 	for len(cur.key.LineageIDs) < account.MaxKeyLineage {
-		next := f.mint(t, account.As(cur.p), admin.ID, account.NewKey{Scopes: []string{scopeKeys}})
+		next := f.mint(t, account.As(cur.p), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeKeys}})
 		if want := append(slices.Clone(cur.key.LineageIDs), next.key.ID); !slices.Equal(next.key.LineageIDs, want) {
 			t.Fatalf("path = %v, want %v", next.key.LineageIDs, want)
 		}
 		cur = next
 	}
 	before, events := len(keysOf(t, f.mem, admin.ID)), len(f.events.all())
-	if _, err := f.svc.CreateAPIKey(t.Context(), account.As(cur.p), admin.ID, account.NewKey{Scopes: []string{scopeKeys}}); reason(err) != "lineage_too_deep" {
+	if _, err := f.svc.CreateAPIKey(t.Context(), account.As(cur.p), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeKeys}}); reason(err) != "lineage_too_deep" {
 		t.Errorf("minting below a path of %d IDs = %v, want lineage_too_deep", account.MaxKeyLineage, err)
 	}
 	if len(keysOf(t, f.mem, admin.ID)) != before || len(f.events.all()) != events {
@@ -351,7 +351,7 @@ func TestKeyCannotEscalate(t *testing.T) {
 		f := newFixture(t, keyOptions(o, nil))
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
 		pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
-		return f, admin, f.mint(t, account.As(pr), admin.ID, account.NewKey{Scopes: []string{scopeKeys, "read"}, ExpiresIn: time.Hour})
+		return f, admin, f.mint(t, account.As(pr), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeKeys, "read"}, ExpiresIn: time.Hour})
 	}
 	t.Run("refusals", func(t *testing.T) {
 		t.Parallel()
@@ -363,10 +363,10 @@ func TestKeyCannotEscalate(t *testing.T) {
 			reason string
 			target int64
 		}{
-			{name: "scope_parent_lacks", in: account.NewKey{Scopes: []string{"write"}, ExpiresIn: time.Minute}, reason: "scopes_not_subset", target: admin.ID},
-			{name: "no_expiry_under_expiring_parent", in: account.NewKey{Scopes: []string{"read"}}, reason: "expiry_after_parent", target: admin.ID},
-			{name: "later_expiry", in: account.NewKey{Scopes: []string{"read"}, ExpiresIn: 2 * time.Hour}, reason: "expiry_after_parent", target: admin.ID},
-			{name: "another_user", in: account.NewKey{Scopes: []string{"read"}, ExpiresIn: time.Minute}, reason: "other_user", target: other.ID},
+			{name: "scope_parent_lacks", in: account.NewKey{Label: uniqueLabel(), Scopes: []string{"write"}, ExpiresIn: time.Minute}, reason: "scopes_not_subset", target: admin.ID},
+			{name: "no_expiry_under_expiring_parent", in: account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}}, reason: "expiry_after_parent", target: admin.ID},
+			{name: "later_expiry", in: account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}, ExpiresIn: 2 * time.Hour}, reason: "expiry_after_parent", target: admin.ID},
+			{name: "another_user", in: account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}, ExpiresIn: time.Minute}, reason: "other_user", target: other.ID},
 		} {
 			if _, err := f.svc.CreateAPIKey(t.Context(), account.As(parent.p), tc.target, tc.in); reason(err) != tc.reason {
 				t.Errorf("%s = %v, want %s", tc.name, err, tc.reason)
@@ -387,7 +387,7 @@ func TestKeyCannotEscalate(t *testing.T) {
 		entered, release := fs.holdUpdate()
 		done := make(chan error, 1)
 		go func() {
-			_, err := f.svc.CreateAPIKey(t.Context(), account.As(parent.p), admin.ID, account.NewKey{Scopes: []string{"read"}, ExpiresIn: time.Minute})
+			_, err := f.svc.CreateAPIKey(t.Context(), account.As(parent.p), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}, ExpiresIn: time.Minute})
 			done <- err
 		}()
 		<-entered
@@ -409,8 +409,8 @@ func TestKeyPermissionScopeEmpty(t *testing.T) {
 	f := newFixture(t, keyOptions(options{edit: func(c *account.Config) { c.CreateKeysScope = "" }}, nil))
 	admin := mustUser(t, f.mem, "root", access.RoleAdmin)
 	for _, scopes := range [][]string{{scopeKeys}, {scopeAdmin}, {scopeUsers, "read"}} {
-		k := f.mint(t, account.OutOfBand("admin-socket"), admin.ID, account.NewKey{Scopes: scopes})
-		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(k.p), admin.ID, account.NewKey{}); !errors.Is(err, account.ErrSessionRequired) {
+		k := f.mint(t, account.OutOfBand("admin-socket"), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: scopes})
+		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(k.p), admin.ID, account.NewKey{Label: uniqueLabel()}); !errors.Is(err, account.ErrSessionRequired) {
 			t.Errorf("a %v key under an empty CreateKeysScope = %v, want ErrSessionRequired", scopes, err)
 		}
 	}
@@ -418,8 +418,8 @@ func TestKeyPermissionScopeEmpty(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, keyOptions(options{}, nil))
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-		k := f.mint(t, account.OutOfBand("admin-socket"), admin.ID, account.NewKey{Scopes: []string{scopeAdmin}})
-		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(k.p), admin.ID, account.NewKey{}); !errors.Is(err, account.ErrScopeRequired) {
+		k := f.mint(t, account.OutOfBand("admin-socket"), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeAdmin}})
+		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(k.p), admin.ID, account.NewKey{Label: uniqueLabel()}); !errors.Is(err, account.ErrScopeRequired) {
 			t.Errorf("an AdminScope key alone = %v, want ErrScopeRequired", err)
 		}
 	})
@@ -433,12 +433,14 @@ type family struct{ p, c, s, g minted }
 func newFamily(t *testing.T, f *fixture, admin *access.User, expiresIn time.Duration) family {
 	t.Helper()
 	pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
-	in := account.NewKey{Scopes: []string{scopeKeys, "read"}, ExpiresIn: expiresIn}
+	in := func() account.NewKey {
+		return account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeKeys, "read"}, ExpiresIn: expiresIn}
+	}
 	var fam family
-	fam.p = f.mint(t, account.As(pr), admin.ID, in)
-	fam.c = f.mint(t, account.As(fam.p.p), admin.ID, in)
-	fam.s = f.mint(t, account.As(fam.p.p), admin.ID, in)
-	fam.g = f.mint(t, account.As(fam.c.p), admin.ID, in)
+	fam.p = f.mint(t, account.As(pr), admin.ID, in())
+	fam.c = f.mint(t, account.As(fam.p.p), admin.ID, in())
+	fam.s = f.mint(t, account.As(fam.p.p), admin.ID, in())
+	fam.g = f.mint(t, account.As(fam.c.p), admin.ID, in())
 	return fam
 }
 
@@ -455,7 +457,7 @@ func TestRevokeCascades(t *testing.T) {
 			return f.svc.RevokeAPIKey(t.Context(), p, id)
 		},
 		"RevokeAnyAPIKey": func(t *testing.T, f *fixture, p access.Principal, id int64) error {
-			return f.svc.RevokeAnyAPIKey(t.Context(), p, id)
+			return f.svc.RevokeAnyAPIKey(t.Context(), account.As(p), id)
 		},
 	}
 	for name, revoke := range revokes {
@@ -732,9 +734,9 @@ func TestAllAPIKeysOwner(t *testing.T) {
 	alice := mustUser(t, f.mem, "alice", access.RoleUser)
 	bob := mustUser(t, f.mem, "bob", access.RoleUser)
 	apr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
-	aliceKey := f.mint(t, account.OutOfBand("admin-socket"), alice.ID, account.NewKey{Scopes: []string{"read"}})
-	bobKey := f.mint(t, account.OutOfBand("admin-socket"), bob.ID, account.NewKey{Scopes: []string{"read"}})
-	all, err := f.svc.AllAPIKeys(t.Context(), apr)
+	aliceKey := f.mint(t, account.OutOfBand("admin-socket"), alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
+	bobKey := f.mint(t, account.OutOfBand("admin-socket"), bob.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
+	all, err := f.svc.AllAPIKeys(t.Context(), account.As(apr))
 	if err != nil {
 		t.Fatalf("AllAPIKeys = %v", err)
 	}
@@ -750,7 +752,7 @@ func TestAllAPIKeysOwner(t *testing.T) {
 	t.Run("rename_after_key_read", func(t *testing.T) {
 		rename.Store(bob.ID)
 		defer rename.Store(0)
-		all, err := f.svc.AllAPIKeys(t.Context(), apr)
+		all, err := f.svc.AllAPIKeys(t.Context(), account.As(apr))
 		if err != nil || len(all) != 2 || all[0].Owner != "alice" || all[1].Owner != "bob" {
 			t.Errorf("AllAPIKeys = %+v, %v; want the owners of the key read's snapshot, alice and bob", all, err)
 		}
@@ -758,9 +760,225 @@ func TestAllAPIKeysOwner(t *testing.T) {
 	t.Run("owner_row_gone", func(t *testing.T) {
 		gone.Store(bob.ID)
 		defer gone.Store(0)
-		all, err := f.svc.AllAPIKeys(t.Context(), apr)
+		all, err := f.svc.AllAPIKeys(t.Context(), account.As(apr))
 		if err != nil || len(all) != 2 || all[0].Owner != "alice" || all[1].Owner != "" {
 			t.Errorf("AllAPIKeys with bob absent from the snapshot = %+v, %v; want alice's owner and an empty one", all, err)
+		}
+	})
+}
+
+func TestAllKeysActors(t *testing.T) {
+	t.Parallel()
+	socket := account.OutOfBand("admin socket")
+	t.Run("out_of_band", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t, keyOptions(options{}, nil))
+		u := mustUser(t, f.mem, "alice", access.RoleUser)
+		k := f.mint(t, socket, u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
+		all, err := f.svc.AllAPIKeys(t.Context(), socket)
+		if err != nil || !slices.Equal(listedKeyIDs(all), []int64{k.key.ID}) || all[0].Owner != "alice" {
+			t.Errorf("AllAPIKeys(OutOfBand) = %+v, %v; want alice's key", all, err)
+		}
+		if err := f.svc.RevokeAnyAPIKey(t.Context(), socket, k.key.ID); err != nil {
+			t.Fatalf("RevokeAnyAPIKey(OutOfBand) = %v", err)
+		}
+		if keys := keysOf(t, f.mem, u.ID); len(keys) != 0 {
+			t.Errorf("alice's keys after the revoke = %v, want none", keyIDs(keys))
+		}
+		channel := account.EventActor{OutOfBand: "admin socket"}
+		revoked := eventsOf(f.events, account.EventKeyRevoked)
+		if len(revoked) != 1 || revoked[0].KeyID != k.key.ID || revoked[0].Actor != channel {
+			t.Errorf("EventKeyRevoked = %+v, want one for alice's key naming the admin socket", revoked)
+		}
+		var logged []account.EventActor
+		for _, e := range logOf(t, f.mem) {
+			if e.Event.Kind == account.EventKeyRevoked {
+				logged = append(logged, e.Event.Actor)
+			}
+		}
+		if !slices.Equal(logged, []account.EventActor{channel}) {
+			t.Errorf("logged key_revoked actors = %+v, want the admin socket", logged)
+		}
+	})
+	t.Run("zero_actor", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t, keyOptions(options{}, nil))
+		u := mustUser(t, f.mem, "alice", access.RoleUser)
+		k := f.mint(t, socket, u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
+		if _, err := f.svc.AllAPIKeys(t.Context(), account.Actor{}); !errors.Is(err, account.ErrSessionRequired) {
+			t.Errorf("AllAPIKeys(zero Actor) = %v, want ErrSessionRequired", err)
+		}
+		if err := f.svc.RevokeAnyAPIKey(t.Context(), account.Actor{}, k.key.ID); !errors.Is(err, account.ErrSessionRequired) {
+			t.Errorf("RevokeAnyAPIKey(zero Actor) = %v, want ErrSessionRequired", err)
+		}
+	})
+	t.Run("revoked_key_principal", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t, keyOptions(options{}, nil))
+		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
+		u := mustUser(t, f.mem, "alice", access.RoleUser)
+		apr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+		scoped := f.mint(t, socket, admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeAdmin}})
+		target := f.mint(t, socket, u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
+		if err := f.svc.RevokeAPIKey(t.Context(), apr, scoped.key.ID); err != nil {
+			t.Fatalf("RevokeAPIKey = %v", err)
+		}
+		if all, err := f.svc.AllAPIKeys(t.Context(), account.As(scoped.p)); reason(err) != "key_not_current" || !errors.Is(err, account.ErrPolicyRefused) {
+			t.Errorf("AllAPIKeys from a revoked key = %d rows, %v; want key_not_current", len(all), err)
+		}
+		if err := f.svc.RevokeAnyAPIKey(t.Context(), account.As(scoped.p), target.key.ID); reason(err) != "key_not_current" {
+			t.Errorf("guard: RevokeAnyAPIKey from a revoked key = %v, want key_not_current", err)
+		}
+		if keys := keysOf(t, f.mem, u.ID); !slices.Equal(keyIDs(keys), []int64{target.key.ID}) {
+			t.Errorf("alice's keys = %v, want her key kept", keyIDs(keys))
+		}
+	})
+}
+
+func TestRenameAPIKey(t *testing.T) {
+	t.Parallel()
+	type world struct {
+		f  *fixture
+		u  *access.User
+		pr access.Principal
+		k  access.Key
+	}
+	setup := func(t *testing.T) world {
+		t.Helper()
+		f := newFixture(t, keyOptions(options{}, nil))
+		u := mustUser(t, f.mem, "alice", access.RoleUser)
+		return world{f: f, u: u, pr: f.sessionPrincipal(t, u, access.SessionFull, time.Now()), k: seedKey(t, f.mem, u.ID, "Agent", time.Time{})}
+	}
+	label := func(t *testing.T, w world, id int64) string {
+		t.Helper()
+		keys, err := w.f.mem.ListAPIKeysByUserID(t.Context(), w.u.ID)
+		if err != nil {
+			t.Fatalf("ListAPIKeysByUserID: %v", err)
+		}
+		for _, k := range keys {
+			if k.ID == id {
+				return k.Label
+			}
+		}
+		t.Fatalf("key %d is gone", id)
+		return ""
+	}
+	t.Run("session_renames_its_key", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		before := len(w.f.events.all())
+		if err := w.f.svc.RenameAPIKey(t.Context(), w.pr, w.k.ID, "Deploy bot"); err != nil {
+			t.Fatalf("RenameAPIKey = %v", err)
+		}
+		if got := label(t, w, w.k.ID); got != "Deploy bot" {
+			t.Errorf("label = %q, want %q", got, "Deploy bot")
+		}
+		if found, ok, err := w.f.mem.APIKeyByHash(t.Context(), w.k.KeyHash); err != nil || !ok || found.ID != w.k.ID {
+			t.Errorf("APIKeyByHash after the rename = %v, %v, %v; want key %d", found, ok, err, w.k.ID)
+		}
+		if got := len(w.f.events.all()); got != before {
+			t.Errorf("events after the rename = %d, want %d", got, before)
+		}
+	})
+	t.Run("not_a_session", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		for name, p := range map[string]access.Principal{
+			"key":              w.f.keyPrincipal(t, w.u, "read"),
+			"bypass":           w.f.bypassPrincipal(t),
+			"custom":           w.f.customPrincipal(t, access.MethodAPIKey, w.k.ID, scopeKeys),
+			"recovery_session": w.f.sessionPrincipal(t, w.u, access.SessionRecovery, time.Now()),
+			"zero":             {},
+		} {
+			t.Run(name, func(t *testing.T) {
+				if err := w.f.svc.RenameAPIKey(t.Context(), p, w.k.ID, "Renamed"); !errors.Is(err, account.ErrSessionRequired) {
+					t.Errorf("RenameAPIKey = %v, want ErrSessionRequired", err)
+				}
+			})
+		}
+		if got := label(t, w, w.k.ID); got != "Agent" {
+			t.Errorf("label after the refusals = %q, want Agent", got)
+		}
+	})
+	t.Run("another_users_key", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		bob := mustUser(t, w.f.mem, "bob", access.RoleAdmin)
+		pb := w.f.sessionPrincipal(t, bob, access.SessionFull, time.Now())
+		if err := w.f.svc.RenameAPIKey(t.Context(), pb, w.k.ID, "Renamed"); !errors.Is(err, account.ErrNotFound) {
+			t.Errorf("RenameAPIKey of another user's key = %v, want ErrNotFound", err)
+		}
+		if got := label(t, w, w.k.ID); got != "Agent" {
+			t.Errorf("label after the refusal = %q, want Agent", got)
+		}
+	})
+	t.Run("missing_key", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		if err := w.f.svc.RenameAPIKey(t.Context(), w.pr, w.k.ID+1000, "Renamed"); !errors.Is(err, account.ErrNotFound) {
+			t.Errorf("RenameAPIKey of no key = %v, want ErrNotFound", err)
+		}
+	})
+	t.Run("label_rule", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		for _, tc := range []struct {
+			name, label string
+			reason      string
+		}{
+			{"empty", "", account.ReasonEmpty},
+			{"multi_line", "deploy\nbot", account.ReasonDisallowedCharacter},
+			{"too_long", strings.Repeat("x", 129), account.ReasonTooLong},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				err := w.f.svc.RenameAPIKey(t.Context(), w.pr, w.k.ID, tc.label)
+				if te, ok := errors.AsType[*account.TextError](err); !ok || *te != (account.TextError{Field: account.TextFieldLabel, Reason: tc.reason}) {
+					t.Errorf("RenameAPIKey = %v, want TextError{label, %s}", err, tc.reason)
+				}
+			})
+		}
+		if got := label(t, w, w.k.ID); got != "Agent" {
+			t.Errorf("label after the refusals = %q, want Agent", got)
+		}
+	})
+	t.Run("taken_label", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		seedKey(t, w.f.mem, w.u.ID, "Deploy", time.Time{})
+		if err := w.f.svc.RenameAPIKey(t.Context(), w.pr, w.k.ID, "deploy"); !errors.Is(err, account.ErrKeyLabelTaken) {
+			t.Errorf("RenameAPIKey over another key's label = %v, want ErrKeyLabelTaken", err)
+		}
+		if got := label(t, w, w.k.ID); got != "Agent" {
+			t.Errorf("label after the refusal = %q, want Agent", got)
+		}
+	})
+	t.Run("expired_key_frees_its_label", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		seedKey(t, w.f.mem, w.u.ID, "Old", time.Now().Add(-time.Minute))
+		if err := w.f.svc.RenameAPIKey(t.Context(), w.pr, w.k.ID, "old"); err != nil {
+			t.Errorf("RenameAPIKey over an expired key's label = %v, want nil", err)
+		}
+	})
+	t.Run("recase_own_label", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		if err := w.f.svc.RenameAPIKey(t.Context(), w.pr, w.k.ID, "AGENT"); err != nil {
+			t.Fatalf("RenameAPIKey recasing its own label = %v, want nil", err)
+		}
+		if got := label(t, w, w.k.ID); got != "AGENT" {
+			t.Errorf("label = %q, want AGENT", got)
+		}
+	})
+	t.Run("expired_key", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		gone := seedKey(t, w.f.mem, w.u.ID, "Gone", time.Now().Add(-time.Minute))
+		if err := w.f.svc.RenameAPIKey(t.Context(), w.pr, gone.ID, "Gone 2"); err != nil {
+			t.Fatalf("RenameAPIKey of an expired key = %v, want nil", err)
+		}
+		if got := label(t, w, gone.ID); got != "Gone 2" {
+			t.Errorf("label = %q, want %q", got, "Gone 2")
 		}
 	})
 }

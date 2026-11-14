@@ -18,8 +18,9 @@ type NewUser struct {
 // password rule when in.Password is set (zero: no sign-in method), and
 // Policy (OpCreateUser, ViaActor) on the user set read inside the creating
 // Update. The hash runs first and authorises nothing: a key is re-read
-// inside the Update (key_not_current), creates a RoleUser only
-// (admin_target), and appends a created attribution with its LineageIDs.
+// inside the Update (key_not_current) and needs its current secret
+// (key_retiring), creates a RoleUser only (admin_target), and appends a
+// created attribution with its LineageIDs.
 func (s *Service) CreateUser(ctx context.Context, a Actor, in NewUser) (*access.User, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	r, err := s.begin()
 	if err != nil {
@@ -67,6 +68,10 @@ func (s *Service) createUserIn(ctx context.Context, tx Tx, j *journal, a Actor, 
 	ua, err := s.userAdminIn(ctx, tx, j, OpCreateUser, a)
 	if err != nil {
 		return err
+	}
+	p, _ := a.Principal()
+	if keyErr := requireCurrentSecret(OpCreateUser, ua.key, p); keyErr != nil {
+		return keyErr
 	}
 	users, err := tx.ListUsers(ctx)
 	if err != nil {
