@@ -35,6 +35,12 @@ Two rows need a reason:
 
 Each OIDC route is admitted by `account` before it touches a cookie or the identity provider: the sign-in start, the callback and the pending-link read through `Service.AdmitOIDC`, and the link and step-up starts through `Service.AdmitOIDCSession`. A plain start therefore sets no flow cookie and sends the browser nowhere. A plain pending-link read answers 403 even when it presents a valid pending cookie, which it neither reads nor clears.
 
+## The plain session
+
+A session signed in over plain HTTP is plain: its `Session.Secure` is false, and only a plain request may present it ([What the binding protects](#what-the-binding-protects-and-what-it-does-not)). It lives at most `access.PlainSessionIdle` (30 minutes) idle and `access.PlainSessionAbsolute` (12 hours) in all, below the Authenticator's timeouts and the session's own caps ([Sessions](primitives.md#sessions)). Its cookie carries no `Max-Age` and no `Expires`, like every cookie set over plain HTTP, so it ends with the browser ([Session cookie](configuration.md#session-cookie)).
+
+The limiter's device cookie is the one long-lived secret a plain sign-in issues, and it only relaxes the sign-in limiter for the device that holds it. Over plain HTTP it ends with the browser too.
+
 ## What the screens learn
 
 `Service.State(ctx, c)` takes the request's `Client` and answers what the sign-in screen needs over that transport, so a screen never repeats the table above. `accesshttp` serves it as `authState`'s `StateResponse`:
@@ -42,7 +48,7 @@ Each OIDC route is admitted by `account` before it touches a cookie or the ident
 - `secure` is the request's `Client.Secure`.
 - `password_login`, `passkeys` and `oidc` are each offered and admitted over this transport. Over plain HTTP, `passkeys` and `oidc` are false whatever the configuration, and under `PostureSecure` `password_login` is false too.
 - `https_required` lists what HTTPS would add, from `password`, `setup`, `passkeys` and `oidc` in that order: only a method the app offers, and `setup` only while setup is still required. It is `[]` on a secure request. An app with no single sign-on never lists `oidc`.
-- `plain_session` is set only on a plain request under `PosturePerRequest`: `idle_seconds` and `absolute_seconds` are the limits a session signed in over that request gets, at most 30 minutes and 12 hours, lowered to the Authenticator's own timeouts. `Rules.SessionCaps` can lower a session's limits further, per client, so those are known only after sign-in, from the session's own deadlines.
+- `plain_session` is set only on a plain request under `PosturePerRequest`: `idle_seconds` and `absolute_seconds` are the limits a session signed in over that request gets: [the plain session's](#the-plain-session), lowered to the Authenticator's own timeouts. `Rules.SessionCaps` can lower a session's limits further, per client, so those are known only after sign-in, from the session's own deadlines.
 - `https_origin` is `Rules.HTTPSOrigin` on a plain request when the app set one, so the screen can link to the HTTPS address. It is a link only, and nothing trusts it ([Rules](configuration.md#rules)).
 
 The screen's states follow from those fields:
@@ -61,8 +67,6 @@ Once signed in, `MeResponse.session.secure` and each `SessionView.secure` carry 
 A plain session's recent-auth time is its sign-in, because nothing over plain HTTP refreshes it: every step-up needs HTTPS. Once that time is older than `Rules.RecentAuth`, an action that needs recent auth, such as `authPasswordSet`, answers 403 `auth_recent_auth_required` with `Reason` `sign_in_again`, and the client asks for a fresh sign-in in place of the step-up dialog (`withStepUp`'s `signInAgain` in [`@cplieger/access`](../web/README.md)). A secure session's refusal carries no reason. A key, a custom verifier's principal and the bypass never get `sign_in_again`, since a sign-in cannot help them. A handler of yours that guards its own action gets the same answer from `access.RequireRecentAuth` and `access.ErrorFor` ([Guards](primitives.md#guards)).
 
 A fresh sign-in replaces the session its request presented. `accesshttp` puts the hash of the session cookie it read for the request's transport in `Client.Presented`, and a full sign-in deletes that session before it counts the user's sessions against `Rules.MaxSessionsPerUser`, when the session is the signing-in user's and on the same transport. Its `session_revoked` entry carries `signed_in_again` ([The security log](security-log.md)). The user then holds one session for that browser, a session on another device survives the limit, and a token sniffed from the old session stops working at the sign-in. Another user's session, a session on the other transport and a missing one are left alone, and a recovery start replaces nothing. An app that calls `account` directly sets `Client.Presented` the same way, from `CookieConfig.ReadCookie`.
-
-The limiter's device cookie is the one long-lived secret a plain sign-in issues, and it only relaxes the sign-in limiter for the device that holds it. Over plain HTTP it is set, like every cookie there, with no `Max-Age` and no `Expires`, so it ends with the browser ([Session cookie](configuration.md#session-cookie)).
 
 ## Keys over plain HTTP
 

@@ -135,7 +135,7 @@ func main() {
 		log.Fatal(err)
 	}
 	mux.Handle("/api/", app)
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	log.Fatal(http.ListenAndServeTLS(":8443", "cert.pem", "key.pem", mux))
 }
 
 // writeError renders every refusal in the app's own JSON envelope.
@@ -154,6 +154,8 @@ func loadKey(path string) []byte {
 	return b
 }
 ```
+
+The service ends TLS itself, so the default resolver reads each request as secure. Behind a TLS proxy, set `Config.ClientAddr` instead ([Authenticator configuration](docs/configuration.md#authenticator-configuration)): under the default `PostureSecure`, a request your resolver reads as plain HTTP is refused, and [Plain HTTP](docs/plain-http.md) explains the posture that serves one.
 
 The gate serves `/api/me` to a signed-in session only, and answers every other request under `/api/` itself. The handler reads the request's `Principal`, which names the user, the method that authenticated it, and the session or key behind it. The `Authenticator` reads the session cookie first, then a verifier you add as `Config.Verifier`, then an `Authorization: Bearer` API key. [Guarding your own routes](docs/gate.md) explains the route classes, the codes and how to mount the gate.
 
@@ -186,7 +188,7 @@ access hardens the building blocks, and the security of your service depends on 
 - Every unsafe-method route applies Go's `http.CrossOriginProtection` itself, whatever your own middleware does.
 - `Config.Bypass` grants a synthetic admin user, whose ID is 0 and names no stored user, to every request while its callback returns true. `account` refuses every write made under it. Keep it off in production.
 - When hosts you do not control share your relying-party domain, keep the default exact origin. [Passkeys](docs/webauthn.md#the-origin-policy) explains `AllowSubdomains` and `Origins`.
-- Three rules stay with you. Guard every route of your own with `access/gate`, match your [cookie settings](docs/configuration.md#session-cookie) to where TLS ends, and keep the store contract. [Implementing the store](docs/storage.md) states the contract, and `accesstest.StoreContract` checks it.
+- Three rules stay with you. Guard every route of your own with `access/gate`, set `ClientAddr.Secure` from where TLS ends ([Authenticator configuration](docs/configuration.md#authenticator-configuration)), and keep the store contract. [Implementing the store](docs/storage.md) states the contract, and `accesstest.StoreContract` checks it.
 - Fuzz targets cover password hashes and checks, cookie settings, API keys, opaque tokens, sealed values, redirect paths, the JSON body decoder, OIDC claims, the rate limiter, and WebAuthn origins and stored credentials.
 - The cryptography has had no independent third-party audit.
 

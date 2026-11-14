@@ -90,7 +90,7 @@ When a request is not `Secure` but the first token of its `X-Forwarded-Proto` is
 | `Posture` | Which name and Secure flag each transport gets, in the next table | `PostureSecure` |
 | `SameSite` | The cookie's SameSite attribute: Lax or Strict | `http.SameSiteLaxMode` |
 
-Every cookie is HttpOnly, with `Path=/` and no `Domain`, as the `__Host-` prefix requires.
+Every cookie is HttpOnly, with `Path=/` and no `Domain`, as the `__Host-` prefix requires. [Cookies](migration-v7.md#cookies) lists the posture and fields an earlier release had and what replaces each.
 
 ```go
 cfg := access.CookieConfig{
