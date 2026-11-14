@@ -370,6 +370,15 @@
   },
   {
     "request": null,
+    "response": "KeyCreatedResponse",
+    "name": "authKeyRotate",
+    "method": "POST",
+    "path": "{prefix}/apikeys/{id}/rotate",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
     "response": null,
     "name": "authKeyRevoke",
     "method": "DELETE",

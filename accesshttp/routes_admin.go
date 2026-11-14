@@ -93,9 +93,9 @@ func serveAdminKeys(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	views := make([]KeyView, len(keys))
+	views, now := make([]KeyView, len(keys)), time.Now()
 	for i := range keys {
-		views[i] = keyView(&keys[i].Key, keys[i].Owner)
+		views[i] = keyView(&keys[i].Key, keys[i].Owner, now)
 	}
 	writeJSON(c.w, http.StatusOK, views)
 	return nil

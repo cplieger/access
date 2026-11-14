@@ -69,7 +69,7 @@ func goldenMethods() MethodsView {
 func goldenKey() KeyView {
 	return KeyView{
 		ID: 5, UserID: 7, Owner: "alice", Label: "ci", Prefix: "ak_7", Suffix: "wxyz", Scopes: []string{"read"},
-		CreatedAt: goldenTime, ExpiresAt: goldenLater, LastUsedAt: goldenTime, ParentKeyID: 3,
+		CreatedAt: goldenTime, ExpiresAt: goldenLater, LastUsedAt: goldenTime, PreviousUntil: goldenLater, ParentKeyID: 3,
 	}
 }
 

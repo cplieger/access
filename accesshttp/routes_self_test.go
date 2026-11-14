@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -586,7 +587,7 @@ func TestRouteAuthKeys(t *testing.T) {
 		own := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
 		e.mintKey(t, "bob", account.NewKey{Label: "bob's"})
 		views := decoded[[]KeyView](t, e, do(e.route(t, "authKeys"), e.post(t, "authKeys", "", cookie)), http.StatusOK)
-		if want := keyView(&own.Key, ""); len(views) != 1 || views[0].ID != want.ID || views[0].Label != "ci" || views[0].Owner != "" || views[0].Prefix != want.Prefix {
+		if want := keyView(&own.Key, "", time.Now()); len(views) != 1 || views[0].ID != want.ID || views[0].Label != "ci" || views[0].Owner != "" || views[0].Prefix != want.Prefix {
 			t.Errorf("keys %+v, want alice's one %+v with no owner", views, want)
 		}
 	})
@@ -674,6 +675,60 @@ func TestRouteAuthKeyRename(t *testing.T) {
 	})
 }
 
+func TestRouteAuthKeyRotate(t *testing.T) {
+	rotate := func(t *testing.T, e *env, id int64, cookie *http.Cookie) *httptest.ResponseRecorder {
+		t.Helper()
+		return do(e.route(t, "authKeyRotate"), e.at(t, "authKeyRotate", strconv.FormatInt(id, 10), "", cookie))
+	}
+	t.Run("success", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		cookie := e.aliceSession(t)
+		old := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+		e.keyPrincipal(t, old.Plaintext)
+		w := rotate(t, e, old.Key.ID, cookie)
+		if strings.Contains(w.Body.String(), `"last_used_at"`) {
+			t.Errorf("body %s carries last_used_at, want it absent until the new secret is used", w.Body)
+		}
+		rotated := decoded[KeyCreatedResponse](t, e, w, http.StatusOK)
+		d := rotated.Details
+		if rotated.Key == "" || rotated.Key == old.Plaintext.Reveal() {
+			t.Fatalf("key %q, want a new plaintext", rotated.Key)
+		}
+		if d.ID != old.Key.ID || d.Label != "ci" || !d.CreatedAt.Equal(old.Key.CreatedAt) || d.Prefix == old.Key.KeyPrefix && d.Suffix == old.Key.KeySuffix {
+			t.Errorf("details %+v, want key %d with its label and creation time and the new secret's display parts", d, old.Key.ID)
+		}
+		if until := time.Until(d.PreviousUntil).Round(time.Minute); until != time.Hour {
+			t.Errorf("previous_until in %v, want the default overlap of 1h", until)
+		}
+		if p := e.keyPrincipal(t, old.Plaintext); p.KeyID != old.Key.ID {
+			t.Errorf("the old secret authenticates key %d, want %d through the overlap", p.KeyID, old.Key.ID)
+		}
+		e.keyPrincipal(t, access.NewSecret(rotated.Key))
+		sessionName, _ := e.names()
+		views := decoded[[]KeyView](t, e, do(e.route(t, "authKeys"), e.post(t, "authKeys", "", cookieNamed(w, sessionName))), http.StatusOK)
+		if len(views) != 1 || !views[0].PreviousUntil.IsZero() || views[0].LastUsedAt.IsZero() {
+			t.Errorf("keys %+v, want the one key used, with no previous_until once its new secret is used", views)
+		}
+	})
+	t.Run("other_users_key", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		cookie := e.aliceSession(t)
+		e.createUser(t, "bob", access.RoleUser)
+		bobs := e.mintKey(t, "bob", account.NewKey{Label: "ci"})
+		e.requireRefused(t, rotate(t, e, bobs.Key.ID, cookie), access.CodeNotFound)
+		if p := e.keyPrincipal(t, bobs.Plaintext); p.KeyID != bobs.Key.ID {
+			t.Errorf("bob's secret authenticates key %d, want %d unrotated", p.KeyID, bobs.Key.ID)
+		}
+	})
+	t.Run("guard_key_principal_refused", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		e.aliceSession(t)
+		key := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+		r := bearer(e.at(t, "authKeyRotate", strconv.FormatInt(key.Key.ID, 10), ""), key.Plaintext)
+		e.requireRefused(t, do(e.route(t, "authKeyRotate"), r), access.CodeSessionRequired)
+	})
+}
+
 func TestRouteAuthKeyRevoke(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
@@ -714,6 +769,10 @@ func TestRotationSetsCookie(t *testing.T) {
 		}},
 		{name: "authKeyCreate", build: func(t *testing.T, e *env, c *http.Cookie) *http.Request {
 			return e.post(t, "authKeyCreate", keyBody(t, "ci"), c)
+		}},
+		{name: "authKeyRotate", build: func(t *testing.T, e *env, c *http.Cookie) *http.Request {
+			key := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+			return e.at(t, "authKeyRotate", strconv.FormatInt(key.Key.ID, 10), "", c)
 		}},
 	}
 	for _, tc := range cases {

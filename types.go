@@ -309,8 +309,7 @@ type Key struct {
 	PreviousUntil time.Time `json:"previous_until,omitzero"`
 	KeyHash       Hash      `json:"-"`
 	// PreviousHash is the secret the last rotation superseded, zero when
-	// none; it verifies only while LastUsedAt is zero and now is before
-	// PreviousUntil.
+	// none; it verifies while [Key.PreviousSecretUsable].
 	PreviousHash Hash     `json:"-"`
 	KeyPrefix    string   `json:"key_prefix"`
 	KeySuffix    string   `json:"key_suffix"`
@@ -344,6 +343,13 @@ func (k Key) ParentKeyID() int64 { //nolint:gocritic // hugeParam: a value recei
 		return k.LineageIDs[n-2]
 	}
 	return 0
+}
+
+// PreviousSecretUsable reports whether k's previous secret verifies at now:
+// PreviousHash is set, now is before PreviousUntil, and the current secret
+// is unused (LastUsedAt zero).
+func (k *Key) PreviousSecretUsable(now time.Time) bool {
+	return !k.PreviousHash.IsZero() && now.Before(k.PreviousUntil) && k.LastUsedAt.IsZero()
 }
 
 // Clone returns a deep copy, or nil for a nil k.

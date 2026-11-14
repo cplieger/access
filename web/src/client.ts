@@ -176,6 +176,12 @@ export interface AuthClient {
   createKey(r: NewKeyRequest): Promise<ApiResult<KeyCreatedResponse>>;
   /** The label follows createKey's rule; the key's own label is free, so a key can be recased. */
   renameKey(id: number, r: NameRequest): Promise<ApiResult<void>>;
+  /**
+   * A new secret for the same key, which needs recent auth. The old secret
+   * keeps working until the new one is first used or details.previous_until
+   * passes, so a leaked key is revoked, not rotated.
+   */
+  rotateKey(id: number): Promise<ApiResult<KeyCreatedResponse>>;
   revokeKey(id: number): Promise<ApiResult<void>>;
   /** key lists the users any key in that key's lineage acted on (GET /users?key=). */
   adminUsers(o?: { readonly key?: number }): Promise<ApiResult<readonly UserView[]>>;
@@ -327,6 +333,7 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     keys: () => json("GET", p("/apikeys"), keyList),
     createKey: (r) => json("POST", p("/apikeys"), parseKeyCreatedResponse, { body: r }),
     renameKey: (id, r) => empty("PUT", p(`/apikeys/${String(id)}`), r),
+    rotateKey: (id) => json("POST", p(`/apikeys/${String(id)}/rotate`), parseKeyCreatedResponse),
     revokeKey: (id) => empty("DELETE", p(`/apikeys/${String(id)}`)),
     adminUsers: (q) => json("GET", p(`/users${query({ key: num(q?.key) })}`), userList),
     adminCreateUser: (r) => json("POST", p("/users"), parseUserView, { body: r }),

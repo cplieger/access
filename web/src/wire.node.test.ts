@@ -353,6 +353,12 @@ describe("field narrowing", () => {
     expect(parseKeyView({ ...key, scopes: ["read", 1] })).toBeUndefined();
   });
 
+  it("reads a key's previous_until and refuses one that is not a time", () => {
+    const key = fixture("KeyView") as Record<string, unknown>;
+    expect(parseKeyView(key)?.previous_until).toBe(key["previous_until"]);
+    expect(parseKeyView({ ...key, previous_until: "soon" })).toBeUndefined();
+  });
+
   it("reads only own fields", () => {
     const inherited = Object.assign(Object.create({ name: "x" }) as object, {});
     expect(validatorFor("NameRequest")(inherited)).toBeUndefined();

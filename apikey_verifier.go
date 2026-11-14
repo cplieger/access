@@ -66,7 +66,7 @@ func (v *apiKeyVerifier) touch(ctx context.Context, k *Key, hash Hash, now time.
 	switch {
 	case err == nil:
 		return nil
-	case previousUsable(k, now):
+	case k.PreviousSecretUsable(now):
 		return fmt.Errorf("%w: %w", ErrAuthBackend, err)
 	default:
 		v.warn.log(v.cfg.log(), "access: API key touch failed", "key_id", k.ID, "error", err)
@@ -104,7 +104,7 @@ func (v *apiKeyVerifier) resolve(ctx context.Context, hash Hash, now time.Time) 
 		v.cfg.log().Debug("access: API key expired", "key_id", key.ID)
 		return nil, nil, false, refuse(ErrInvalidAPIKey, failreason.KeyExpired)
 	}
-	if previous && !previousUsable(key, now) {
+	if previous && !key.PreviousSecretUsable(now) {
 		v.cfg.log().Debug("access: API key previous secret retired", "key_id", key.ID)
 		return nil, nil, false, refuse(ErrInvalidAPIKey, failreason.KeyRetired)
 	}
@@ -160,12 +160,6 @@ func findAPIKey(ctx context.Context, store APIKeyReader, hash Hash) (key *Key, p
 	default:
 		return nil, false, ErrInvalidAPIKey
 	}
-}
-
-// previousUsable reports whether key's previous secret verifies at now: it
-// is set, now is before PreviousUntil, and the current secret is unused.
-func previousUsable(key *Key, now time.Time) bool {
-	return !key.PreviousHash.IsZero() && now.Before(key.PreviousUntil) && key.LastUsedAt.IsZero()
 }
 
 // keyExpired reports a key whose ExpiresAt is set and not after now.

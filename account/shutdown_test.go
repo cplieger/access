@@ -3,7 +3,6 @@ package account_test
 import (
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/cplieger/access/account"
 )
@@ -13,10 +12,10 @@ func TestShutdownEveryOperation(t *testing.T) {
 	closed := func(t *testing.T, w *opWorld, name string, run func() error) {
 		t.Helper()
 		w.fs.resetRecord()
-		start := time.Now()
+		reserved, hashed := w.counted.reserved.Load(), w.counted.hashed.Load()
 		err := run()
-		if d := time.Since(start); d > 10*time.Millisecond {
-			t.Errorf("%s after Shutdown took %s, want at most 10ms", name, d)
+		if r, h := w.counted.reserved.Load()-reserved, w.counted.hashed.Load()-hashed; r != 0 || h != 0 {
+			t.Errorf("%s after Shutdown reserved %d hash permits and derived %d hashes, want none", name, r, h)
 		}
 		if !errors.Is(err, account.ErrServiceClosed) {
 			t.Errorf("%s after Shutdown = %v, want ErrServiceClosed", name, err)

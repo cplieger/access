@@ -563,7 +563,10 @@ export const parseSessionView: Validator<SessionView> = object({
   current: req(bool),
 });
 
-/** owner is set on the admin list only. */
+/**
+ * owner is set on the admin list only. previous_until is set only while a
+ * rotated key's old secret still verifies; a list re-read shows it gone.
+ */
 export interface KeyView {
   readonly id: number;
   readonly user_id: number;
@@ -575,6 +578,7 @@ export interface KeyView {
   readonly created_at: string;
   readonly expires_at?: string;
   readonly last_used_at?: string;
+  readonly previous_until?: string;
   readonly parent_key_id?: number;
 }
 export const parseKeyView: Validator<KeyView> = object({
@@ -588,6 +592,7 @@ export const parseKeyView: Validator<KeyView> = object({
   created_at: req(time),
   expires_at: opt(time),
   last_used_at: opt(time),
+  previous_until: opt(time),
   parent_key_id: opt(id),
 });
 

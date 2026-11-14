@@ -143,7 +143,12 @@ func TestViewsCarryEveryField(t *testing.T) {
 		OIDC: access.OIDCIdentity{Issuer: testIssuer, Subject: "s"}, CreatedAt: created,
 	}
 	wantUser := UserView{ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleAdmin, Enabled: true, OIDCLinked: true, CreatedAt: created}
-	adminListOnly := []string{"UserView.Methods", "UserView.KeyLineage", "SignedInResponse.User.Methods", "SignedInResponse.User.KeyLineage", "MeResponse.User.Methods", "MeResponse.User.KeyLineage"}
+	// unsetByDesign is the admin list's extras, and the KeyView fields one key
+	// state cannot both set: a used key has no live previous secret.
+	unsetByDesign := []string{
+		"UserView.Methods", "UserView.KeyLineage", "SignedInResponse.User.Methods", "SignedInResponse.User.KeyLineage", "MeResponse.User.Methods", "MeResponse.User.KeyLineage",
+		"KeyView.PreviousUntil", "RotatedKeyView.LastUsedAt",
+	}
 	methods := account.Methods{
 		Locks: []account.MethodLock{
 			{Method: access.MethodPassword, Untrusted: true},
@@ -193,11 +198,16 @@ func TestViewsCarryEveryField(t *testing.T) {
 	key := access.Key{
 		ID: 5, UserID: 7, Label: "ci", KeyPrefix: "ak_7", KeySuffix: "wxyz", Scopes: []string{"read"},
 		CreatedAt: at(1), ExpiresAt: at(4), LastUsedAt: at(2), LineageIDs: []int64{3, 5},
+		PreviousHash: access.APIKeyHash("superseded"), PreviousUntil: at(5),
 	}
 	wantKey := KeyView{
 		ID: 5, UserID: 7, Owner: "alice", Label: "ci", Prefix: "ak_7", Suffix: "wxyz", Scopes: []string{"read"},
 		CreatedAt: at(1), ExpiresAt: at(4), LastUsedAt: at(2), ParentKeyID: 3,
 	}
+	rotated := key
+	rotated.LastUsedAt = time.Time{}
+	wantRotated := wantKey
+	wantRotated.LastUsedAt, wantRotated.PreviousUntil = time.Time{}, at(5)
 	token := account.ListedToken{IssuerLineage: []int64{3, 5}, Token: access.OneTimeToken{
 		Purpose: access.PurposeInvite, Role: access.RoleUser, Subject: 9, IssuedByKey: 5, CreatedAt: at(1), ExpiresAt: at(5),
 	}}
@@ -237,12 +247,13 @@ func TestViewsCarryEveryField(t *testing.T) {
 		{name: "ListedUserView", got: listedUserView(&listed), want: wantListed},
 		{name: "PasskeyView", got: passkeyView(&passkey), want: wantPasskey},
 		{name: "SessionView", got: sessionView(&session, timeouts, "sess"), want: wantSession},
-		{name: "KeyView", got: keyView(&key, "alice"), want: wantKey},
+		{name: "KeyView", got: keyView(&key, "alice", at(3)), want: wantKey},
+		{name: "RotatedKeyView", got: keyView(&rotated, "alice", at(3)), want: wantRotated},
 		{name: "TokenView", got: tokenView(&token), want: wantToken},
 		{name: "SecurityLogView", got: securityLogView(&logPage), want: wantLogPage},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if unset := unsetFields(reflect.ValueOf(tc.want), tc.name, adminListOnly); len(unset) != 0 {
+			if unset := unsetFields(reflect.ValueOf(tc.want), tc.name, unsetByDesign); len(unset) != 0 {
 				t.Fatalf("fixture leaves %v unset", unset)
 			}
 			if !reflect.DeepEqual(tc.got, tc.want) {
@@ -298,15 +309,25 @@ func TestViewsCarryEveryField(t *testing.T) {
 	t.Run("key_scopes_owned_and_never_null", func(t *testing.T) {
 		k := key
 		k.Scopes = []string{"read"}
-		v := keyView(&k, "")
+		v := keyView(&k, "", at(3))
 		k.Scopes[0] = "write"
 		if v.Scopes[0] != "read" {
 			t.Errorf("view scopes %v follow the key's slice", v.Scopes)
 		}
 		k.Scopes = nil
-		b, err := json.Marshal(keyView(&k, ""))
+		b, err := json.Marshal(keyView(&k, "", at(3)))
 		if err != nil || !strings.Contains(string(b), `"scopes":[]`) {
 			t.Errorf("view of a key with no scopes encodes %s (%v), want \"scopes\":[]", b, err)
+		}
+	})
+	t.Run("previous_until_only_while_the_previous_secret_verifies", func(t *testing.T) {
+		k := rotated
+		if v := keyView(&k, "", at(5)); !v.PreviousUntil.IsZero() {
+			t.Errorf("at the bound previous_until %v, want absent", v.PreviousUntil)
+		}
+		k.PreviousHash = access.Hash{}
+		if v := keyView(&k, "", at(3)); !v.PreviousUntil.IsZero() {
+			t.Errorf("with no previous secret previous_until %v, want absent", v.PreviousUntil)
 		}
 	})
 	t.Run("fixture_check_reports_an_unset_field", func(t *testing.T) {

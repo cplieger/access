@@ -51,6 +51,7 @@ The OIDC branch navigates to the identity provider and never returns to the acti
 ## What it exports
 
 - `createAuthClient` returns an `AuthClient` with one method per route, such as `me`, `loginPassword`, `sessions` and `createKey`. `adminSecurityLog` reads a page of the [security log](https://github.com/cplieger/access/blob/main/docs/security-log.md) with its per-class counts, newest first, or oldest first when `oldestFirst` is set; `after` and `before` are bounds only.
+- `keys`, `createKey`, `renameKey`, `rotateKey` and `revokeKey` manage the user's own API keys. `createKey` and `rotateKey` return the secret once. After `rotateKey` the old secret keeps working until the new one is first used or `details.previous_until` passes, so a leaked key is revoked instead.
 - `signInWithPasskey`, `registerPasskey`, `setupWithPasskey`, `stepUpWithPasskey` and `recoverWithPasskey` run the WebAuthn ceremonies. `passkeySupport` reports what the browser offers, and `sendSignals` keeps the credential manager's passkey list in step with the server.
 - `oidcSignInURL`, `startOIDC`, `readOIDCReturn`, `pendingLink` and `completePendingLink` handle the OIDC sign-in, link and step-up redirects.
 - `withStepUp` retries an action after a step-up, and `createSessionsModel` keeps a reactive list of the user's sessions.

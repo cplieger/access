@@ -478,7 +478,7 @@ func keyBody(t testing.TB, label string, scopes ...string) string {
 }
 
 func addKeyScenarios(out map[scenarioKey]scenario) {
-	const create, rename, revoke = "authKeyCreate", "authKeyRename", "authKeyRevoke"
+	const create, rename, rotate, revoke = "authKeyCreate", "authKeyRename", "authKeyRotate", "authKeyRevoke"
 	mint := func(t *testing.T, e *env) *http.Request {
 		return e.post(t, create, keyBody(t, "ci"), e.aliceSession(t))
 	}
@@ -509,6 +509,17 @@ func addKeyScenarios(out map[scenarioKey]scenario) {
 	out[scenarioKey{rename, access.CodeKeyLabelTaken}] = scenario{arrange: renameOwn("agent")}
 	out[scenarioKey{rename, access.CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.at(t, rename, "1", jsonBody(t, NameRequest{Name: "deploy"}), e.aliceSession(t))
+	}}
+	rotateOwn := func(t *testing.T, e *env) *http.Request {
+		cookie := e.aliceSession(t)
+		k := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+		return e.at(t, rotate, strconv.FormatInt(k.Key.ID, 10), "", cookie)
+	}
+	out[scenarioKey{rotate, access.CodeSessionExpired}] = scenario{opts: ends, arrange: rotateOwn}
+	out[scenarioKey{rotate, access.CodeForbidden}] = scenario{opts: envOptions{edit: refuse(account.OpRotateKey)}, arrange: rotateOwn}
+	out[scenarioKey{rotate, access.CodeUnavailable}] = closing(envOptions{}, rotateOwn)
+	out[scenarioKey{rotate, access.CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		return e.at(t, rotate, "1", "", e.aliceSession(t))
 	}}
 	out[scenarioKey{revoke, access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		return e.at(t, revoke, "1", "", e.aliceSession(t))

@@ -16,7 +16,7 @@ access is built for a Go service that owns its login pages and its database.
 - Your store keeps only the SHA-256 hash of each 256-bit random session token. The session cookie holds only the token, and the cookies that carry state are sealed with AES-256-GCM.
 - Passkey ceremonies accept only your exact origin by default, and the API exposes no go-webauthn type.
 - OIDC sign-in sends a PKCE S256 challenge, checks the ID token's nonce and keeps the flow in a sealed cookie, with nothing stored on the server.
-- API keys can carry scopes, and two permissions you grant explicitly let a key manage regular users or mint narrower keys, each act attributed to the key's whole lineage.
+- API keys can carry scopes, and two permissions you grant explicitly let a key manage regular users or mint narrower keys, each act attributed to the key's whole lineage. A key rotates to a new secret in place, and its old secret keeps working through a short overlap.
 - Every credential is an `access.Secret` or an `access.Hash`, which print as redacted wherever they are logged.
 - Sign-ins and credential, key, role and account changes append a security-log entry in the same transaction that makes the change, so the change and its record commit together, and the next failure-record sweep records each lock. The [security log](docs/security-log.md) lists what it leaves out, such as renames and failed attempts.
 

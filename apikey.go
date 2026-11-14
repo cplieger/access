@@ -100,16 +100,15 @@ func validKeyPrefix(prefix string) bool {
 // answers found with a nil key, or holds a key with neither the computed
 // hash as its KeyHash nor as its PreviousHash; for a key whose ExpiresAt is
 // set and not after now, as the [Authenticator] does; and for a previous
-// secret unless now is before PreviousUntil and LastUsedAt is zero. It never
-// touches, so a previous secret lasts until PreviousUntil. A store error is
-// returned as is.
+// secret unless [Key.PreviousSecretUsable]. It never touches, so a previous
+// secret lasts until PreviousUntil. A store error is returned as is.
 func VerifyAPIKey(ctx context.Context, store APIKeyReader, key string) (*Key, error) {
 	k, previous, err := findAPIKey(ctx, store, APIKeyHash(key))
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now()
-	if keyExpired(k, now) || (previous && !previousUsable(k, now)) {
+	if keyExpired(k, now) || (previous && !k.PreviousSecretUsable(now)) {
 		return nil, ErrInvalidAPIKey
 	}
 	return k, nil

@@ -216,6 +216,10 @@ func (s stubAccount) RenameAPIKey(ctx context.Context, p access.Principal, id in
 	return stubbedErr(s, "RenameAPIKey", func() error { return s.accountAPI.RenameAPIKey(ctx, p, id, label) })
 }
 
+func (s stubAccount) RotateAPIKey(ctx context.Context, a account.Actor, id int64) (account.RotatedKey, error) {
+	return stubbed(s, "RotateAPIKey", func() (account.RotatedKey, error) { return s.accountAPI.RotateAPIKey(ctx, a, id) })
+}
+
 func (s stubAccount) RevokeAPIKey(ctx context.Context, p access.Principal, id int64) error {
 	return stubbedErr(s, "RevokeAPIKey", func() error { return s.accountAPI.RevokeAPIKey(ctx, p, id) })
 }

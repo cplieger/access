@@ -51,6 +51,10 @@
           "optional": true
         },
         {
+          "name": "previous_until",
+          "optional": true
+        },
+        {
           "name": "owner",
           "optional": true
         },
@@ -89,6 +93,10 @@
     },
     {
       "name": "last_used_at",
+      "optional": true
+    },
+    {
+      "name": "previous_until",
       "optional": true
     },
     {
