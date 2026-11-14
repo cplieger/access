@@ -35,14 +35,6 @@ func stubbedErr(s stubAccount, op string, next func() error) error {
 	return next()
 }
 
-// OIDCProvider answers nil, OIDC off, while stubbed.
-func (s stubAccount) OIDCProvider() *oidc.Provider {
-	if ok, _ := s.answer("OIDCProvider"); ok {
-		return nil
-	}
-	return s.accountAPI.OIDCProvider()
-}
-
 func (s stubAccount) State(ctx context.Context) (account.State, error) {
 	return stubbed(s, "State", func() (account.State, error) { return s.accountAPI.State(ctx) })
 }
@@ -79,6 +71,10 @@ func (s stubAccount) PasskeyLoginFinish(ctx context.Context, c account.Client, c
 
 func (s stubAccount) AdmitOIDC(c account.Client) (*oidc.Provider, error) {
 	return stubbed(s, "AdmitOIDC", func() (*oidc.Provider, error) { return s.accountAPI.AdmitOIDC(c) })
+}
+
+func (s stubAccount) AdmitOIDCSession(c account.Client, p access.Principal) (*oidc.Provider, error) {
+	return stubbed(s, "AdmitOIDCSession", func() (*oidc.Provider, error) { return s.accountAPI.AdmitOIDCSession(c, p) })
 }
 
 func (s stubAccount) OIDCComplete(ctx context.Context, c account.Client, flow oidc.Flow, claims oidc.Claims) (account.OIDCOutcome, error) {

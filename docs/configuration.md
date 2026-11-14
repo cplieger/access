@@ -111,7 +111,7 @@ if err != nil {
 
 Under `PostureSecure`, `Authenticate` refuses every plain request with `access.ErrHTTPSRequired`, which `ErrorFor` answers with 403 `auth_https_required`. It does so before the bypass and before any verifier, so a plain request reads no session, writes no activity and revokes nothing. Behind a TLS proxy your resolver does not trust, every request reads plain and is refused, and the warning above names the proxy's address.
 
-`PosturePerRequest` suits one instance that serves both plain-HTTP LAN traffic and HTTPS traffic through a proxy.
+`PosturePerRequest` suits one instance that serves both plain-HTTP LAN traffic and HTTPS traffic through a proxy. [Plain HTTP](plain-http.md) lists what a plain request may do under it.
 
 Each cookie method takes the request's transport, the `ClientAddr.Secure` your resolver answers for it ([Authenticator configuration](#authenticator-configuration)): `CookieName(secure)`, `SetCookie(w, secure, value, maxAge)`, `ReadCookie(r, secure)` and `ClearCookie(w, secure)`. The Authenticator and `accesshttp` pass it themselves. `SetCookie` always sets HttpOnly and sends `Cache-Control: no-store`. When `secure` is false it drops a positive `maxAge`, so a cookie set on a plain request carries neither `Max-Age` nor `Expires` and ends with the browser session; a clear sends `Max-Age=0` on either transport. `ReadCookie` reads only the name for the request's transport, never the other one, and only when the request carries exactly one cookie of that name.
 
@@ -162,14 +162,14 @@ A stored hash outside the same bounds, or not in canonical PHC form, never match
 
 ## Rate limiter
 
-`ratelimit.DefaultConfig()` returns the rates and bounds below. Each rate is a limit per sliding window, per key: the limiter bounds the failed attempts, and the begin-route requests, each key makes in a window. Its windows live in memory, so a restart clears them.
+`ratelimit.DefaultConfig()` returns the rates and bounds below. Each rate is a limit per sliding window, per key: the limiter bounds the failed attempts, and the anonymous-route requests, each key makes in a window. Its windows live in memory, so a restart clears them.
 
 | Field | Default | Bounds |
 | --- | --- | --- |
 | `IP` | 10 per 15m | failed attempts per IP key |
 | `Account` | 100 per 1h | failures from untrusted clients per account |
 | `Device` | 10 per 1h | failures per account and device cookie |
-| `Request` | 60 per 1m | requests on an anonymous begin route per IP key |
+| `Request` | 60 per 1m | requests on an anonymous passkey begin route or OIDC route per IP key |
 | `IPv6Prefix` | 64 | the IPv6 prefix one IP key covers, 48 to 128 |
 | `MaxEntries` | 10000 | the keys, and so the memory, each dimension tracks |
 | `Prune` | 5m | how often windows with no live entry are dropped, and the eviction warning's interval |
@@ -188,7 +188,7 @@ The reservation counts as a failure until it is settled, so an abandoned one sti
 - `Fail` settles it as the failure it already counts.
 - `Cancel` removes it without crediting a success, for a refusal before the password was checked.
 
-Only the first of the three acts. `Request` counts one request on an anonymous begin route against the IP key's request window.
+Only the first of the three acts. `Request` counts one request on an anonymous passkey begin route or OIDC route against the IP key's request window.
 
 Set the device cookie `Succeed` returns for 180 days, and pass the browser's cookie back in `Attempt.Device`. The device protocol follows OWASP's [device cookies](https://owasp.org/www-community/Slow_Down_Online_Guessing_Attacks_with_Device_Cookies): locking an account for untrusted clients leaves the owner's trusted browsers working. With a `Devices` sealer over persisted keys, that trust survives a restart. With `access.NewEphemeralSealer()`, a restart makes every browser untrusted until it signs in again. After a sign-in that ran no `Attempt`, such as a passkey or OIDC sign-in, `DeviceCookie` returns the cookie to set, and it keeps the device of a valid cookie the browser presented.
 
@@ -199,7 +199,7 @@ Past those keys, the limiter bounds no spray of new keys. What bounds one depend
 - Password attempts on an account (`PasswordLogin`, `StepUpPassword`, and the current-password check of `SetPassword` and `RemovePassword`). The durable failure cap, `account.FailureCap`, locks the password for a name and trust context after 100 consecutive failures, so a spray gets at most 100 consecutive guesses at each account in each context. Every password hash draws on the `access.HashBudget`, which bounds how many hashes run at once.
 - Attempts with no account (`SetupWithPassword`, `AcceptInvitePassword` and `StartRecovery`). Nothing beyond the IP limit bounds their rate. Those that hash a password draw on the `access.HashBudget`.
 - Begin routes that hold a passkey ceremony (`SetupPasskeyBegin` and `PasskeyLoginBegin`). The pending-ceremony cache holds at most `account.Config.MaxPending` entries and evicts the oldest first. That bounds memory, not the request rate.
-- The OIDC sign-in start and callback. `account.Service.AdmitOIDC` charges the IP request limit on both before `oidc.Provider.Finish` and `OIDCComplete` run, and nothing beyond that limit bounds their rate. A callback without a flow cookie that `Begin` sealed fails when the cookie is opened, before any call to the identity provider.
+- The OIDC sign-in start, the callback and the pending-link read. `account.Service.AdmitOIDC` charges the IP request limit on each, before `oidc.Provider.Begin` or `Finish` runs and before the pending-link cookie is read, and nothing beyond that limit bounds their rate. A callback without a flow cookie that `Begin` sealed fails when the cookie is opened, before any call to the identity provider.
 
 Once per `Prune` interval, each dimension that evicted keys at their limit logs one warning with their count, after the limiter's locks are released. The prune goroutine stops when the context given to `New` ends, after logging the warnings its last interval had not yet logged. `Shutdown` stops it and blocks until it has exited, or until the context given to `Shutdown` ends.
 

@@ -12,7 +12,7 @@ import (
 )
 
 // AdmitOIDC is an anonymous OIDC request's one provider read, for the
-// sign-in start and the callback: ErrServiceClosed, then
+// sign-in start, the callback and the pending-link read: ErrServiceClosed, then
 // access.ErrHTTPSRequired for a plain c, then ErrOIDCUnavailable for a nil
 // OIDC(), each charging nothing, then Limiter.Request on c's IP
 // (*ratelimit.RefusedError), else the provider for the whole request.
@@ -23,7 +23,7 @@ func (s *Service) AdmitOIDC(c Client) (*oidc.Provider, error) { //nolint:gocriti
 	if err := s.transport(plainRefused, c.Secure); err != nil {
 		return nil, err
 	}
-	p := s.OIDCProvider()
+	p := s.provider()
 	if p == nil {
 		return nil, ErrOIDCUnavailable
 	}
@@ -45,7 +45,7 @@ func (s *Service) AdmitOIDCSession(c Client, p access.Principal) (*oidc.Provider
 	if err := s.transport(plainRefused, c.Secure && p.Secure); err != nil {
 		return nil, err
 	}
-	provider := s.OIDCProvider()
+	provider := s.provider()
 	if provider == nil {
 		return nil, ErrOIDCUnavailable
 	}
@@ -65,7 +65,7 @@ func (s *Service) OIDCComplete(ctx context.Context, c Client, flow oidc.Flow, cl
 	if err != nil {
 		return OIDCOutcome{}, err
 	}
-	if s.OIDCProvider() == nil {
+	if s.provider() == nil {
 		return OIDCOutcome{}, ErrOIDCUnavailable
 	}
 	var out OIDCOutcome
@@ -301,7 +301,7 @@ func (s *Service) LinkPendingOIDC(ctx context.Context, p access.Principal, pendi
 	if err != nil {
 		return Issued{}, Me{}, err
 	}
-	if s.OIDCProvider() == nil {
+	if s.provider() == nil {
 		return Issued{}, Me{}, ErrOIDCUnavailable
 	}
 	if pending.Identity.Issuer == "" || pending.Identity.Subject == "" {

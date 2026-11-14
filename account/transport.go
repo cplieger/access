@@ -12,8 +12,8 @@ const (
 	plainRefused                     // both postures refuse it
 )
 
-// transport is access.ErrHTTPSRequired when rule refuses a request whose
-// transport is secure under the Authenticator's posture.
+// transport is access.ErrHTTPSRequired for a plain request (secure false)
+// that rule refuses under the Authenticator's posture.
 func (s *Service) transport(rule plainRule, secure bool) error {
 	switch {
 	case secure, rule == plainAllowed:

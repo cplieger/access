@@ -64,9 +64,9 @@ func (h *Handler) startSessionFlow(c *call, intent oidc.Intent) error {
 	if err != nil {
 		return err
 	}
-	p := h.acct.OIDCProvider()
-	if p == nil {
-		return account.ErrOIDCUnavailable
+	p, err := h.acct.AdmitOIDCSession(c.client, c.p)
+	if err != nil {
+		return err
 	}
 	authURL, err := p.Begin(c.w, c.r, h.acct.Authenticator().Cookie(), oidc.BeginRequest{
 		Intent: intent, SessionID: c.p.SessionID, UserID: c.p.User.ID, Redirect: req.Redirect,
@@ -181,7 +181,12 @@ func (h *Handler) readPending(c *call) (account.PendingLink, bool) {
 	return account.PendingLink{Identity: access.OIDCIdentity{Issuer: p.Issuer, Subject: p.Subject}, UsernameHint: p.UsernameHint, Email: p.Email}, true
 }
 
+// serveOIDCPending reads the pending cookie only once AdmitOIDC admits the
+// request.
 func serveOIDCPending(h *Handler, c *call) error {
+	if _, err := h.acct.AdmitOIDC(c.client); err != nil {
+		return err
+	}
 	p, ok := h.readPending(c)
 	if !ok {
 		return account.ErrNotFound

@@ -388,11 +388,6 @@ func (c *census) cell(t *testing.T, rt Route, p *censusPrincipal) {
 		if w.Code != http.StatusOK || len(errs) != 0 {
 			t.Errorf("status %d, errors %+v, want an admin's data", w.Code, errs)
 		}
-	case rt.Name == "authOIDCPending":
-		// It reads only its own cookie: past the guard, none is not found.
-		if len(errs) != 1 || errs[0].Code != access.CodeNotFound {
-			t.Errorf("status %d, errors %+v, want auth_not_found past the guard", w.Code, errs)
-		}
 	case !reached:
 		t.Errorf("status %d, errors %+v; the request never reached its operation", w.Code, errs)
 	default:

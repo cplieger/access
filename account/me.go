@@ -65,7 +65,7 @@ func (s *Service) methods(ctx context.Context, tx Tx, r Rules, u *access.User) (
 		PasskeyCount:      len(passkeys),
 		HasPassword:       !u.PasswordHash.IsZero(),
 		OIDCLinked:        !u.OIDC.IsZero(),
-		OIDCAvailable:     s.OIDCProvider() != nil,
+		OIDCAvailable:     s.provider() != nil,
 		PasskeysAvailable: s.passkeysAvailable(),
 		PasswordLogin:     !r.DisablePasswordLogin,
 	}

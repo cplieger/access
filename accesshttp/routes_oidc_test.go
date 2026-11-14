@@ -727,6 +727,60 @@ func TestOIDCPendingRoutes(t *testing.T) {
 			t.Errorf("alice still linked to %+v", got)
 		}
 	})
+	pending := pendingPayload{Issuer: testIssuer, Subject: accesstest.DefaultIdPSubject, UsernameHint: "alice"}
+	t.Run("plain_refused", func(t *testing.T) {
+		e := newEnv(t, perRequest)
+		e.useIdP(t, accesstest.IdPOptions{}, nil)
+		sealed := e.pendingCookie(t, pending)
+		rt := e.route(t, "authOIDCPending")
+		cfg := pendingCookie(e.authn.Cookie())
+		r := requestAt(plainOrigin, rt.Path, rt, "", &http.Cookie{Name: cfg.CookieName(false), Value: sealed.Value})
+		w := do(rt, r)
+		if errs := e.errs.all(); w.Code != http.StatusForbidden || len(errs) != 1 || errs[0].Code != access.CodeHTTPSRequired {
+			t.Errorf("plain pending read: status %d errors %+v body %q, want 403 auth_https_required", w.Code, errs, w.Body.String())
+		}
+		if len(w.Result().Cookies()) != 0 {
+			t.Errorf("Set-Cookie %v, want the pending cookie left as it is", w.Result().Cookies())
+		}
+	})
+	t.Run("oidc_off", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		rt := e.route(t, "authOIDCPending")
+		r := get(rt, "")
+		r.AddCookie(e.pendingCookie(t, pending))
+		w := do(rt, r)
+		want := access.NewError(access.CodeOIDCUnavailable, "", nil).Status
+		if errs := e.errs.all(); w.Code != want || len(errs) != 1 || errs[0].Code != access.CodeOIDCUnavailable {
+			t.Errorf("pending read with OIDC off: status %d errors %+v, want %d auth_oidc_unavailable", w.Code, errs, want)
+		}
+	})
+	t.Run("charges_limiter", func(t *testing.T) {
+		read := func(t *testing.T, e *env) access.Code {
+			t.Helper()
+			before := len(e.errs.all())
+			rt := e.route(t, "authOIDCPending")
+			do(rt, get(rt, ""))
+			if errs := e.errs.all()[before:]; len(errs) == 1 {
+				return errs[0].Code
+			}
+			return ""
+		}
+		two := newEnv(t, envOptions{limits: func(c *ratelimit.Config) { c.Request = ratelimit.Rate{Limit: 2, Window: c.Request.Window} }})
+		two.useIdP(t, accesstest.IdPOptions{}, nil)
+		if got := read(t, two); got != access.CodeNotFound {
+			t.Fatalf("first read answered %q, want auth_not_found", got)
+		}
+		two.spendRequest(t)
+		if got := read(t, two); got != access.CodeRateLimited {
+			t.Errorf("a read after the window's second request answered %q, want auth_rate_limited: one read is one request", got)
+		}
+		one := newEnv(t, limited)
+		one.useIdP(t, accesstest.IdPOptions{}, nil)
+		read(t, one)
+		if got := read(t, one); got != access.CodeRateLimited {
+			t.Errorf("the second read under a window of one answered %q, want auth_rate_limited", got)
+		}
+	})
 }
 
 // passkeyReadsFail is a Store whose PasskeysByUserID fails inside an Update

@@ -16,7 +16,6 @@ var notOperations = map[string]string{
 	"ManageUsersScope":        "accessor of Config.ManageUsersScope",
 	"CreateKeysScope":         "accessor of Config.CreateKeysScope",
 	"Authenticator":           "accessor of Config.Authenticator",
-	"OIDCProvider":            "accessor resolving Config.OIDC; reads no store",
 	"AdmitOIDC":               "per-request rate-limit admission returning the provider; reads no store (TestAdmitOIDC)",
 	"AdmitOIDCSession":        "per-request admission returning the provider; reads no store (TestAdmitOIDCSession)",
 	"RequireAdminScope":       "principal guard for accesshttp's key_scope class; reads no store",

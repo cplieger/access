@@ -210,6 +210,7 @@ The library has no TOTP or SMS second factor. A custom `CredentialVerifier` pass
 
 - [Guarding your own routes](docs/gate.md) explains the gate's route classes, matching, codes, challenge and audit events.
 - [Configuration](docs/configuration.md) lists every setting and default, the cookie postures, the rate limiter's limits, the key permissions and the HTTP handlers' error contract.
+- [Plain HTTP](docs/plain-http.md) lists what a request without TLS may do under each cookie posture, and what binding a session to its transport protects.
 - [Passwords, sessions and tokens](docs/primitives.md) covers each building block in detail.
 - [Implementing the store](docs/storage.md) explains the transaction boundary, the store contract and what each write costs.
 - [The security log](docs/security-log.md) lists what is logged, how long it is kept, and who can read it.

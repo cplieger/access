@@ -57,7 +57,7 @@ func (s *Service) State(ctx context.Context) (State, error) {
 		SetupRequired: n == 0,
 		PasswordLogin: !r.DisablePasswordLogin,
 		Passkeys:      s.passkeysAvailable(),
-		OIDC:          s.OIDCProvider() != nil,
+		OIDC:          s.provider() != nil,
 	}, nil
 }
 

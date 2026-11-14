@@ -334,19 +334,29 @@ func TestAccessors(t *testing.T) {
 	if got := []string{f.svc.AdminScope(), f.svc.ManageUsersScope(), f.svc.CreateKeysScope()}; got[0] != "admin" || got[1] != "manage_users" || got[2] != "create_keys" {
 		t.Errorf("scope accessors = %q, want the Config fields", got)
 	}
-	if f.svc.OIDCProvider() != first {
-		t.Error("OIDCProvider() is not Config.OIDC's provider")
+	// admitted is the provider a secure session-bound start is admitted
+	// with, nil when OIDC is off.
+	admitted := func(t *testing.T, f *fixture) *oidc.Provider {
+		t.Helper()
+		p, err := f.svc.AdmitOIDCSession(account.Client{Secure: true}, access.Principal{Secure: true})
+		if err != nil && !errors.Is(err, account.ErrOIDCUnavailable) {
+			t.Fatalf("AdmitOIDCSession: %v", err)
+		}
+		return p
+	}
+	if admitted(t, f) != first {
+		t.Error("the admitted provider is not Config.OIDC's")
 	}
 	current.Store(second)
-	if f.svc.OIDCProvider() != second {
-		t.Error("OIDCProvider() after the app swapped its provider is not the new one")
+	if admitted(t, f) != second {
+		t.Error("the admitted provider after the app swapped its provider is not the new one")
 	}
 	current.Store(nil)
-	if f.svc.OIDCProvider() != nil {
-		t.Error("OIDCProvider() with a nil result is not nil")
+	if admitted(t, f) != nil {
+		t.Error("the admitted provider with a nil result is not nil")
 	}
 	none := newFixture(t, options{})
-	if none.svc.OIDCProvider() != nil {
-		t.Error("OIDCProvider() with a nil Config.OIDC is not nil")
+	if admitted(t, none) != nil {
+		t.Error("the admitted provider with a nil Config.OIDC is not nil")
 	}
 }

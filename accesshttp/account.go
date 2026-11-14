@@ -15,7 +15,6 @@ import (
 // a test stands a fake in its place to drive every sentinel on every route.
 type accountAPI interface {
 	Authenticator() *access.Authenticator
-	OIDCProvider() *oidc.Provider
 	AdminScope() string
 	ManageUsersScope() string
 	CreateKeysScope() string
@@ -31,6 +30,7 @@ type accountAPI interface {
 	PasskeyLoginBegin(ctx context.Context, c account.Client, origin webauthn.Origin, mode account.LoginMode) (account.PendingCeremony, error)
 	PasskeyLoginFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.SignedIn, error)
 	AdmitOIDC(c account.Client) (*oidc.Provider, error)
+	AdmitOIDCSession(c account.Client, p access.Principal) (*oidc.Provider, error)
 	OIDCComplete(ctx context.Context, c account.Client, flow oidc.Flow, claims oidc.Claims) (account.OIDCOutcome, error)
 	LinkPendingOIDC(ctx context.Context, p access.Principal, pending account.PendingLink) (account.Issued, account.Me, error)
 	UnlinkOIDC(ctx context.Context, p access.Principal) error

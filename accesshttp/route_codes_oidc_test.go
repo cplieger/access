@@ -153,9 +153,29 @@ func addStartScenarios(out map[scenarioKey]scenario) {
 		out[scenarioKey{route, access.CodeOIDCUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 			return start(t, e, jsonBody(t, RedirectRequest{}))
 		}}
+		out[scenarioKey{route, access.CodeUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+			e.useIdP(t, accesstest.IdPOptions{}, nil)
+			r := start(t, e, jsonBody(t, RedirectRequest{}))
+			e.shutdown(t)
+			return r
+		}}
 	}
-	out[scenarioKey{"authOIDCPending", access.CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
-		return get(e.route(t, "authOIDCPending"), "")
+	const pending = "authOIDCPending"
+	pendingGet := func(t *testing.T, e *env) *http.Request { return get(e.route(t, pending), "") }
+	out[scenarioKey{pending, access.CodeRateLimited}] = scenario{opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
+		e.useIdP(t, accesstest.IdPOptions{}, nil)
+		e.spendRequest(t)
+		return pendingGet(t, e)
+	}}
+	out[scenarioKey{pending, access.CodeUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		e.useIdP(t, accesstest.IdPOptions{}, nil)
+		e.shutdown(t)
+		return pendingGet(t, e)
+	}}
+	out[scenarioKey{pending, access.CodeOIDCUnavailable}] = scenario{arrange: pendingGet}
+	out[scenarioKey{pending, access.CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		e.useIdP(t, accesstest.IdPOptions{}, nil)
+		return pendingGet(t, e)
 	}}
 }
 

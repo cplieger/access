@@ -61,6 +61,8 @@ A session is bound to its transport ([Sessions](primitives.md#sessions)). One pr
 
 Under `PostureSecure`, `Authenticate` refuses every plain request with the new `ErrHTTPSRequired`, before the bypass and every verifier, and revokes nothing ([Session cookie](configuration.md#session-cookie)). `ErrorFor` answers it with the new code 403 `auth_https_required`, which every authenticating route of the gate and of `accesshttp` lists. A service behind a TLS proxy lists that proxy in its resolver before it upgrades, or every request reads plain and is refused. The gate's new `Route.HTTPS` refuses a plain request on its row with the same code ([Guarding your own routes](gate.md#the-classes)), and `gate.New` refuses it on a `Public` row.
 
+Under `PosturePerRequest`, a plain request may sign in and set up by password and use a password session, and `account` refuses the rest with `ErrHTTPSRequired`: passkeys, OIDC, step-up, recovery, invite acceptance, password removal, key creation and rotation, recovery issuing and invites ([Plain HTTP](plain-http.md)). Under `PostureSecure`, every operation that takes a `Client` refuses a plain one, except `State` and `Logout`. A `Client` or `Principal` built without `Secure` reads plain. `Service.OIDCProvider` is removed: the link and step-up starts call the new `Service.AdmitOIDCSession`, and the pending-link read (`authOIDCPending`) is admitted by `AdmitOIDC` like the sign-in start, so it now also answers `auth_https_required`, `auth_oidc_unavailable`, `auth_rate_limited` and `auth_unavailable`, and each read counts against the per-IP request limit.
+
 ## Records
 
 | auth v6 | access |

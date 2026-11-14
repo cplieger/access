@@ -66,7 +66,11 @@ export function readOIDCReturn(search: string): OIDCReturn {
   }
 }
 
-/** The IdP identity a not-linked OIDC sign-in left in its pending-link cookie. */
+/**
+ * The IdP identity a not-linked OIDC sign-in left in its pending-link cookie. The read is
+ * admitted like the sign-in start: `auth_https_required` over plain HTTP,
+ * `auth_oidc_unavailable` with OIDC off, and `auth_rate_limited` past the per-IP request limit.
+ */
 export function pendingLink(c: AuthClient): Promise<ApiResult<PendingLinkResponse>> {
   return c.oidcPending();
 }
