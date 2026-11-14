@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/oidc/internal/jws"
 	"golang.org/x/oauth2"
 )
 
@@ -215,12 +215,12 @@ func (p *Provider) complete(ctx context.Context, st *flowState, cb Callback) (Cl
 	if !ok || rawIDToken == "" {
 		return Claims{}, fmt.Errorf("%w: no id_token in the token response", ErrTokenInvalid)
 	}
-	idt, err := p.verifier.Verify(ctx, rawIDToken)
+	idt, err := jws.Parse(rawIDToken, p.algs)
 	if err != nil {
 		return Claims{}, fmt.Errorf("%w: %w", ErrTokenInvalid, err)
 	}
-	var payload json.RawMessage
-	if err := idt.Claims(&payload); err != nil {
+	payload, err := p.keys.Verify(ctx, idt)
+	if err != nil {
 		return Claims{}, fmt.Errorf("%w: %w", ErrTokenInvalid, err)
 	}
 	return checkIDToken(payload, &claimRules{now: p.cfg.Now(), issuer: p.cfg.IssuerURL, clientID: p.cfg.ClientID, nonce: st.nonce, flow: st.flow})

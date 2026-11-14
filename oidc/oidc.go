@@ -1,5 +1,5 @@
-// Package oidc signs a user in with an OpenID Connect provider, on
-// coreos/go-oidc. [Provider.Begin] seals the flow's state, nonce, PKCE
+// Package oidc signs a user in with an OpenID Connect provider.
+// [Provider.Begin] seals the flow's state, nonce, PKCE
 // verifier and intent into a browser-bound cookie and returns the
 // authorization URL; [Provider.Finish] opens that cookie on the callback,
 // exchanges the code and verifies the ID token. Nothing is stored server-side.

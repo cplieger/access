@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/oidc/internal/discovery"
+	"github.com/cplieger/access/oidc/internal/jwk"
 	"golang.org/x/oauth2"
 )
 
@@ -33,9 +33,12 @@ type Config struct {
 	// under a rebuilt one; an app that rebuilds providers passes one sealer
 	// that outlives them.
 	FlowSealer *access.Sealer
-	// Now is the clock for the flow cookie and the ID token's expiry; nil
-	// means time.Now.
-	Now          func() time.Time
+	// Now is the clock for the flow cookie, the ID token's time claims, and
+	// the key set's age and refetch gate; nil means time.Now.
+	Now func() time.Time
+	// Logger receives the key set's WARNs; nil means slog.Default() at
+	// each call.
+	Logger       *slog.Logger
 	ClientSecret access.Secret
 	IssuerURL    string
 	ClientID     string
@@ -50,7 +53,11 @@ const (
 	schemeHTTPS = "https"
 )
 
-var defaultScopes = []string{gooidc.ScopeOpenID, "profile", "email"}
+// scopeOpenID is the scope every OpenID Connect request carries (OpenID
+// Connect Core 1.0 §3.1.2.1).
+const scopeOpenID = "openid"
+
+var defaultScopes = []string{scopeOpenID, "profile", "email"}
 
 // Validate requires an https issuer and redirect URL, except http on a
 // loopback host, each absolute with a host and no userinfo or fragment,
@@ -67,8 +74,8 @@ func (c Config) Validate() error { //nolint:gocritic // hugeParam: a value recei
 	if err := checkSettingURL("RedirectURL", c.RedirectURL, false); err != nil {
 		return err
 	}
-	if c.Scopes != nil && !slices.Contains(c.Scopes, gooidc.ScopeOpenID) {
-		return fmt.Errorf("%w: Scopes must include %q", ErrConfigInvalid, gooidc.ScopeOpenID)
+	if c.Scopes != nil && !slices.Contains(c.Scopes, scopeOpenID) {
+		return fmt.Errorf("%w: Scopes must include %q", ErrConfigInvalid, scopeOpenID)
 	}
 	if c.HTTPClient != nil && c.HTTPClient.Timeout < 0 {
 		return fmt.Errorf("%w: HTTPClient.Timeout must not be negative", ErrConfigInvalid)
@@ -97,18 +104,19 @@ func checkSettingURL(field, raw string, issuer bool) error {
 // Provider is an OpenID Connect provider discovered by NewProvider. It is
 // immutable; an app swaps its pointer when settings change.
 type Provider struct {
-	verifier *gooidc.IDTokenVerifier
+	keys     *discovery.KeySet
 	endpoint oauth2.Endpoint
+	algs     []jwk.Alg
 	cfg      Config
 }
 
 // NewProvider validates cfg, refuses with ErrConfigInvalid one whose
-// largest flow would not seal or fit its cookie, and fetches discovery
-// through cfg's client, following no redirect. It refuses with ErrDiscovery
-// a failed fetch or non-200 answer, an issuer other than cfg.IssuerURL, no
-// accepted signing algorithm, or, naming the field, an endpoint that is not
-// an absolute https URL with a host and no userinfo (http only on a
-// loopback host under a loopback http issuer).
+// largest flow would not seal or fit its cookie, and fetches discovery and
+// the JWK Set through cfg's client, following no redirect. It refuses with
+// ErrDiscovery, never naming a URL, a failed fetch or non-200 answer,
+// another issuer, no accepted algorithm, no usable key, or, naming the
+// field, an endpoint outside the https rule (http only under a loopback
+// http issuer).
 func NewProvider(ctx context.Context, cfg Config) (*Provider, error) { //nolint:gocritic // hugeParam: by value, so the caller's config stays its own while NewProvider fills defaults
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -131,13 +139,13 @@ func NewProvider(ctx context.Context, cfg Config) (*Provider, error) { //nolint:
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrDiscovery, err)
 	}
-	algs := make([]string, len(doc.Algs))
-	for i, a := range doc.Algs {
-		algs[i] = a.String()
+	keys, err := discovery.NewKeySet(ctx, cfg.HTTPClient, doc, cfg.Now, cfg.Logger)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrDiscovery, err)
 	}
-	keys := gooidc.NewRemoteKeySet(gooidc.ClientContext(ctx, cfg.HTTPClient), doc.JWKSURI)
 	return &Provider{
-		verifier: gooidc.NewVerifier(cfg.IssuerURL, keys, &gooidc.Config{ClientID: cfg.ClientID, Now: cfg.Now, SupportedSigningAlgs: algs}),
+		keys:     keys,
+		algs:     doc.Algs,
 		endpoint: oauth2.Endpoint{AuthURL: doc.AuthorizationEndpoint, TokenURL: doc.TokenEndpoint},
 		cfg:      cfg,
 	}, nil
