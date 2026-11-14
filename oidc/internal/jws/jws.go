@@ -5,13 +5,12 @@ package jws
 
 import (
 	"encoding/base64"
-	"encoding/json/jsontext"
-	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
+	"github.com/cplieger/access/oidc/internal/jsonmember"
 	"github.com/cplieger/access/oidc/internal/jwk"
 )
 
@@ -101,17 +100,14 @@ func decode(part string) ([]byte, error) {
 	return base64.RawURLEncoding.Strict().DecodeString(part)
 }
 
-// readHeader applies RFC 7515 §4.1 to the header. json/v2 at its defaults
-// refuses duplicate names and invalid UTF-8 at every depth and bounds the
-// nesting (RFC 8259 §4, §8.1); members are read by their JSON kind, since
-// json/v2 decodes null into a string as "" with no error. jku, jwk, x5u and
-// x5c are never read: a key never comes from the token (RFC 8725 §3.10).
+// readHeader applies RFC 7515 §4.1 to the header. jku, jwk, x5u and x5c
+// are never read: a key never comes from the token (RFC 8725 §3.10).
 func (t *Token) readHeader(header []byte) error {
-	var m map[string]jsontext.Value
-	if err := json.Unmarshal(header, &m); err != nil {
+	m, err := jsonmember.Object(header)
+	if err != nil {
 		return err
 	}
-	name, ok := stringMember(m, "alg")
+	name, ok := jsonmember.String(m, "alg")
 	if !ok {
 		return errors.New("alg is not a string")
 	}
@@ -119,7 +115,7 @@ func (t *Token) readHeader(header []byte) error {
 		return errors.New("alg is not accepted")
 	}
 	if _, found := m["kid"]; found {
-		if t.kid, t.hasKID = stringMember(m, "kid"); !t.hasKID {
+		if t.kid, t.hasKID = jsonmember.String(m, "kid"); !t.hasKID {
 			return errors.New("kid is not a string")
 		}
 	}
@@ -131,22 +127,10 @@ func (t *Token) readHeader(header []byte) error {
 	if _, found := m["typ"]; found {
 		// RFC 7515 §4.1.9 and RFC 7519 §5.1: a media type, compared
 		// case-insensitively, whose "application/" prefix may be omitted.
-		typ, _ := stringMember(m, "typ")
+		typ, _ := jsonmember.String(m, "typ")
 		if !strings.EqualFold(typ, "JWT") && !strings.EqualFold(typ, "application/jwt") {
 			return errors.New("typ is not JWT")
 		}
 	}
 	return nil
-}
-
-func stringMember(m map[string]jsontext.Value, name string) (string, bool) {
-	v, found := m[name]
-	if !found || v.Kind() != '"' {
-		return "", false
-	}
-	var s string
-	if err := json.Unmarshal(v, &s); err != nil {
-		return "", false
-	}
-	return s, true
 }

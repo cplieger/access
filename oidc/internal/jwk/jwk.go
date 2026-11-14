@@ -11,13 +11,14 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json/jsontext"
-	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"iter"
 	"math/big"
 	"slices"
 	"strings"
+
+	"github.com/cplieger/access/oidc/internal/jsonmember"
 )
 
 // MaxKeys is the most keys a JWK Set may hold before Parse refuses it.
@@ -97,29 +98,21 @@ type Set struct {
 // it skips any other key it cannot use (RFC 7517 §5), so the Set may be
 // empty.
 func Parse(data []byte) (Set, error) {
-	// json/v2 at its defaults refuses duplicate names and invalid UTF-8 at
-	// every depth (RFC 8259 §4, §8.1).
-	var doc map[string]jsontext.Value
-	if err := json.Unmarshal(data, &doc); err != nil {
+	doc, err := jsonmember.Object(data)
+	if err != nil {
 		return Set{}, fmt.Errorf("%w: %w", ErrSet, err)
 	}
-	var entries []jsontext.Value
-	if doc["keys"].Kind() != '[' {
+	entries, ok := jsonmember.Array(doc["keys"])
+	if !ok {
 		return Set{}, fmt.Errorf("%w: keys is not an array", ErrSet)
-	}
-	if err := json.Unmarshal(doc["keys"], &entries); err != nil {
-		return Set{}, fmt.Errorf("%w: %w", ErrSet, err)
 	}
 	if len(entries) > MaxKeys {
 		return Set{}, fmt.Errorf("%w: %d keys, over %d", ErrSet, len(entries), MaxKeys)
 	}
 	var s Set
 	for i, e := range entries {
-		var m map[string]jsontext.Value
-		if e.Kind() != '{' {
-			return Set{}, fmt.Errorf("%w: keys[%d] is not an object", ErrSet, i)
-		}
-		if err := json.Unmarshal(e, &m); err != nil {
+		m, err := jsonmember.Object(e)
+		if err != nil {
 			return Set{}, fmt.Errorf("%w: keys[%d]: %w", ErrSet, i, err)
 		}
 		k, ok, err := classify(m)
@@ -143,7 +136,7 @@ func (s Set) All() iter.Seq[Key] { return slices.Values(s.keys) }
 // key. The private-member check comes first, so it refuses the set
 // whatever the key's crv, use or key_ops.
 func classify(m map[string]jsontext.Value) (k Key, ok bool, err error) {
-	kty, _ := stringMember(m, "kty")
+	kty, _ := jsonmember.String(m, "kty")
 	if kty == "RSA" || kty == "EC" || kty == "OKP" {
 		for _, name := range privateMembers {
 			if _, found := m[name]; found {
@@ -170,12 +163,12 @@ func classify(m map[string]jsontext.Value) (k Key, ok bool, err error) {
 // present and malformed, or alg names a row of another key type.
 func identity(m map[string]jsontext.Value, f family) (kid string, hasKID bool, alg Alg, ok bool) {
 	if _, found := m["kid"]; found {
-		if kid, hasKID = stringMember(m, "kid"); !hasKID {
+		if kid, hasKID = jsonmember.String(m, "kid"); !hasKID {
 			return "", false, 0, false
 		}
 	}
 	if _, found := m["alg"]; found {
-		name, _ := stringMember(m, "alg")
+		name, _ := jsonmember.String(m, "alg")
 		if alg, ok = ParseAlg(name); !ok || alg.row().family != f {
 			return "", false, 0, false
 		}
@@ -187,12 +180,12 @@ func identity(m map[string]jsontext.Value, f family) (kid string, hasKID bool, a
 // verification (RFC 7517 §4.2, §4.3).
 func restrictsNothing(m map[string]jsontext.Value) bool {
 	if _, found := m["use"]; found {
-		if use, _ := stringMember(m, "use"); use != "sig" {
+		if use, _ := jsonmember.String(m, "use"); use != "sig" {
 			return false
 		}
 	}
 	if v, found := m["key_ops"]; found {
-		ops, ok := stringArray(v)
+		ops, ok := jsonmember.Strings(v)
 		return ok && slices.Contains(ops, "verify")
 	}
 	return true
@@ -245,7 +238,7 @@ func generatedBy65537(r, p uint64) bool {
 }
 
 func ecKey(m map[string]jsontext.Value) (crypto.PublicKey, family, bool) {
-	crv, _ := stringMember(m, "crv")
+	crv, _ := jsonmember.String(m, "crv")
 	var f family
 	var curve elliptic.Curve
 	switch crv {
@@ -273,7 +266,7 @@ func ecKey(m map[string]jsontext.Value) (crypto.PublicKey, family, bool) {
 }
 
 func okpKey(m map[string]jsontext.Value) (crypto.PublicKey, family, bool) {
-	if crv, _ := stringMember(m, "crv"); crv != "Ed25519" {
+	if crv, _ := jsonmember.String(m, "crv"); crv != "Ed25519" {
 		return nil, familyNone, false
 	}
 	x, ok := uintMember(m, "x")
@@ -306,41 +299,11 @@ func smallOrder(x []byte) bool {
 	return slices.ContainsFunc(smallOrderY, func(s *big.Int) bool { return s.Cmp(y) == 0 })
 }
 
-func stringMember(m map[string]jsontext.Value, name string) (string, bool) {
-	v, found := m[name]
-	if !found || v.Kind() != '"' {
-		return "", false
-	}
-	var s string
-	if err := json.Unmarshal(v, &s); err != nil {
-		return "", false
-	}
-	return s, true
-}
-
-// stringArray reads v as an array whose every entry is a string; json/v2
-// would decode a null entry into "" with no error.
-func stringArray(v jsontext.Value) ([]string, bool) {
-	var entries []jsontext.Value
-	if v.Kind() != '[' || json.Unmarshal(v, &entries) != nil {
-		return nil, false
-	}
-	out := make([]string, 0, len(entries))
-	for _, e := range entries {
-		var s string
-		if e.Kind() != '"' || json.Unmarshal(e, &s) != nil {
-			return nil, false
-		}
-		out = append(out, s)
-	}
-	return out, true
-}
-
 // uintMember decodes a Base64urlUInt or a key's x (RFC 7518 §2): unpadded
 // base64url with zero trailing bits (RFC 4648 §3.5). The alphabet scan
 // comes first because base64's decoder skips CR and LF even when Strict.
 func uintMember(m map[string]jsontext.Value, name string) ([]byte, bool) {
-	s, ok := stringMember(m, name)
+	s, ok := jsonmember.String(m, name)
 	if !ok || strings.ContainsFunc(s, notBase64URL) {
 		return nil, false
 	}

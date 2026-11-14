@@ -830,7 +830,10 @@ func outboundBodyCap(t *testing.T, mk func() (*http.Client, *recordingTransport)
 }
 
 // outboundRedirect serves discovery from a server whose well-known URL
-// redirects to the document, which names that server as the issuer.
+// redirects to the document, which names that server as the issuer. The
+// discovery fetch follows no redirect and never asks the caller's
+// CheckRedirect, whatever it would allow (OpenID Connect Discovery 1.0
+// §4.2; PyJWT CVE-2026-102267).
 func outboundRedirect(t *testing.T) {
 	idp := accesstest.NewIdP(t, accesstest.IdPOptions{})
 	var moved atomic.Int32
@@ -849,27 +852,28 @@ func outboundRedirect(t *testing.T) {
 	t.Cleanup(front.Close)
 	cfg := configFor(idp)
 	cfg.IssuerURL = front.URL
-	if _, err := oidc.NewProvider(t.Context(), cfg); err != nil {
-		t.Errorf("default client: NewProvider through a redirect = %v, want nil", err)
-	}
 	var asked atomic.Int32
-	cfg.HTTPClient = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-		asked.Add(1)
-		return errors.New("redirects refused")
-	}}
-	before := moved.Load()
-	if _, err := oidc.NewProvider(t.Context(), cfg); !errors.Is(err, oidc.ErrDiscovery) {
-		t.Errorf("a refusing CheckRedirect: NewProvider = %v, want ErrDiscovery", err)
+	for name, check := range map[string]func(*http.Request, []*http.Request) error{
+		"default client": nil,
+		"a refusing CheckRedirect": func(*http.Request, []*http.Request) error {
+			asked.Add(1)
+			return errors.New("redirects refused")
+		},
+		"an allowing CheckRedirect": func(*http.Request, []*http.Request) error {
+			asked.Add(1)
+			return nil
+		},
+	} {
+		cfg.HTTPClient = nil
+		if check != nil {
+			cfg.HTTPClient = &http.Client{CheckRedirect: check}
+		}
+		if _, err := oidc.NewProvider(t.Context(), cfg); !errors.Is(err, oidc.ErrDiscovery) {
+			t.Errorf("%s: NewProvider through a redirect = %v, want ErrDiscovery", name, err)
+		}
 	}
-	if asked.Load() != 1 || moved.Load() != before {
-		t.Errorf("CheckRedirect asked %d times and the target served %d times, want 1 and 0", asked.Load(), moved.Load()-before)
-	}
-	cfg.HTTPClient = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-		asked.Add(1)
-		return nil
-	}}
-	if _, err := oidc.NewProvider(t.Context(), cfg); err != nil || asked.Load() != 2 {
-		t.Errorf("an allowing CheckRedirect: NewProvider = %v after %d asks, want nil after 2", err, asked.Load())
+	if asked.Load() != 0 || moved.Load() != 0 {
+		t.Errorf("CheckRedirect asked %d times and the target served %d times, want 0 and 0", asked.Load(), moved.Load())
 	}
 }
 

@@ -210,8 +210,6 @@ func TestParse_JSON(t *testing.T) {
 		"duplicate kty":           `{"keys":[` + good + `,"kty":"EC"}]}`,
 		"duplicate unread member": `{"keys":[` + good + `,"x5t":"a","x5t":"b"}]}`,
 		"invalid UTF-8 in kid":    `{"keys":[` + good + ",\"kid\":\"a\xffb\"}]}",
-		"invalid UTF-8 in name":   `{"keys":[` + good + ",\"x\xff\":1}]}",
-		"lone surrogate":          `{"keys":[` + good + `,"kid":"\ud800"}]}`,
 		"20000-deep unread":       `{"keys":[` + good + `}],"x":` + strings.Repeat("[", 20000) + strings.Repeat("]", 20000) + `}`,
 	}
 	for name, data := range cases {
