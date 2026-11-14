@@ -203,6 +203,8 @@ func TestRulesValidate(t *testing.T) {
 		{RecentAuth: time.Minute, MaxSessionsPerUser: 50, Breach: account.BreachFailClosed},
 		{Provisioning: oidc.Provisioning{Enabled: true, Claim: "groups", AllowedValues: []string{"staff"}}},
 		{Scopes: []string{"read", "manage_users", "files:write"}},
+		{KeyRotationOverlap: time.Minute},
+		{KeyRotationOverlap: 24 * time.Hour},
 	}
 	for i, r := range valid {
 		if err := r.Validate(); err != nil {
@@ -218,6 +220,9 @@ func TestRulesValidate(t *testing.T) {
 		"breach_unknown":        {field: "Breach", r: account.Rules{Breach: account.BreachFailClosed + 1}},
 		"breach_negative":       {field: "Breach", r: account.Rules{Breach: -1}},
 		"max_sessions_negative": {field: "MaxSessionsPerUser", r: account.Rules{MaxSessionsPerUser: -1}},
+		"overlap_below_1m":      {field: "KeyRotationOverlap", r: account.Rules{KeyRotationOverlap: time.Minute - time.Nanosecond}},
+		"overlap_negative":      {field: "KeyRotationOverlap", r: account.Rules{KeyRotationOverlap: -time.Hour}},
+		"overlap_above_24h":     {field: "KeyRotationOverlap", r: account.Rules{KeyRotationOverlap: 24*time.Hour + time.Nanosecond}},
 		"provisioning":          {field: "Provisioning", r: account.Rules{Provisioning: oidc.Provisioning{Enabled: true, Claim: "groups"}}},
 		"key_prefix_invalid":    {field: "KeyPrefix", r: account.Rules{KeyPrefix: "ak-"}},
 		"scope_space":           {field: "Scopes", r: account.Rules{Scopes: []string{"read", "read write"}}},

@@ -94,6 +94,10 @@ func TestRolePolicyTable(t *testing.T) {
 		{op: account.OpCreateKeyFor, target: new(userU), allowed: map[string]bool{"out_of_band": true}},
 		{op: account.OpCreateKeyFor, target: new(userV)},
 		{op: account.OpCreateOwnKey, allowed: map[string]bool{"admin": true, "user": true}},
+		{op: account.OpRotateKey, target: new(userU), allowed: map[string]bool{"user": true, "out_of_band": true}},
+		{op: account.OpRotateKey, target: new(adminA), allowed: adminOrOOB},
+		{op: account.OpRotateKey, target: new(userV)},
+		{op: account.OpRotateKey},
 		{op: "unknown"},
 	}
 	t.Run("operations", func(t *testing.T) {
@@ -104,7 +108,17 @@ func TestRolePolicyTable(t *testing.T) {
 		t.Parallel()
 		runPolicyTable(t, account.RolePolicy{KeysAdminOnly: true}, []policyRow{
 			{op: account.OpCreateOwnKey, allowed: adminOnly},
+			{op: account.OpRotateKey, target: new(userU), allowed: map[string]bool{"out_of_band": true}},
+			{op: account.OpRotateKey, target: new(adminA), allowed: adminOrOOB},
 		})
+	})
+	t.Run("rotate_key_disabled_owner", func(t *testing.T) {
+		t.Parallel()
+		v := userV
+		d := account.Decision{Op: account.OpRotateKey, Actor: account.As(access.Principal{User: &v, Method: access.MethodPassword}), Target: new(userV)}
+		if err := (account.RolePolicy{}).Authorize(t.Context(), d); !isPolicyRefusal(err, account.OpRotateKey) {
+			t.Errorf("a disabled user's rotate_key of its own key = %v, want refused", err)
+		}
 	})
 	t.Run("disabled_admin_actor", func(t *testing.T) {
 		t.Parallel()
@@ -208,6 +222,7 @@ func TestSingleOwnerPolicyTable(t *testing.T) {
 		{op: account.OpCreateKeyFor, target: new(userU)},
 		{op: account.OpListUsers, allowed: ownerOnly},
 		{op: account.OpManageAllKeys, allowed: map[string]bool{"admin": true, "out_of_band": true}},
+		{op: account.OpRotateKey, target: new(adminA), allowed: map[string]bool{"admin": true, "out_of_band": true}},
 		{op: "unknown"},
 	}
 	runPolicyTable(t, account.SingleOwnerPolicy{}, rows)

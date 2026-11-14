@@ -81,6 +81,7 @@ var (
 const (
 	ReasonOutOfBandOnly      = "out_of_band_only"
 	ReasonKeyNotCurrent      = "key_not_current"
+	ReasonKeyExpired         = "key_expired"
 	ReasonAdminTarget        = "admin_target"
 	ReasonScopesNotSubset    = "scopes_not_subset"
 	ReasonExpiryAfterParent  = "expiry_after_parent"
@@ -108,6 +109,7 @@ func PolicyReasons() []string {
 	return []string{
 		ReasonOutOfBandOnly,
 		ReasonKeyNotCurrent,
+		ReasonKeyExpired,
 		ReasonAdminTarget,
 		ReasonScopesNotSubset,
 		ReasonExpiryAfterParent,

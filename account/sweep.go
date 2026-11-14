@@ -48,12 +48,35 @@ func (s *Service) sweep(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
+	keys := s.sweepRetiredKeySecrets(ctx, now)
+	if ctx.Err() != nil {
+		return
+	}
 	s.sweepFailuresLogged(ctx)
 	if ctx.Err() != nil {
 		return
 	}
 	s.sweepLog(ctx, now)
-	s.logger().Info("account: sweep finished", "sessions", sessions, "tokens", tokens)
+	s.logger().Info("account: sweep finished", "sessions", sessions, "tokens", tokens, "keys", keys)
+}
+
+// sweepRetiredKeySecrets clears the previous secrets that no longer verify
+// at now in calls of at most MaxSweepBatch, again while a call clears a
+// full batch and ctx is live; a failed call ends the leg for this tick. It
+// returns how many keys it cleared.
+func (s *Service) sweepRetiredKeySecrets(ctx context.Context, now time.Time) int {
+	cleared := 0
+	for {
+		n, err := s.store.ClearRetiredAPIKeySecrets(ctx, now, MaxSweepBatch)
+		if err != nil {
+			s.logger().Warn("account: retired key-secret sweep failed; retrying next tick", "err", err)
+			return cleared
+		}
+		cleared += n
+		if n < MaxSweepBatch || ctx.Err() != nil {
+			return cleared
+		}
+	}
 }
 
 // sweepSessions deletes the sessions expired at now in calls of at most

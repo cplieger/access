@@ -30,6 +30,7 @@ const (
 	EventRecoveryCompleted   EventKind = "recovery_completed"
 	EventKeyMinted           EventKind = "key_minted"
 	EventKeyRevoked          EventKind = "key_revoked"
+	EventKeyRotated          EventKind = "key_rotated"
 	EventSteppedUp           EventKind = "stepped_up"
 	EventUserDisabled        EventKind = "user_disabled"
 	EventUserEnabled         EventKind = "user_enabled"
@@ -65,6 +66,7 @@ var eventKinds = [...]struct {
 	{EventRecoveryCompleted, LogClassChange},
 	{EventKeyMinted, LogClassChange},
 	{EventKeyRevoked, LogClassChange},
+	{EventKeyRotated, LogClassChange},
 	{EventSteppedUp, LogClassSession},
 	{EventUserDisabled, LogClassChange},
 	{EventUserEnabled, LogClassChange},

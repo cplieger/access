@@ -560,6 +560,18 @@ func recentOperations() []operation {
 				want: events(account.Event{Kind: account.EventOIDCLinked, UserID: u.ID, Actor: actorOf(p)}),
 			}
 		}},
+		{name: "RotateAPIKey", class: classRecentAuth, asks: []account.Operation{account.OpRotateKey}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			u := w.owner(t, p)
+			k := w.storedKey(t, u, "read")
+			return opCall{
+				actor: actorOf(p), target: u.ID,
+				run: func(ctx context.Context) error {
+					_, err := w.svc.RotateAPIKey(ctx, account.As(p), k.ID)
+					return err
+				},
+				want: events(account.Event{Kind: account.EventKeyRotated, UserID: u.ID, KeyID: k.ID, Actor: actorOf(p)}),
+			}
+		}},
 		{name: "UnlinkOIDC", class: classRecentAuth, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			u := w.owner(t, p)
 			linkIdentity(t, w.mem, u, access.OIDCIdentity{Issuer: oidcIssuer, Subject: w.name("linked-")})

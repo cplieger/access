@@ -248,7 +248,7 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 
 `RP` and `OIDC` are read on every operation, so an app that swaps its provider at run time does so by returning the new value. A provider swapped in mid-flow fails that flow closed.
 
-`RolePolicy` has two fields. `KeepLocalAdmin` refuses removing, demoting, disabling or migrating to single sign-on the last enabled admin who holds a password. `KeysAdminOnly` lets only admins mint keys for themselves; by default any enabled user may. `SingleOwnerPolicy` keeps one user, the one setup creates, and refuses every change to the user set.
+`RolePolicy` has two fields. `KeepLocalAdmin` refuses removing, demoting, disabling or migrating to single sign-on the last enabled admin who holds a password. `KeysAdminOnly` lets only admins mint keys for themselves, and rotate their own keys; by default any enabled user may. An out-of-band actor may rotate the key of any enabled user. `SingleOwnerPolicy` keeps one user, the one setup creates, and refuses every change to the user set; the owner and an out-of-band actor may rotate the owner's keys.
 
 ### Rules
 
@@ -264,6 +264,7 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 | `Scopes` | The key-scope vocabulary; `CreateAPIKey` refuses any other scope. `Validate` refuses a scope that is not one scope-token | none |
 | `Provisioning` | Just-in-time account creation on an OIDC sign-in with no linked account | off |
 | `RecentAuth` | How recent a sign-in or step-up must be for a sensitive operation; below 1m is invalid | 10m |
+| `KeyRotationOverlap` | How long `RotateAPIKey` lets a key's superseded secret keep working while the new one is unused; below 1m or above 24h is invalid | 1h |
 | `Breach` | The breached-password check: `BreachOff`, `BreachFailOpen` or `BreachFailClosed` | `BreachOff` |
 | `MaxSessionsPerUser` | The most sessions per user; a new one past it ends the user's least recently active | 0: unlimited |
 | `DisablePasswordLogin` | Refuses password sign-in and step-up | false: allowed |

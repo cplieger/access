@@ -65,6 +65,10 @@ type Rules struct {
 	// operation that requires recent authentication. Zero means 10m; a
 	// value below 1m is invalid.
 	RecentAuth time.Duration
+	// KeyRotationOverlap is how long RotateAPIKey lets a key's superseded
+	// secret verify while its new one is unused. Zero means 1h; a value
+	// below 1m or above 24h is invalid.
+	KeyRotationOverlap time.Duration
 	// Breach is the breached-password check's mode; the zero value is off.
 	Breach BreachMode
 	// MaxSessionsPerUser bounds each user's sessions; creating one past it
@@ -116,9 +120,9 @@ const (
 	MaxKeyLineage = 8
 	// MaxSweepBatch is the most sessions one CleanupExpiredSessions call
 	// deletes, and so the most IDs one call's EventSessionsExpired events
-	// carry together, and the most entries one PruneLog call of New's log
-	// drain or the sweep removes; each calls again until a call removes
-	// fewer.
+	// carry together, the most keys one ClearRetiredAPIKeySecrets call
+	// clears, and the most entries one PruneLog call of New's log drain or
+	// the sweep removes; each calls again until a call removes fewer.
 	MaxSweepBatch = 1000
 	// DefaultLogMaxAge is Config.LogMaxAge's default.
 	DefaultLogMaxAge = 365 * 24 * time.Hour
@@ -129,8 +133,11 @@ const (
 )
 
 const (
-	defaultRecentAuth = 10 * time.Minute
-	minRecentAuth     = time.Minute
+	defaultRecentAuth         = 10 * time.Minute
+	minRecentAuth             = time.Minute
+	defaultKeyRotationOverlap = time.Hour
+	minKeyRotationOverlap     = time.Minute
+	maxKeyRotationOverlap     = 24 * time.Hour
 )
 
 // Validate checks every bounded field, KeyPrefix, Scopes and Provisioning.
@@ -144,6 +151,10 @@ func (r Rules) Validate() error { //nolint:gocritic // hugeParam: Rules is the v
 		return &RulesError{Field: "Breach", Reason: "unknown mode"}
 	case r.MaxSessionsPerUser < 0:
 		return &RulesError{Field: "MaxSessionsPerUser", Reason: "negative"}
+	case r.KeyRotationOverlap != 0 && r.KeyRotationOverlap < minKeyRotationOverlap:
+		return &RulesError{Field: "KeyRotationOverlap", Reason: "below 1m"}
+	case r.KeyRotationOverlap > maxKeyRotationOverlap:
+		return &RulesError{Field: "KeyRotationOverlap", Reason: "above 24h"}
 	}
 	if err := access.ValidateKeyPrefix(r.KeyPrefix); err != nil {
 		return &RulesError{Field: "KeyPrefix", Reason: err.Error(), Err: err}
@@ -163,6 +174,9 @@ func (r Rules) Validate() error { //nolint:gocritic // hugeParam: Rules is the v
 func (r Rules) withDefaults() Rules { //nolint:gocritic // hugeParam: Rules is the value Config.Rules returns
 	if r.RecentAuth == 0 {
 		r.RecentAuth = defaultRecentAuth
+	}
+	if r.KeyRotationOverlap == 0 {
+		r.KeyRotationOverlap = defaultKeyRotationOverlap
 	}
 	return r
 }
