@@ -1,3 +1,6 @@
 access
 Copyright 2026 cplieger
 https://github.com/cplieger/access
+
+This product includes test data from third parties:
+- webauthn/testdata/vectors/: test vectors from W3C Web Authentication Level 3 §16 and §6.5.1.1 (W3C Software and Document License), RFC 9964 Appendix A (IETF Trust, Revised BSD License), and NIST ACVP-Server ML-DSA sigVer cases (public domain).

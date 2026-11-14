@@ -1,0 +1,22 @@
+# gitleaks configuration for cplieger/access.
+#
+# [extend] keeps gitleaks' default rules: a config that defines no rules and
+# no extend detects nothing. The allowlist uses the [[allowlists]] array form.
+
+title = "access gitleaks config"
+
+[extend]
+useDefault = true
+
+# The published test vectors under webauthn/testdata/vectors/ (W3C WebAuthn
+# Level 3 §16, RFC 9964 Appendix A, NIST ACVP) name members such as
+# credential_private_key and private_key, which generic-api-key matches. The
+# values are the specifications' own example keys, published to reproduce
+# their signatures. Only that rule is relaxed, only for those files, so every
+# provider rule still scans them.
+[[allowlists]]
+description = "Published WebAuthn, RFC 9964 and ACVP test vectors: example keys named *_private_key in the specifications, not credentials."
+targetRules = ["generic-api-key"]
+paths = [
+  '''^webauthn/testdata/vectors/[^/]+\.json$''',
+]
