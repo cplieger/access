@@ -35,8 +35,8 @@ func stubbedErr(s stubAccount, op string, next func() error) error {
 	return next()
 }
 
-func (s stubAccount) State(ctx context.Context) (account.State, error) {
-	return stubbed(s, "State", func() (account.State, error) { return s.accountAPI.State(ctx) })
+func (s stubAccount) State(ctx context.Context, c account.Client) (account.State, error) {
+	return stubbed(s, "State", func() (account.State, error) { return s.accountAPI.State(ctx, c) })
 }
 
 func (s stubAccount) SetupWithPassword(ctx context.Context, c account.Client, in account.SetupPassword) (account.SignedIn, error) {

@@ -166,11 +166,11 @@ func TestViewsCarryEveryField(t *testing.T) {
 	at := func(h int) time.Time { return created.Add(time.Duration(h) * time.Hour) }
 	me := account.Me{
 		User: user, Methods: methods, CanLinkOIDC: true, SSOGoverned: true,
-		Current: account.CurrentSession{ID: "sess", Method: access.MethodPasskey, AuthTime: at(1), IdleDeadline: at(2), AbsoluteDeadline: at(3)},
+		Current: account.CurrentSession{ID: "sess", Method: access.MethodPasskey, AuthTime: at(1), IdleDeadline: at(2), AbsoluteDeadline: at(3), Secure: true},
 	}
 	wantMe := MeResponse{
 		User: wantUser, Methods: wantMethods, CanLinkOIDC: true, SSOGoverned: true,
-		Session: CurrentSessionView{ID: "sess", Method: access.MethodPasskey, AuthTime: at(1), IdleDeadline: at(2), AbsoluteDeadline: at(3)},
+		Session: CurrentSessionView{ID: "sess", Method: access.MethodPasskey, AuthTime: at(1), IdleDeadline: at(2), AbsoluteDeadline: at(3), Secure: true},
 	}
 	wantSignedIn := SignedInResponse{User: wantUser, SessionID: "sess", CloneWarning: true}
 	listed := account.ListedUser{User: *user, KeyLineage: []int64{3, 5}, PasskeyCount: 2}
@@ -193,7 +193,17 @@ func TestViewsCarryEveryField(t *testing.T) {
 	timeouts := access.SessionTimeouts{Idle: 4 * time.Hour, Absolute: 10 * time.Hour}
 	wantSession := SessionView{
 		ID: "sess", Label: "laptop", UserAgent: "Firefox", LastIP: "192.0.2.1", Method: access.MethodPasskey,
-		CreatedAt: at(1), LastActivity: at(2), AuthTime: at(3), IdleDeadline: at(6), AbsoluteDeadline: at(11), Current: true,
+		CreatedAt: at(1), LastActivity: at(2), AuthTime: at(3), IdleDeadline: at(6), AbsoluteDeadline: at(11), Current: true, Secure: true,
+	}
+	state := account.State{
+		SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSOrigin: "https://app.example.com",
+		PlainSession:  &access.SessionTimeouts{Idle: 15*time.Minute + 999*time.Millisecond, Absolute: 12 * time.Hour},
+		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC},
+	}
+	wantState := StateResponse{
+		SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSOrigin: "https://app.example.com",
+		PlainSession:  &PlainSessionView{IdleSeconds: 900, AbsoluteSeconds: 43200},
+		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC},
 	}
 	key := access.Key{
 		ID: 5, UserID: 7, Label: "ci", KeyPrefix: "ak_7", KeySuffix: "wxyz", Scopes: []string{"read"},
@@ -240,6 +250,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 		got, want any
 		name      string
 	}{
+		{name: "StateResponse", got: stateResponse(&state), want: wantState},
 		{name: "UserView", got: userView(user), want: wantUser},
 		{name: "MethodsView", got: methodsView(methods), want: wantMethods},
 		{name: "MeResponse", got: meResponse(&me), want: wantMe},
@@ -293,6 +304,19 @@ func TestViewsCarryEveryField(t *testing.T) {
 			if got := passkeyView(&tc.in); got != tc.want {
 				t.Errorf("%s: view %+v, want %+v", tc.name, got, tc.want)
 			}
+		}
+	})
+	t.Run("state_secure_encodes_empty_list", func(t *testing.T) {
+		b, err := json.Marshal(stateResponse(&account.State{Secure: true}))
+		if err != nil || !strings.Contains(string(b), `"https_required":[]`) || strings.Contains(string(b), "plain_session") || strings.Contains(string(b), "https_origin") {
+			t.Errorf("secure state encodes %s (%v), want \"https_required\":[] and neither plain_session nor https_origin", b, err)
+		}
+	})
+	t.Run("session_plain", func(t *testing.T) {
+		plain := session
+		plain.Secure = false
+		if got := sessionView(&plain, timeouts, "sess"); got.Secure {
+			t.Errorf("view %+v of a plain session is secure", got)
 		}
 	})
 	t.Run("session_not_current", func(t *testing.T) {

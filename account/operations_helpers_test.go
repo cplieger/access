@@ -277,7 +277,7 @@ func operations() []operation {
 func publicOperations() []operation {
 	return []operation{
 		{name: "State", class: classPublic, transport: plainAllowed, readOnly: true, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
-			return opCall{run: func(ctx context.Context) error { _, err := w.svc.State(ctx); return err }, want: none}
+			return opCall{run: func(ctx context.Context) error { _, err := w.svc.State(ctx, w.client); return err }, want: none}
 		}},
 		{name: "IssueSetupToken", class: classOutOfBand, transport: plainAllowed, empty: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
 			a := w.actor(p)

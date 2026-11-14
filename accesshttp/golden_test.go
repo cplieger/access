@@ -104,14 +104,17 @@ func fixtures() []fixture {
 		{name: "TTLRequest", request: true, value: TTLRequest{Hours: 24}},
 		{name: "InviteRequest", request: true, value: InviteRequest{Role: access.RoleUser, Hours: 72}},
 
-		{name: "StateResponse", value: StateResponse{SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true}},
+		{name: "StateResponse", value: StateResponse{
+			SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, PlainSession: &PlainSessionView{IdleSeconds: 1800, AbsoluteSeconds: 43200},
+			HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys, account.HTTPSOIDC}, HTTPSOrigin: "https://app.example.com",
+		}},
 		{name: "SignedInResponse", value: SignedInResponse{SessionID: "s1", User: goldenUser(), CloneWarning: true}},
 		{name: "CeremonyResponse", value: CeremonyResponse{Ceremony: "c1", PublicKey: json.RawMessage(`{"publicKey":{"challenge":"Y2hhbGxlbmdl"},"mediation":"conditional"}`)}},
 		{name: "OIDCStartResponse", value: OIDCStartResponse{URL: "https://idp.example.com/authorize?state=x"}},
 		{name: "PendingLinkResponse", value: PendingLinkResponse{Issuer: "https://idp.example.com", UsernameHint: "alice", Email: "alice@example.com"}},
 		{name: "MeResponse", value: MeResponse{
 			User: goldenUser(), Methods: goldenMethods(), CanLinkOIDC: true, SSOGoverned: true,
-			Session: CurrentSessionView{ID: "s1", Method: access.MethodPasskey, AuthTime: goldenTime, IdleDeadline: goldenTime, AbsoluteDeadline: goldenLater},
+			Session: CurrentSessionView{ID: "s1", Method: access.MethodPasskey, AuthTime: goldenTime, IdleDeadline: goldenTime, AbsoluteDeadline: goldenLater, Secure: true},
 		}},
 		{name: "RecoveryResponse", value: RecoveryResponse{Username: "alice", Methods: goldenMethods()}},
 		{name: "PasskeyView", value: PasskeyView{
@@ -120,7 +123,7 @@ func fixtures() []fixture {
 		}},
 		{name: "Signals", value: signals},
 		{name: "SessionView", value: SessionView{
-			ID: "s1", Label: "laptop", UserAgent: "Firefox", LastIP: "192.0.2.1", Method: access.MethodPassword, Current: true,
+			ID: "s1", Label: "laptop", UserAgent: "Firefox", LastIP: "192.0.2.1", Method: access.MethodPassword, Current: true, Secure: true,
 			CreatedAt: goldenTime, LastActivity: goldenTime, AuthTime: goldenTime, IdleDeadline: goldenLater, AbsoluteDeadline: goldenLater,
 		}},
 		{name: "KeyView", value: goldenKey()},

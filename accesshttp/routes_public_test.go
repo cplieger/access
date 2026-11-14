@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +15,13 @@ import (
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/webauthn"
 )
+
+// secureState is want as a secure request reads it: Secure, and nothing
+// HTTPS would add.
+func secureState(want StateResponse) StateResponse {
+	want.Secure, want.HTTPSRequired = true, []account.HTTPSFeature{}
+	return want
+}
 
 func TestRouteAuthState(t *testing.T) {
 	read := func(t *testing.T, e *env) StateResponse {
@@ -27,7 +35,7 @@ func TestRouteAuthState(t *testing.T) {
 	}
 	t.Run("defaults", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
-		if got := read(t, e); got != (StateResponse{SetupRequired: true, PasswordLogin: true}) {
+		if got := read(t, e); !reflect.DeepEqual(got, secureState(StateResponse{SetupRequired: true, PasswordLogin: true})) {
 			t.Errorf("state %+v, want setup required and password sign-in only", got)
 		}
 		e.createUser(t, "alice", access.RoleAdmin)
@@ -37,14 +45,14 @@ func TestRouteAuthState(t *testing.T) {
 	})
 	t.Run("configured", func(t *testing.T) {
 		e := newEnv(t, with(passkeys, envOptions{rules: func(r *account.Rules) { r.DisablePasswordLogin = true }}))
-		if got := read(t, e); got != (StateResponse{SetupRequired: true, Passkeys: true}) {
+		if got := read(t, e); !reflect.DeepEqual(got, secureState(StateResponse{SetupRequired: true, Passkeys: true})) {
 			t.Errorf("state %+v, want passkeys on and password sign-in off", got)
 		}
 	})
 	t.Run("oidc_provider", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		e.useIdP(t, accesstest.IdPOptions{}, nil)
-		if got := read(t, e); got != (StateResponse{SetupRequired: true, PasswordLogin: true, OIDC: true}) {
+		if got := read(t, e); !reflect.DeepEqual(got, secureState(StateResponse{SetupRequired: true, PasswordLogin: true, OIDC: true})) {
 			t.Errorf("state %+v, want OIDC sign-in on", got)
 		}
 	})

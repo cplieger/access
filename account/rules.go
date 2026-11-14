@@ -3,6 +3,7 @@ package account
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/cplieger/access"
@@ -53,6 +54,10 @@ type Rules struct {
 	SessionCaps func(ctx context.Context, c Client) (idle, absolute time.Duration)
 	// KeyPrefix starts every minted key's plaintext; see access.GenerateAPIKey.
 	KeyPrefix string
+	// HTTPSOrigin is the app's HTTPS origin ("https://host[:port]"), which
+	// State answers a plain request so its screen can link there. It is a
+	// link only, and nothing trusts it. Empty means none.
+	HTTPSOrigin string
 	// ForbiddenWords join the username in the password context check.
 	ForbiddenWords []string
 	// Scopes is the key-scope vocabulary; CreateAPIKey refuses any other.
@@ -140,8 +145,8 @@ const (
 	maxKeyRotationOverlap     = 24 * time.Hour
 )
 
-// Validate checks every bounded field, KeyPrefix, Scopes and Provisioning.
-// The error is a *RulesError naming the field, which matches
+// Validate checks every bounded field, KeyPrefix, Scopes, Provisioning and
+// HTTPSOrigin. The error is a *RulesError naming the field, which matches
 // ErrRulesInvalid.
 func (r Rules) Validate() error { //nolint:gocritic // hugeParam: Rules is the value Config.Rules returns
 	switch {
@@ -167,7 +172,18 @@ func (r Rules) Validate() error { //nolint:gocritic // hugeParam: Rules is the v
 	if err := r.Provisioning.Validate(); err != nil {
 		return &RulesError{Field: "Provisioning", Reason: err.Error(), Err: err}
 	}
+	if r.HTTPSOrigin != "" && !isHTTPSOrigin(r.HTTPSOrigin) {
+		return &RulesError{Field: "HTTPSOrigin", Reason: fmt.Sprintf("%q is not an https origin with no path, query or fragment", r.HTTPSOrigin)}
+	}
 	return nil
+}
+
+// isHTTPSOrigin reports whether s is an https origin's serialisation, which
+// has no user info, path, query or fragment (RFC 6454 section 6.1): comparing
+// it to its rebuilt form refuses a bare trailing "/", "?" or "#" too.
+func isHTTPSOrigin(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil && s == "https://"+u.Host
 }
 
 // withDefaults returns r with each zero field that has a default set to it.

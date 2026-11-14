@@ -199,7 +199,7 @@ func TestSetupOrderNoHashBeforeChecks(t *testing.T) {
 			evs[1].Kind != account.EventSignedIn || evs[1].UserID != got.User.ID || evs[1].Method != access.MethodPassword {
 			t.Errorf("events = %+v, want EventUserCreated of the admin, then EventSignedIn", evs)
 		}
-		st, err := f.svc.State(t.Context())
+		st, err := f.svc.State(t.Context(), localClient)
 		if err != nil || st.SetupRequired || !st.PasswordLogin || st.Passkeys || st.OIDC {
 			t.Errorf("State after setup = %+v, %v, want setup done and only password sign-in", st, err)
 		}

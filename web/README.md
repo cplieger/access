@@ -37,16 +37,19 @@ if (passkey.kind === "signed-in") {
 
 Every call returns an `ApiResult`: `ok` with the decoded `data`, or the refusal. `authCode` and `authReason` read the refusal's code and reason as the `AuthCode` and `AuthReason` unions, which mirror the server's `access.Codes()` and `accesshttp.Reasons()`.
 
-`withStepUp` runs an action that needs a recent sign-in. On an `auth_recent_auth_required` refusal with no reason, it asks your `prompt` which method to use, re-authenticates with it and retries the action once. A refusal that carries a reason, such as `reenable_needs_other_method`, is returned as it is, because a step-up cannot cure it:
+`withStepUp` runs an action that needs a recent sign-in. On an `auth_recent_auth_required` refusal with no reason, it asks your `prompt` which method to use, re-authenticates with it and retries the action once. A session signed in over plain HTTP cannot step up, so its refusal carries the reason `sign_in_again`: `withStepUp` then never prompts, and calls your `signInAgain`, retrying the action once when it resolves true and answering `cancelled` when it resolves false. Without `signInAgain`, that refusal is returned as `done`. A refusal with any other reason, such as `reenable_needs_other_method`, is returned as it is, because a step-up cannot cure it:
 
 ```ts
 const out = await withStepUp(auth, () => auth.setPassword(change), {
   prompt: async (methods) => askUser(methods), // "password", "passkey", "oidc" or "cancel"
   password: async () => askForCurrentPassword(), // null when the user cancels
+  signInAgain: async () => showPasswordSignIn(), // true once the user signed in again
 });
 ```
 
 The OIDC branch navigates to the identity provider and never returns to the action, so the app continues from its own redirect path.
+
+`state()` answers what the sign-in screen can offer over the request's transport: `secure`, the methods it admits, `https_required` (what HTTPS would add), `plain_session` (a plain session's limits, on a plain request the server serves) and `https_origin` (where to link for HTTPS). `me()` and `sessions()` mark each session's transport with `secure`. [Plain HTTP](https://github.com/cplieger/access/blob/main/docs/plain-http.md#what-the-screens-learn) gives the screens' states.
 
 ## What it exports
 

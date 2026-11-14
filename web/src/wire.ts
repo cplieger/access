@@ -268,17 +268,43 @@ export const parseInviteRequest: Validator<InviteRequest> = object({
 
 // Responses.
 
+/** @internal Go's account.HTTPSFeature constants, in https_required's order. */
+export const HTTPS_FEATURES = ["password", "setup", "passkeys", "oidc"] as const;
+/** A sign-in feature a plain request is refused. */
+export type HTTPSFeature = (typeof HTTPS_FEATURES)[number];
+
+/** The longest a session signed in over this plain request may last, in seconds. */
+export interface PlainSessionView {
+  readonly idle_seconds: number;
+  readonly absolute_seconds: number;
+}
+
+/**
+ * password_login, passkeys and oidc are each offered and admitted over this request's
+ * transport. https_required lists what HTTPS would add; plain_session is set only on a plain
+ * request under PosturePerRequest, and https_origin only on a plain request whose app set one.
+ */
 export interface StateResponse {
   readonly setup_required: boolean;
   readonly password_login: boolean;
   readonly passkeys: boolean;
   readonly oidc: boolean;
+  readonly secure: boolean;
+  readonly plain_session?: PlainSessionView;
+  readonly https_required: readonly HTTPSFeature[];
+  readonly https_origin?: string;
 }
 export const parseStateResponse: Validator<StateResponse> = object({
   setup_required: req(bool),
   password_login: req(bool),
   passkeys: req(bool),
   oidc: req(bool),
+  secure: req(bool),
+  plain_session: opt(
+    object<PlainSessionView>({ idle_seconds: req(count), absolute_seconds: req(count) }),
+  ),
+  https_required: req(list(oneOf(...HTTPS_FEATURES))),
+  https_origin: opt(str),
 });
 
 export interface UserMethodsView {
@@ -481,6 +507,7 @@ export interface CurrentSessionView {
   readonly auth_time: string;
   readonly idle_deadline: string;
   readonly absolute_deadline: string;
+  readonly secure: boolean;
 }
 export const parseCurrentSessionView: Validator<CurrentSessionView> = object({
   id: req(str),
@@ -488,6 +515,7 @@ export const parseCurrentSessionView: Validator<CurrentSessionView> = object({
   auth_time: req(time),
   idle_deadline: req(time),
   absolute_deadline: req(time),
+  secure: req(bool),
 });
 
 export interface MeResponse {
@@ -548,6 +576,7 @@ export interface SessionView {
   readonly idle_deadline: string;
   readonly absolute_deadline: string;
   readonly current: boolean;
+  readonly secure: boolean;
 }
 export const parseSessionView: Validator<SessionView> = object({
   id: req(str),
@@ -561,6 +590,7 @@ export const parseSessionView: Validator<SessionView> = object({
   idle_deadline: req(time),
   absolute_deadline: req(time),
   current: req(bool),
+  secure: req(bool),
 });
 
 /**

@@ -161,6 +161,9 @@
             "bypass"
           ],
           "open": true
+        },
+        {
+          "name": "secure"
         }
       ]
     },
@@ -611,6 +614,9 @@
     },
     {
       "name": "current"
+    },
+    {
+      "name": "secure"
     }
   ],
   "SetupPasskeyBeginRequest": [
@@ -726,6 +732,31 @@
   ],
   "StateResponse": [
     {
+      "name": "plain_session",
+      "fields": [
+        {
+          "name": "idle_seconds"
+        },
+        {
+          "name": "absolute_seconds"
+        }
+      ],
+      "optional": true
+    },
+    {
+      "name": "https_origin",
+      "optional": true
+    },
+    {
+      "name": "https_required",
+      "values": [
+        "password",
+        "setup",
+        "passkeys",
+        "oidc"
+      ]
+    },
+    {
       "name": "setup_required"
     },
     {
@@ -736,6 +767,9 @@
     },
     {
       "name": "oidc"
+    },
+    {
+      "name": "secure"
     }
   ],
   "TTLRequest": [

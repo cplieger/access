@@ -22,7 +22,7 @@ type accountAPI interface {
 	RequireAdminScope(p access.Principal) error
 	RequireKeyPermission(p access.Principal, scope string) error
 
-	State(ctx context.Context) (account.State, error)
+	State(ctx context.Context, c account.Client) (account.State, error)
 	SetupWithPassword(ctx context.Context, c account.Client, in account.SetupPassword) (account.SignedIn, error)
 	SetupPasskeyBegin(ctx context.Context, c account.Client, in account.SetupPasskey) (account.PendingCeremony, error)
 	SetupPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.SignedIn, error)

@@ -35,9 +35,30 @@ Two rows need a reason:
 
 Each OIDC route is admitted by `account` before it touches a cookie or the identity provider: the sign-in start, the callback and the pending-link read through `Service.AdmitOIDC`, and the link and step-up starts through `Service.AdmitOIDCSession`. A plain start therefore sets no flow cookie and sends the browser nowhere. A plain pending-link read answers 403 even when it presents a valid pending cookie, which it neither reads nor clears.
 
+## What the screens learn
+
+`Service.State(ctx, c)` takes the request's `Client` and answers what the sign-in screen needs over that transport, so a screen never repeats the table above. `accesshttp` serves it as `authState`'s `StateResponse`:
+
+- `secure` is the request's `Client.Secure`.
+- `password_login`, `passkeys` and `oidc` are each offered and admitted over this transport. Over plain HTTP, `passkeys` and `oidc` are false whatever the configuration, and under `PostureSecure` `password_login` is false too.
+- `https_required` lists what HTTPS would add, from `password`, `setup`, `passkeys` and `oidc` in that order: only a method the app offers, and `setup` only while setup is still required. It is `[]` on a secure request. An app with no single sign-on never lists `oidc`.
+- `plain_session` is set only on a plain request under `PosturePerRequest`: `idle_seconds` and `absolute_seconds` are the limits a session signed in over that request gets, at most 30 minutes and 12 hours, lowered to the Authenticator's own timeouts. `Rules.SessionCaps` can lower a session's limits further, per client, so those are known only after sign-in, from the session's own deadlines.
+- `https_origin` is `Rules.HTTPSOrigin` on a plain request when the app set one, so the screen can link to the HTTPS address. It is a link only, and nothing trusts it ([Rules](configuration.md#rules)).
+
+The screen's states follow from those fields:
+
+| State | Cause | Screen |
+| --- | --- | --- |
+| Secure | `secure` is true | everything the app offers |
+| Plain, relaxed | `secure` false, `password_login` true | the password form, one line naming what `https_required` lists, and the shorter session from `plain_session` |
+| Needs HTTPS | `secure` false, and `https_required` lists `password` or `password_login` is false | no form, "This app needs HTTPS", and a link to `https_origin` when present. A relaxed app with password sign-in off shows the same state, so `password_login` false alone does not mean `PostureSecure` |
+| First setup, plain | `setup_required` and `secure` false | relaxed: the password setup form; strict: "This app needs HTTPS" |
+
+Once signed in, `MeResponse.session.secure` and each `SessionView.secure` carry the session's transport. A plain session's Account and Sessions screens show it as plain HTTP with its end, the earlier of its two deadlines, and show the actions that need HTTPS as disabled. A refusal with `auth_session_expired` and reason `transport_changed` means the session was signed out because the connection changed between HTTP and HTTPS ([What the binding protects](#what-the-binding-protects-and-what-it-does-not)), which the screen shows as a signed-out state, not an error.
+
 ## Recent auth and the fresh sign-in
 
-A plain session's recent-auth time is its sign-in, because nothing over plain HTTP refreshes it: every step-up needs HTTPS. Once that time is older than `Rules.RecentAuth`, an action that needs recent auth, such as `authPasswordSet`, answers 403 `auth_recent_auth_required` with `Reason` `sign_in_again`, and the client asks for a fresh sign-in in place of the step-up dialog. A secure session's refusal carries no reason. A key, a custom verifier's principal and the bypass never get `sign_in_again`, since a sign-in cannot help them. A handler of yours that guards its own action gets the same answer from `access.RequireRecentAuth` and `access.ErrorFor` ([Guards](primitives.md#guards)).
+A plain session's recent-auth time is its sign-in, because nothing over plain HTTP refreshes it: every step-up needs HTTPS. Once that time is older than `Rules.RecentAuth`, an action that needs recent auth, such as `authPasswordSet`, answers 403 `auth_recent_auth_required` with `Reason` `sign_in_again`, and the client asks for a fresh sign-in in place of the step-up dialog (`withStepUp`'s `signInAgain` in [`@cplieger/access`](../web/README.md)). A secure session's refusal carries no reason. A key, a custom verifier's principal and the bypass never get `sign_in_again`, since a sign-in cannot help them. A handler of yours that guards its own action gets the same answer from `access.RequireRecentAuth` and `access.ErrorFor` ([Guards](primitives.md#guards)).
 
 A fresh sign-in replaces the session its request presented. `accesshttp` puts the hash of the session cookie it read for the request's transport in `Client.Presented`, and a full sign-in deletes that session before it counts the user's sessions against `Rules.MaxSessionsPerUser`, when the session is the signing-in user's and on the same transport. Its `session_revoked` entry carries `signed_in_again` ([The security log](security-log.md)). The user then holds one session for that browser, a session on another device survives the limit, and a token sniffed from the old session stops working at the sign-in. Another user's session, a session on the other transport and a missing one are left alone, and a recovery start replaces nothing. An app that calls `account` directly sets `Client.Presented` the same way, from `CookieConfig.ReadCookie`.
 

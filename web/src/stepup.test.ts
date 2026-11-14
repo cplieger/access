@@ -66,6 +66,55 @@ describe("withStepUp: results that need no step-up", () => {
   }
 });
 
+describe("withStepUp: sign_in_again", () => {
+  const stale = refusal(403, "auth_recent_auth_required", "sign_in_again");
+
+  it("runs signInAgain and retries the action once when it resolves true", async () => {
+    const prompt = choose("password");
+    const signInAgain = vi.fn(() => Promise.resolve(true));
+    const s = fakeServer({ [ACTION]: [stale, noContent] });
+    const out = await run(s, { prompt, signInAgain });
+    expect(out).toMatchObject({ kind: "done", result: { ok: true, status: 204 } });
+    expect(signInAgain).toHaveBeenCalledOnce();
+    expect(prompt).not.toHaveBeenCalled();
+    expect(routes(s)).toEqual([ACTION, ACTION]);
+  });
+
+  it("returns the retry's refusal as done and never loops", async () => {
+    const signInAgain = vi.fn(() => Promise.resolve(true));
+    const s = fakeServer({ [ACTION]: stale });
+    const out = await run(s, { signInAgain });
+    expect(out).toMatchObject({
+      kind: "done",
+      result: { ok: false, code: "auth_recent_auth_required" },
+    });
+    expect(signInAgain).toHaveBeenCalledOnce();
+    expect(routes(s)).toEqual([ACTION, ACTION]);
+  });
+
+  it("is cancelled when signInAgain resolves false", async () => {
+    const prompt = choose("password");
+    const s = fakeServer({ [ACTION]: stale });
+    expect(await run(s, { prompt, signInAgain: () => Promise.resolve(false) })).toEqual({
+      kind: "cancelled",
+    });
+    expect(prompt).not.toHaveBeenCalled();
+    expect(routes(s)).toEqual([ACTION]);
+  });
+
+  it("returns the refusal as done without signInAgain", async () => {
+    const prompt = choose("password");
+    const s = fakeServer({ [ACTION]: stale });
+    const out = await run(s, { prompt });
+    expect(out).toMatchObject({
+      kind: "done",
+      result: { ok: false, code: "auth_recent_auth_required" },
+    });
+    expect(prompt).not.toHaveBeenCalled();
+    expect(routes(s)).toEqual([ACTION]);
+  });
+});
+
 describe("withStepUp: password", () => {
   it("steps up with the password and retries the action once", async () => {
     const prompt = choose("password");

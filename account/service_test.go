@@ -205,6 +205,9 @@ func TestRulesValidate(t *testing.T) {
 		{Scopes: []string{"read", "manage_users", "files:write"}},
 		{KeyRotationOverlap: time.Minute},
 		{KeyRotationOverlap: 24 * time.Hour},
+		{HTTPSOrigin: "https://grelot.example"},
+		{HTTPSOrigin: "https://grelot.example:8443"},
+		{HTTPSOrigin: "https://[2001:db8::1]:8443"},
 	}
 	for i, r := range valid {
 		if err := r.Validate(); err != nil {
@@ -229,6 +232,18 @@ func TestRulesValidate(t *testing.T) {
 		"scope_empty":           {field: "Scopes", r: account.Rules{Scopes: []string{""}}},
 		"scope_dquote":          {field: "Scopes", r: account.Rules{Scopes: []string{`re"ad`}}},
 		"scope_non_ascii":       {field: "Scopes", r: account.Rules{Scopes: []string{"caf\u00e9"}}},
+		"origin_http":           {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "http://grelot.example"}},
+		"origin_root_path":      {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example/"}},
+		"origin_path":           {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example/x"}},
+		"origin_query":          {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example?q"}},
+		"origin_fragment":       {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example#f"}},
+		"origin_bare_query":     {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example?"}},
+		"origin_bare_fragment":  {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example#"}},
+		"origin_user_info":      {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://u@grelot.example"}},
+		"origin_no_host":        {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://"}},
+		"origin_upper_scheme":   {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "HTTPS://grelot.example"}},
+		"origin_unparsable":     {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "https://grelot.example:port"}},
+		"origin_no_scheme":      {field: "HTTPSOrigin", r: account.Rules{HTTPSOrigin: "grelot.example"}},
 	} {
 		err := tc.r.Validate()
 		var re *account.RulesError
@@ -312,7 +327,7 @@ func TestPasswordLoginDefault(t *testing.T) {
 		"disabled":         {rules: account.Rules{DisablePasswordLogin: true}},
 	} {
 		f := newFixture(t, options{rules: func() account.Rules { return tc.rules }})
-		st, err := f.svc.State(t.Context())
+		st, err := f.svc.State(t.Context(), localClient)
 		if err != nil || st.PasswordLogin != tc.want {
 			t.Errorf("%s: State().PasswordLogin = %t, %v, want %t", name, st.PasswordLogin, err, tc.want)
 		}

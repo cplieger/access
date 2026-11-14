@@ -24,6 +24,12 @@ export interface StepUpOptions {
   readonly redirect?: string;
   /** Default location.assign. */
   readonly navigate?: (url: string) => void;
+  /**
+   * Runs a fresh sign-in for a refusal with reason sign_in_again, which a plain session gets
+   * in place of a step-up; true when the user signed in. Unset: the refusal is returned as
+   * done.
+   */
+  readonly signInAgain?: () => Promise<boolean>;
 }
 
 export type StepUpResult<T> =
@@ -53,10 +59,12 @@ function defaultRedirect(): string {
 
 /**
  * Runs action; on an auth_recent_auth_required refusal with no reason, asks prompt for a
- * method, re-authenticates and retries action once. A refusal with a reason (such as
- * reenable_needs_other_method) is one a step-up cannot cure, so it is returned as done. The
- * OIDC branch navigates away and never re-runs action: the app continues from its own
- * redirect. Keeps nothing in browser storage and sends no request of its own beyond the
+ * method, re-authenticates and retries action once. On the reason sign_in_again, which a
+ * plain session gets, it never prompts: it runs signInAgain and retries action once on true,
+ * answers cancelled on false, and with no signInAgain returns the refusal as done. Any other
+ * reason (such as reenable_needs_other_method) is one a step-up cannot cure, so it is returned
+ * as done. The OIDC branch navigates away and never re-runs action: the app continues from its
+ * own redirect. Keeps nothing in browser storage and sends no request of its own beyond the
  * client's me and step-up routes.
  */
 export async function withStepUp<T>(
@@ -65,18 +73,21 @@ export async function withStepUp<T>(
   o: StepUpOptions,
 ): Promise<StepUpResult<T>> {
   const first = await action();
-  if (
-    first.ok ||
-    authCode(first) !== "auth_recent_auth_required" ||
-    errorReason(first) !== undefined
-  ) {
+  if (first.ok || authCode(first) !== "auth_recent_auth_required") {
+    return { kind: "done", result: first };
+  }
+  const retry = async (): Promise<StepUpResult<T>> => ({ kind: "done", result: await action() });
+  const reason = errorReason(first);
+  if (reason === "sign_in_again" && o.signInAgain !== undefined) {
+    return (await o.signInAgain()) ? retry() : { kind: "cancelled" };
+  }
+  if (reason !== undefined) {
     return { kind: "done", result: first };
   }
   const me = await c.me();
   if (!me.ok) {
     return { kind: "step-up-failed", error: me };
   }
-  const retry = async (): Promise<StepUpResult<T>> => ({ kind: "done", result: await action() });
   const choice = await o.prompt(me.data.methods);
   switch (choice) {
     case "cancel":

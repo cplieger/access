@@ -25,11 +25,11 @@ func (h *Handler) signedIn(c *call, s account.SignedIn) { //nolint:gocritic // h
 }
 
 func serveState(h *Handler, c *call) error {
-	st, err := h.acct.State(c.r.Context())
+	st, err := h.acct.State(c.r.Context(), c.client)
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, StateResponse{SetupRequired: st.SetupRequired, PasswordLogin: st.PasswordLogin, Passkeys: st.Passkeys, OIDC: st.OIDC})
+	writeJSON(c.w, http.StatusOK, stateResponse(&st))
 	return nil
 }
 

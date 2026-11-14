@@ -115,12 +115,22 @@ type InviteRequest struct {
 	Hours int         `json:"hours,omitempty"`
 }
 
-// StateResponse is authState's answer.
+// StateResponse is authState's answer, account.State on the wire.
 type StateResponse struct {
-	SetupRequired bool `json:"setup_required"`
-	PasswordLogin bool `json:"password_login"`
-	Passkeys      bool `json:"passkeys"`
-	OIDC          bool `json:"oidc"`
+	PlainSession  *PlainSessionView      `json:"plain_session,omitempty"`
+	HTTPSOrigin   string                 `json:"https_origin,omitempty"`
+	HTTPSRequired []account.HTTPSFeature `json:"https_required"`
+	SetupRequired bool                   `json:"setup_required"`
+	PasswordLogin bool                   `json:"password_login"`
+	Passkeys      bool                   `json:"passkeys"`
+	OIDC          bool                   `json:"oidc"`
+	Secure        bool                   `json:"secure"`
+}
+
+// PlainSessionView is account.State.PlainSession in whole seconds.
+type PlainSessionView struct {
+	IdleSeconds     int64 `json:"idle_seconds"`
+	AbsoluteSeconds int64 `json:"absolute_seconds"`
 }
 
 // UserView is one user.
@@ -196,6 +206,7 @@ type CurrentSessionView struct {
 	AbsoluteDeadline time.Time     `json:"absolute_deadline"`
 	ID               string        `json:"id"`
 	Method           access.Method `json:"method"`
+	Secure           bool          `json:"secure"`
 }
 
 // MeResponse is the signed-in user's own view.
@@ -242,6 +253,7 @@ type SessionView struct {
 	LastIP           string        `json:"last_ip,omitempty"`
 	Method           access.Method `json:"method"`
 	Current          bool          `json:"current"`
+	Secure           bool          `json:"secure"`
 }
 
 // KeyView is one API key, never its secret or hash.
@@ -433,13 +445,25 @@ func passkeyView(p *access.PasskeyCredential) PasskeyView {
 	}
 }
 
+// stateResponse is st on the wire; HTTPSRequired encodes as [] when empty.
+func stateResponse(st *account.State) StateResponse {
+	v := StateResponse{
+		SetupRequired: st.SetupRequired, PasswordLogin: st.PasswordLogin, Passkeys: st.Passkeys, OIDC: st.OIDC, Secure: st.Secure,
+		HTTPSRequired: append([]account.HTTPSFeature{}, st.HTTPSRequired...), HTTPSOrigin: st.HTTPSOrigin,
+	}
+	if p := st.PlainSession; p != nil {
+		v.PlainSession = &PlainSessionView{IdleSeconds: int64(p.Idle / time.Second), AbsoluteSeconds: int64(p.Absolute / time.Second)}
+	}
+	return v
+}
+
 // sessionView is s under t, Current when s is the caller's session.
 func sessionView(s *access.Session, t access.SessionTimeouts, current string) SessionView {
 	idle, absolute := access.SessionDeadlines(s, t)
 	return SessionView{
 		ID: s.ID, Label: s.Label, UserAgent: s.UserAgent, LastIP: s.LastIP, Method: s.AuthMethod,
 		CreatedAt: s.CreatedAt, LastActivity: s.LastActivity, AuthTime: s.AuthTime,
-		IdleDeadline: idle, AbsoluteDeadline: absolute, Current: s.ID == current,
+		IdleDeadline: idle, AbsoluteDeadline: absolute, Current: s.ID == current, Secure: s.Secure,
 	}
 }
 
@@ -517,7 +541,7 @@ func meResponse(m *account.Me) MeResponse {
 		Methods: methodsView(m.Methods),
 		Session: CurrentSessionView{
 			ID: m.Current.ID, Method: m.Current.Method, AuthTime: m.Current.AuthTime,
-			IdleDeadline: m.Current.IdleDeadline, AbsoluteDeadline: m.Current.AbsoluteDeadline,
+			IdleDeadline: m.Current.IdleDeadline, AbsoluteDeadline: m.Current.AbsoluteDeadline, Secure: m.Current.Secure,
 		},
 		CanLinkOIDC: m.CanLinkOIDC,
 		SSOGoverned: m.SSOGoverned,
