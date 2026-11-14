@@ -135,42 +135,6 @@
     "array": false
   },
   {
-    "request": "TokenRequest",
-    "response": "RecoveryResponse",
-    "name": "authRecoveryStart",
-    "method": "POST",
-    "path": "{prefix}/recovery",
-    "kind": "json",
-    "array": false
-  },
-  {
-    "request": "RecoverPasswordRequest",
-    "response": null,
-    "name": "authRecoveryPassword",
-    "method": "POST",
-    "path": "{prefix}/recovery/password",
-    "kind": "json",
-    "array": false
-  },
-  {
-    "request": null,
-    "response": "CeremonyResponse",
-    "name": "authRecoveryPasskeyBegin",
-    "method": "POST",
-    "path": "{prefix}/recovery/passkey/begin",
-    "kind": "json",
-    "array": false
-  },
-  {
-    "request": null,
-    "response": null,
-    "name": "authRecoveryPasskeyFinish",
-    "method": "POST",
-    "path": "{prefix}/recovery/passkey/finish",
-    "kind": "json",
-    "array": false
-  },
-  {
     "request": "InviteAcceptRequest",
     "response": "SignedInResponse",
     "name": "authInviteAcceptPassword",
@@ -419,15 +383,6 @@
     "name": "authAdminUserDelete",
     "method": "DELETE",
     "path": "{prefix}/users/{id}",
-    "kind": "json",
-    "array": false
-  },
-  {
-    "request": "TTLRequest",
-    "response": "TokenResponse",
-    "name": "authAdminRecovery",
-    "method": "POST",
-    "path": "{prefix}/users/{id}/recovery",
     "kind": "json",
     "array": false
   },

@@ -1,5 +1,5 @@
 import type { ApiErr, ApiResult } from "@cplieger/reactive/fetch";
-import type { AuthClient, PublicKeyCredentialJSON, RecoverFlags } from "./client.js";
+import type { AuthClient, PublicKeyCredentialJSON } from "./client.js";
 import { authCode } from "./wire.js";
 import type { CeremonyResponse, PasskeyView, SignedInResponse } from "./wire.js";
 
@@ -26,9 +26,6 @@ export type SignInOutcome =
 /** A step-up signs nobody in: /stepup/passkey/finish answers 204, so success carries no SignedInResponse. */
 export type StepUpOutcome =
   { readonly kind: "stepped-up" } | Exclude<SignInOutcome, { kind: "signed-in" }>;
-
-export type RecoverOutcome =
-  Exclude<RegisterOutcome, { kind: "registered" }> | { readonly kind: "recovered" };
 
 interface Platform {
   readonly isConditionalMediationAvailable?: () => Promise<boolean>;
@@ -425,16 +422,6 @@ export async function stepUpWithPasskey(c: AuthClient): Promise<StepUpOutcome> {
   }
   const res = await c.stepUpPasskeyFinish(got.ceremony, got.json);
   return res.ok ? { kind: "stepped-up" } : assertionRefused(res, got);
-}
-
-/** Registers a passkey with the recovery session's ceremony; o says which sessions and keys survive. */
-export async function recoverWithPasskey(c: AuthClient, o: RecoverFlags): Promise<RecoverOutcome> {
-  const made = await create(await c.recoveryPasskeyBegin());
-  if (made.kind !== "credential") {
-    return made;
-  }
-  const res = await c.recoveryPasskeyFinish(made.ceremony, made.json, o);
-  return res.ok ? { kind: "recovered" } : registrationRefused(res);
 }
 
 // Safari can leave a Signal API promise pending forever

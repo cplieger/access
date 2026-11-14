@@ -108,10 +108,6 @@ func issuingOperations() []issuing {
 			_, err := w.f.svc.CreateInvite(ctx, p, "", 0)
 			return err
 		}},
-		{name: "IssueRecovery", op: account.OpIssueRecovery, run: func(ctx context.Context, w retireWorld, p access.Principal) error {
-			_, err := w.f.svc.IssueRecovery(ctx, account.As(p), w.alice.ID, 0)
-			return err
-		}},
 		{name: "UpdateUser_enable", op: account.OpSetEnabled, run: update(account.UserChange{Enabled: &enable})},
 		{name: "UpdateUser_role_and_enable", op: account.OpSetEnabled, run: update(account.UserChange{Role: &role, Enabled: &enable})},
 	}

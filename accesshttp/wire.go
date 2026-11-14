@@ -37,18 +37,6 @@ type RedirectRequest struct {
 	Redirect string `json:"redirect,omitempty"` // the app's return path, at most oidc.MaxRedirectBytes
 }
 
-// TokenRequest is authRecoveryStart's body.
-type TokenRequest struct {
-	Token string `json:"token"`
-}
-
-// RecoverPasswordRequest is authRecoveryPassword's body.
-type RecoverPasswordRequest struct {
-	Password     string `json:"password"`
-	KeepSessions bool   `json:"keep_sessions,omitempty"`
-	KeepKeys     bool   `json:"keep_keys,omitempty"`
-}
-
 // InviteAcceptRequest is authInviteAcceptPassword's body.
 type InviteAcceptRequest struct {
 	Token    string `json:"token"`
@@ -94,7 +82,7 @@ type NewKeyRequest struct {
 // NewUserRequest is authAdminUserCreate's body.
 type NewUserRequest struct {
 	Username string      `json:"username"`
-	Password string      `json:"password,omitempty"` // empty: no sign-in method until a recovery link
+	Password string      `json:"password,omitempty"` // empty: no sign-in method
 	Role     access.Role `json:"role"`
 }
 
@@ -102,11 +90,6 @@ type NewUserRequest struct {
 type UserUpdateRequest struct {
 	Role    *access.Role `json:"role,omitempty"`
 	Enabled *bool        `json:"enabled,omitempty"`
-}
-
-// TTLRequest is authAdminRecovery's body.
-type TTLRequest struct {
-	Hours int `json:"hours,omitempty"` // 0 = the default lifetime
 }
 
 // InviteRequest is authAdminInvite's body.
@@ -218,12 +201,6 @@ type MeResponse struct {
 	SSOGoverned bool               `json:"sso_governed"`
 }
 
-// RecoveryResponse is a started recovery.
-type RecoveryResponse struct {
-	Username string      `json:"username"`
-	Methods  MethodsView `json:"methods"`
-}
-
 // PasskeyView is one passkey.
 type PasskeyView struct {
 	CreatedAt  time.Time `json:"created_at"`
@@ -280,24 +257,23 @@ type KeyCreatedResponse struct {
 	Details KeyView `json:"details"`
 }
 
-// TokenResponse is a minted invite or recovery token. Only writeShownOnce
+// TokenResponse is a minted invite token. Only writeShownOnce
 // fills Token.
 type TokenResponse struct {
 	ExpiresAt time.Time `json:"expires_at"`
 	Token     string    `json:"token"` // the plaintext, shown once
 }
 
-// TokenView is one live invite or recovery token on authAdminTokens. It
+// TokenView is one live invite token on authAdminTokens. It
 // carries neither the token nor its hash.
 type TokenView struct {
 	CreatedAt time.Time           `json:"created_at"`
 	ExpiresAt time.Time           `json:"expires_at"`
-	Purpose   access.TokenPurpose `json:"purpose"`        // "invite" or "recovery"
+	Purpose   access.TokenPurpose `json:"purpose"`        // "invite"
 	Role      access.Role         `json:"role,omitempty"` // invite only
 	// IssuerLineage is the issuing key's LineageIDs, root first; omitted for
 	// a token no key issued.
 	IssuerLineage []int64 `json:"issuer_lineage,omitempty"`
-	Subject       int64   `json:"subject,omitempty"` // recovery only: the user it acts on
 	IssuedByKey   int64   `json:"issued_by_key,omitempty"`
 }
 
@@ -364,12 +340,6 @@ type OIDCCallbackQuery struct {
 	State string `json:"state"`
 	Code  string `json:"code,omitempty"`
 	Error string `json:"error,omitempty"`
-}
-
-// RecoveryPasskeyFinishQuery is authRecoveryPasskeyFinish's query.
-type RecoveryPasskeyFinishQuery struct {
-	KeepSessions bool `json:"keep_sessions,omitempty"` // "true" or absent
-	KeepKeys     bool `json:"keep_keys,omitempty"`     // "true" or absent
 }
 
 // AdminUsersQuery is authAdminUsers' query.
@@ -484,7 +454,7 @@ func keyView(k *access.Key, owner string, now time.Time) KeyView {
 func tokenView(l *account.ListedToken) TokenView {
 	t := &l.Token
 	return TokenView{
-		Purpose: t.Purpose, Role: t.Role, Subject: t.Subject, IssuedByKey: t.IssuedByKey,
+		Purpose: t.Purpose, Role: t.Role, IssuedByKey: t.IssuedByKey,
 		IssuerLineage: l.IssuerLineage, CreatedAt: t.CreatedAt, ExpiresAt: t.ExpiresAt,
 	}
 }

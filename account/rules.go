@@ -85,8 +85,7 @@ type Rules struct {
 	// ErrPasswordLoginDisabled. The zero value allows them.
 	DisablePasswordLogin bool
 	// SSOGoverned makes an OIDC link migrate the account: the password and
-	// passkeys are removed, and only recovery restores a local method. A
-	// full session of a user with a linked identity may not then set a
+	// passkeys are removed. A session of a user with a linked identity may not then set a
 	// password or enrol a passkey (ErrSSOGoverned); unlinked users are
 	// unaffected.
 	SSOGoverned bool

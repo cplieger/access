@@ -16,7 +16,7 @@ func storeSession(t *testing.T, s account.Store, u *access.User, created, last t
 	t.Helper()
 	_, hash := access.GenerateSessionToken()
 	sess := access.Session{
-		ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, TokenHash: hash,
+		ID: newSessionID(t), UserID: u.ID, TokenHash: hash,
 		AuthMethod: access.MethodPassword, CreatedAt: created, LastActivity: last, AuthTime: created, Secure: true,
 	}
 	if err := s.CreateSession(t.Context(), &sess); err != nil {
@@ -31,7 +31,7 @@ func TestSessionsListsLiveOnly(t *testing.T) {
 		return access.SessionTimeouts{Idle: time.Hour, Absolute: 24 * time.Hour}
 	}})
 	u := mustUser(t, f.mem, "alice", access.RoleUser)
-	pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+	pr := f.sessionPrincipal(t, u, time.Now())
 	now := time.Now()
 	live := storeSession(t, f.mem, u, now.Add(-2*time.Hour), now.Add(-time.Minute))
 	storeSession(t, f.mem, u, now.Add(-3*time.Hour), now.Add(-2*time.Hour))
@@ -58,8 +58,8 @@ func TestLogoutIdempotent(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, options{})
 	u := mustUser(t, f.mem, "alice", access.RoleUser)
-	pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
-	keep := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+	pr := f.sessionPrincipal(t, u, time.Now())
+	keep := f.sessionPrincipal(t, u, time.Now())
 	for i := range 2 {
 		if err := f.svc.Logout(t.Context(), pr.SessionTokenHash()); err != nil {
 			t.Fatalf("Logout %d = %v", i+1, err)
@@ -82,9 +82,9 @@ func TestRenameSession(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, options{})
 	u := mustUser(t, f.mem, "alice", access.RoleUser)
-	pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+	pr := f.sessionPrincipal(t, u, time.Now())
 	other := mustUser(t, f.mem, "bob", access.RoleUser)
-	foreign := f.sessionPrincipal(t, other, access.SessionFull, time.Now())
+	foreign := f.sessionPrincipal(t, other, time.Now())
 	cases := []struct {
 		want  error
 		in    account.SessionLabel
@@ -134,10 +134,10 @@ func TestRevokeSession(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, options{})
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
-		pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
-		target := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+		pr := f.sessionPrincipal(t, u, time.Now())
+		target := f.sessionPrincipal(t, u, time.Now())
 		other := mustUser(t, f.mem, "bob", access.RoleUser)
-		foreign := f.sessionPrincipal(t, other, access.SessionFull, time.Now())
+		foreign := f.sessionPrincipal(t, other, time.Now())
 		if err := f.svc.RevokeSession(t.Context(), pr, target.SessionID); err != nil {
 			t.Fatalf("RevokeSession = %v", err)
 		}
@@ -161,10 +161,10 @@ func TestRevokeOtherSessions(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, options{})
 	u := mustUser(t, f.mem, "alice", access.RoleUser)
-	pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
-	a := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
-	b := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
-	stale := f.sessionPrincipal(t, u, access.SessionFull, time.Now().Add(-time.Hour))
+	pr := f.sessionPrincipal(t, u, time.Now())
+	a := f.sessionPrincipal(t, u, time.Now())
+	b := f.sessionPrincipal(t, u, time.Now())
+	stale := f.sessionPrincipal(t, u, time.Now().Add(-time.Hour))
 	if err := f.svc.RevokeOtherSessions(t.Context(), stale); !errors.Is(err, access.ErrRecentAuthRequired) {
 		t.Errorf("RevokeOtherSessions from a stale session = %v, want ErrRecentAuthRequired", err)
 	}
@@ -190,7 +190,7 @@ func TestUpdateProfile(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, options{})
 	u := mustUser(t, f.mem, "alice", access.RoleUser)
-	pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+	pr := f.sessionPrincipal(t, u, time.Now())
 	name := strings.Repeat("ü", 128)
 	got, err := f.svc.UpdateProfile(t.Context(), pr, name)
 	if err != nil {

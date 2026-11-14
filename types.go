@@ -17,7 +17,6 @@ const (
 	MethodOIDC         Method = "oidc"
 	MethodTOTP         Method = "totp"
 	MethodRecoveryCode Method = "recovery_code"
-	MethodRecovery     Method = "recovery" // the restricted session a recovery token opens
 	MethodAPIKey       Method = "api_key"
 	MethodBypass       Method = "bypass"
 )
@@ -96,15 +95,6 @@ func (u User) LogValue() slog.Value { //nolint:gocritic // hugeParam: a value re
 	)
 }
 
-// SessionKind distinguishes an ordinary session from a restricted one.
-type SessionKind string
-
-// Session kinds.
-const (
-	SessionFull     SessionKind = ""         // an ordinary signed-in session
-	SessionRecovery SessionKind = "recovery" // may only add or replace a sign-in method
-)
-
 // Session is a server-side session record. Its wire view is the HTTP
 // layer's, so it carries no JSON tags beyond keeping the hash out.
 type Session struct {
@@ -115,16 +105,10 @@ type Session struct {
 	ID         string // 128-bit random hex; stable across a token rotation
 	TokenHash  Hash   `json:"-"`
 	AuthMethod Method
-	Kind       SessionKind
 	UserAgent  string // sanitised and capped at 256 bytes by its writer
 	Label      string // user-editable, at most 64 runes
 	LastIP     string // netip.Addr.String() of the client, as its writer last recorded it
 	UserID     int64
-	// IssuedByKey is set on a SessionRecovery session only: the IssuedByKey
-	// of the recovery token that opened it, so completion re-checks that key
-	// and attributes the credential it sets to that key's lineage; 0
-	// otherwise.
-	IssuedByKey int64
 	// IdleCap and AbsoluteCap are this session's own idle and absolute
 	// limits; a zero or negative cap is none. [SessionDeadlines] applies them.
 	IdleCap     time.Duration
@@ -135,16 +119,14 @@ type Session struct {
 	Secure bool
 }
 
-// LogValue emits the session's identity, kind, transport and times, never
-// the hash.
+// LogValue emits the session's identity, transport and times, never the
+// hash.
 func (s Session) LogValue() slog.Value { //nolint:gocritic // hugeParam: a value receiver applies LogValue to a Session value too
 	return slog.GroupValue(
 		slog.String("id", s.ID),
 		slog.Int64("user_id", s.UserID),
 		slog.String("auth_method", string(s.AuthMethod)),
-		slog.String("kind", string(s.Kind)),
 		slog.Bool("secure", s.Secure),
-		slog.Int64("issued_by_key", s.IssuedByKey),
 		slog.Time("created_at", s.CreatedAt),
 		slog.Time("last_activity", s.LastActivity),
 		slog.Time("auth_time", s.AuthTime),
@@ -383,9 +365,8 @@ type TokenPurpose string
 
 // One-time token purposes.
 const (
-	PurposeSetup    TokenPurpose = "setup"
-	PurposeRecovery TokenPurpose = "recovery" // out-of-band recovery and admin-issued reset
-	PurposeInvite   TokenPurpose = "invite"
+	PurposeSetup  TokenPurpose = "setup"
+	PurposeInvite TokenPurpose = "invite"
 )
 
 // OneTimeToken is the stored record of a single-use token.
@@ -394,20 +375,18 @@ type OneTimeToken struct {
 	ExpiresAt time.Time
 	Hash      Hash `json:"-"`
 	Purpose   TokenPurpose
-	Role      Role  // PurposeInvite only: the role the invited account receives
-	Subject   int64 // the user the token acts on; 0 for setup and invite
-	// IssuedByKey is the API key whose principal issued this invite or
-	// recovery token; 0 when a session or an out-of-band actor issued it. A
-	// key-issued token expires no later than that key, dies with it, and is
-	// re-checked against it when used.
+	Role      Role // PurposeInvite only: the role the invited account receives
+	// IssuedByKey is the API key whose principal issued this invite; 0 when
+	// a session or an out-of-band actor issued it. A key-issued token
+	// expires no later than that key, dies with it, and is re-checked
+	// against it when used.
 	IssuedByKey int64
 }
 
-// LogValue emits the purpose, subject, issuer key and expiry, never Hash.
+// LogValue emits the purpose, issuer key and expiry, never Hash.
 func (t OneTimeToken) LogValue() slog.Value { //nolint:gocritic // hugeParam: a value receiver applies LogValue to a token value too
 	return slog.GroupValue(
 		slog.String("purpose", string(t.Purpose)),
-		slog.Int64("subject", t.Subject),
 		slog.Int64("issued_by_key", t.IssuedByKey),
 		slog.Time("expires_at", t.ExpiresAt),
 	)
@@ -416,14 +395,13 @@ func (t OneTimeToken) LogValue() slog.Value { //nolint:gocritic // hugeParam: a 
 // NewOneTimeToken mints a 256-bit token expiring ttl after now. Store only
 // the record; hand out only the plaintext. IssuedByKey and Role are left
 // for the issuer to set.
-func NewOneTimeToken(purpose TokenPurpose, subject int64, ttl time.Duration, now time.Time) (plaintext Secret, rec OneTimeToken) {
+func NewOneTimeToken(purpose TokenPurpose, ttl time.Duration, now time.Time) (plaintext Secret, rec OneTimeToken) {
 	plaintext, hash := GenerateOpaqueToken()
 	return plaintext, OneTimeToken{
 		CreatedAt: now,
 		ExpiresAt: now.Add(ttl),
 		Hash:      hash,
 		Purpose:   purpose,
-		Subject:   subject,
 	}
 }
 
@@ -432,12 +410,10 @@ type AttributionAction string
 
 // Attribution actions.
 const (
-	AttributionCreated         AttributionAction = "created"          // CreateUser by a key
-	AttributionInviteAccepted  AttributionAction = "invite_accepted"  // a key-issued invite created the user
-	AttributionRecoveryStarted AttributionAction = "recovery_started" // a key-issued recovery link opened a recovery session
-	AttributionRecovered       AttributionAction = "recovered"        // a key-issued recovery session set a credential
-	AttributionEnabled         AttributionAction = "enabled"          // UpdateUser by a key re-enabled the user
-	AttributionDisabled        AttributionAction = "disabled"         // UpdateUser by a key disabled the user
+	AttributionCreated        AttributionAction = "created"         // CreateUser by a key
+	AttributionInviteAccepted AttributionAction = "invite_accepted" // a key-issued invite created the user
+	AttributionEnabled        AttributionAction = "enabled"         // UpdateUser by a key re-enabled the user
+	AttributionDisabled       AttributionAction = "disabled"        // UpdateUser by a key disabled the user
 )
 
 // KeyAttribution is one append-only record that a key acted on a user. It

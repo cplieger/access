@@ -75,7 +75,7 @@ func snapshot(t *testing.T, w *opWorld, names []string) storeState {
 		k.KeyHash = access.Hash{}
 		st.keys = append(st.keys, k)
 	}
-	toks, err := w.mem.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeSetup, access.PurposeInvite, access.PurposeRecovery}, time.Time{})
+	toks, err := w.mem.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeSetup, access.PurposeInvite}, time.Time{})
 	if err != nil {
 		t.Fatalf("LiveOneTimeTokens: %v", err)
 	}
@@ -160,16 +160,14 @@ func lockBoth(t *testing.T, w *opWorld, u *access.User) {
 	}
 }
 
-// burden gives u two more sessions, a key that issued an invite, a
-// recovery token and both password locks, so a repair has every kind of
-// record to write.
+// burden gives u two more sessions, a key that issued an invite and both
+// password locks, so a deletion has every kind of record to remove.
 func burden(t *testing.T, w *opWorld, u *access.User) {
 	t.Helper()
 	putSession(t, w.mem, liveSession(t, u))
 	putSession(t, w.mem, liveSession(t, u))
 	k := w.storedKey(t, u, "read")
-	seedToken(t, w.mem, access.PurposeInvite, 0, k.ID, time.Hour)
-	seedToken(t, w.mem, access.PurposeRecovery, u.ID, 0, time.Hour)
+	seedToken(t, w.mem, access.PurposeInvite, k.ID, time.Hour)
 	lockBoth(t, w, u)
 }
 
@@ -195,83 +193,21 @@ func (w *opWorld) attributionsOf(t *testing.T, userID int64) []access.Attributio
 	return out
 }
 
-// repaired checks the state a completed recovery of u leaves with no
-// options: no session, key or recovery token, and no failure record.
-func repaired(t *testing.T, w *opWorld, u *access.User) {
-	t.Helper()
-	if n := len(sessionsOf(t, w.mem, u.ID)); n != 0 {
-		t.Errorf("%d sessions remain", n)
-	}
-	if n := len(keysOf(t, w.mem, u.ID)); n != 0 {
-		t.Errorf("%d keys remain", n)
-	}
-	if _, found := record(t, w.mem, w.svc, u.Username, false); found {
-		t.Error("the failure record remains")
-	}
-	tokensGone(t, w, func(tok access.OneTimeToken) bool { return tok.Subject == u.ID || tok.IssuedByKey != 0 })
-}
-
-// tokensGone fails for every live invite or recovery token gone matches.
+// tokensGone fails for every live invite gone matches.
 func tokensGone(t *testing.T, w *opWorld, gone func(access.OneTimeToken) bool) {
 	t.Helper()
-	toks, err := w.mem.LiveOneTimeTokens(t.Context(), []access.TokenPurpose{access.PurposeRecovery, access.PurposeInvite}, time.Now())
+	toks, err := w.mem.LiveOneTimeTokens(t.Context(), []access.TokenPurpose{access.PurposeInvite}, time.Now())
 	if err != nil {
 		t.Fatalf("LiveOneTimeTokens: %v", err)
 	}
 	for _, tok := range toks {
 		if gone(tok) {
-			t.Errorf("token %s for %d issued by key %d remains", tok.Purpose, tok.Subject, tok.IssuedByKey)
+			t.Errorf("token %s issued by key %d remains", tok.Purpose, tok.IssuedByKey)
 		}
 	}
 }
 
 func txScenarios() []txScenario {
-	recoverySession := func(t *testing.T, w *opWorld, a account.Actor) access.Principal {
-		tok, err := w.svc.IssueRecovery(t.Context(), a, w.alice.ID, 0)
-		if err != nil {
-			t.Fatalf("IssueRecovery = %v", err)
-		}
-		rec, err := w.svc.StartRecovery(t.Context(), localClient, tok.Plaintext)
-		if err != nil {
-			t.Fatalf("StartRecovery = %v", err)
-		}
-		return w.principal(t, rec.Issued.Token)
-	}
-	completeWithPassword := func(issuer func(t *testing.T, w *opWorld) account.Actor) func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
-		return func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
-			rp := recoverySession(t, w, issuer(t, w))
-			burden(t, w, w.alice)
-			return func(ctx context.Context) error {
-					return w.svc.RecoverWithPassword(ctx, rp, access.NewSecret(recoveredPassword), account.RecoverOptions{})
-				}, func(t *testing.T) {
-					repaired(t, w, w.alice)
-					if !w.verifies(t, w.alice, recoveredPassword) {
-						t.Error("the recovered password does not verify")
-					}
-				}
-		}
-	}
-	completeWithPasskey := func(issuer func(t *testing.T, w *opWorld) account.Actor) func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
-		return func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
-			rp := recoverySession(t, w, issuer(t, w))
-			burden(t, w, w.alice)
-			pc, err := w.svc.RecoverPasskeyBegin(t.Context(), rp, w.origin)
-			if err != nil {
-				t.Fatalf("RecoverPasskeyBegin = %v", err)
-			}
-			body := accesstest.NewPasskeyDevice(t).Register(browserJSON(t, pc.Creation))
-			return func(ctx context.Context) error {
-					return w.svc.RecoverPasskeyFinish(ctx, rp, pc.ID, bytes.NewReader(body), account.RecoverOptions{})
-				}, func(t *testing.T) {
-					repaired(t, w, w.alice)
-					if n := len(passkeysOf(t, w.mem, w.alice.ID)); n != 2 {
-						t.Errorf("alice holds %d passkeys, want the enrolled one beside her first", n)
-					}
-				}
-		}
-	}
-	outOfBand := func(*testing.T, *opWorld) account.Actor { return account.OutOfBand("socket") }
-	byKey := func(t *testing.T, w *opWorld) account.Actor { return account.As(w.usersKey(t).p) }
 	keyAttributed := func(action access.AttributionAction, check func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T))) func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
 		return func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
 			call, done := check(t, w)
@@ -316,26 +252,6 @@ func txScenarios() []txScenario {
 				t.Fatalf("CreateInvite = %v", err)
 			}
 			return acceptCall(w, inv), acceptedCheck(w, inv)
-		}},
-		{name: "recovery_start", prep: func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
-			tok, err := w.svc.IssueRecovery(t.Context(), account.OutOfBand("socket"), w.alice.ID, 0)
-			if err != nil {
-				t.Fatalf("IssueRecovery = %v", err)
-			}
-			return startCall(w, tok), startedCheck(w, tok)
-		}},
-		{name: "recover_with_password", prep: completeWithPassword(outOfBand)},
-		{name: "recover_passkey_finish", prep: completeWithPasskey(outOfBand)},
-		{name: "recover_out_of_band", prep: func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
-			burden(t, w, w.alice)
-			return func(ctx context.Context) error {
-					return w.svc.RecoverOutOfBand(ctx, account.OutOfBand("socket"), w.alice.ID, access.NewSecret(recoveredPassword), account.RecoverOptions{})
-				}, func(t *testing.T) {
-					repaired(t, w, w.alice)
-					if !w.verifies(t, w.alice, recoveredPassword) {
-						t.Error("the recovered password does not verify")
-					}
-				}
 		}},
 		{name: "set_password_revoking_keys", counted: "alice", world: revokingKeys, prep: setPasswordRevoking(goodPassword)},
 		{name: "first_password_revoking_keys", world: revokingKeys, prep: func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
@@ -394,7 +310,7 @@ func txScenarios() []txScenario {
 					if stored(t, w.fixture, w.alice.ID) != nil || len(sessionsOf(t, w.mem, w.alice.ID)) != 0 || len(keysOf(t, w.mem, w.alice.ID)) != 0 {
 						t.Error("alice, a session or a key of hers remains")
 					}
-					tokensGone(t, w, func(tok access.OneTimeToken) bool { return tok.Subject == w.alice.ID || tok.IssuedByKey != 0 })
+					tokensGone(t, w, func(tok access.OneTimeToken) bool { return tok.IssuedByKey != 0 })
 				}
 		}},
 		{name: "create_api_key_rotating", prep: func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
@@ -416,8 +332,8 @@ func txScenarios() []txScenario {
 			if _, err := w.svc.CreateInvite(t.Context(), child.p, access.RoleUser, 0); err != nil {
 				t.Fatalf("CreateInvite from the child = %v", err)
 			}
-			if _, err := w.svc.IssueRecovery(t.Context(), account.As(parent.p), w.alice.ID, 0); err != nil {
-				t.Fatalf("IssueRecovery from the parent = %v", err)
+			if _, err := w.svc.CreateInvite(t.Context(), parent.p, access.RoleUser, 0); err != nil {
+				t.Fatalf("CreateInvite from the parent = %v", err)
 			}
 			p := w.recent(t, w.root)
 			return func(ctx context.Context) error { return w.svc.RevokeAPIKey(ctx, p, parent.key.ID) },
@@ -466,15 +382,6 @@ func txScenarios() []txScenario {
 					}
 				}
 		})},
-		{name: "key_issued_recovery_start", world: scoped, prep: keyAttributed(access.AttributionRecoveryStarted, func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
-			tok, err := w.svc.IssueRecovery(t.Context(), byKey(t, w), w.alice.ID, 0)
-			if err != nil {
-				t.Fatalf("IssueRecovery from the key = %v", err)
-			}
-			return startCall(w, tok), startedCheck(w, tok)
-		})},
-		{name: "key_issued_recover_with_password", world: scoped, prep: keyAttributed(access.AttributionRecovered, completeWithPassword(byKey))},
-		{name: "key_issued_recover_passkey_finish", world: scoped, prep: keyAttributed(access.AttributionRecovered, completeWithPasskey(byKey))},
 	}
 }
 
@@ -509,24 +416,6 @@ func acceptedCheck(w *opWorld, inv account.IssuedToken) func(*testing.T) {
 		}
 		if _, found, _ := w.mem.OneTimeTokenByHash(t.Context(), hashOf(inv)); found {
 			t.Error("the invite remains")
-		}
-	}
-}
-
-func startCall(w *opWorld, tok account.IssuedToken) func(context.Context) error {
-	return func(ctx context.Context) error {
-		_, err := w.svc.StartRecovery(ctx, localClient, tok.Plaintext)
-		return err
-	}
-}
-
-func startedCheck(w *opWorld, tok account.IssuedToken) func(*testing.T) {
-	return func(t *testing.T) {
-		if n := len(recoverySessions(t, w.mem, w.alice.ID)); n != 1 {
-			t.Errorf("alice holds %d recovery sessions, want 1", n)
-		}
-		if _, found, _ := w.mem.OneTimeTokenByHash(t.Context(), hashOf(tok)); found {
-			t.Error("the recovery token remains")
 		}
 	}
 }

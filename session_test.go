@@ -129,11 +129,10 @@ func TestSessionDeadlines(t *testing.T) {
 	policy := SessionTimeouts{Idle: week, Absolute: week}
 	tests := []struct {
 		name              string
-		kind              SessionKind
 		idleCap, absCap   time.Duration
 		wantIdle, wantAbs time.Time
 	}{
-		{name: "uncapped full session", wantIdle: active.Add(week), wantAbs: created.Add(week)},
+		{name: "uncapped session", wantIdle: active.Add(week), wantAbs: created.Add(week)},
 		{
 			name: "caps below the policy", idleCap: 30 * time.Minute, absCap: 12 * time.Hour,
 			wantIdle: active.Add(30 * time.Minute), wantAbs: created.Add(12 * time.Hour),
@@ -141,23 +140,11 @@ func TestSessionDeadlines(t *testing.T) {
 		{name: "caps above the policy", idleCap: 2 * week, absCap: 3 * week, wantIdle: active.Add(week), wantAbs: created.Add(week)},
 		{name: "zero caps", wantIdle: active.Add(week), wantAbs: created.Add(week)},
 		{name: "negative caps", idleCap: -time.Hour, absCap: -time.Nanosecond, wantIdle: active.Add(week), wantAbs: created.Add(week)},
-		{
-			name: "recovery session", kind: SessionRecovery,
-			wantIdle: active.Add(15 * time.Minute), wantAbs: created.Add(15 * time.Minute),
-		},
-		{
-			name: "recovery session with lower caps", kind: SessionRecovery, idleCap: 5 * time.Minute, absCap: 10 * time.Minute,
-			wantIdle: active.Add(5 * time.Minute), wantAbs: created.Add(10 * time.Minute),
-		},
-		{
-			name: "recovery session with higher caps", kind: SessionRecovery, idleCap: time.Hour, absCap: time.Hour,
-			wantIdle: active.Add(15 * time.Minute), wantAbs: created.Add(15 * time.Minute),
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			s := &Session{CreatedAt: created, LastActivity: active, Kind: tc.kind, IdleCap: tc.idleCap, AbsoluteCap: tc.absCap, Secure: true}
+			s := &Session{CreatedAt: created, LastActivity: active, IdleCap: tc.idleCap, AbsoluteCap: tc.absCap, Secure: true}
 			idle, absolute := SessionDeadlines(s, policy)
 			if !idle.Equal(tc.wantIdle) {
 				t.Errorf("idle deadline = %v, want %v", idle, tc.wantIdle)
@@ -226,7 +213,6 @@ func TestValidateSessionCaps(t *testing.T) {
 	// The absolute cases stay active until a second before the instant, so
 	// only the 12 h cap can lapse there.
 	idleCapped := &Session{CreatedAt: created, LastActivity: created, IdleCap: 30 * time.Minute, Secure: true}
-	recovery := &Session{CreatedAt: created, LastActivity: created, Kind: SessionRecovery, Secure: true}
 	absAt := created.Add(12 * time.Hour)
 	tests := []struct {
 		s       *Session
@@ -244,13 +230,7 @@ func TestValidateSessionCaps(t *testing.T) {
 			name: "absolute cap 1ns after its deadline", now: absAt.Add(1), wantErr: ErrSessionExpired,
 			s: &Session{CreatedAt: created, LastActivity: absAt.Add(-time.Second), AbsoluteCap: 12 * time.Hour, Secure: true},
 		},
-		{name: "uncapped full session a day old", s: &Session{CreatedAt: created, LastActivity: created.Add(23 * time.Hour), Secure: true}, now: created.Add(24 * time.Hour)},
-		{name: "recovery session idle 15 min", s: recovery, now: created.Add(15 * time.Minute)},
-		{name: "recovery session idle 15 min and 1ns", s: recovery, now: created.Add(15*time.Minute + 1), wantErr: ErrSessionExpired},
-		{
-			name: "recovery session created 15 min and 1ns ago, active a minute ago", now: created.Add(15*time.Minute + 1), wantErr: ErrSessionExpired,
-			s: &Session{CreatedAt: created, LastActivity: created.Add(14*time.Minute + 1), Kind: SessionRecovery, Secure: true},
-		},
+		{name: "uncapped session a day old", s: &Session{CreatedAt: created, LastActivity: created.Add(23 * time.Hour), Secure: true}, now: created.Add(24 * time.Hour)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

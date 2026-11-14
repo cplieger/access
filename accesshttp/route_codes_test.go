@@ -13,7 +13,6 @@ import (
 	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/ratelimit"
-	"github.com/cplieger/access/webauthn"
 )
 
 // scenarioKey names one operation code of one route.
@@ -34,7 +33,6 @@ type scenario struct {
 func operationScenarios() map[scenarioKey]scenario {
 	out := map[scenarioKey]scenario{}
 	maps.Copy(out, publicScenarios())
-	maps.Copy(out, recoveryScenarios())
 	maps.Copy(out, oidcScenarios())
 	maps.Copy(out, selfScenarios())
 	maps.Copy(out, adminScenarios())
@@ -51,7 +49,7 @@ func plainScenarios() map[scenarioKey]scenario {
 	out := map[scenarioKey]scenario{}
 	anonymous := []string{
 		"authSetupPassword", "authSetupPasskeyBegin", "authSetupPasskeyFinish", "authLoginPassword", "authLoginPasskeyBegin",
-		"authLoginPasskeyFinish", "authRecoveryStart", "authInviteAcceptPassword", "authOIDCStartSignIn", "authOIDCCallback", "authOIDCPending",
+		"authLoginPasskeyFinish", "authInviteAcceptPassword", "authOIDCStartSignIn", "authOIDCCallback", "authOIDCPending",
 	}
 	for _, route := range anonymous {
 		out[scenarioKey{route, access.CodeHTTPSRequired}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
@@ -69,12 +67,8 @@ func plainScenarios() map[scenarioKey]scenario {
 			e.createUser(t, "root", access.RoleAdmin)
 			e.createUser(t, "alice", access.RoleUser)
 			rt := e.route(t, route)
-			name, kind := "root", access.SessionFull
-			if rt.Class == ClassRecovery {
-				name, kind = "alice", access.SessionRecovery
-			}
 			path := strings.NewReplacer("{id}", censusPathValue(t, rt), "{method}", censusPathValue(t, rt)).Replace(rt.Path)
-			return requestAt(plainOrigin, path, rt, censusBody(t, rt), e.transportSession(t, name, kind, false))
+			return requestAt(plainOrigin, path, rt, censusBody(t, rt), e.transportSession(t, "root", false))
 		}}
 	}
 	return out
@@ -199,32 +193,6 @@ func (e *env) loginFinish(t *testing.T, between func(dev *accesstest.PasskeyDevi
 		between(dev)
 	}
 	return finish(e.route(t, "authLoginPasskeyFinish"), id, body)
-}
-
-// recoveryFinish begins a passkey recovery for cookie's session through
-// the Service, so a wrapping account sees only the finish, and returns its
-// finish request with dev's registration (a fresh device when nil).
-func (e *env) recoveryFinish(t *testing.T, cookie *http.Cookie, dev *accesstest.PasskeyDevice, edit func([]byte) []byte, between func()) *http.Request {
-	t.Helper()
-	origin, err := webauthn.ParseOrigin(testOrigin)
-	if err != nil {
-		t.Fatalf("ParseOrigin: %v", err)
-	}
-	pc, err := e.svc.RecoverPasskeyBegin(t.Context(), e.principal(t, cookie), origin)
-	if err != nil {
-		t.Fatalf("RecoverPasskeyBegin: %v", err)
-	}
-	if dev == nil {
-		dev = accesstest.NewPasskeyDevice(t)
-	}
-	body := dev.Register(jsonBytes(t, pc.Creation))
-	if edit != nil {
-		body = edit(body)
-	}
-	if between != nil {
-		between()
-	}
-	return finish(e.route(t, "authRecoveryPasskeyFinish"), pc.ID, body, cookie)
 }
 
 func publicScenarios() map[scenarioKey]scenario {
@@ -457,113 +425,6 @@ func publicScenarios() map[scenarioKey]scenario {
 func inviteBody(t *testing.T, token access.Secret, name, password string) string {
 	t.Helper()
 	return jsonBody(t, InviteAcceptRequest{Token: token.Reveal(), Username: name, Password: password})
-}
-
-func recoveryPasswordBody(t *testing.T, password string) string {
-	t.Helper()
-	return jsonBody(t, RecoverPasswordRequest{Password: password})
-}
-
-func recoveryScenarios() map[scenarioKey]scenario {
-	// alice opens a recovery session from an out-of-band link.
-	alice := func(t *testing.T, e *env) *http.Cookie {
-		t.Helper()
-		e.createUser(t, "alice", access.RoleUser)
-		return e.recoveryCookie(t, "alice")
-	}
-	tokenBody := func(t *testing.T, token string) string {
-		t.Helper()
-		return jsonBody(t, TokenRequest{Token: token})
-	}
-	return map[scenarioKey]scenario{
-		{"authRecoveryStart", access.CodeRateLimited}: {opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
-			e.createUser(t, "alice", access.RoleUser)
-			issued, err := e.svc.IssueRecovery(t.Context(), account.OutOfBand("test"), e.user(t, "alice").ID, 0)
-			if err != nil {
-				t.Fatalf("IssueRecovery: %v", err)
-			}
-			e.spendAttempt(t)
-			return e.post(t, "authRecoveryStart", tokenBody(t, issued.Plaintext.Reveal()))
-		}},
-		{"authRecoveryStart", access.CodeUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
-			r := e.post(t, "authRecoveryStart", tokenBody(t, "some-token"))
-			e.shutdown(t)
-			return r
-		}},
-		{"authRecoveryStart", access.CodeTokenInvalid}: {arrange: func(t *testing.T, e *env) *http.Request {
-			return e.post(t, "authRecoveryStart", tokenBody(t, "not-a-recovery-token"))
-		}},
-
-		{"authRecoveryPassword", access.CodeSessionExpired}: {opts: vanishes, arrange: func(t *testing.T, e *env) *http.Request {
-			return e.post(t, "authRecoveryPassword", recoveryPasswordBody(t, testPassword), alice(t, e))
-		}},
-		{"authRecoveryPassword", access.CodeBusy}: {arrange: func(t *testing.T, e *env) *http.Request {
-			r := e.post(t, "authRecoveryPassword", recoveryPasswordBody(t, testPassword), alice(t, e))
-			e.holdBudget(t)
-			return r
-		}},
-		{"authRecoveryPassword", access.CodeUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
-			r := e.post(t, "authRecoveryPassword", recoveryPasswordBody(t, testPassword), alice(t, e))
-			e.shutdown(t)
-			return r
-		}},
-		{"authRecoveryPassword", access.CodePasswordRejected}: {arrange: func(t *testing.T, e *env) *http.Request {
-			return e.post(t, "authRecoveryPassword", recoveryPasswordBody(t, "short"), alice(t, e))
-		}},
-		{"authRecoveryPassword", access.CodeBreachCheckUnavailable}: {opts: breachDown, arrange: func(t *testing.T, e *env) *http.Request {
-			return e.post(t, "authRecoveryPassword", recoveryPasswordBody(t, testPassword), alice(t, e))
-		}},
-		{"authRecoveryPassword", access.CodeTokenInvalid}: {opts: keyScopes, arrange: func(t *testing.T, e *env) *http.Request {
-			cookie, revoke := e.keyIssuedRecovery(t)
-			revoke()
-			return e.post(t, "authRecoveryPassword", recoveryPasswordBody(t, testPassword), cookie)
-		}},
-
-		{"authRecoveryPasskeyBegin", access.CodeSessionExpired}: {opts: with(passkeys, vanishes), arrange: func(t *testing.T, e *env) *http.Request {
-			return e.post(t, "authRecoveryPasskeyBegin", "", alice(t, e))
-		}},
-		{"authRecoveryPasskeyBegin", access.CodeUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
-			r := e.post(t, "authRecoveryPasskeyBegin", "", alice(t, e))
-			e.shutdown(t)
-			return r
-		}},
-		{"authRecoveryPasskeyBegin", access.CodePasskeysUnavailable}: {arrange: func(t *testing.T, e *env) *http.Request {
-			return e.post(t, "authRecoveryPasskeyBegin", "", alice(t, e))
-		}},
-		{"authRecoveryPasskeyBegin", access.CodeOriginRefused}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
-			return fromOrigin(e.post(t, "authRecoveryPasskeyBegin", "", alice(t, e)), evilOrigin)
-		}},
-
-		{"authRecoveryPasskeyFinish", access.CodeSessionExpired}: {opts: with(passkeys, vanishes), arrange: func(t *testing.T, e *env) *http.Request {
-			return e.recoveryFinish(t, alice(t, e), nil, nil, nil)
-		}},
-		{"authRecoveryPasskeyFinish", access.CodeUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
-			return e.recoveryFinish(t, alice(t, e), nil, nil, func() { e.shutdown(t) })
-		}},
-		{"authRecoveryPasskeyFinish", access.CodeTokenInvalid}: {opts: with(passkeys, keyScopes), arrange: func(t *testing.T, e *env) *http.Request {
-			cookie, revoke := e.keyIssuedRecovery(t)
-			return e.recoveryFinish(t, cookie, nil, nil, revoke)
-		}},
-		{"authRecoveryPasskeyFinish", access.CodeDuplicateCredential}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
-			e.createUser(t, "root", access.RoleAdmin)
-			held := e.enrol(t, "root")
-			return e.recoveryFinish(t, alice(t, e), held, nil, nil)
-		}},
-		{"authRecoveryPasskeyFinish", access.CodePasskeysUnavailable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
-			return e.recoveryFinish(t, alice(t, e), nil, nil, func() { e.rp.Store(nil) })
-		}},
-		{"authRecoveryPasskeyFinish", access.CodeCeremonyInvalid}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
-			r := e.recoveryFinish(t, alice(t, e), nil, nil, nil)
-			r.Header.Set(ceremonyHeader, "not-a-ceremony")
-			return r
-		}},
-		{"authRecoveryPasskeyFinish", access.CodeNotDiscoverable}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
-			return e.recoveryFinish(t, alice(t, e), nil, func(b []byte) []byte { return notDiscoverable(t, b) }, nil)
-		}},
-		{"authRecoveryPasskeyFinish", access.CodeRegistrationFailed}: {opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
-			return e.recoveryFinish(t, alice(t, e), nil, func([]byte) []byte { return []byte(`{}`) }, nil)
-		}},
-	}
 }
 
 // redirectedCode is the auth_error a redirect answer carries.

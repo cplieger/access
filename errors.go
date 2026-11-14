@@ -24,9 +24,6 @@ var (
 	// ErrAccountDisabled is the detail for a credential whose user is
 	// missing or disabled.
 	ErrAccountDisabled = errors.New("access: account disabled")
-	// ErrRestrictedSession is the detail for a recovery session presented
-	// on a request that does not allow one (see [AllowRecoverySession]).
-	ErrRestrictedSession = errors.New("access: restricted session")
 	// ErrSessionTransport is the detail for a session presented on the
 	// other transport than the one it was created on (see
 	// [Session.Secure]); the session verifier revokes it.
@@ -41,13 +38,13 @@ var (
 // InvalidCredentialError is the detail of [ErrInvalidCredential]; the error
 // matches both ErrInvalidCredential and Err.
 type InvalidCredentialError struct {
-	// Err is [ErrInvalidAPIKey], [ErrAccountDisabled],
-	// [ErrRestrictedSession] or [ErrSessionTransport], or nil for a granted
-	// principal refused only for an empty Method.
+	// Err is [ErrInvalidAPIKey], [ErrAccountDisabled] or
+	// [ErrSessionTransport], or nil for a granted principal refused only for
+	// an empty Method.
 	Err error
 	// Method is the refused credential's: [MethodAPIKey] for an API key, a
-	// recovery session's AuthMethod, the granted principal's own Method for
-	// a refused grant.
+	// session's AuthMethod, the granted principal's own Method for a refused
+	// grant.
 	Method Method
 	// KeyID is the ID of the stored key a refused API key named, set only
 	// when the store found it (expired, owner missing or disabled) and zero

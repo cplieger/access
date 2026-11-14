@@ -30,13 +30,10 @@ func censusPrincipals() []censusPrincipal {
 	return []censusPrincipal{
 		{name: "zero", make: func(*testing.T, *opWorld) access.Principal { return access.Principal{} }},
 		{name: "full", make: func(t *testing.T, w *opWorld) access.Principal {
-			return w.sessionPrincipal(t, w.root, access.SessionFull, time.Now().Add(-time.Hour))
+			return w.sessionPrincipal(t, w.root, time.Now().Add(-time.Hour))
 		}},
 		{name: "recent", make: func(t *testing.T, w *opWorld) access.Principal { return w.recent(t, w.root) }},
 		{name: "recent_user", make: func(t *testing.T, w *opWorld) access.Principal { return w.recent(t, w.alice) }},
-		{name: "recovery", make: func(t *testing.T, w *opWorld) access.Principal {
-			return w.sessionPrincipal(t, w.root, access.SessionRecovery, time.Now())
-		}},
 		{name: "admin_key", make: key(root, scopeAdmin)},
 		{name: "unscoped_key", make: key(root)},
 		{name: "user_admin_key", make: key(alice, scopeAdmin)},
@@ -71,8 +68,6 @@ func censusAnswer(op *operation, scoped bool, who string) error {
 		switch who {
 		case key:
 			return nil
-		case "recovery":
-			return account.ErrSessionRequired
 		case "zero", "unscoped_key", "admin_key", "user_admin_key", "users_key", "keys_key", "custom_none", "custom_every", "bypass":
 			return account.ErrScopeRequired
 		}
@@ -83,11 +78,6 @@ func censusAnswer(op *operation, scoped bool, who string) error {
 		return sessionAnswer("full", "recent", "recent_user")
 	case classRecentAuth:
 		return sessionAnswer("recent", "recent_user")
-	case classRecovery:
-		if who == "recovery" {
-			return nil
-		}
-		return account.ErrSessionRequired
 	case classAdminScope:
 		session := sessionAnswer("full", "recent", "recent_user")
 		if who == "recent_user" {
@@ -183,10 +173,6 @@ func censusUserNaming(t *testing.T) {
 		{name: "DeleteUser", call: func(t *testing.T, w *opWorld, p access.Principal, id int64) error {
 			return w.svc.DeleteUser(t.Context(), p, id)
 		}},
-		{name: "IssueRecovery", call: func(t *testing.T, w *opWorld, p access.Principal, id int64) error {
-			_, err := w.svc.IssueRecovery(t.Context(), account.As(p), id, 0)
-			return err
-		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -223,7 +209,7 @@ func censusUserNaming(t *testing.T) {
 
 func TestKeyAuthorityEveryWrite(t *testing.T) {
 	t.Parallel()
-	want := []string{"CreateAPIKey", "CreateInvite", "CreateUser", "DeleteUser", "IssueRecovery", "RevokeAnyAPIKey", "UpdateUser"}
+	want := []string{"CreateAPIKey", "CreateInvite", "CreateUser", "DeleteUser", "RevokeAnyAPIKey", "UpdateUser"}
 	var (
 		mu      sync.Mutex
 		reached []string

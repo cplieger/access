@@ -67,7 +67,7 @@ func TestRotationKeepsSession(t *testing.T) {
 			u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
 			now := time.Now().Truncate(time.Second)
 			sess := &access.Session{
-				ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPasskey,
+				ID: newSessionID(t), UserID: u.ID, AuthMethod: access.MethodPasskey,
 				CreatedAt: now.Add(-3 * time.Hour), LastActivity: now, AuthTime: now.Add(-5 * time.Minute),
 				UserAgent: "test-agent", Label: "laptop", LastIP: "192.0.2.7",
 				IdleCap: 30 * time.Minute, AbsoluteCap: 12 * time.Hour, Secure: true,

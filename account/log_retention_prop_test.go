@@ -95,7 +95,7 @@ func TestLogBoundAtAnyTime(t *testing.T) {
 				}
 				step(rt)
 				i := rapid.IntRange(0, len(live)-1).Draw(rt, "deleted")
-				p := f.sessionPrincipal(t, root, access.SessionFull, clock.now())
+				p := f.sessionPrincipal(t, root, clock.now())
 				if err := f.svc.DeleteUser(t.Context(), p, live[i]); err != nil {
 					rt.Fatalf("DeleteUser: %v", err)
 				}
@@ -104,8 +104,8 @@ func TestLogBoundAtAnyTime(t *testing.T) {
 			},
 			"revoke_session": func(rt *rapid.T) {
 				step(rt)
-				p := f.sessionPrincipal(t, root, access.SessionFull, clock.now())
-				other := f.sessionPrincipal(t, root, access.SessionFull, clock.now())
+				p := f.sessionPrincipal(t, root, clock.now())
+				other := f.sessionPrincipal(t, root, clock.now())
 				if err := f.svc.RevokeSession(t.Context(), p, other.SessionID); err != nil {
 					rt.Fatalf("RevokeSession: %v", err)
 				}

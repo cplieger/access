@@ -13,7 +13,7 @@ The posture is `CookieConfig.Posture`, and it is the only switch ([Session cooki
 
 ## What a plain request may do
 
-Under `PosturePerRequest`, a plain request may sign in and set up the first account by password, and use what a password session can use. It gets no other sign-in ceremony, no step-up, no recovery, no removal of the one method a plain session signs in with, and no operation that answers a newly issued long-lived secret.
+Under `PosturePerRequest`, a plain request may sign in and set up the first account by password, and use what a password session can use. It gets no other sign-in ceremony, no step-up, no removal of the one method a plain session signs in with, and no operation that answers a newly issued long-lived secret.
 
 | Allowed over plain HTTP | Refused over plain HTTP with 403 `auth_https_required` |
 | --- | --- |
@@ -22,9 +22,9 @@ Under `PosturePerRequest`, a plain request may sign in and set up the first acco
 | `authPasswordSet`, whose recent auth is the sign-in's time | `authStepUpPassword`, `authStepUpPasskeyBegin`, `authStepUpPasskeyFinish` |
 | `authPasskeys`, `authPasskeyRename`, `authPasskeyRemove`, `authWebAuthnSignals`, `authOIDCUnlink` | `authPasswordRemove` |
 | `authSessions`, `authSessionRename`, `authSessionRevoke`, `authSessionsRevokeOthers` | `authPasskeyRegisterBegin`, `authPasskeyRegisterFinish` |
-| `authKeys`, `authKeyRename`, `authKeyRevoke`, `authAdminKeys`, `authAdminKeyRevoke` | `authRecoveryStart`, `authRecoveryPassword`, `authRecoveryPasskeyBegin`, `authRecoveryPasskeyFinish` |
-| `authAdminUsers`, `authAdminUserCreate`, `authAdminUserUpdate`, `authAdminUserDelete`, `authAdminTokens`, `authAdminSecurityLog` | `authInviteAcceptPassword` |
-| every route of yours on the gate, by its class, except a row marked `HTTPS` | `authKeyCreate`, `authKeyRotate`, `authAdminRecovery`, `authAdminInvite` |
+| `authKeys`, `authKeyRename`, `authKeyRevoke`, `authAdminKeys`, `authAdminKeyRevoke` | `authInviteAcceptPassword` |
+| `authAdminUsers`, `authAdminUserCreate`, `authAdminUserUpdate`, `authAdminUserDelete`, `authAdminTokens`, `authAdminSecurityLog` | |
+| every route of yours on the gate, by its class, except a row marked `HTTPS` | `authKeyCreate`, `authKeyRotate`, `authAdminInvite` |
 
 Two rows need a reason:
 
@@ -66,7 +66,7 @@ Once signed in, `MeResponse.session.secure` and each `SessionView.secure` carry 
 
 A plain session's recent-auth time is its sign-in, because nothing over plain HTTP refreshes it: every step-up needs HTTPS. Once that time is older than `Rules.RecentAuth`, an action that needs recent auth, such as `authPasswordSet`, answers 403 `auth_recent_auth_required` with `Reason` `sign_in_again`, and the client asks for a fresh sign-in in place of the step-up dialog (`withStepUp`'s `signInAgain` in [`@cplieger/access`](../web/README.md)). A secure session's refusal carries no reason. A key, a custom verifier's principal and the bypass never get `sign_in_again`, since a sign-in cannot help them. A handler of yours that guards its own action gets the same answer from `access.RequireRecentAuth` and `access.ErrorFor` ([Guards](primitives.md#guards)).
 
-A fresh sign-in replaces the session its request presented. `accesshttp` puts the hash of the session cookie it read for the request's transport in `Client.Presented`, and a full sign-in deletes that session before it counts the user's sessions against `Rules.MaxSessionsPerUser`, when the session is the signing-in user's and on the same transport. Its `session_revoked` entry carries `signed_in_again` ([The security log](security-log.md)). The user then holds one session for that browser, a session on another device survives the limit, and a token sniffed from the old session stops working at the sign-in. Another user's session, a session on the other transport and a missing one are left alone, and a recovery start replaces nothing. An app that calls `account` directly sets `Client.Presented` the same way, from `CookieConfig.ReadCookie`.
+A fresh sign-in replaces the session its request presented. `accesshttp` puts the hash of the session cookie it read for the request's transport in `Client.Presented`, and a full sign-in deletes that session before it counts the user's sessions against `Rules.MaxSessionsPerUser`, when the session is the signing-in user's and on the same transport. Its `session_revoked` entry carries `signed_in_again` ([The security log](security-log.md)). The user then holds one session for that browser, a session on another device survives the limit, and a token sniffed from the old session stops working at the sign-in. Another user's session, a session on the other transport and a missing one are left alone. An app that calls `account` directly sets `Client.Presented` the same way, from `CookieConfig.ReadCookie`.
 
 ## Keys over plain HTTP
 
@@ -78,6 +78,6 @@ A route of yours that mints a secret, or that should never run in clear, sets `H
 
 ## What the binding protects, and what it does not
 
-A session is bound to the transport that created it, and one presented on the other transport is refused and revoked ([Sessions](primitives.md#sessions)). A session token sniffed from a plain request therefore never reaches what an HTTPS session can do: passkeys, OIDC, step-up, recovery, keys and invites. A forged `X-Forwarded-Proto` from a peer you do not trust is ignored, so a plain request cannot claim to be secure.
+A session is bound to the transport that created it, and one presented on the other transport is refused and revoked ([Sessions](primitives.md#sessions)). A session token sniffed from a plain request therefore never reaches what an HTTPS session can do: passkeys, OIDC, step-up, keys and invites. A forged `X-Forwarded-Proto` from a peer you do not trust is ignored, so a plain request cannot claim to be secure.
 
 The binding does not protect a password typed over plain HTTP. An observer on that network can read it, and over HTTPS it grants everything the password grants. The control for that is a second factor at sign-in; without one, use plain HTTP only on a network whose observers you trust.

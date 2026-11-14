@@ -216,21 +216,15 @@ func (f *finishCounting) PasskeyLoginFinish(ctx context.Context, c account.Clien
 	return f.accountAPI.PasskeyLoginFinish(ctx, c, id, body)
 }
 
-func (f *finishCounting) RecoverPasskeyFinish(ctx context.Context, p access.Principal, id string, body io.Reader, opts account.RecoverOptions) error {
-	f.calls.Add(1)
-	return f.accountAPI.RecoverPasskeyFinish(ctx, p, id, body, opts)
-}
-
 func TestFinishBodyTooLarge(t *testing.T) {
 	counting := &finishCounting{}
 	e := newEnv(t, with(passkeys, envOptions{wrap: func(_ *env, s *account.Service) accountAPI { counting.accountAPI = s; return counting }}))
 	e.createUser(t, "alice", access.RoleUser)
-	recovery := e.recoveryCookie(t, "alice")
 	tooLarge := []byte(longBody(webauthn.MaxResponseBytes + 1))
-	for _, name := range []string{"authSetupPasskeyFinish", "authLoginPasskeyFinish", "authRecoveryPasskeyFinish"} {
+	for _, name := range []string{"authSetupPasskeyFinish", "authLoginPasskeyFinish"} {
 		t.Run(name, func(t *testing.T) {
 			before, calls := len(e.errs.all()), counting.calls.Load()
-			w := do(e.route(t, name), finish(e.route(t, name), "any", tooLarge, recovery))
+			w := do(e.route(t, name), finish(e.route(t, name), "any", tooLarge))
 			errs := e.errs.all()[before:]
 			if w.Code != http.StatusRequestEntityTooLarge || len(errs) != 1 || errs[0].Code != access.CodeBodyTooLarge {
 				t.Errorf("status %d errors %+v, want 413 auth_body_too_large", w.Code, errs)
@@ -275,11 +269,6 @@ func (c *tokenCounting) SetupPasskeyBegin(ctx context.Context, cl account.Client
 	return c.accountAPI.SetupPasskeyBegin(ctx, cl, in)
 }
 
-func (c *tokenCounting) StartRecovery(ctx context.Context, cl account.Client, token access.Secret) (account.Recovery, error) {
-	c.calls.Add(1)
-	return c.accountAPI.StartRecovery(ctx, cl, token)
-}
-
 func (c *tokenCounting) AcceptInvitePassword(ctx context.Context, cl account.Client, in account.AcceptInvite) (account.SignedIn, error) {
 	c.calls.Add(1)
 	return c.accountAPI.AcceptInvitePassword(ctx, cl, in)
@@ -290,15 +279,9 @@ func TestTokenOnlyInBody(t *testing.T) {
 	e := newEnv(t, with(passkeys, tokenRequired, envOptions{wrap: func(_ *env, s *account.Service) accountAPI { counting.accountAPI = s; return counting }}))
 	setupToken := e.setupToken(t)
 	inviteToken := e.invite(t)
-	e.createUser(t, "alice", access.RoleUser)
-	recovery, err := e.svc.IssueRecovery(t.Context(), account.OutOfBand("test"), e.user(t, "alice").ID, 0)
-	if err != nil {
-		t.Fatalf("IssueRecovery: %v", err)
-	}
 	bodies := map[string]string{
 		"authSetupPassword":        setupPasswordBody(t, setupToken),
 		"authSetupPasskeyBegin":    setupPasskeyBody(t, setupToken),
-		"authRecoveryStart":        jsonBody(t, TokenRequest{Token: recovery.Plaintext.Reveal()}),
 		"authInviteAcceptPassword": inviteBody(t, inviteToken, "invitee", testPassword),
 	}
 	for _, rt := range e.h.Routes() {
@@ -324,10 +307,8 @@ func TestTokenOnlyInBody(t *testing.T) {
 		})
 	}
 	t.Run("body_accepted", func(t *testing.T) {
-		rt := e.route(t, "authRecoveryStart")
-		if w := do(rt, request(rt, bodies["authRecoveryStart"])); w.Code != http.StatusOK {
-			t.Errorf("status %d errors %+v, want 200 with the token in the body", w.Code, e.errs.all())
-		}
+		rt := e.route(t, "authInviteAcceptPassword")
+		e.requireSignedIn(t, do(rt, request(rt, bodies["authInviteAcceptPassword"])), "invitee")
 	})
 }
 

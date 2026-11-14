@@ -420,9 +420,9 @@ func (f *faultStore) ConsumeOneTimeToken(ctx context.Context, h access.Hash, now
 	return tok, found, err
 }
 
-func (f *faultStore) DeleteOneTimeTokens(ctx context.Context, p access.TokenPurpose, subject int64) (int, error) {
+func (f *faultStore) DeleteOneTimeTokens(ctx context.Context, p access.TokenPurpose) (int, error) {
 	var n int
-	err := f.commit(func(tx *memTx) (err error) { n, err = tx.DeleteOneTimeTokens(ctx, p, subject); return err })
+	err := f.commit(func(tx *memTx) (err error) { n, err = tx.DeleteOneTimeTokens(ctx, p); return err })
 	return n, err
 }
 

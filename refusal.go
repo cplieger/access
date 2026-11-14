@@ -238,8 +238,6 @@ func authenticationCode(err error) (Code, bool) {
 	}
 	if ice, isICE := errors.AsType[*InvalidCredentialError](err); isICE {
 		switch {
-		case errors.Is(err, ErrRestrictedSession):
-			return CodeSessionRequired, true
 		case errors.Is(err, ErrSessionTransport):
 			return CodeSessionExpired, true
 		case ice.Method == MethodAPIKey:

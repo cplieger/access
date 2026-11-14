@@ -158,7 +158,7 @@ func TestAppendLog(t *testing.T) {
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
 		now := time.Now()
 		sess := &access.Session{
-			ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPassword,
+			ID: newSessionID(t), UserID: u.ID, AuthMethod: access.MethodPassword,
 			CreatedAt: now, LastActivity: now, AuthTime: now, Label: "laptop", UserAgent: "Firefox on Linux", Secure: true,
 		}
 		p, _ := f.principalOf(t, sess)
@@ -197,7 +197,7 @@ func TestAppendLog(t *testing.T) {
 			calls []string // the AppendLog Update's store calls, in order
 		}{
 			{name: "session", actor: func(t *testing.T, f *fixture) account.Actor {
-				return account.As(f.sessionPrincipal(t, mustUser(t, f.mem, "alice", access.RoleUser), access.SessionFull, time.Now()))
+				return account.As(f.sessionPrincipal(t, mustUser(t, f.mem, "alice", access.RoleUser), time.Now()))
 			}, calls: []string{"Update", "SessionsByUserID", "AppendLog", "PruneLog"}},
 			{name: "key", actor: func(t *testing.T, f *fixture) account.Actor {
 				p, _ := labelledKey(t, f, mustUser(t, f.mem, "alice", access.RoleUser), "deploy bot")
@@ -331,7 +331,7 @@ func TestAppendLog(t *testing.T) {
 		}})
 		invalid.Store(true)
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
-		p := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+		p := f.sessionPrincipal(t, u, time.Now())
 		if err := f.svc.RequireKeyPermission(p, ""); !errors.Is(err, account.ErrRulesInvalid) {
 			t.Fatalf("an operation under the flipped Rules = %v, want ErrRulesInvalid; the case needs invalid Rules", err)
 		}

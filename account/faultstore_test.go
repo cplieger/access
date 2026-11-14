@@ -707,11 +707,11 @@ func (t *faultTx) ConsumeOneTimeToken(ctx context.Context, hash access.Hash, now
 	return t.inner.ConsumeOneTimeToken(ctx, hash, now)
 }
 
-func (t *faultTx) DeleteOneTimeTokens(ctx context.Context, purpose access.TokenPurpose, subject int64) (int, error) {
+func (t *faultTx) DeleteOneTimeTokens(ctx context.Context, purpose access.TokenPurpose) (int, error) {
 	if err := t.s.write(ctx, t.update, "DeleteOneTimeTokens", ""); err != nil {
 		return 0, err
 	}
-	return t.inner.DeleteOneTimeTokens(ctx, purpose, subject)
+	return t.inner.DeleteOneTimeTokens(ctx, purpose)
 }
 
 func (t *faultTx) LiveOneTimeTokens(ctx context.Context, purposes []access.TokenPurpose, now time.Time) ([]access.OneTimeToken, error) {

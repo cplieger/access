@@ -43,7 +43,7 @@ func liveSession(t testing.TB, u *access.User) access.Session {
 	t.Helper()
 	now := time.Now()
 	return access.Session{
-		ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPassword,
+		ID: newSessionID(t), UserID: u.ID, AuthMethod: access.MethodPassword,
 		CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true,
 	}
 }
@@ -73,7 +73,7 @@ func TestOIDCSignIn(t *testing.T) {
 			t.Errorf("Redirect = %q, want the sealed /home", out.Redirect)
 		}
 		sess := storedSession(t, f.mem, u.ID, out.SignedIn.Session.ID)
-		if sess.Kind != access.SessionFull || sess.AuthMethod != access.MethodOIDC || sess.AuthTime.Before(start) {
+		if sess.AuthMethod != access.MethodOIDC || sess.AuthTime.Before(start) {
 			t.Errorf("stored session = %+v, want a full OIDC session signed in now", sess)
 		}
 		if pr, err := f.authenticate(t.Context(), out.SignedIn.Token); err != nil || pr.User.ID != u.ID {
@@ -385,7 +385,7 @@ func TestOIDCPendingLink(t *testing.T) {
 		kept    access.OIDCIdentity // the link alice still holds
 	}{
 		{name: "stale_session", want: access.ErrRecentAuthRequired, arrange: func(t *testing.T, f *pendingFixture) (access.Principal, account.PendingLink) {
-			return f.sessionPrincipal(t, f.u, access.SessionFull, time.Now().Add(-time.Hour)), f.pending
+			return f.sessionPrincipal(t, f.u, time.Now().Add(-time.Hour)), f.pending
 		}},
 		{name: "identity_taken", want: account.ErrOIDCIdentityTaken, arrange: func(t *testing.T, f *pendingFixture) (access.Principal, account.PendingLink) {
 			linkIdentity(t, f.mem, passwordUser(t, f.mem, nil, "bob", ""), f.pending.Identity)
@@ -512,9 +512,6 @@ func TestOIDCLinkIntent(t *testing.T) {
 		{name: "past_own_idle_cap", want: account.ErrSessionGone, session: func(s *access.Session) {
 			s.IdleCap, s.LastActivity = 5*time.Minute, time.Now().Add(-10*time.Minute)
 		}},
-		{name: "recovery_session", want: account.ErrSessionGone, session: func(s *access.Session) {
-			s.Kind, s.AuthMethod = access.SessionRecovery, access.MethodRecovery
-		}},
 		{name: "disabled_user", want: account.ErrSessionGone, after: func(t *testing.T, f *oidcFixture, u *access.User, _ access.Session) {
 			stored := storedUser(t, f.mem, u.ID)
 			stored.Enabled = false
@@ -625,7 +622,7 @@ func TestOIDCSSOMigration(t *testing.T) {
 				})})
 				pk1, pk2 := addPasskey(t, f.mem, u, rpID), addPasskey(t, f.mem, u, rpID)
 				_, key := f.keyPrincipalFor(t, nil, u, time.Time{}, nil)
-				_, issued := access.NewOneTimeToken(access.PurposeInvite, 0, time.Hour, time.Now())
+				_, issued := access.NewOneTimeToken(access.PurposeInvite, time.Hour, time.Now())
 				issued.IssuedByKey = key.ID
 				if err := f.mem.CreateOneTimeToken(t.Context(), issued); err != nil {
 					t.Fatalf("CreateOneTimeToken: %v", err)
@@ -946,7 +943,7 @@ func TestUnlinkLastUsable(t *testing.T) {
 	t.Run("stale_session", func(t *testing.T) {
 		t.Parallel()
 		f, u := setup(t, pwOptions{}, true)
-		pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now().Add(-time.Hour))
+		pr := f.sessionPrincipal(t, u, time.Now().Add(-time.Hour))
 		if err := f.svc.UnlinkOIDC(t.Context(), pr); !errors.Is(err, access.ErrRecentAuthRequired) {
 			t.Errorf("UnlinkOIDC from a stale session = %v, want ErrRecentAuthRequired", err)
 		}

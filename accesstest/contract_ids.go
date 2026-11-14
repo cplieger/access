@@ -177,7 +177,7 @@ func (c *contract) attributions(t *testing.T) {
 	written := []access.KeyAttribution{
 		appendOne(u1, k1, access.AttributionCreated, 1),
 		appendOne(u1, k2, access.AttributionDisabled, 2),
-		appendOne(u2, k3, access.AttributionRecovered, 3),
+		appendOne(u2, k3, access.AttributionInviteAccepted, 3),
 	}
 	expectList(t, s, "after three appends", written)
 	if err := s.DeleteAPIKey(ctx, access.KeyRef{ID: k1.ID, UserID: u1.ID}); err != nil {
@@ -381,7 +381,7 @@ func seedRows(t *testing.T, s account.Store) *seeded {
 	t.Helper()
 	sd := &seeded{user: mustUser(t, s, fresh("context"))}
 	sd.session, sd.passkey, sd.key = newSession(sd.user.ID, epoch), newPasskey(sd.user.ID), newKey(sd.user.ID)
-	sd.token = newToken(access.PurposeRecovery, sd.user.ID, epoch.Add(time.Hour))
+	sd.token = newToken(access.PurposeInvite, epoch.Add(time.Hour))
 	mustSession(t, s, sd.session)
 	mustPasskey(t, s, sd.passkey)
 	mustKey(t, s, sd.key)
@@ -493,10 +493,10 @@ func credentialCalls(tx account.Tx, sd *seeded) []namedCall {
 
 func recordCalls(tx account.Tx, sd *seeded) []namedCall {
 	ref := account.FailureRef{Name: "ctx", Method: access.MethodPassword}
-	purposes := []access.TokenPurpose{access.PurposeRecovery}
+	purposes := []access.TokenPurpose{access.PurposeInvite}
 	return []namedCall{
 		{func(ctx context.Context) error {
-			return tx.CreateOneTimeToken(ctx, newToken(access.PurposeInvite, 0, epoch.Add(time.Hour)))
+			return tx.CreateOneTimeToken(ctx, newToken(access.PurposeInvite, epoch.Add(time.Hour)))
 		}, "CreateOneTimeToken"},
 		{func(ctx context.Context) error { _, _, err := tx.OneTimeTokenByHash(ctx, sd.token.Hash); return err }, "OneTimeTokenByHash"},
 		{func(ctx context.Context) error { _, err := tx.LiveOneTimeTokens(ctx, purposes, epoch); return err }, "LiveOneTimeTokens"},
@@ -519,7 +519,7 @@ func deleteCalls(tx account.Tx, sd *seeded) []namedCall {
 			return err
 		}, "ConsumeOneTimeToken"},
 		{func(ctx context.Context) error {
-			_, err := tx.DeleteOneTimeTokens(ctx, access.PurposeRecovery, sd.user.ID)
+			_, err := tx.DeleteOneTimeTokens(ctx, sd.token.Purpose)
 			return err
 		}, "DeleteOneTimeTokens"},
 		{func(ctx context.Context) error { _, err := tx.DeleteOneTimeTokensIssuedBy(ctx, []int64{7}); return err }, "DeleteOneTimeTokensIssuedBy"},

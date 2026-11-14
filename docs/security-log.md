@@ -24,25 +24,22 @@ Each operation appends its entries in the order it reports its events to `OnEven
 | `user_created` | change | first-user setup (with the admin role), `CreateUser`, `AcceptInvitePassword`, and an OIDC sign-in that creates the account, which is linked from the start and gets no `oidc_linked` |
 | `signed_in` | session | every full sign-in: password, passkey, OIDC, first-user setup and `AcceptInvitePassword` |
 | `stepped_up` | session | `StepUpPassword`, a passkey step-up and an OIDC step-up |
-| `session_revoked` | session | `RevokeSession`, `Logout` when it ended a session, a sign-in or `StartRecovery` that ends sessions past `Rules.MaxSessionsPerUser`, with one entry naming every session it ended, the revoke of a session presented on the other transport, whose `Detail` is `transport_changed` (`account.LogDetailTransportChanged`), and a full sign-in that replaced the session its request presented, in an entry of its own ahead of any `MaxSessionsPerUser` entry, whose `Detail` is `signed_in_again` (`account.LogDetailSignedInAgain`) |
-| `user_sessions_revoked` | change | `RevokeOtherSessions`, `SetPassword`, and an OIDC link under `Rules.SSOGoverned`, each when it ended at least one other session of the user. A role change, a disable, a delete and a recovery name the sessions they end in their own entry instead |
+| `session_revoked` | session | `RevokeSession`, `Logout` when it ended a session, a sign-in that ends sessions past `Rules.MaxSessionsPerUser`, with one entry naming every session it ended, the revoke of a session presented on the other transport, whose `Detail` is `transport_changed` (`account.LogDetailTransportChanged`), and a full sign-in that replaced the session its request presented, in an entry of its own ahead of any `MaxSessionsPerUser` entry, whose `Detail` is `signed_in_again` (`account.LogDetailSignedInAgain`) |
+| `user_sessions_revoked` | change | `RevokeOtherSessions`, `SetPassword`, and an OIDC link under `Rules.SSOGoverned`, each when it ended at least one other session of the user. A role change, a disable and a delete name the sessions they end in their own entry instead |
 | `password_set`, `password_changed` | change | `SetPassword`: `password_set` when the user held no password, `password_changed` when one was replaced |
 | `password_removed` | change | `RemovePassword`, and an OIDC link under `Rules.SSOGoverned` when the user held a password |
-| `passkey_added` | change | `PasskeyRegisterFinish`. The passkey of a first-user setup or of `RecoverPasskeyFinish` gets no entry of its own: the setup appends `user_created` and `signed_in`, and the recovery `recovery_completed` |
+| `passkey_added` | change | `PasskeyRegisterFinish`. The passkey of a first-user setup gets no entry of its own: the setup appends `user_created` and `signed_in` |
 | `passkey_removed` | change | `RemovePasskey`, and one per passkey for an OIDC link under `Rules.SSOGoverned` |
 | `oidc_linked`, `oidc_unlinked` | change | `OIDCComplete` finishing a link and `LinkPendingOIDC`; `UnlinkOIDC` |
 | `key_minted` | change | `CreateAPIKey` |
 | `key_rotated` | change | `RotateAPIKey`, naming the key and its owner. The end of the overlap appends nothing: it happens when a request verifies the new secret, and the key list shows it |
-| `key_revoked` | change | one per key: `RevokeAPIKey` and `RevokeAnyAPIKey`, with the keys minted below the revoked key. A `RevokeAnyAPIKey` by `account.OutOfBand(channel)` names that channel in `Event.Actor.OutOfBand`; a disable through `UpdateUser`; `DeleteUser`; a recovery unless `RecoverOptions.KeepKeys` is set; and, only when `Rules.RevokeKeysOnCredentialChange` is set, `SetPassword` and an OIDC link under `Rules.SSOGoverned`. Removing a password and adding or removing a passkey revoke no key |
+| `key_revoked` | change | one per key: `RevokeAPIKey` and `RevokeAnyAPIKey`, with the keys minted below the revoked key. A `RevokeAnyAPIKey` by `account.OutOfBand(channel)` names that channel in `Event.Actor.OutOfBand`; a disable through `UpdateUser`; `DeleteUser`; and, only when `Rules.RevokeKeysOnCredentialChange` is set, `SetPassword` and an OIDC link under `Rules.SSOGoverned`. Removing a password and adding or removing a passkey revoke no key |
 | `role_changed`, `user_disabled`, `user_enabled` | change | `UpdateUser` |
 | `user_deleted` | change | `DeleteUser` |
 | `invite_issued` | change | `CreateInvite` |
 | `setup_token_issued` | change | `IssueSetupToken` |
-| `recovery_issued` | change | `IssueRecovery` |
-| `recovery_consumed` | change | `StartRecovery`, which opens a recovery session and appends no `signed_in` |
-| `recovery_completed` | change | `RecoverWithPassword`, `RecoverPasskeyFinish` and `RecoverOutOfBand`. Its `Method` is the credential the recovery installed: `password` for `RecoverWithPassword` and `RecoverOutOfBand`, `passkey` for `RecoverPasskeyFinish` |
-| `method_locked` | change | the failure-record sweep reporting a lock, or `ReenableMethod` or a recovery that clears a lock the sweep has not reported yet, before that change's `method_reenabled` entries |
-| `method_reenabled` | change | `ReenableMethod` and a recovery, one per lock they clear, and a successful password sign-in, `StepUpPassword`, password change through `SetPassword` or `RemovePassword` that clears its own attempt's lock after the sweep reported it |
+| `method_locked` | change | the failure-record sweep reporting a lock, or `ReenableMethod` clearing a lock the sweep has not reported yet, before that change's `method_reenabled` entries |
+| `method_reenabled` | change | `ReenableMethod`, one per lock it clears, and a successful password sign-in, `StepUpPassword`, password change through `SetPassword` or `RemovePassword` that clears its own attempt's lock after the sweep reported it |
 | your app's kinds | change | `Service.AppendLog` ([App entries](#app-entries)) |
 
 These are left out, each for its reason:
@@ -63,7 +60,7 @@ A failed attempt writes no entry. Each attempt's failure count is committed befo
 
 What the log records is the lock. The password locks for a name after 100 consecutive failures (`account.FailureCap`), counted separately per trust context: attempts with a valid device cookie for the account, and attempts without one. The entry's `Trusted` field says which context locked. The failure-record sweep then appends `method_locked` in the same transaction that marks the lock reported. It runs in `account.New`, each `CleanupInterval`, and early once `account.MaxUntrustedCounts` password sign-in attempts without a valid device cookie for the account have been counted since its last run. It reports only the locks of a name that is a user's. `Event.At` is the time of the lock and `At` the time of the report, which comes up to one `CleanupInterval` later, plus the time of any sweep that failed and was retried.
 
-A lock that `ReenableMethod` or a recovery clears before the sweep reports it gets its `method_locked` entry in that clearing change, before the change's `method_reenabled` entries. A password check clears only the lock its own attempt set: each attempt is counted before it is compared, so the attempt that reaches the cap locks the password, and its success then removes that lock. A lock that a successful password check clears before it is reported (a sign-in, a step-up, `SetPassword` or `RemovePassword`) gets no entry, as it gets no event.
+A lock that `ReenableMethod` clears before the sweep reports it gets its `method_locked` entry in that clearing change, before the change's `method_reenabled` entries. A password check clears only the lock its own attempt set: each attempt is counted before it is compared, so the attempt that reaches the cap locks the password, and its success then removes that lock. A lock that a successful password check clears before it is reported (a sign-in, a step-up, `SetPassword` or `RemovePassword`) gets no entry, as it gets no event.
 
 To see failed attempts, and bursts that lock nothing, set `accesshttp.Config.Audit`. It reports each refusal with its IP address and reason, and you keep those records as long as you choose.
 

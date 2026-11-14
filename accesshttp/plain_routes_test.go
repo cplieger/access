@@ -28,24 +28,19 @@ var plainRefusedRoutes = map[string]bool{
 	"authOIDCPending": true, "authOIDCLinkPending": true,
 	"authStepUpPassword": true, "authStepUpPasskeyBegin": true, "authStepUpPasskeyFinish": true,
 	"authPasswordRemove": true, "authPasskeyRegisterBegin": true, "authPasskeyRegisterFinish": true,
-	"authRecoveryStart": true, "authRecoveryPassword": true, "authRecoveryPasskeyBegin": true, "authRecoveryPasskeyFinish": true,
 	"authInviteAcceptPassword": true,
-	"authKeyCreate":            true, "authKeyRotate": true, "authAdminRecovery": true, "authAdminInvite": true,
+	"authKeyCreate":            true, "authKeyRotate": true, "authAdminInvite": true,
 }
 
-// transportSession stores a session of kind for name, signed in now over
+// transportSession stores a password session for name, signed in now over
 // the transport secure names, and returns its cookie under that
 // transport's name.
-func (e *env) transportSession(t testing.TB, name string, kind access.SessionKind, secure bool) *http.Cookie {
+func (e *env) transportSession(t testing.TB, name string, secure bool) *http.Cookie {
 	t.Helper()
 	token, hash := access.GenerateSessionToken()
-	method := access.MethodPassword
-	if kind == access.SessionRecovery {
-		method = access.MethodRecovery
-	}
 	now := time.Now()
 	s := &access.Session{
-		ID: hex.EncodeToString(randomBytes(16)), UserID: e.user(t, name).ID, TokenHash: hash, AuthMethod: method, Kind: kind,
+		ID: hex.EncodeToString(randomBytes(16)), UserID: e.user(t, name).ID, TokenHash: hash, AuthMethod: access.MethodPassword,
 		CreatedAt: now, LastActivity: now, AuthTime: now, Secure: secure,
 	}
 	if err := e.mem.CreateSession(t.Context(), s); err != nil {
@@ -79,14 +74,14 @@ func (e *env) useCountingIdP(t testing.TB) (*accesstest.IdP, *atomic.Int64) {
 }
 
 // plainWorld is a PosturePerRequest env holding admin root and RoleUser
-// alice, a fresh full session of root and a recovery session of alice,
-// both made over its transport, and an IdP whose calls it counts.
+// alice, a fresh session of root made over its transport, and an IdP whose
+// calls it counts.
 type plainWorld struct {
 	*env
-	idp               *accesstest.IdP
-	idpCalls          *atomic.Int64
-	session, recovery *http.Cookie
-	origin            string
+	idp      *accesstest.IdP
+	idpCalls *atomic.Int64
+	session  *http.Cookie
+	origin   string
 }
 
 func newPlainWorld(t *testing.T, secure bool, opts ...envOptions) *plainWorld {
@@ -98,8 +93,7 @@ func newPlainWorld(t *testing.T, secure bool, opts ...envOptions) *plainWorld {
 	w.idp, w.idpCalls = w.useCountingIdP(t)
 	w.createUser(t, "root", access.RoleAdmin)
 	w.createUser(t, "alice", access.RoleUser)
-	w.session = w.transportSession(t, "root", access.SessionFull, secure)
-	w.recovery = w.transportSession(t, "alice", access.SessionRecovery, secure)
+	w.session = w.transportSession(t, "root", secure)
 	return w
 }
 
@@ -134,17 +128,13 @@ func (e *env) observe(t *testing.T, rt Route, r *http.Request) outcome {
 	return out
 }
 
-// send sends name's census request at w's origin with the session of its
-// class, and returns its outcome.
+// send sends name's census request at w's origin with root's session, and
+// returns its outcome.
 func (w *plainWorld) send(t *testing.T, name string) outcome {
 	t.Helper()
 	rt := w.route(t, name)
-	cookie := w.session
-	if rt.Class == ClassRecovery {
-		cookie = w.recovery
-	}
 	path := strings.NewReplacer("{id}", censusPathValue(t, rt), "{method}", censusPathValue(t, rt)).Replace(rt.Path)
-	return w.observe(t, rt, requestAt(w.origin, path, rt, censusBody(t, rt), cookie))
+	return w.observe(t, rt, requestAt(w.origin, path, rt, censusBody(t, rt), w.session))
 }
 
 // requireHTTPSRequired fails unless out is auth_https_required, at its 403

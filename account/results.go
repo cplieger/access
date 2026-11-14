@@ -108,8 +108,7 @@ type RotatedKey struct {
 	Issued    Issued     // zero for an out-of-band actor
 }
 
-// IssuedToken is a minted invite or recovery token; Plaintext is shown
-// once.
+// IssuedToken is a minted invite token; Plaintext is shown once.
 type IssuedToken struct {
 	ExpiresAt time.Time // the stored expiry, capped at an issuing key's
 	Plaintext access.Secret
@@ -149,14 +148,6 @@ type Me struct {
 	// SSOGoverned is Rules.SSOGoverned on a linked user: SetPassword and
 	// passkey registration answer ErrSSOGoverned.
 	SSOGoverned bool
-}
-
-// Recovery is a started recovery: the restricted session and what the
-// user holds.
-type Recovery struct {
-	Username string
-	Methods  Methods
-	Issued   Issued
 }
 
 // ListedUser is one row of the admin user list.

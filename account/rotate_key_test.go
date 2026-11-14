@@ -35,7 +35,7 @@ func newRotWorld(t *testing.T, rules func(*account.Rules)) rotWorld {
 	}}
 	w.f = newFixture(t, keyOptions(o, w.pol))
 	w.alice = mustUser(t, w.f.mem, "alice", access.RoleUser)
-	w.sess = w.f.sessionPrincipal(t, w.alice, access.SessionFull, time.Now())
+	w.sess = w.f.sessionPrincipal(t, w.alice, time.Now())
 	w.key = w.create(t, w.alice, "Deploy")
 	if _, err := w.f.bearer(t, w.key.Plaintext); err != nil {
 		t.Fatalf("Authenticate(key) = %v", err)
@@ -195,11 +195,10 @@ func TestRotateAPIKey(t *testing.T) {
 			t.Fatalf("Authenticate(key) = %v", err)
 		}
 		for name, a := range map[string]account.Actor{
-			"own_key":          account.As(keyP),
-			"bypass":           account.As(w.f.bypassPrincipal(t)),
-			"custom":           account.As(w.f.customPrincipal(t, access.MethodAPIKey, w.key.Key.ID, scopeKeys)),
-			"recovery_session": account.As(w.f.sessionPrincipal(t, w.alice, access.SessionRecovery, time.Now())),
-			"zero_principal":   account.As(access.Principal{Secure: true}),
+			"own_key":        account.As(keyP),
+			"bypass":         account.As(w.f.bypassPrincipal(t)),
+			"custom":         account.As(w.f.customPrincipal(t, access.MethodAPIKey, w.key.Key.ID, scopeKeys)),
+			"zero_principal": account.As(access.Principal{Secure: true}),
 		} {
 			t.Run(name, func(t *testing.T) {
 				w.fs.resetRecord()
@@ -225,7 +224,7 @@ func TestRotateAPIKey(t *testing.T) {
 	t.Run("stale_session", func(t *testing.T) {
 		t.Parallel()
 		w := newRotWorld(t, nil)
-		stale := w.f.sessionPrincipal(t, w.alice, access.SessionFull, time.Now().Add(-time.Hour))
+		stale := w.f.sessionPrincipal(t, w.alice, time.Now().Add(-time.Hour))
 		if _, err := w.f.svc.RotateAPIKey(t.Context(), account.As(stale), w.key.Key.ID); !errors.Is(err, access.ErrRecentAuthRequired) {
 			t.Errorf("RotateAPIKey from a session signed in an hour ago = %v, want ErrRecentAuthRequired", err)
 		}
@@ -235,7 +234,7 @@ func TestRotateAPIKey(t *testing.T) {
 		t.Parallel()
 		w := newRotWorld(t, nil)
 		bob := mustUser(t, w.f.mem, "bob", access.RoleAdmin)
-		bobSess := w.f.sessionPrincipal(t, bob, access.SessionFull, time.Now())
+		bobSess := w.f.sessionPrincipal(t, bob, time.Now())
 		w.pol.arm("")
 		_, other := w.f.svc.RotateAPIKey(t.Context(), account.As(bobSess), w.key.Key.ID)
 		_, missing := w.f.svc.RotateAPIKey(t.Context(), account.As(bobSess), w.key.Key.ID+1000)
@@ -298,7 +297,7 @@ func TestRotateAPIKey(t *testing.T) {
 		t.Parallel()
 		w := newRotWorld(t, nil)
 		w.clock.add(49 * time.Hour)
-		late := w.f.sessionPrincipal(t, w.alice, access.SessionFull, w.clock.now())
+		late := w.f.sessionPrincipal(t, w.alice, w.clock.now())
 		for name, a := range map[string]account.Actor{"session": account.As(late), "out_of_band": account.OutOfBand("admin socket")} {
 			t.Run(name, func(t *testing.T) {
 				_, err := w.f.svc.RotateAPIKey(t.Context(), a, w.key.Key.ID)

@@ -126,7 +126,7 @@ func TestGuardExistingDuplicateLabelsReadable(t *testing.T) {
 		seedKey(t, f.mem, u.ID, "agent", time.Time{}),
 		seedKey(t, f.mem, u.ID, "", time.Time{}),
 	}
-	pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+	pr := f.sessionPrincipal(t, u, time.Now())
 	keys, err := f.svc.APIKeys(t.Context(), pr)
 	if err != nil || len(keys) != len(seeded) {
 		t.Fatalf("APIKeys = %d keys, %v; want %d", len(keys), err, len(seeded))

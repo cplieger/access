@@ -88,8 +88,6 @@ func fixtures() []fixture {
 		{name: "SetupPasskeyBeginRequest.noToken", absent: "token", request: true, value: SetupPasskeyBeginRequest{Username: "owner"}},
 		{name: "LoginRequest", request: true, value: LoginRequest{Username: "alice", Password: "fixture-password"}},
 		{name: "RedirectRequest", request: true, value: RedirectRequest{Redirect: "/settings"}},
-		{name: "TokenRequest", request: true, value: TokenRequest{Token: "fixture-recovery-token"}},
-		{name: "RecoverPasswordRequest", request: true, value: RecoverPasswordRequest{Password: "fixture-password", KeepSessions: true, KeepKeys: true}},
 		{name: "InviteAcceptRequest", request: true, value: InviteAcceptRequest{Token: "fixture-invite-token", Username: "bob", Password: "fixture-password"}},
 		{name: "ProfileRequest", request: true, value: ProfileRequest{DisplayName: "Alice"}},
 		{name: "PasswordRequest", request: true, value: PasswordRequest{Password: "fixture-password"}},
@@ -101,7 +99,6 @@ func fixtures() []fixture {
 		{name: "NewUserRequest", request: true, value: NewUserRequest{Username: "bob", Password: "fixture-password", Role: access.RoleUser}},
 		{name: "NewUserRequest.noPassword", absent: "password", request: true, value: NewUserRequest{Username: "bob", Role: access.RoleUser}},
 		{name: "UserUpdateRequest", request: true, value: UserUpdateRequest{Role: &goldenRole, Enabled: &goldenTrue}},
-		{name: "TTLRequest", request: true, value: TTLRequest{Hours: 24}},
 		{name: "InviteRequest", request: true, value: InviteRequest{Role: access.RoleUser, Hours: 72}},
 
 		{name: "StateResponse", value: StateResponse{
@@ -116,7 +113,6 @@ func fixtures() []fixture {
 			User: goldenUser(), Methods: goldenMethods(), CanLinkOIDC: true, SSOGoverned: true,
 			Session: CurrentSessionView{ID: "s1", Method: access.MethodPasskey, AuthTime: goldenTime, IdleDeadline: goldenTime, AbsoluteDeadline: goldenLater, Secure: true},
 		}},
-		{name: "RecoveryResponse", value: RecoveryResponse{Username: "alice", Methods: goldenMethods()}},
 		{name: "PasskeyView", value: PasskeyView{
 			ID: 2, Name: "laptop", RPID: testRPID, CreatedAt: goldenTime, LastUsedAt: goldenLater,
 			BackupEligible: true, BackedUp: true, CloneWarning: true,
@@ -131,8 +127,8 @@ func fixtures() []fixture {
 		{name: "UserView", value: goldenUser()},
 		{name: "TokenResponse", value: TokenResponse{ExpiresAt: goldenLater}, shown: access.NewSecret("fixture-token")},
 		{name: "TokenView", value: TokenView{
-			CreatedAt: goldenTime, ExpiresAt: goldenLater, Purpose: access.PurposeRecovery, Role: access.RoleUser,
-			IssuerLineage: []int64{3, 5}, Subject: 7, IssuedByKey: 5,
+			CreatedAt: goldenTime, ExpiresAt: goldenLater, Purpose: access.PurposeInvite, Role: access.RoleUser,
+			IssuerLineage: []int64{3, 5}, IssuedByKey: 5,
 		}},
 		{name: "SecurityLogView", value: SecurityLogView{
 			Entries: []LogEntryView{{

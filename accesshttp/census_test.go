@@ -33,7 +33,6 @@ const (
 	credNone credential = iota
 	credStale
 	credSession
-	credRecovery
 	credKey
 	credAgent
 	credBypass
@@ -46,7 +45,7 @@ type censusPrincipal struct {
 	scopes []string // a key's scopes
 	kind   credential
 	fault  access.Code // what the Authenticator refuses a fault principal with
-	recent bool        // a full session inside RecentAuth
+	recent bool        // a session inside RecentAuth
 	admin  bool        // the principal's user is an admin
 }
 
@@ -65,10 +64,6 @@ func (p *censusPrincipal) guardAnswer(d *Descriptor) access.Code {
 		return access.CodeAuthRequired
 	case credStale:
 		return access.CodeSessionExpired
-	case credRecovery:
-		if d.Class == ClassRecovery {
-			return ""
-		}
 	case credSession:
 		switch d.Class {
 		case ClassSession, ClassKeyScope:
@@ -216,7 +211,6 @@ func newCensus(t *testing.T, set, bypass bool) *census {
 		{name: "full_session", kind: credSession, admin: true, send: cookie(c.storedSession(t, "root", time.Hour, 0))},
 		{name: "recent_session", kind: credSession, admin: true, recent: true, send: cookie(c.storedSession(t, "root", 0, 0))},
 		{name: "user_recent_session", kind: credSession, recent: true, send: cookie(c.storedSession(t, "alice", 0, 0))},
-		{name: "recovery_session", kind: credRecovery, send: cookie(c.recoveryCookie(t, "alice"))},
 		{name: "admin_key_admin_scope", kind: credKey, admin: true, scopes: []string{scopeAdminName}, send: key("root", scopeAdminName)},
 		{name: "admin_key_no_admin_scope", kind: credKey, admin: true, scopes: []string{"read"}, send: key("root", "read")},
 		{name: "user_key_admin_scope", kind: credKey, scopes: []string{scopeAdminName}, send: kimKey},
@@ -245,7 +239,7 @@ func (e *env) storedSession(t testing.TB, name string, authAge, activeAge time.D
 	token, hash := access.GenerateSessionToken()
 	now := time.Now()
 	s := &access.Session{
-		ID: hex.EncodeToString(randomBytes(16)), UserID: e.user(t, name).ID, TokenHash: hash, AuthMethod: access.MethodPassword, Kind: access.SessionFull,
+		ID: hex.EncodeToString(randomBytes(16)), UserID: e.user(t, name).ID, TokenHash: hash, AuthMethod: access.MethodPassword,
 		CreatedAt: now.Add(-activeAge), LastActivity: now.Add(-activeAge), AuthTime: now.Add(-authAge), Secure: true,
 	}
 	if err := e.mem.CreateSession(t.Context(), s); err != nil {
@@ -324,7 +318,7 @@ func TestCensusMatrix(t *testing.T) {
 			t.Errorf("%d routes, %d specs", len(routes), len(specs))
 		}
 		for _, rt := range routes {
-			if rt.Handler == nil || !slices.Contains([]Class{ClassPublic, ClassSession, ClassRecentAuth, ClassKeyScope, ClassKeyPermission, ClassRecovery}, rt.Class) {
+			if rt.Handler == nil || !slices.Contains([]Class{ClassPublic, ClassSession, ClassRecentAuth, ClassKeyScope, ClassKeyPermission}, rt.Class) {
 				t.Errorf("%s: handler %v, class %q", rt.Name, rt.Handler != nil, rt.Class)
 			}
 			for _, typ := range []string{typeName(rt.Request), typeName(rt.Response)} {
@@ -407,7 +401,7 @@ func TestCensusUserNamingAdminRoutes(t *testing.T) {
 			root := c.user(t, "root")
 			rootID := c.userID(t, "root")
 			unchanged := jsonBody(t, UserUpdateRequest{Role: &root.Role, Enabled: &root.Enabled})
-			bodies := map[string]string{"authAdminUserUpdate": unchanged, "authAdminUserDelete": "", "authAdminRecovery": `{}`}
+			bodies := map[string]string{"authAdminUserUpdate": unchanged, "authAdminUserDelete": ""}
 			userSession := &c.principals[slices.IndexFunc(c.principals, func(p censusPrincipal) bool { return p.name == "user_recent_session" })]
 			usersKey := &c.principals[slices.IndexFunc(c.principals, func(p censusPrincipal) bool { return p.name == "admin_key_manage_users" })]
 			for name, body := range bodies {

@@ -22,8 +22,8 @@ type UserStore interface {
 	// UpdateUser errors: ErrNotFound, ErrUsernameTaken, ErrOIDCIdentityTaken.
 	UpdateUser(ctx context.Context, user *access.User) error
 	// DeleteUser removes the user and, in the same transaction, every
-	// session, passkey, key and token whose Subject is the user, and every
-	// KeyAttribution whose UserID is the user. ErrNotFound when no user has id.
+	// session, passkey and key of the user, and every KeyAttribution whose
+	// UserID is the user. ErrNotFound when no user has id.
 	DeleteUser(ctx context.Context, id int64) error
 	UserCount(ctx context.Context) (int, error)
 }
@@ -111,12 +111,12 @@ type TokenStore interface {
 	// ConsumeOneTimeToken reads and deletes in one step. An expired token is
 	// deleted and reported as not found.
 	ConsumeOneTimeToken(ctx context.Context, hash access.Hash, now time.Time) (tok access.OneTimeToken, found bool, err error)
-	DeleteOneTimeTokens(ctx context.Context, purpose access.TokenPurpose, subject int64) (int, error)
+	DeleteOneTimeTokens(ctx context.Context, purpose access.TokenPurpose) (int, error)
 	// LiveOneTimeTokens returns every token whose Purpose is in purposes
 	// and whose ExpiresAt is after now, in any order.
 	LiveOneTimeTokens(ctx context.Context, purposes []access.TokenPurpose, now time.Time) ([]access.OneTimeToken, error)
 	// DeleteOneTimeTokensIssuedBy removes every token whose IssuedByKey is
-	// in keyIDs, of any purpose and subject, and never one whose
+	// in keyIDs, of any purpose, and never one whose
 	// IssuedByKey is 0.
 	DeleteOneTimeTokensIssuedBy(ctx context.Context, keyIDs []int64) (int, error)
 }
@@ -148,7 +148,7 @@ type FailureCount struct {
 	LockedAt time.Time // set with Locked; the time the lock was reached
 	FailureRef
 	Count  int
-	Locked bool // Count reached the failure cap; stays set until recovery or re-enable
+	Locked bool // Count reached the failure cap; stays set until ReenableMethod clears it
 	// Unreported is set with Locked; the sweep reports the lock when Name
 	// is a user's and clears it.
 	Unreported bool

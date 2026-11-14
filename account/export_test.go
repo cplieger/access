@@ -110,7 +110,6 @@ const (
 	PurposeSetup    = purposeSetup
 	PurposeRegister = purposeRegister
 	PurposeStepUp   = purposeStepUp
-	PurposeRecovery = purposeRecovery
 )
 
 func NewPendingCache(maxEntries int) PendingCache { return PendingCache{newPendingCache(maxEntries)} }

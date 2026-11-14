@@ -21,7 +21,6 @@ const (
 	purposeSetup
 	purposeRegister
 	purposeStepUp
-	purposeRecovery
 )
 
 // pending is what a begin call leaves for its finish call.

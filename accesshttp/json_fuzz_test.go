@@ -25,12 +25,12 @@ const specBodyCap = 4 << 10
 // each route's guard admits, over an account whose every operation is
 // stubbed, so no body changes what the next one finds.
 type jsonFuzz struct {
-	e                 *env
-	session, recovery *http.Cookie
-	minted            time.Time
-	routes            []Route
-	fixtures          map[string]string // route name: its request fixture
-	reached           atomic.Int64      // account operations called
+	e        *env
+	session  *http.Cookie
+	minted   time.Time
+	routes   []Route
+	fixtures map[string]string // route name: its request fixture
+	reached  atomic.Int64      // account operations called
 }
 
 func newJSONFuzz(tb testing.TB) *jsonFuzz {
@@ -53,7 +53,6 @@ func newJSONFuzz(tb testing.TB) *jsonFuzz {
 		},
 	})
 	z.e.createUser(tb, "root", access.RoleAdmin)
-	z.e.createUser(tb, "alice", access.RoleUser)
 	for _, rt := range z.e.h.Routes() {
 		if rt.Request != nil {
 			z.routes = append(z.routes, rt)
@@ -64,14 +63,12 @@ func newJSONFuzz(tb testing.TB) *jsonFuzz {
 	return z
 }
 
-// mint signs root in and opens a recovery session for alice. A run longer
-// than account's recent-auth window or RecoverySessionLifetime would
+// mint signs root in. A run longer than account's recent-auth window would
 // otherwise have the guard refuse every body after it, so serve re-mints
 // once a minute.
 func (z *jsonFuzz) mint(tb testing.TB) {
 	tb.Helper()
 	z.session = z.e.storedSession(tb, "root", 0, 0)
-	z.recovery = z.e.recoveryCookie(tb, "alice")
 	z.minted = time.Now()
 }
 
@@ -82,12 +79,8 @@ func (z *jsonFuzz) serve(t *testing.T, rt Route, body []byte) (status int, code 
 	if time.Since(z.minted) > time.Minute {
 		z.mint(t)
 	}
-	cookie := z.session
-	if rt.Class == ClassRecovery {
-		cookie = z.recovery
-	}
 	before := z.reached.Load()
-	w := do(rt, requestFor(rt, censusPathValue(t, rt), string(body), cookie))
+	w := do(rt, requestFor(rt, censusPathValue(t, rt), string(body), z.session))
 	return w.Code, access.Code(w.Header().Get(fuzzCodeHeader)), z.reached.Load() != before
 }
 

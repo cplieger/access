@@ -151,9 +151,6 @@ func TestPlainPolicyOutOfBand(t *testing.T) {
 			if _, err := w.svc.RotateAPIKey(t.Context(), a, k.ID); err != nil {
 				t.Errorf("RotateAPIKey(OutOfBand) = %v, want it to go through", err)
 			}
-			if _, err := w.svc.IssueRecovery(t.Context(), a, w.alice.ID, 0); err != nil {
-				t.Errorf("IssueRecovery(OutOfBand) = %v, want it to go through", err)
-			}
 		})
 	}
 }

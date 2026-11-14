@@ -47,7 +47,7 @@ func TestPendingCache(t *testing.T) {
 		t.Parallel()
 		c := account.NewPendingCache(10)
 		id := c.Put(account.PurposeRegister, user(1), t0)
-		if _, ok := c.Take(id, account.PurposeRecovery, t0); ok {
+		if _, ok := c.Take(id, account.PurposeStepUp, t0); ok {
 			t.Error("Take of another purpose succeeded")
 		}
 		if _, ok := c.Take(id, account.PurposeRegister, t0); ok {

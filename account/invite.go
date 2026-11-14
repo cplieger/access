@@ -40,7 +40,7 @@ func (s *Service) CreateInvite(ctx context.Context, p access.Principal, role acc
 	if role == "" {
 		role = access.RoleUser
 	}
-	plaintext, base := access.NewOneTimeToken(access.PurposeInvite, 0, ttl, s.now())
+	plaintext, base := access.NewOneTimeToken(access.PurposeInvite, ttl, s.now())
 	base.Role = role
 	var rec access.OneTimeToken
 	err = s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
@@ -210,7 +210,7 @@ func (s *Service) peekToken(ctx context.Context, token access.Secret, purpose ac
 }
 
 // tokenIssuer re-checks the issuer keyID of a key-issued token inside the
-// Update that consumes it or completes its recovery: keyAuthority under
+// Update that consumes it: keyAuthority under
 // ManageUsersScope, the issuing operation's d again with that actor, then
 // the admin-target rule on role. It calls keyAuthority, not currentKeyActor,
 // because the issuer is not the change's actor. current is false on any

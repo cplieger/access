@@ -118,7 +118,7 @@ func TestSetupOrderNoHashBeforeChecks(t *testing.T) {
 	t.Run("other_purpose_token", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, options{edit: withBusyHasher(t)})
-		plaintext, rec := access.NewOneTimeToken(access.PurposeInvite, 0, time.Hour, time.Now())
+		plaintext, rec := access.NewOneTimeToken(access.PurposeInvite, time.Hour, time.Now())
 		rec.Role = access.RoleUser
 		if err := f.mem.CreateOneTimeToken(t.Context(), rec); err != nil {
 			t.Fatalf("CreateOneTimeToken: %v", err)
@@ -381,7 +381,7 @@ func TestIssueSetupToken(t *testing.T) {
 	})
 	u := mustUser(t, f.mem, "admin", access.RoleAdmin)
 	for name, a := range map[string]account.Actor{
-		"principal": account.As(f.sessionPrincipal(t, u, access.SessionFull, time.Now())),
+		"principal": account.As(f.sessionPrincipal(t, u, time.Now())),
 		"zero":      {},
 	} {
 		_, err := f.svc.IssueSetupToken(ctx, a, 0)
@@ -457,7 +457,7 @@ func TestUsernameRuleEveryCreationPath(t *testing.T) {
 		}},
 		{name: "invite", create: func(t *testing.T, f *fixture, _ *oidcRig, name string) (*access.User, error) {
 			admin := mustUser(t, f.mem, "inviter", access.RoleAdmin)
-			inv, err := f.svc.CreateInvite(t.Context(), f.sessionPrincipal(t, admin, access.SessionFull, time.Now()), access.RoleUser, 0)
+			inv, err := f.svc.CreateInvite(t.Context(), f.sessionPrincipal(t, admin, time.Now()), access.RoleUser, 0)
 			if err != nil {
 				t.Fatalf("CreateInvite = %v", err)
 			}
@@ -721,15 +721,15 @@ func TestCreateUserOutOfBand(t *testing.T) {
 		t.Errorf("CreateUser(a taken name) = %v, want ErrUsernameTaken", err)
 	}
 	t.Run("principals", func(t *testing.T) {
-		admin := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+		admin := f.sessionPrincipal(t, u, time.Now())
 		if _, err := f.svc.CreateUser(ctx, account.As(admin), account.NewUser{Username: "carol"}); err != nil {
 			t.Errorf("CreateUser from a recent admin session = %v, want nil", err)
 		}
-		stale := f.sessionPrincipal(t, u, access.SessionFull, time.Now().Add(-time.Hour))
+		stale := f.sessionPrincipal(t, u, time.Now().Add(-time.Hour))
 		if _, err := f.svc.CreateUser(ctx, account.As(stale), account.NewUser{Username: "dave"}); !errors.Is(err, access.ErrRecentAuthRequired) {
 			t.Errorf("CreateUser from a stale session = %v, want access.ErrRecentAuthRequired", err)
 		}
-		user := f.sessionPrincipal(t, nopw, access.SessionFull, time.Now())
+		user := f.sessionPrincipal(t, nopw, time.Now())
 		if _, err := f.svc.CreateUser(ctx, account.As(user), account.NewUser{Username: "erin"}); !errors.Is(err, account.ErrPolicyRefused) {
 			t.Errorf("CreateUser from a RoleUser session = %v, want ErrPolicyRefused", err)
 		}
@@ -737,8 +737,7 @@ func TestCreateUserOutOfBand(t *testing.T) {
 			t.Errorf("CreateUser from the bypass with ManageUsersScope empty = %v, want ErrSessionRequired", err)
 		}
 		for name, p := range map[string]access.Principal{
-			"key":      f.keyPrincipal(t, u, "admin"),
-			"recovery": f.sessionPrincipal(t, u, access.SessionRecovery, time.Now()),
+			"key": f.keyPrincipal(t, u, "admin"),
 		} {
 			if _, err := f.svc.CreateUser(ctx, account.As(p), account.NewUser{Username: "gina"}); !errors.Is(err, account.ErrSessionRequired) {
 				t.Errorf("CreateUser from a %s = %v, want ErrSessionRequired", name, err)
@@ -855,7 +854,7 @@ func TestSessionMint(t *testing.T) {
 			t.Errorf("a %d-byte ASCII agent stored as %d bytes (%v), want %d", n, len(s.UserAgent), err, want)
 		}
 	}
-	if s.LastIP != "192.168.1.20" || s.UserID != u.ID || s.Kind != access.SessionFull || s.IdleCap != 0 || s.AbsoluteCap != 0 {
+	if s.LastIP != "192.168.1.20" || s.UserID != u.ID || s.IdleCap != 0 || s.AbsoluteCap != 0 {
 		t.Errorf("session = %+v, want LastIP 192.168.1.20, the user, a full session and no caps", s)
 	}
 	none := c

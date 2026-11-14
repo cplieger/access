@@ -18,10 +18,9 @@ const (
 	ClassSession    Class = "session"
 	ClassRecentAuth Class = "recent_auth"
 	ClassKeyScope   Class = "key_scope" // Scope names the required key scope; a session also passes
-	// ClassKeyPermission: a key carrying Scope, or a full session under
+	// ClassKeyPermission: a key carrying Scope, or a session under
 	// recent auth (account.Service.RequireKeyPermission).
 	ClassKeyPermission Class = "key_permission"
-	ClassRecovery      Class = "recovery" // the restricted recovery session only
 )
 
 // Kind is how a route answers: JSON bodies, or a redirect.
@@ -127,10 +126,6 @@ var specs = []routeSpec{
 	{name: "authOIDCPending", method: http.MethodGet, path: "/oidc/pending", class: ClassPublic, passive: true, response: typeOf[PendingLinkResponse](), limited: true, op: "OIDCPending", serve: serveOIDCPending},
 	{name: "authOIDCLinkPending", method: http.MethodPost, path: "/oidc/link", class: ClassRecentAuth, response: typeOf[MeResponse](), op: "LinkPendingOIDC", serve: serveOIDCLinkPending},
 	{name: "authOIDCUnlink", method: http.MethodDelete, path: "/oidc/link", class: ClassRecentAuth, op: "UnlinkOIDC", serve: serveOIDCUnlink},
-	{name: "authRecoveryStart", method: http.MethodPost, path: "/recovery", class: ClassPublic, request: typeOf[TokenRequest](), response: typeOf[RecoveryResponse](), tokenBody: true, op: "StartRecovery", audit: "recovery.start", serve: serveRecoveryStart},
-	{name: "authRecoveryPassword", method: http.MethodPost, path: "/recovery/password", class: ClassRecovery, request: typeOf[RecoverPasswordRequest](), op: "RecoverWithPassword", audit: "recovery.complete", serve: serveRecoveryPassword},
-	{name: "authRecoveryPasskeyBegin", method: http.MethodPost, path: "/recovery/passkey/begin", class: ClassRecovery, response: typeOf[CeremonyResponse](), op: "RecoverPasskeyBegin", serve: serveRecoveryPasskeyBegin},
-	{name: "authRecoveryPasskeyFinish", method: http.MethodPost, path: "/recovery/passkey/finish", class: ClassRecovery, cer: ceremonyRegistration, query: typeOf[RecoveryPasskeyFinishQuery](), op: "RecoverPasskeyFinish", audit: "recovery.complete", serve: serveRecoveryPasskeyFinish},
 	{name: "authInviteAcceptPassword", method: http.MethodPost, path: "/invite/password", class: ClassPublic, request: typeOf[InviteAcceptRequest](), response: typeOf[SignedInResponse](), tokenBody: true, op: "AcceptInvitePassword", audit: "invite.accept", serve: serveInviteAcceptPassword},
 	{name: "authMe", method: http.MethodGet, path: "/me", class: ClassSession, passive: true, response: typeOf[MeResponse](), op: "Me", serve: serveMe},
 	{name: "authProfile", method: http.MethodPut, path: "/profile", class: ClassSession, request: typeOf[ProfileRequest](), response: typeOf[MeResponse](), op: "UpdateProfile", serve: serveProfile},
@@ -159,7 +154,6 @@ var specs = []routeSpec{
 	{name: "authAdminUserCreate", method: http.MethodPost, path: "/users", scope: scopeUsers, request: typeOf[NewUserRequest](), response: typeOf[UserView](), op: "CreateUser", serve: serveAdminUserCreate},
 	{name: "authAdminUserUpdate", method: http.MethodPut, path: "/users/{id}", scope: scopeUsers, pathID: pathInt, request: typeOf[UserUpdateRequest](), response: typeOf[UserView](), op: "UpdateUser", serve: serveAdminUserUpdate},
 	{name: "authAdminUserDelete", method: http.MethodDelete, path: "/users/{id}", scope: scopeUsers, pathID: pathInt, op: "DeleteUser", serve: serveAdminUserDelete},
-	{name: "authAdminRecovery", method: http.MethodPost, path: "/users/{id}/recovery", scope: scopeUsers, pathID: pathInt, request: typeOf[TTLRequest](), response: typeOf[TokenResponse](), op: "IssueRecovery", serve: serveAdminRecovery},
 	{name: "authAdminInvite", method: http.MethodPost, path: "/invites", scope: scopeUsers, request: typeOf[InviteRequest](), response: typeOf[TokenResponse](), op: "CreateInvite", serve: serveAdminInvite},
 	{name: "authAdminKeys", method: http.MethodGet, path: "/admin/apikeys", scope: scopeAdmin, response: typeOf[KeyView](), array: true, op: "AllAPIKeys", serve: serveAdminKeys},
 	{name: "authAdminKeyRevoke", method: http.MethodDelete, path: "/admin/apikeys/{id}", scope: scopeAdmin, pathID: pathInt, op: "RevokeAnyAPIKey", serve: serveAdminKeyRevoke},
@@ -180,10 +174,6 @@ var opCodes = map[string][]access.Code{
 	"PasskeyLoginBegin":     {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused},
 	"PasskeyLoginFinish":    {access.CodeHTTPSRequired, access.CodeInvalidCredentials, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeUnknownCredential, access.CodeAssertionFailed},
 	"Logout":                {access.CodeUnavailable},
-	"StartRecovery":         {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid},
-	"RecoverWithPassword":   {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeBusy, access.CodeUnavailable, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeTokenInvalid},
-	"RecoverPasskeyBegin":   {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused},
-	"RecoverPasskeyFinish":  {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeUnavailable, access.CodeTokenInvalid, access.CodeDuplicateCredential, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed},
 	"AcceptInvitePassword":  {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeUsernameTaken, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeTokenInvalid},
 	"AdmitOIDC":             {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeOIDCUnavailable},
 	opOIDCBegin:             {access.CodeHTTPSRequired, access.CodeUnavailable, access.CodeBadRequest, access.CodeCrossOrigin, access.CodeOIDCUnavailable},
@@ -218,7 +208,6 @@ var opCodes = map[string][]access.Code{
 	"CreateUser":            {access.CodeForbidden, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeUsernameTaken, access.CodePasswordRejected, access.CodeBreachCheckUnavailable},
 	"UpdateUser":            {access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
 	"DeleteUser":            {access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
-	"IssueRecovery":         {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
 	"CreateInvite":          {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest},
 	"AllAPIKeys":            {access.CodeForbidden, access.CodeUnavailable},
 	"RevokeAnyAPIKey":       {access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
@@ -229,15 +218,18 @@ var opCodes = map[string][]access.Code{
 // guardCodes is what a class's guard can answer: the Authenticator's
 // refusals on every class that authenticates, auth_https_required among
 // them since a descriptor does not know the posture, then the class
-// predicate's.
+// predicate's. A key class has a scope set (classFor), so a non-key
+// principal there is refused for the scope, never for want of a session.
 func guardCodes(c Class) []access.Code {
 	if c == ClassPublic {
 		return nil
 	}
-	codes := []access.Code{access.CodeAuthRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeKeyInvalid, access.CodeUnavailable, access.CodeSessionRequired, access.CodeHTTPSRequired}
+	codes := []access.Code{access.CodeAuthRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeKeyInvalid, access.CodeUnavailable, access.CodeHTTPSRequired}
 	switch c {
+	case ClassSession:
+		codes = append(codes, access.CodeSessionRequired)
 	case ClassRecentAuth:
-		codes = append(codes, access.CodeRecentAuthRequired)
+		codes = append(codes, access.CodeSessionRequired, access.CodeRecentAuthRequired)
 	case ClassKeyScope:
 		codes = append(codes, access.CodeScopeRequired)
 	case ClassKeyPermission:

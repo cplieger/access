@@ -471,12 +471,12 @@ func TestRouteAuthSessions(t *testing.T) {
 }
 
 // TestSessionViewDeadlines: each listed session's deadlines are
-// access.SessionDeadlines under Timeouts, a capped and a recovery session's
+// access.SessionDeadlines under Timeouts, a capped and a plain session's
 // included, and the current one's equal authMe's.
 func TestSessionViewDeadlines(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	cookie := e.aliceSession(t)
-	e.recoveryCookie(t, "alice")
+	e.transportSession(t, "alice", false)
 	_, hash := access.GenerateSessionToken()
 	now := time.Now().Truncate(time.Millisecond)
 	capped := &access.Session{
@@ -495,18 +495,18 @@ func TestSessionViewDeadlines(t *testing.T) {
 	for _, v := range views {
 		byID[v.ID] = v
 	}
-	kinds := map[access.SessionKind]bool{}
+	plain := false
 	for i := range stored {
 		s := &stored[i]
-		kinds[s.Kind] = true
+		plain = plain || !s.Secure
 		idle, absolute := access.SessionDeadlines(s, e.authn.Timeouts())
 		v, ok := byID[s.ID]
 		if !ok || !v.IdleDeadline.Equal(idle) || !v.AbsoluteDeadline.Equal(absolute) {
-			t.Errorf("session %s (kind %q, caps %v/%v): view %+v, want deadlines %v and %v", s.ID, s.Kind, s.IdleCap, s.AbsoluteCap, v, idle, absolute)
+			t.Errorf("session %s (secure %t, caps %v/%v): view %+v, want deadlines %v and %v", s.ID, s.Secure, s.IdleCap, s.AbsoluteCap, v, idle, absolute)
 		}
 	}
-	if !kinds[access.SessionRecovery] {
-		t.Fatal("fixture: no recovery session listed")
+	if !plain {
+		t.Fatal("fixture: no plain session listed")
 	}
 	me := decoded[MeResponse](t, e, do(e.route(t, "authMe"), e.post(t, "authMe", "", cookie)), http.StatusOK)
 	cur := byID[me.Session.ID]

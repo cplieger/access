@@ -7,12 +7,11 @@ import (
 )
 
 // authenticatingCodes is what every row that runs Authenticate can answer:
-// ErrorFor's codes for an Authenticate error, a recovery session's
-// auth_session_required among them, and auth_https_required, which a plain
-// request meets under PostureSecure or on an HTTPS row.
+// ErrorFor's codes for an Authenticate error, and auth_https_required, which
+// a plain request meets under PostureSecure or on an HTTPS row.
 var authenticatingCodes = []access.Code{
 	access.CodeAuthRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeKeyInvalid,
-	access.CodeSessionRequired, access.CodeHTTPSRequired, access.CodeUnavailable,
+	access.CodeHTTPSRequired, access.CodeUnavailable,
 }
 
 // Codes is every code route r can answer, in access.Codes() order.
@@ -22,6 +21,8 @@ func Codes(r Route) []access.Code { //nolint:gocritic // hugeParam: a Route is t
 		can = append(can, authenticatingCodes...)
 	}
 	switch r.Class {
+	case Session:
+		can = append(can, access.CodeSessionRequired)
 	case Key:
 		can = append(can, access.CodeKeyRequired)
 		if r.Scope != "" {

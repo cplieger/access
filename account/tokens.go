@@ -8,7 +8,7 @@ import (
 	"github.com/cplieger/access"
 )
 
-// Tokens lists every live invite and recovery token, never a setup token,
+// Tokens lists every live invite token, never a setup token,
 // by expiry and then creation, for a principal RequireAdminScope admits and
 // Policy allows OpListUsers. Each key-issued row carries its issuer's
 // LineageIDs from a second read; an issuer gone by then leaves it nil. It
@@ -20,7 +20,7 @@ func (s *Service) Tokens(ctx context.Context, p access.Principal) ([]ListedToken
 	if err := s.policy.Authorize(ctx, Decision{Op: OpListUsers, Actor: As(p)}); err != nil {
 		return nil, err
 	}
-	tokens, err := s.store.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeInvite, access.PurposeRecovery}, s.now())
+	tokens, err := s.store.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeInvite}, s.now())
 	if err != nil {
 		return nil, storeErr(err)
 	}

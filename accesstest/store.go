@@ -286,11 +286,6 @@ func (t *memTx) DeleteUser(_ context.Context, id int64) error {
 	t.deleteUserSessions(id, "")
 	t.deleteUserPasskeys(id)
 	t.deleteUserKeys(id)
-	for k, tok := range t.s.tokens {
-		if tok.Subject == id {
-			delete(t.s.tokens, k)
-		}
-	}
 	t.s.attributions = slices.DeleteFunc(t.s.attributions, func(a access.KeyAttribution) bool { return a.UserID == id })
 	return nil
 }
@@ -744,8 +739,8 @@ func (t *memTx) deleteTokens(match func(access.OneTimeToken) bool) int {
 	return n
 }
 
-func (t *memTx) DeleteOneTimeTokens(_ context.Context, purpose access.TokenPurpose, subject int64) (int, error) {
-	return t.deleteTokens(func(tok access.OneTimeToken) bool { return tok.Purpose == purpose && tok.Subject == subject }), nil
+func (t *memTx) DeleteOneTimeTokens(_ context.Context, purpose access.TokenPurpose) (int, error) {
+	return t.deleteTokens(func(tok access.OneTimeToken) bool { return tok.Purpose == purpose }), nil
 }
 
 func (t *memTx) LiveOneTimeTokens(_ context.Context, purposes []access.TokenPurpose, now time.Time) ([]access.OneTimeToken, error) {
@@ -1223,10 +1218,10 @@ func (m *MemStore) ConsumeOneTimeToken(_ context.Context, hash access.Hash, now 
 }
 
 // DeleteOneTimeTokens implements [account.TokenStore].
-func (m *MemStore) DeleteOneTimeTokens(_ context.Context, purpose access.TokenPurpose, subject int64) (int, error) {
+func (m *MemStore) DeleteOneTimeTokens(_ context.Context, purpose access.TokenPurpose) (int, error) {
 	var n int
 	err := m.write(func(tx *memTx) (bool, error) {
-		n = tx.deleteTokens(func(tok access.OneTimeToken) bool { return tok.Purpose == purpose && tok.Subject == subject })
+		n = tx.deleteTokens(func(tok access.OneTimeToken) bool { return tok.Purpose == purpose })
 		return n > 0, nil
 	})
 	return n, err

@@ -121,9 +121,9 @@ func (s *countingStore) DeleteAuthFailures(ctx context.Context, a1 string, a2 []
 	return s.next.DeleteAuthFailures(ctx, a1, a2)
 }
 
-func (s *countingStore) DeleteOneTimeTokens(ctx context.Context, a1 access.TokenPurpose, a2 int64) (int, error) {
+func (s *countingStore) DeleteOneTimeTokens(ctx context.Context, a1 access.TokenPurpose) (int, error) {
 	s.count(ctx, "DeleteOneTimeTokens")
-	return s.next.DeleteOneTimeTokens(ctx, a1, a2)
+	return s.next.DeleteOneTimeTokens(ctx, a1)
 }
 
 func (s *countingStore) DeleteOneTimeTokensIssuedBy(ctx context.Context, a1 []int64) (int, error) {

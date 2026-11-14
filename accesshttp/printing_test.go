@@ -101,21 +101,21 @@ func inventoryAllow(t *testing.T) printcheck.Allow {
 			"access.User.Username", "access.User.DisplayName", "access.User.Email", "access.User.Role",
 			// The user handle a passkey ceremony sends to every authenticator.
 			"access.User.WebAuthnHandle",
-			"access.Session.ID", "access.Session.Kind", "access.Session.AuthMethod", "access.Session.Label",
+			"access.Session.ID", "access.Session.AuthMethod", "access.Session.Label",
 			"access.Session.LastIP", "access.Session.UserAgent",
 			"access.Key.KeyPrefix", "access.Key.KeySuffix", "access.Key.Label", "access.Key.LineageIDs", "access.Key.Scopes",
 			"access.GeneratedKey.DisplayPrefix", "access.GeneratedKey.DisplaySuffix",
 			"access.OneTimeToken.Purpose", "access.OneTimeToken.Role",
 			// A session ID names a session; using one still needs its token.
-			"access.Principal.SessionID", "access.Principal.SessionKind", "access.Principal.Method", "access.Principal.Scopes",
+			"access.Principal.SessionID", "access.Principal.Method", "access.Principal.Scopes",
 			"access.Principal.KeyLabel",
 			"access.OIDCIdentity.Issuer", "access.OIDCIdentity.Subject",
 			"oidc.Config.IssuerURL", "oidc.Config.ClientID", "oidc.Config.RedirectURL", "oidc.Config.Scopes",
 			// The discovered public endpoints and algorithm rows, and the key
 			// set: the jwks_uri and the public keys fetched from it.
 			"oidc.Provider.endpoint", "oidc.Provider.algs", "oidc.Provider.keys",
-			"account.Rotation.ID", "account.Recovery.Username", "account.OIDCOutcome.Redirect",
-			"account.PendingLink.Email", "account.PendingLink.UsernameHint", "account.MethodLock.Method",
+			"account.Rotation.ID", "account.OIDCOutcome.Redirect",
+			"account.PendingLink.Email", "account.PendingLink.UsernameHint",
 			"account.Client.Host", "account.Client.UserAgent",
 			"account.Credentials.Username", "account.SetupPassword.Username", "account.SetupPasskey.Username",
 			"account.AcceptInvite.Username", "account.NewUser.Username", "account.NewUser.Role",
@@ -180,14 +180,6 @@ func inventory(t *testing.T) []inventoryRow {
 	}
 	created := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
 	keyPrincipal := e.keyPrincipal(t, created.Plaintext)
-	recoveryLink, err := e.svc.IssueRecovery(t.Context(), account.OutOfBand("test"), alice.ID, 0)
-	if err != nil {
-		t.Fatalf("IssueRecovery: %v", err)
-	}
-	recovery, err := e.svc.StartRecovery(t.Context(), account.Client{Secure: true}, recoveryLink.Plaintext)
-	if err != nil {
-		t.Fatalf("StartRecovery: %v", err)
-	}
 	invite, err := e.svc.CreateInvite(t.Context(), e.principal(t, e.sessionCookie(t, "root")), access.RoleUser, 0)
 	if err != nil {
 		t.Fatalf("CreateInvite: %v", err)
@@ -204,7 +196,7 @@ func inventory(t *testing.T) []inventoryRow {
 	}
 	sessionPlain, sessionHash := access.GenerateSessionToken()
 	opaquePlain, opaqueHash := access.GenerateOpaqueToken()
-	otPlain, ot := access.NewOneTimeToken(access.PurposeInvite, 0, time.Hour, time.Now())
+	otPlain, ot := access.NewOneTimeToken(access.PurposeInvite, time.Hour, time.Now())
 	byToken := access.SessionHash(printingToken)
 	byKey := access.APIKeyHash(printingToken)
 	principalHash := principal.SessionTokenHash()
@@ -251,7 +243,6 @@ func inventory(t *testing.T) []inventoryRow {
 		row("account.Rotation", &rotation, signed.Session.TokenHash.Reveal(), nextHash.Reveal(), nextPlain.Reveal()),
 		row("account.SignedIn", &signed, signed.Token.Reveal(), signed.DeviceCookie.Reveal(), signed.Session.TokenHash.Reveal()),
 		row("account.Issued", &issued, issued.Token.Reveal(), issued.DeviceCookie.Reveal(), issued.Session.TokenHash.Reveal()),
-		row("account.Recovery", &recovery, recovery.Issued.Token.Reveal(), recovery.Issued.Session.TokenHash.Reveal(), recoveryLink.Plaintext.Reveal()),
 		row("account.OIDCOutcome", &outcome, issued.Token.Reveal(), signed.Token.Reveal(), signed.DeviceCookie.Reveal()),
 		row("account.CreatedKey", &created, created.Plaintext.Reveal(), created.Key.KeyHash.Reveal()),
 		row("account.Client", &client, signed.DeviceCookie.Reveal()),
@@ -262,7 +253,6 @@ func inventory(t *testing.T) []inventoryRow {
 		row("account.NewUser", &account.NewUser{Password: pw, Username: "alice"}, printingPassword),
 		row("account.Service", e.svc, printingFailureKey),
 		row("IssueSetupToken", &setupToken, setupToken.Reveal()),
-		row("IssueRecovery", &recoveryLink, recoveryLink.Plaintext.Reveal()),
 		row("CreateInvite", &invite, invite.Plaintext.Reveal()),
 		row("NewOneTimeToken plaintext", &otPlain, otPlain.Reveal()),
 		row("ratelimit.Attempt", &attempt, signed.DeviceCookie.Reveal()),

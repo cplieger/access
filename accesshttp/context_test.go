@@ -123,14 +123,6 @@ func passthroughCases() []passthroughCase {
 			rt := e.route(t, "authOIDCLinkPending")
 			return b.send(rt, request(rt, ""))
 		}},
-		{name: "recovery_start", route: "authRecoveryStart", run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
-			e.createUser(t, "alice", access.RoleUser)
-			issued, err := e.svc.IssueRecovery(t.Context(), account.OutOfBand("test"), e.user(t, "alice").ID, 0)
-			if err != nil {
-				t.Fatalf("IssueRecovery: %v", err)
-			}
-			return serve(t, e, "authRecoveryStart", e.post(t, "authRecoveryStart", jsonBody(t, TokenRequest{Token: issued.Plaintext.Reveal()})))
-		}},
 		{name: "invite_accept", route: "authInviteAcceptPassword", run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
 			body := inviteBody(t, e.invite(t), "bob", testPassword)
 			return serve(t, e, "authInviteAcceptPassword", e.post(t, "authInviteAcceptPassword", body))
@@ -176,7 +168,7 @@ func passthroughCases() []passthroughCase {
 // sessionResults are the account results that carry a new or rotated
 // session.
 var sessionResults = []reflect.Type{
-	reflect.TypeFor[account.SignedIn](), reflect.TypeFor[account.Issued](), reflect.TypeFor[account.Recovery](),
+	reflect.TypeFor[account.SignedIn](), reflect.TypeFor[account.Issued](),
 	reflect.TypeFor[account.OIDCOutcome](), reflect.TypeFor[account.Registered](), reflect.TypeFor[account.CreatedKey](), reflect.TypeFor[account.RotatedKey](),
 }
 

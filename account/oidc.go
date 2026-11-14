@@ -275,7 +275,7 @@ func (s *Service) flowSession(ctx context.Context, tx Tx, flow oidc.Flow) (*acce
 		return nil, nil, err
 	}
 	i := slices.IndexFunc(sessions, func(sess access.Session) bool { return sess.ID == flow.SessionID })
-	if i < 0 || sessions[i].Kind != access.SessionFull || access.ValidateSession(&sessions[i], s.authn.Timeouts(), s.now()) != nil {
+	if i < 0 || access.ValidateSession(&sessions[i], s.authn.Timeouts(), s.now()) != nil {
 		return nil, nil, refuse(ErrSessionGone)
 	}
 	return u, &sessions[i], nil
@@ -285,7 +285,7 @@ func (s *Service) flowSession(ctx context.Context, tx Tx, flow oidc.Flow) (*acce
 // produced: a principal Actor holding the user and session tx read, so a
 // Policy sees the user it decides for, and IsSession is false on it.
 func sessionActor(u *access.User, sess *access.Session) Actor {
-	return As(access.Principal{User: u, Method: sess.AuthMethod, SessionID: sess.ID, SessionKind: sess.Kind, AuthTime: sess.AuthTime})
+	return As(access.Principal{User: u, Method: sess.AuthMethod, SessionID: sess.ID, AuthTime: sess.AuthTime})
 }
 
 // LinkPendingOIDC links pending's identity to p's own user (a full session

@@ -88,7 +88,7 @@ func (c *contract) cleanupExpired(t *testing.T) {
 	}
 	tokens := make([]access.OneTimeToken, 0, 3)
 	for _, exp := range []time.Time{now.Add(-time.Hour), now, now.Add(time.Hour)} {
-		tok := newToken(access.PurposeInvite, 0, exp)
+		tok := newToken(access.PurposeInvite, exp)
 		mustToken(t, s, tok)
 		tokens = append(tokens, tok)
 	}
@@ -116,15 +116,13 @@ func (c *contract) cleanupCaps(t *testing.T) {
 		sess.CreatedAt, sess.AbsoluteCap = now.Add(-age), 12*time.Hour
 		return sess
 	}
-	recovery := newSession(1, now.Add(-time.Minute))
-	recovery.CreatedAt, recovery.Kind = now.Add(-16*time.Minute), access.SessionRecovery
-	gone := []*access.Session{idleCap(31 * time.Minute), absoluteCap(13 * time.Hour), recovery}
+	gone := []*access.Session{idleCap(31 * time.Minute), absoluteCap(13 * time.Hour)}
 	kept := []*access.Session{idleCap(29 * time.Minute), absoluteCap(11 * time.Hour)}
 	for _, sess := range slices.Concat(gone, kept) {
 		mustSession(t, s, sess)
 	}
 	if refs := sweep(t, s, now, week, 10); !sameRefs(refs, gone...) {
-		t.Errorf("CleanupExpiredSessions under 7-day timeouts = %v, want the over-cap and old recovery sessions", refs)
+		t.Errorf("CleanupExpiredSessions under 7-day timeouts = %v, want the two over-cap sessions", refs)
 	}
 	if got := present(t, s, kept...); !slices.Equal(got, []bool{true, true}) {
 		t.Errorf("sessions inside their caps found = %v, want both", got)

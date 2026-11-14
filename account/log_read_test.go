@@ -88,14 +88,11 @@ func TestSecurityLog(t *testing.T) {
 			name string
 		}{
 			{name: "admin_session", p: func(t *testing.T) access.Principal {
-				return f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+				return f.sessionPrincipal(t, admin, time.Now())
 			}},
 			{name: "admin_scope_key", p: func(t *testing.T) access.Principal { return f.keyPrincipal(t, admin, scopeAdmin) }},
 			{name: "user_session", want: account.ErrPolicyRefused, p: func(t *testing.T) access.Principal {
-				return f.sessionPrincipal(t, user, access.SessionFull, time.Now())
-			}},
-			{name: "recovery_session", want: account.ErrSessionRequired, p: func(t *testing.T) access.Principal {
-				return f.sessionPrincipal(t, admin, access.SessionRecovery, time.Now())
+				return f.sessionPrincipal(t, user, time.Now())
 			}},
 			{name: "key_without_scope", want: account.ErrScopeRequired, p: func(t *testing.T) access.Principal { return f.keyPrincipal(t, admin, scopeUsers) }},
 		} {
@@ -111,7 +108,7 @@ func TestSecurityLog(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, options{})
 		user := mustUser(t, f.mem, "alice", access.RoleUser)
-		p := f.sessionPrincipal(t, user, access.SessionFull, time.Now())
+		p := f.sessionPrincipal(t, user, time.Now())
 		if _, err := f.svc.SecurityLog(t.Context(), p, account.LogFilter{Limit: -1}); !errors.Is(err, account.ErrPolicyRefused) || errors.Is(err, account.ErrLogFilterInvalid) {
 			t.Errorf("a non-admin's invalid filter = %v, want ErrPolicyRefused and not ErrLogFilterInvalid", err)
 		}
@@ -127,7 +124,7 @@ func TestSecurityLog(t *testing.T) {
 			return account.Rules{}
 		}})
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-		p := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+		p := f.sessionPrincipal(t, admin, time.Now())
 		fs.resetRecord()
 		if _, err := f.svc.SecurityLog(t.Context(), p, account.LogFilter{}); err != nil {
 			t.Fatalf("SecurityLog under valid Rules = %v", err)
@@ -149,7 +146,7 @@ func TestSecurityLog(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, options{})
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-		p := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+		p := f.sessionPrincipal(t, admin, time.Now())
 		seqs := appendEvents(t, f.mem,
 			account.Event{Kind: account.EventUserCreated, UserID: 1, Actor: account.EventActor{UserID: 9}},
 			account.Event{Kind: account.EventKeyMinted, UserID: 2, Actor: account.EventActor{UserID: 9, KeyID: 5}},
@@ -191,7 +188,7 @@ func TestSecurityLog(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, options{})
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-		p := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+		p := f.sessionPrincipal(t, admin, time.Now())
 		seqs := fill(t, f.mem, account.LogClassChange, 60, time.Now())
 		page, err := f.svc.SecurityLog(t.Context(), p, account.LogFilter{})
 		if err != nil {
@@ -208,7 +205,7 @@ func TestSecurityLog(t *testing.T) {
 		fs := newFaultStore()
 		f := newFixture(t, options{store: fs})
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-		p := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+		p := f.sessionPrincipal(t, admin, time.Now())
 		const top = 1<<53 - 1
 		for _, tc := range []struct {
 			name   string
@@ -258,7 +255,7 @@ func TestSecurityLog(t *testing.T) {
 			t.Parallel()
 			f := newFixture(t, options{})
 			admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-			p := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+			p := f.sessionPrincipal(t, admin, time.Now())
 			fill(t, f.mem, account.LogClassChange, 2, time.Now())
 			page, err := f.svc.SecurityLog(t.Context(), p, account.LogFilter{})
 			if err != nil {
@@ -273,7 +270,7 @@ func TestSecurityLog(t *testing.T) {
 			t.Parallel()
 			f := newFixture(t, options{edit: withLogCaps(3, 2)})
 			admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-			p := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+			p := f.sessionPrincipal(t, admin, time.Now())
 			createUsers(t, f, 5)
 			page, err := f.svc.SecurityLog(t.Context(), p, account.LogFilter{})
 			if err != nil {
@@ -300,7 +297,7 @@ func TestSecurityLog(t *testing.T) {
 				fs := newFaultStore()
 				f := newFixture(t, options{store: fs})
 				admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-				p := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+				p := f.sessionPrincipal(t, admin, time.Now())
 				fs.refuseCall(name, errFault)
 				if _, err := f.svc.SecurityLog(t.Context(), p, account.LogFilter{}); !errors.Is(err, access.ErrAuthBackend) || !errors.Is(err, errFault) {
 					t.Errorf("SecurityLog with a failing %s = %v, want access.ErrAuthBackend wrapping the store error", name, err)
@@ -312,7 +309,7 @@ func TestSecurityLog(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, options{})
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-		p := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+		p := f.sessionPrincipal(t, admin, time.Now())
 		if err := f.svc.Shutdown(t.Context()); err != nil {
 			t.Fatalf("Shutdown = %v", err)
 		}
@@ -328,7 +325,7 @@ func readOrderFixture(t *testing.T) (*account.Service, access.Principal, []uint6
 	t.Helper()
 	f := newFixture(t, options{})
 	admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-	p := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+	p := f.sessionPrincipal(t, admin, time.Now())
 	evs := make([]account.Event, 120)
 	for i := range evs {
 		evs[i] = account.Event{Kind: account.EventUserCreated}
@@ -398,7 +395,7 @@ func TestSecurityLogPaging(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, options{})
 	admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-	p := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+	p := f.sessionPrincipal(t, admin, time.Now())
 	evs := make([]account.Event, 120)
 	for i := range evs {
 		evs[i] = account.Event{Kind: account.EventUserCreated}
@@ -464,7 +461,7 @@ func TestSecurityLogPaging(t *testing.T) {
 	t.Run("prune_between_pages", func(t *testing.T) {
 		g := newFixture(t, options{})
 		gadmin := mustUser(t, g.mem, "root", access.RoleAdmin)
-		gp := g.sessionPrincipal(t, gadmin, access.SessionFull, time.Now())
+		gp := g.sessionPrincipal(t, gadmin, time.Now())
 		gseqs := appendEvents(t, g.mem, evs...)
 		first, err := g.svc.SecurityLog(t.Context(), gp, account.LogFilter{Kinds: keys, Limit: 10})
 		if err != nil || len(first.Entries) != 10 {
@@ -506,7 +503,7 @@ func TestSecurityLogPaging(t *testing.T) {
 		// drops one.
 		g := newFixture(t, options{})
 		gadmin := mustUser(t, g.mem, "root", access.RoleAdmin)
-		gp := g.sessionPrincipal(t, gadmin, access.SessionFull, time.Now())
+		gp := g.sessionPrincipal(t, gadmin, time.Now())
 		big := make([]account.Event, 2*account.MaxLogPage+200)
 		n := len(big)
 		m := account.MaxLogPage
@@ -592,7 +589,7 @@ func TestSecurityLogNeverWaits(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, options{})
 	admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-	p := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+	p := f.sessionPrincipal(t, admin, time.Now())
 	fill(t, f.mem, account.LogClassChange, 3, time.Now())
 	entered, release := make(chan struct{}), make(chan struct{})
 	held := make(chan error, 1)

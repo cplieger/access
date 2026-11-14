@@ -210,7 +210,7 @@ func TestMemStoreLiveTokens(t *testing.T) {
 	ctx := t.Context()
 	store := accesstest.NewMemStore()
 	var live []access.Hash
-	for _, p := range []access.TokenPurpose{access.PurposeSetup, access.PurposeInvite, access.PurposeRecovery} {
+	for _, p := range []access.TokenPurpose{access.PurposeSetup, access.PurposeInvite, "app"} {
 		for _, expires := range []time.Time{t0.Add(time.Hour), t0} {
 			tok := access.OneTimeToken{Hash: access.NewHash(fmt.Sprint(p, expires)), Purpose: p, ExpiresAt: expires, Role: access.RoleUser}
 			if err := store.CreateOneTimeToken(ctx, tok); err != nil {
@@ -222,7 +222,7 @@ func TestMemStoreLiveTokens(t *testing.T) {
 		}
 	}
 
-	got, err := store.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeInvite, access.PurposeRecovery}, t0)
+	got, err := store.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeInvite, "app"}, t0)
 	if err != nil {
 		t.Fatalf("LiveOneTimeTokens: %v", err)
 	}

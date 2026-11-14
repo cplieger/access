@@ -73,8 +73,7 @@ type Config struct {
 	// first use, LastUsedAt zero, is written whatever the throttle. A
 	// session's activity is written once its stored LastActivity is the
 	// lesser of it and half the session's idle limit old (that limit lowered
-	// by its IdleCap and, for a recovery session, [RecoverySessionLifetime]),
-	// so a session in use never expires between two writes. [New] refuses a
+	// by its IdleCap), so a session in use never expires between two writes. [New] refuses a
 	// negative throttle and one at or above the idle timeout.
 	ActivityThrottle time.Duration
 }

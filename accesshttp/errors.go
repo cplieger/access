@@ -8,7 +8,6 @@ import (
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
-	"github.com/cplieger/access/internal/failreason"
 	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/ratelimit"
 	"github.com/cplieger/access/webauthn"
@@ -117,9 +116,6 @@ func classify(err error, cer ceremony) (access.Error, bool) {
 		if code, ok = ceremonyCode(cer); !ok {
 			return access.Error{}, false
 		}
-	}
-	if code == access.CodeSessionRequired {
-		reason = failreason.Of(err)
 	}
 	e := access.NewError(code, reason, err)
 	if refused, isRefused := errors.AsType[*ratelimit.RefusedError](err); isRefused {

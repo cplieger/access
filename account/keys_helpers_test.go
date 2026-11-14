@@ -86,11 +86,11 @@ func reason(err error) string {
 	return ""
 }
 
-// seedToken stores a token of purpose for subject issued by keyID (0 for a
-// session), expiring in ttl, and returns its record.
-func seedToken(t testing.TB, s account.Store, purpose access.TokenPurpose, subject, keyID int64, ttl time.Duration) access.OneTimeToken {
+// seedToken stores a token of purpose issued by keyID (0 for a session),
+// expiring in ttl, and returns its record.
+func seedToken(t testing.TB, s account.Store, purpose access.TokenPurpose, keyID int64, ttl time.Duration) access.OneTimeToken {
 	t.Helper()
-	_, rec := access.NewOneTimeToken(purpose, subject, ttl, time.Now())
+	_, rec := access.NewOneTimeToken(purpose, ttl, time.Now())
 	rec.IssuedByKey = keyID
 	if purpose == access.PurposeInvite {
 		rec.Role = access.RoleUser

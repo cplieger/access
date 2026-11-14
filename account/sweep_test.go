@@ -156,8 +156,8 @@ func TestSweepUsesAuthenticatorTimeouts(t *testing.T) {
 		src := newTimeoutSource(2*time.Hour, 24*time.Hour)
 		f := newFixture(t, options{timeouts: src.get, edit: withInterval})
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
-		idle90 := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
-		idle30 := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+		idle90 := f.sessionPrincipal(t, u, time.Now())
+		idle30 := f.sessionPrincipal(t, u, time.Now())
 		time.Sleep(time.Hour)
 		if err := f.mem.UpdateSessionActivity(t.Context(), idle30.SessionTokenHash(), access.SessionActivity{At: time.Now()}); err != nil {
 			t.Fatalf("UpdateSessionActivity: %v", err)

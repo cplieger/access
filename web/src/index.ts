@@ -1,10 +1,5 @@
 export { createAuthClient } from "./client.js";
-export type {
-  AuthClient,
-  AuthClientOptions,
-  PublicKeyCredentialJSON,
-  RecoverFlags,
-} from "./client.js";
+export type { AuthClient, AuthClientOptions, PublicKeyCredentialJSON } from "./client.js";
 export { continuation, takeFragmentToken } from "./continuation.js";
 export {
   completePendingLink,
@@ -23,7 +18,6 @@ export { withStepUp } from "./stepup.js";
 export type { StepUpOptions, StepUpPrompt, StepUpResult } from "./stepup.js";
 export {
   passkeySupport,
-  recoverWithPasskey,
   registerPasskey,
   sendSignals,
   setupWithPasskey,
@@ -32,7 +26,6 @@ export {
 } from "./webauthn.js";
 export type {
   DOMExceptionName,
-  RecoverOutcome,
   RegisterOutcome,
   SignInOutcome,
   StepUpOutcome,
@@ -60,18 +53,14 @@ export {
   parsePasswordRequest,
   parsePendingLinkResponse,
   parseProfileRequest,
-  parseRecoverPasswordRequest,
-  parseRecoveryResponse,
   parseRedirectRequest,
   parseSessionView,
   parseSetupPasskeyBeginRequest,
   parseSetupPasswordRequest,
   parseSignedInResponse,
   parseStateResponse,
-  parseTokenRequest,
   parseTokenResponse,
   parseTokenView,
-  parseTTLRequest,
   parseUserMethodsView,
   parseUserUpdateRequest,
   parseUserView,
@@ -106,8 +95,6 @@ export type {
   PendingLinkResponse,
   PlainSessionView,
   ProfileRequest,
-  RecoverPasswordRequest,
-  RecoveryResponse,
   RedirectRequest,
   SecurityLogView,
   SessionView,
@@ -115,10 +102,8 @@ export type {
   SetupPasswordRequest,
   SignedInResponse,
   StateResponse,
-  TokenRequest,
   TokenResponse,
   TokenView,
-  TTLRequest,
   UserMethodsView,
   UserUpdateRequest,
   UserView,

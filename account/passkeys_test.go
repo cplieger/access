@@ -78,8 +78,8 @@ func TestPasskeyCeremonies(t *testing.T) {
 		if err != nil {
 			t.Fatalf("PasskeyLoginFinish = %v", err)
 		}
-		if in.User.ID != u.ID || in.Session.AuthMethod != access.MethodPasskey || in.Session.Kind != access.SessionFull || in.CloneWarning {
-			t.Errorf("SignedIn = user %d, method %q, kind %v, clone %t; want alice's full passkey session", in.User.ID, in.Session.AuthMethod, in.Session.Kind, in.CloneWarning)
+		if in.User.ID != u.ID || in.Session.AuthMethod != access.MethodPasskey || in.CloneWarning {
+			t.Errorf("SignedIn = user %d, method %q, clone %t; want alice's passkey session", in.User.ID, in.Session.AuthMethod, in.CloneWarning)
 		}
 		if got := p.principal(t, in.Token); got.User.ID != u.ID || got.SessionID != in.Session.ID {
 			t.Errorf("the token authenticates user %d session %s, want %d %s", got.User.ID, got.SessionID, u.ID, in.Session.ID)
@@ -324,9 +324,9 @@ func TestPasskeyCeremonyRefusals(t *testing.T) {
 // in its pending entry.
 func TestCeremonyBeginRecordsItsUser(t *testing.T) {
 	t.Parallel()
-	w := newRecWorld(t, pwOptions{}, nil)
-	session, _ := w.signedInVia(t, w.alice, access.MethodPassword)
-	_, recovery := w.start(t, w.svc, w.issue(t, account.OutOfBand("socket"), w.alice.ID))
+	w := newPK(t, pwOptions{})
+	alice := passwordUser(t, w.mem, w.hasher, "alice", goodPassword)
+	session, _ := w.signedInVia(t, alice, access.MethodPassword)
 	for _, tc := range []struct {
 		begin   func(t *testing.T) (account.PendingCeremony, error)
 		name    string
@@ -335,11 +335,8 @@ func TestCeremonyBeginRecordsItsUser(t *testing.T) {
 		{name: "register", purpose: account.PurposeRegister, begin: func(t *testing.T) (account.PendingCeremony, error) {
 			return w.svc.PasskeyRegisterBegin(t.Context(), session, w.origin)
 		}},
-		{name: "recovery", purpose: account.PurposeRecovery, begin: func(t *testing.T) (account.PendingCeremony, error) {
-			return w.svc.RecoverPasskeyBegin(t.Context(), recovery, w.origin)
-		}},
 		{name: "step_up", purpose: account.PurposeStepUp, begin: func(t *testing.T) (account.PendingCeremony, error) {
-			w.enrol(t, w.alice, accesstest.NewPasskeyDevice(t))
+			w.enrol(t, alice, accesstest.NewPasskeyDevice(t))
 			return w.svc.StepUpPasskeyBegin(t.Context(), session, w.origin)
 		}},
 	} {
@@ -349,8 +346,8 @@ func TestCeremonyBeginRecordsItsUser(t *testing.T) {
 				t.Fatalf("begin = %v", err)
 			}
 			u, ok := account.Pending(w.svc).Take(pc.ID, tc.purpose, time.Now())
-			if !ok || u.ID != w.alice.ID || u.Username != "alice" {
-				t.Errorf("pending entry = user %d %q (found %t), want alice, user %d", u.ID, u.Username, ok, w.alice.ID)
+			if !ok || u.ID != alice.ID || u.Username != "alice" {
+				t.Errorf("pending entry = user %d %q (found %t), want alice, user %d", u.ID, u.Username, ok, alice.ID)
 			}
 		})
 	}
@@ -478,9 +475,8 @@ func TestPasskeySessionPrecondition(t *testing.T) {
 		},
 	}
 	refused := map[string]access.Principal{
-		"key":      p.keyPrincipal(t, u, "read"),
-		"recovery": p.sessionPrincipal(t, u, access.SessionRecovery, time.Now()),
-		"bypass":   p.bypassPrincipal(t),
+		"key":    p.keyPrincipal(t, u, "read"),
+		"bypass": p.bypassPrincipal(t),
 	}
 	for who, pr := range refused {
 		for name, op := range ops {
@@ -491,7 +487,7 @@ func TestPasskeySessionPrecondition(t *testing.T) {
 			})
 		}
 	}
-	stale := p.sessionPrincipal(t, u, access.SessionFull, time.Now().Add(-time.Hour))
+	stale := p.sessionPrincipal(t, u, time.Now().Add(-time.Hour))
 	for name, want := range map[string]error{
 		"register_begin": access.ErrRecentAuthRequired, "remove": access.ErrRecentAuthRequired,
 		"step_up_begin": nil, "passkeys": nil, "rename": nil, "signals": nil,

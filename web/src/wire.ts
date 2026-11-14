@@ -15,12 +15,11 @@ export const METHODS = [
   "oidc",
   "totp",
   "recovery_code",
-  "recovery",
   "api_key",
   "bypass",
 ] as const;
 /** @internal Go's TokenPurpose constants. */
-export const TOKEN_PURPOSES = ["setup", "recovery", "invite"] as const;
+export const TOKEN_PURPOSES = ["setup", "invite"] as const;
 
 // An open set (types.go: Method, Role, TokenPurpose): the server may send an app-defined
 // value beside Go's constants, so a switch over one needs a default arm.
@@ -168,22 +167,6 @@ export interface RedirectRequest {
 }
 export const parseRedirectRequest: Validator<RedirectRequest> = object({ redirect: opt(str) });
 
-export interface TokenRequest {
-  readonly token: string;
-}
-export const parseTokenRequest: Validator<TokenRequest> = object({ token: req(str) });
-
-export interface RecoverPasswordRequest {
-  readonly password: string;
-  readonly keep_sessions?: boolean;
-  readonly keep_keys?: boolean;
-}
-export const parseRecoverPasswordRequest: Validator<RecoverPasswordRequest> = object({
-  password: req(str),
-  keep_sessions: opt(bool),
-  keep_keys: opt(bool),
-});
-
 export interface InviteAcceptRequest {
   readonly token: string;
   readonly username: string;
@@ -239,7 +222,7 @@ export const parseNewKeyRequest: Validator<NewKeyRequest> = object({
   expires_in_days: opt(int),
 });
 
-/** Without a password the user has no sign-in method until a recovery link. */
+/** Without a password the user has no sign-in method. */
 export interface NewUserRequest {
   readonly username: string;
   readonly password?: string;
@@ -259,12 +242,6 @@ export const parseUserUpdateRequest: Validator<UserUpdateRequest> = object({
   role: opt(role),
   enabled: opt(bool),
 });
-
-/** hours absent or 0 is the default lifetime. */
-export interface TTLRequest {
-  readonly hours?: number;
-}
-export const parseTTLRequest: Validator<TTLRequest> = object({ hours: opt(int) });
 
 export interface InviteRequest {
   readonly role: Role;
@@ -542,15 +519,6 @@ export const parseMeResponse: Validator<MeResponse> = object({
   session: req(parseCurrentSessionView),
 });
 
-export interface RecoveryResponse {
-  readonly username: string;
-  readonly methods: MethodsView;
-}
-export const parseRecoveryResponse: Validator<RecoveryResponse> = object({
-  username: req(str),
-  methods: req(parseMethodsView),
-});
-
 /** A passkey whose rp_id differs from the current RP's ID cannot sign in. */
 export interface PasskeyView {
   readonly id: number;
@@ -655,11 +623,10 @@ export const parseTokenResponse: Validator<TokenResponse> = object({
   expires_at: req(time),
 });
 
-/** One live invite or recovery token; it carries neither the token nor its hash. */
+/** One live invite; it carries neither the token nor its hash. */
 export interface TokenView {
   readonly purpose: TokenPurpose;
   readonly role?: Role;
-  readonly subject?: number;
   readonly created_at: string;
   readonly expires_at: string;
   readonly issued_by_key?: number;
@@ -668,7 +635,6 @@ export interface TokenView {
 export const parseTokenView: Validator<TokenView> = object({
   purpose: req(purpose),
   role: opt(role),
-  subject: opt(id),
   created_at: req(time),
   expires_at: req(time),
   issued_by_key: opt(id),
@@ -864,7 +830,6 @@ export const REASONS = [
   "provisioning_disabled",
   "not_admitted",
   "username_invalid",
-  "recovery",
   "reenable_needs_other_method",
   "trailing_data",
   "malformed_json",
@@ -890,7 +855,6 @@ export const REASONS = [
   "expiry_after_parent",
   "lineage_too_deep",
   "permission_not_admin",
-  "self_recovery",
   "other_user",
   "target_not_eligible",
   "not_principal",

@@ -24,7 +24,6 @@ const (
 	classPublic opClass = iota // takes no principal
 	classSession
 	classRecentAuth
-	classRecovery
 	classAdminScope  // key_scope with AdminScope
 	classManageUsers // key_permission with ManageUsersScope
 	classCreateKeys  // key_permission with CreateKeysScope
@@ -121,19 +120,17 @@ func (w *opWorld) name(prefix string) string { return fmt.Sprintf("%s%d", prefix
 // recent is a full session of u signed in now.
 func (w *opWorld) recent(t *testing.T, u *access.User) access.Principal {
 	t.Helper()
-	return w.sessionPrincipal(t, u, access.SessionFull, time.Now())
+	return w.sessionPrincipal(t, u, time.Now())
 }
 
 // actorFor is the principal an operation of class is called with when the
-// test does not vary it: a recent session of root, or a recovery session of
-// alice; the zero principal for a public or out-of-band operation.
+// test does not vary it: a recent session of root; the zero principal for a
+// public or out-of-band operation.
 func (w *opWorld) actorFor(t *testing.T, class opClass) access.Principal {
 	t.Helper()
 	switch class {
 	case classPublic, classOutOfBand:
 		return access.Principal{}
-	case classRecovery:
-		return w.sessionPrincipal(t, w.alice, access.SessionRecovery, time.Now())
 	default:
 		return w.recent(t, w.root)
 	}
@@ -271,7 +268,7 @@ func finishWith(t *testing.T, w *opWorld, class opClass, p access.Principal, beg
 // operations is every exported Service operation that reaches the store,
 // with its class.
 func operations() []operation {
-	return slices.Concat(publicOperations(), sessionOperations(), recentOperations(), recoveryOperations(), adminOperations())
+	return slices.Concat(publicOperations(), sessionOperations(), recentOperations(), adminOperations())
 }
 
 func publicOperations() []operation {
@@ -370,19 +367,6 @@ func publicOperations() []operation {
 				want: func() []account.Event {
 					return []account.Event{{Kind: account.EventUserCreated, UserID: in.User.ID, Role: access.RoleUser}, signedIn(in, access.MethodPassword)}
 				},
-			}
-		}},
-		{name: "StartRecovery", class: classPublic, transport: plainRefused, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
-			tok, err := w.svc.IssueRecovery(t.Context(), account.OutOfBand("socket"), w.alice.ID, 0)
-			if err != nil {
-				t.Fatalf("IssueRecovery = %v", err)
-			}
-			return opCall{
-				run: func(ctx context.Context) error {
-					_, err := w.svc.StartRecovery(ctx, w.client, tok.Plaintext)
-					return err
-				},
-				want: events(account.Event{Kind: account.EventRecoveryConsumed, UserID: w.alice.ID}),
 			}
 		}},
 		{name: "Logout", class: classPublic, transport: plainAllowed, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
@@ -601,66 +585,6 @@ func recentOperations() []operation {
 	}
 }
 
-// completed is a recovery completion's events for u, ended by p, that
-// installed a credential of method: the sessions it ended, then one
-// EventKeyRevoked per key.
-func completed(u *access.User, p access.Principal, method access.Method, sessions []string, keys []int64) []account.Event {
-	evs := []account.Event{{Kind: account.EventRecoveryCompleted, UserID: u.ID, Method: method, SessionIDs: sessions, Actor: actorOf(p)}}
-	for _, id := range keys {
-		evs = append(evs, account.Event{Kind: account.EventKeyRevoked, UserID: u.ID, KeyID: id, Actor: actorOf(p)})
-	}
-	return evs
-}
-
-func recoveryOperations() []operation {
-	return []operation{
-		{name: "RecoverWithPassword", class: classRecovery, transport: plainRefused, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
-			u := w.owner(t, p)
-			sessions, keys := sessionIDsOf(t, w.fixture, u.ID), w.keysOfUser(t, u)
-			return opCall{
-				run: func(ctx context.Context) error {
-					return w.svc.RecoverWithPassword(ctx, p, access.NewSecret(recoveredPassword), account.RecoverOptions{})
-				},
-				want: func() []account.Event { return completed(u, p, access.MethodPassword, sessions, keys) },
-			}
-		}},
-		{name: "RecoverPasskeyBegin", class: classRecovery, transport: plainRefused, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
-			return opCall{run: func(ctx context.Context) error { _, err := w.svc.RecoverPasskeyBegin(ctx, p, w.origin); return err }, want: none}
-		}},
-		{name: "RecoverPasskeyFinish", class: classRecovery, transport: plainRefused, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
-			_, pc := finishWith(t, w, classRecovery, p, func(q access.Principal) (account.PendingCeremony, error) {
-				return w.svc.RecoverPasskeyBegin(t.Context(), q, w.origin)
-			})
-			body := accesstest.NewPasskeyDevice(t).Register(browserJSON(t, pc.Creation))
-			u := w.owner(t, p)
-			sessions, keys := sessionIDsOf(t, w.fixture, u.ID), w.keysOfUser(t, u)
-			return opCall{
-				run: func(ctx context.Context) error {
-					return w.svc.RecoverPasskeyFinish(ctx, p, pc.ID, bytes.NewReader(body), account.RecoverOptions{})
-				},
-				want: func() []account.Event { return completed(u, p, access.MethodPasskey, sessions, keys) },
-			}
-		}},
-		{name: "RecoverOutOfBand", class: classOutOfBand, transport: plainAllowed, asks: []account.Operation{account.OpIssueRecovery}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
-			a := w.actor(p)
-			sessions, keys := sessionIDsOf(t, w.fixture, w.alice.ID), w.keysOfUser(t, w.alice)
-			return opCall{
-				actor: account.EventActorOf(a), target: w.alice.ID,
-				run: func(ctx context.Context) error {
-					return w.svc.RecoverOutOfBand(ctx, a, w.alice.ID, access.NewSecret(recoveredPassword), account.RecoverOptions{})
-				},
-				want: func() []account.Event {
-					evs := completed(w.alice, access.Principal{}, access.MethodPassword, sessions, keys)
-					for i := range evs {
-						evs[i].Actor = account.EventActor{OutOfBand: "socket"}
-					}
-					return evs
-				},
-			}
-		}},
-	}
-}
-
 func adminOperations() []operation {
 	return []operation{
 		{name: "Users", class: classAdminScope, transport: plainAllowed, readOnly: true, asks: []account.Operation{account.OpListUsers}, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
@@ -714,17 +638,6 @@ func adminOperations() []operation {
 				actor: actorOf(p), target: target.ID,
 				run:  func(ctx context.Context) error { return w.svc.DeleteUser(ctx, p, target.ID) },
 				want: events(account.Event{Kind: account.EventUserDeleted, UserID: target.ID, Actor: actorOf(p)}),
-			}
-		}},
-		{name: "IssueRecovery", class: classManageUsers, transport: plainRefused, asks: []account.Operation{account.OpIssueRecovery}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
-			target := w.user(t)
-			return opCall{
-				actor: actorOf(p), target: target.ID,
-				run: func(ctx context.Context) error {
-					_, err := w.svc.IssueRecovery(ctx, account.As(p), target.ID, 0)
-					return err
-				},
-				want: events(account.Event{Kind: account.EventRecoveryIssued, UserID: target.ID, Actor: actorOf(p)}),
 			}
 		}},
 		{name: "CreateInvite", class: classManageUsers, transport: plainRefused, asks: []account.Operation{account.OpInvite}, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {

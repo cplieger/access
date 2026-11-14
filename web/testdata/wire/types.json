@@ -158,7 +158,6 @@
             "oidc",
             "totp",
             "recovery_code",
-            "recovery",
             "api_key",
             "bypass"
           ],
@@ -183,7 +182,6 @@
                 "oidc",
                 "totp",
                 "recovery_code",
-                "recovery",
                 "api_key",
                 "bypass"
               ],
@@ -376,72 +374,6 @@
       "name": "display_name"
     }
   ],
-  "RecoverPasswordRequest": [
-    {
-      "name": "password"
-    },
-    {
-      "name": "keep_sessions",
-      "optional": true
-    },
-    {
-      "name": "keep_keys",
-      "optional": true
-    }
-  ],
-  "RecoveryResponse": [
-    {
-      "name": "username"
-    },
-    {
-      "name": "methods",
-      "fields": [
-        {
-          "name": "locks",
-          "fields": [
-            {
-              "name": "method",
-              "values": [
-                "password",
-                "passkey",
-                "oidc",
-                "totp",
-                "recovery_code",
-                "recovery",
-                "api_key",
-                "bypass"
-              ],
-              "open": true
-            },
-            {
-              "name": "untrusted"
-            },
-            {
-              "name": "trusted"
-            }
-          ]
-        },
-        {
-          "name": "passkey_count"
-        },
-        {
-          "name": "password"
-        },
-        {
-          "name": "oidc_linked"
-        },
-        {
-          "name": "oidc_available"
-        },
-        {
-          "name": "passkeys_available"
-        },
-        {
-          "name": "password_login"
-        }
-      ]
-    }
-  ],
   "RedirectRequest": [
     {
       "name": "redirect",
@@ -480,7 +412,6 @@
             "oidc",
             "totp",
             "recovery_code",
-            "recovery",
             "api_key",
             "bypass"
           ],
@@ -616,7 +547,6 @@
         "oidc",
         "totp",
         "recovery_code",
-        "recovery",
         "api_key",
         "bypass"
       ],
@@ -782,17 +712,6 @@
       "name": "secure"
     }
   ],
-  "TTLRequest": [
-    {
-      "name": "hours",
-      "optional": true
-    }
-  ],
-  "TokenRequest": [
-    {
-      "name": "token"
-    }
-  ],
   "TokenResponse": [
     {
       "name": "expires_at"
@@ -812,7 +731,6 @@
       "name": "purpose",
       "values": [
         "setup",
-        "recovery",
         "invite"
       ],
       "open": true
@@ -828,10 +746,6 @@
     },
     {
       "name": "issuer_lineage",
-      "optional": true
-    },
-    {
-      "name": "subject",
       "optional": true
     },
     {

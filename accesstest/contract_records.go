@@ -312,9 +312,9 @@ func dupSessionID(t *testing.T, s account.Store) (got, want error) {
 }
 
 func dupTokenHash(t *testing.T, s account.Store) (got, want error) {
-	a := newToken(access.PurposeInvite, 0, epoch.Add(time.Hour))
+	a := newToken(access.PurposeInvite, epoch.Add(time.Hour))
 	mustToken(t, s, a)
-	b := newToken(access.PurposeRecovery, 1, epoch.Add(time.Hour))
+	b := newToken(access.PurposeSetup, epoch.Add(time.Hour))
 	b.Hash = a.Hash
 	return s.CreateOneTimeToken(t.Context(), b), nil
 }
@@ -343,7 +343,7 @@ func (c *contract) hashRoundTrip(t *testing.T) {
 	mustKey(t, s, k)
 	gotKey, found, err := s.APIKeyByHash(ctx, fresher(k.KeyHash))
 	same("Key.KeyHash", found, err, mustFind(t, "APIKeyByHash", gotKey, found, err).KeyHash, k.KeyHash)
-	tok := newToken(access.PurposeInvite, 0, epoch.Add(time.Hour))
+	tok := newToken(access.PurposeInvite, epoch.Add(time.Hour))
 	mustToken(t, s, tok)
 	gotTok, found, err := s.OneTimeTokenByHash(ctx, fresher(tok.Hash))
 	same("OneTimeToken.Hash", found, err, gotTok.Hash, tok.Hash)
@@ -442,7 +442,7 @@ func timeRoundTripRest(t *testing.T, s account.Store, userID int64, at time.Time
 	passkey := mustFind(t, "PasskeysByUserID", passkeys, len(passkeys) == 1, err)[0]
 	same("PasskeyCredential.CreatedAt", passkey.CreatedAt)
 	same("PasskeyCredential.LastUsedAt", passkey.LastUsedAt)
-	tok := newToken(access.PurposeInvite, 0, at)
+	tok := newToken(access.PurposeInvite, at)
 	tok.CreatedAt = at
 	mustToken(t, s, tok)
 	gotTok, found, err := s.OneTimeTokenByHash(ctx, tok.Hash)

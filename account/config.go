@@ -37,13 +37,12 @@ type Config struct {
 	Logger *slog.Logger     // nil: slog.Default() at each log call
 	Now    func() time.Time // nil: time.Now
 	// AdminScope, when set, lets a key carrying it list users, every user's
-	// keys and the live invite and recovery tokens, read the security log and
+	// keys and the live invite tokens, read the security log and
 	// revoke any key, where Policy allows. Empty: session only.
 	AdminScope string
 	// ManageUsersScope, when set, lets a key carrying this scope create,
-	// update and delete RoleUser accounts, invite RoleUser accounts and
-	// issue recovery for RoleUser accounts; never an admin. Empty: session
-	// only, under recent auth.
+	// update and delete RoleUser accounts and invite RoleUser accounts;
+	// never an admin. Empty: session only, under recent auth.
 	ManageUsersScope string
 	// CreateKeysScope, when set, lets a key carrying this scope mint keys
 	// for its own user, each no broader and no longer-lived than itself.

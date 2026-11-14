@@ -25,7 +25,7 @@ type draft struct {
 	session   access.Session
 }
 
-// newDraft builds the session of op's method and kind that createSession
+// newDraft builds the session of op's method that createSession
 // writes for c: a 128-bit hex ID, a fresh token, c's transport, the sanitised
 // user agent, c's IP, and the per-session caps from one Rules.SessionCaps
 // call, keeping only positive values.
@@ -38,7 +38,6 @@ func (s *Service) newDraft(ctx context.Context, r Rules, c Client, op *sessionOp
 		ID:           hex.EncodeToString(id),
 		TokenHash:    hash,
 		AuthMethod:   op.method,
-		Kind:         op.kind,
 		UserAgent:    sanitizeUserAgent(c.UserAgent),
 		CreatedAt:    now,
 		LastActivity: now,
@@ -87,12 +86,11 @@ func (d *draft) store(ctx context.Context, tx Tx, r Rules, userID int64) (replac
 	return replaced, evicted, nil
 }
 
-// replace deletes the session d.presented names when d is a full session
-// of that session's user on its transport, and returns its ID: a fresh
-// sign-in ends the session it was made from, so a sniffed token dies with
-// it. A recovery start is not a sign-in and replaces nothing.
+// replace deletes the session d.presented names when it is a session of d's
+// user on its transport, and returns its ID: a fresh sign-in ends the
+// session it was made from, so a sniffed token dies with it.
 func (d *draft) replace(ctx context.Context, tx Tx) (string, error) {
-	if d.session.Kind != access.SessionFull || d.presented.IsZero() {
+	if d.presented.IsZero() {
 		return "", nil
 	}
 	old, found, err := tx.SessionByHash(ctx, d.presented)
@@ -159,15 +157,13 @@ type sessionOp struct {
 	// between EventSessionRevoked and EventSignedIn, in the same run.
 	announce func(j *journal, u *access.User, sess *access.Session)
 	method   access.Method
-	kind     access.SessionKind
 }
 
 // createSession runs op in order: the admission, prepare, Rules.SessionCaps
 // once with c, then one change holding op.in, op.fill and the session write
 // (draft.store), with an EventSessionRevoked per replaced or evicted batch,
-// op.announce's entries and, for a full session, EventSignedIn. A full
-// session's device cookie is Succeed's, else Limiter.DeviceCookie for
-// c.Device; a recovery session gets none. A prepare error cancels the
+// op.announce's entries and EventSignedIn. The device cookie is Succeed's,
+// else Limiter.DeviceCookie for c.Device. A prepare error cancels the
 // reservation and an Update error fails it, as does a commit whose op.in gave
 // no user, which returns the zero SignedIn and a nil error.
 func (s *Service) createSession(ctx context.Context, r Rules, c Client, op *sessionOp) (SignedIn, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
@@ -187,7 +183,7 @@ func (s *Service) createSession(ctx context.Context, r Rules, c Client, op *sess
 	if res != nil {
 		device = res.Succeed()
 	}
-	if device.IsZero() && op.kind == access.SessionFull {
+	if device.IsZero() {
 		device = s.limiter.DeviceCookie(ratelimit.AccountKey(user.Username), c.Device)
 	}
 	return SignedIn{User: user.Clone(), Session: d.session, Token: d.token, DeviceCookie: device}, nil
@@ -236,9 +232,7 @@ func (s *Service) writeSession(ctx context.Context, r Rules, c Client, op *sessi
 		if op.announce != nil {
 			op.announce(j, u, &d.session)
 		}
-		if op.kind == access.SessionFull {
-			j.add(Event{Kind: EventSignedIn, At: d.session.CreatedAt, UserID: u.ID, Method: op.method, SessionIDs: []string{d.session.ID}})
-		}
+		j.add(Event{Kind: EventSignedIn, At: d.session.CreatedAt, UserID: u.ID, Method: op.method, SessionIDs: []string{d.session.ID}})
 		user = u
 		return nil
 	})

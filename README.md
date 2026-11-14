@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/cplieger/access.svg)](https://pkg.go.dev/github.com/cplieger/access) [![Go version](https://img.shields.io/github/go-mod/go-version/cplieger/access)](https://github.com/cplieger/access/blob/main/go.mod) [![Mutation](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/cplieger/access/badges/mutation.json)](https://github.com/cplieger/access/issues?q=label%3Agremlins-tracker)
 
-access gives your Go web service its sign-in: Argon2id passwords, passkeys, OIDC sign-in, sessions, API keys, invites and recovery, served as JSON routes you mount on your own mux, with a typed browser client. You write the storage and the pages.
+access gives your Go web service its sign-in: Argon2id passwords, passkeys, OIDC sign-in, sessions, API keys and invites, served as JSON routes you mount on your own mux, with a typed browser client. You write the storage and the pages.
 
 It reads no environment variables, and every setting lives on the value you construct. It is licensed under Apache-2.0. It has four direct dependencies at run time: `golang.org/x/crypto`, `golang.org/x/oauth2`, `golang.org/x/sync` and `golang.org/x/text`.
 
@@ -10,7 +10,7 @@ It reads no environment variables, and every setting lives on the value you cons
 
 access is built for a Go service that owns its login pages and its database.
 
-- Every sign-in path, password, passkey, OIDC, invite, recovery and first-user setup, runs through one admission path, which checks the rate limits before any password is hashed.
+- Every sign-in path, password, passkey, OIDC, invite and first-user setup, runs through one admission path, which checks the rate limits before any password is hashed.
 - Passwords hash with Argon2id at OWASP's parameters. When every `Hasher` is given the same `HashBudget`, that bound is process-wide. With no `HashBudget`, each `Hasher` has its own budget of four derivations. An unknown username costs the same work as a wrong password.
 - Repeated wrong passwords lock the method durably: after 100 consecutive failures for one account, method and trust context, that method is locked in that context until the user, signed in another way, re-enables it. A browser that signed in before keeps its own context, so a stranger's guesses do not lock the owner out.
 - Your store keeps only the SHA-256 hash of each 256-bit random session token. The session cookie holds only the token, and the cookies that carry state are sealed with AES-256-GCM.
@@ -28,7 +28,7 @@ Consider [Authboss](https://github.com/aarondl/authboss) if you want ready-made 
 | --- | --- |
 | `access` | The building blocks: the `Authenticator` that verifies a request, the refusal codes, the password hasher, session and API-key tokens, cookies, `Secret`, `Hash` and `Sealer` |
 | `access/gate` | Guards your own routes: one table of routes, each with the class of caller it admits, answered through your error writer. It needs nothing of passkeys or OIDC |
-| `account` | Sign-in, sessions, passkeys, OIDC, keys, invites, recovery, the user set and the [security log](docs/security-log.md), run over your `account.Store` |
+| `account` | Sign-in, sessions, passkeys, OIDC, keys, invites, the user set and the [security log](docs/security-log.md), run over your `account.Store` |
 | `accesshttp` | Every `account` operation as a JSON route with a descriptor, for your own mux |
 | `ratelimit` | Per-IP, per-account and per-device limits on failed attempts, with trusted-device cookies |
 | `webauthn` | Passkey ceremonies |

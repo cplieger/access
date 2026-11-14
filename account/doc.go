@@ -72,9 +72,8 @@
 //  5. Atomicity. RotateSession, ConsumeOneTimeToken and CreateInitialUser
 //     are each linearisable: concurrent calls on the same key give exactly
 //     one success. CreatePasskey's uniqueness holds under concurrent
-//     inserts. DeleteUser's cascade (sessions, passkeys, keys, tokens whose
-//     Subject is the user, and the user's key attributions) is one
-//     transaction. A failed single-call write leaves no partial state. In
+//     inserts. DeleteUser's cascade (sessions, passkeys, keys and the
+//     user's key attributions) is one transaction. A failed single-call write leaves no partial state. In
 //     Update, a callback returning an error, or panicking, leaves no write
 //     visible; a nil return makes every write visible at once and durably;
 //     concurrent Updates are serialisable, also when the store groups them
@@ -120,10 +119,8 @@
 //  14. Cleanup. CleanupExpiredSessions deletes exactly the sessions for
 //     which access.ValidateSession(s, timeouts, now) fails: past idle or
 //     absolute, a plain session (Secure false) past min(timeouts,
-//     access.PlainSessionIdle and access.PlainSessionAbsolute), a
-//     SessionRecovery session past min(timeouts,
-//     access.RecoverySessionLifetime), and a session past its own IdleCap or
-//     AbsoluteCap. A store calls [access.ValidateSession] (or
+//     access.PlainSessionIdle and access.PlainSessionAbsolute), and a
+//     session past its own IdleCap or AbsoluteCap. A store calls [access.ValidateSession] (or
 //     [access.SessionDeadlines]) rather than restating the rule. account
 //     passes the timeouts the verifier enforces, and never a zero
 //     SessionTimeouts; a store may refuse one. A call deletes at most limit

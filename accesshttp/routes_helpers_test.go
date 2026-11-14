@@ -126,7 +126,7 @@ func (e *env) user(t testing.TB, name string) *access.User {
 // principal is what the Authenticator grants a request carrying cookie.
 func (e *env) principal(t testing.TB, cookie *http.Cookie) access.Principal {
 	t.Helper()
-	r := httptest.NewRequestWithContext(access.AllowRecoverySession(t.Context()), http.MethodGet, testOrigin+"/", http.NoBody)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, testOrigin+"/", http.NoBody)
 	r.AddCookie(cookie)
 	p, err := e.authn.Authenticate(r)
 	if err != nil {
@@ -154,26 +154,6 @@ func (e *env) enrol(t testing.TB, name string) *accesstest.PasskeyDevice {
 	return dev
 }
 
-// recoveryCookie opens a recovery session for name from an out-of-band
-// recovery link.
-func (e *env) recoveryCookie(t testing.TB, name string) *http.Cookie {
-	t.Helper()
-	issued, err := e.svc.IssueRecovery(t.Context(), account.OutOfBand("test"), e.user(t, name).ID, 0)
-	if err != nil {
-		t.Fatalf("IssueRecovery: %v", err)
-	}
-	return e.startRecovery(t, issued.Plaintext)
-}
-
-func (e *env) startRecovery(t testing.TB, token access.Secret) *http.Cookie {
-	t.Helper()
-	rec, err := e.svc.StartRecovery(t.Context(), account.Client{Secure: true}, token)
-	if err != nil {
-		t.Fatalf("StartRecovery: %v", err)
-	}
-	return e.cookie(rec.Issued.Token)
-}
-
 // cookie is the session cookie carrying token.
 func (e *env) cookie(token access.Secret) *http.Cookie {
 	cfg := e.authn.Cookie()
@@ -184,35 +164,6 @@ func (e *env) cookie(token access.Secret) *http.Cookie {
 var keyScopes = envOptions{
 	rules: func(r *account.Rules) { r.Scopes = []string{"manage_users"} },
 	edit:  func(c *account.Config) { c.ManageUsersScope = "manage_users" },
-}
-
-// keyIssuedRecovery stores admin root and user alice, and opens a recovery
-// session for alice from a link a manage_users key of root issued; revoke
-// deletes that key. The env needs keyScopes.
-func (e *env) keyIssuedRecovery(t testing.TB) (cookie *http.Cookie, revoke func()) {
-	t.Helper()
-	e.createUser(t, "root", access.RoleAdmin)
-	e.createUser(t, "alice", access.RoleUser)
-	root := e.user(t, "root")
-	key, err := e.svc.CreateAPIKey(t.Context(), account.OutOfBand("test"), root.ID, account.NewKey{Label: "k", Scopes: []string{"manage_users"}})
-	if err != nil {
-		t.Fatalf("CreateAPIKey: %v", err)
-	}
-	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, testOrigin+"/", http.NoBody)
-	r.Header.Set("Authorization", "Bearer "+key.Plaintext.Reveal())
-	kp, err := e.authn.Authenticate(r)
-	if err != nil {
-		t.Fatalf("Authenticate(key): %v", err)
-	}
-	issued, err := e.svc.IssueRecovery(t.Context(), account.As(kp), e.user(t, "alice").ID, 0)
-	if err != nil {
-		t.Fatalf("IssueRecovery(key): %v", err)
-	}
-	return e.startRecovery(t, issued.Plaintext), func() {
-		if err := e.mem.DeleteAPIKey(t.Context(), access.KeyRef{ID: key.Key.ID, UserID: root.ID}); err != nil {
-			t.Fatalf("DeleteAPIKey: %v", err)
-		}
-	}
 }
 
 // invite is an invite link for a RoleUser, issued by admin root, which it
@@ -239,21 +190,6 @@ func vanish(e *env, s *account.Service) accountAPI { return vanishing{accountAPI
 
 func (v vanishing) drop(ctx context.Context, p access.Principal) {
 	_ = v.mem.DeleteUser(ctx, p.User.ID)
-}
-
-func (v vanishing) RecoverWithPassword(ctx context.Context, p access.Principal, password access.Secret, opts account.RecoverOptions) error {
-	v.drop(ctx, p)
-	return v.accountAPI.RecoverWithPassword(ctx, p, password, opts)
-}
-
-func (v vanishing) RecoverPasskeyBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (account.PendingCeremony, error) {
-	v.drop(ctx, p)
-	return v.accountAPI.RecoverPasskeyBegin(ctx, p, origin)
-}
-
-func (v vanishing) RecoverPasskeyFinish(ctx context.Context, p access.Principal, id string, body io.Reader, opts account.RecoverOptions) error {
-	v.drop(ctx, p)
-	return v.accountAPI.RecoverPasskeyFinish(ctx, p, id, body, opts)
 }
 
 func (v vanishing) LinkPendingOIDC(ctx context.Context, p access.Principal, pending account.PendingLink) (account.Issued, account.Me, error) {

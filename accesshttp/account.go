@@ -35,10 +35,6 @@ type accountAPI interface {
 	LinkPendingOIDC(ctx context.Context, p access.Principal, pending account.PendingLink) (account.Issued, account.Me, error)
 	UnlinkOIDC(ctx context.Context, p access.Principal) error
 	Logout(ctx context.Context, tokenHash access.Hash) error
-	StartRecovery(ctx context.Context, c account.Client, token access.Secret) (account.Recovery, error)
-	RecoverWithPassword(ctx context.Context, p access.Principal, password access.Secret, opts account.RecoverOptions) error
-	RecoverPasskeyBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (account.PendingCeremony, error)
-	RecoverPasskeyFinish(ctx context.Context, p access.Principal, ceremonyID string, body io.Reader, opts account.RecoverOptions) error
 	AcceptInvitePassword(ctx context.Context, c account.Client, in account.AcceptInvite) (account.SignedIn, error)
 	StepUpPassword(ctx context.Context, c account.Client, p access.Principal, password access.Secret) (account.Issued, error)
 	SetPassword(ctx context.Context, c account.Client, p access.Principal, current, password access.Secret) (account.Issued, error)
@@ -67,7 +63,6 @@ type accountAPI interface {
 	CreateUser(ctx context.Context, a account.Actor, in account.NewUser) (*access.User, error)
 	UpdateUser(ctx context.Context, p access.Principal, userID int64, ch account.UserChange) (*access.User, error)
 	DeleteUser(ctx context.Context, p access.Principal, userID int64) error
-	IssueRecovery(ctx context.Context, a account.Actor, userID int64, ttl time.Duration) (account.IssuedToken, error)
 	CreateInvite(ctx context.Context, p access.Principal, role access.Role, ttl time.Duration) (account.IssuedToken, error)
 	AllAPIKeys(ctx context.Context, a account.Actor) ([]account.ListedKey, error)
 	RevokeAnyAPIKey(ctx context.Context, a account.Actor, id int64) error

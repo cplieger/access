@@ -146,7 +146,6 @@ func TestErrorFor(t *testing.T) {
 		{name: "key_owner_disabled", err: &access.InvalidCredentialError{Method: access.MethodAPIKey, Err: access.ErrAccountDisabled, KeyID: 7}, code: "auth_key_invalid", status: 401, detail: "The API key is not valid."},
 		{name: "session_owner_disabled", err: &access.InvalidCredentialError{Method: access.MethodPassword, Err: access.ErrAccountDisabled}, code: "auth_invalid_credentials", status: 401, detail: "The credentials are not valid."},
 		{name: "custom_verifier_refusal", err: &access.InvalidCredentialError{Method: "agent"}, code: "auth_invalid_credentials", status: 401, detail: "The credentials are not valid."},
-		{name: "recovery_session", err: &access.InvalidCredentialError{Method: access.MethodRecovery, Err: access.ErrRestrictedSession}, code: "auth_session_required", status: 403, detail: "A signed-in session is required."},
 		{name: "transport_changed", err: &access.InvalidCredentialError{Method: access.MethodPassword, Err: access.ErrSessionTransport}, code: "auth_session_expired", status: 401, detail: "Your session has ended. Sign in again.", reason: "transport_changed"},
 		{name: "https_required", err: access.ErrHTTPSRequired, code: "auth_https_required", status: 403, detail: "This needs HTTPS."},
 		{name: "recent_auth", err: access.ErrRecentAuthRequired, code: "auth_recent_auth_required", status: 403, detail: "Confirm it is you to continue."},

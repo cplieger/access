@@ -10,7 +10,7 @@ import (
 )
 
 // serveAdminUserCreate creates a user; an empty password creates one with
-// no sign-in method until a recovery link.
+// no sign-in method.
 func serveAdminUserCreate(h *Handler, c *call) error {
 	req, err := decodeJSON[NewUserRequest](c.w, c.r)
 	if err != nil {
@@ -59,19 +59,6 @@ func serveAdminUserDelete(h *Handler, c *call) error {
 		return err
 	}
 	noContent(c.w)
-	return nil
-}
-
-func serveAdminRecovery(h *Handler, c *call) error {
-	req, err := decodeJSON[TTLRequest](c.w, c.r)
-	if err != nil {
-		return err
-	}
-	it, err := h.acct.IssueRecovery(c.r.Context(), account.As(c.p), c.id, units(req.Hours, time.Hour))
-	if err != nil {
-		return err
-	}
-	writeToken(c, it)
 	return nil
 }
 
@@ -148,7 +135,7 @@ func serveAdminSecurityLog(h *Handler, c *call) error {
 	return nil
 }
 
-// writeToken answers a minted invite or recovery token, its expiry the one
+// writeToken answers a minted invite token, its expiry the one
 // account stored.
 func writeToken(c *call, it account.IssuedToken) {
 	writeShownOnce(c.w, http.StatusCreated, TokenResponse{ExpiresAt: it.ExpiresAt}, it.Plaintext)

@@ -115,7 +115,7 @@ func TestAdmitOIDCSession(t *testing.T) {
 		t.Helper()
 		f, limiter := admitFixture(t, posture, provider)
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
-		return f, limiter, f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+		return f, limiter, f.sessionPrincipal(t, u, time.Now())
 	}
 	t.Run("closed", func(t *testing.T) {
 		t.Parallel()

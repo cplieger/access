@@ -95,7 +95,7 @@ func (s *Service) IssueSetupToken(ctx context.Context, a Actor, ttl time.Duratio
 	if err != nil {
 		return access.Secret{}, err
 	}
-	plaintext, rec := access.NewOneTimeToken(access.PurposeSetup, 0, ttl, s.now())
+	plaintext, rec := access.NewOneTimeToken(access.PurposeSetup, ttl, s.now())
 	err = s.change(ctx, by(a), func(tx Tx, j *journal) error {
 		n, countErr := tx.UserCount(ctx)
 		switch {
@@ -104,7 +104,7 @@ func (s *Service) IssueSetupToken(ctx context.Context, a Actor, ttl time.Duratio
 		case n != 0:
 			return refuse(ErrSetupComplete)
 		}
-		if _, delErr := tx.DeleteOneTimeTokens(ctx, access.PurposeSetup, 0); delErr != nil {
+		if _, delErr := tx.DeleteOneTimeTokens(ctx, access.PurposeSetup); delErr != nil {
 			return delErr
 		}
 		if createErr := tx.CreateOneTimeToken(ctx, rec); createErr != nil {

@@ -94,18 +94,6 @@ const bindings: Readonly<Record<string, Binding>> = {
   authOIDCPending: { method: "oidcPending", call: (c) => c.oidcPending() },
   authOIDCLinkPending: { method: "oidcLinkPending", call: (c) => c.oidcLinkPending() },
   authOIDCUnlink: { method: "oidcUnlink", call: (c) => c.oidcUnlink() },
-  authRecoveryStart: { method: "recoveryStart", call: (c, b) => c.recoveryStart(b) },
-  authRecoveryPassword: { method: "recoveryPassword", call: (c, b) => c.recoveryPassword(b) },
-  authRecoveryPasskeyBegin: {
-    method: "recoveryPasskeyBegin",
-    call: (c) => c.recoveryPasskeyBegin(),
-  },
-  authRecoveryPasskeyFinish: {
-    method: "recoveryPasskeyFinish",
-    call: (c) =>
-      c.recoveryPasskeyFinish(CEREMONY, credential, { keepSessions: false, keepKeys: false }),
-    credential: true,
-  },
   authInviteAcceptPassword: {
     method: "inviteAcceptPassword",
     call: (c, b) => c.inviteAcceptPassword(b),
@@ -151,7 +139,6 @@ const bindings: Readonly<Record<string, Binding>> = {
   authAdminUserCreate: { method: "adminCreateUser", call: (c, b) => c.adminCreateUser(b) },
   authAdminUserUpdate: { method: "adminUpdateUser", call: (c, b) => c.adminUpdateUser(7, b) },
   authAdminUserDelete: { method: "adminDeleteUser", call: (c) => c.adminDeleteUser(7) },
-  authAdminRecovery: { method: "adminIssueRecovery", call: (c, b) => c.adminIssueRecovery(7, b) },
   authAdminInvite: { method: "adminInvite", call: (c, b) => c.adminInvite(b) },
   authAdminKeys: { method: "adminKeys", call: (c) => c.adminKeys() },
   authAdminKeyRevoke: { method: "adminRevokeKey", call: (c) => c.adminRevokeKey(7) },
@@ -249,8 +236,8 @@ describe("the route table", () => {
     const methods = Object.keys(client).filter(
       (k) => typeof client[k as keyof AuthClient] === "function",
     );
-    expect(methods).toHaveLength(51);
-    expect(jsonRoutes).toHaveLength(51);
+    expect(methods).toHaveLength(46);
+    expect(jsonRoutes).toHaveLength(46);
     expect(Object.keys(bindings).sort()).toEqual(jsonRoutes.map((r) => r.name).sort());
     expect(
       Object.values(bindings)
@@ -336,7 +323,6 @@ describe("queries", () => {
       "authAdminSecurityLog",
       "authAdminUsers",
       "authLoginPasskeyBegin",
-      "authRecoveryPasskeyFinish",
     ]);
   });
 
@@ -348,29 +334,6 @@ describe("queries", () => {
     const none = stub(200, fixture("CeremonyResponse"));
     await none.client.loginPasskeyBegin({});
     expect(none.sent[0]?.url.search).toBe("");
-  });
-
-  it.each([
-    [
-      { keepSessions: true, keepKeys: true },
-      { keep_sessions: "true", keep_keys: "true" },
-    ],
-    [{ keepSessions: true, keepKeys: false }, { keep_sessions: "true" }],
-    [{ keepSessions: false, keepKeys: true }, { keep_keys: "true" }],
-    [{ keepSessions: false, keepKeys: false }, {}],
-  ])("recoveryPasskeyFinish with %o sends %o", async (flags, query) => {
-    const s = stub(204);
-    await s.client.recoveryPasskeyFinish(CEREMONY, credential, flags);
-    expect(Object.fromEntries(s.sent[0]?.url.searchParams ?? [])).toEqual(query);
-  });
-
-  it("recoveryPasskeyFinish can send exactly its route's keys", async () => {
-    const s = stub(204);
-    await s.client.recoveryPasskeyFinish(CEREMONY, credential, {
-      keepSessions: true,
-      keepKeys: true,
-    });
-    expect(keys(s)).toEqual(queries.get("authRecoveryPasskeyFinish"));
   });
 
   it("adminUsers sends /users with no query, and /users?key=12 with a key", async () => {

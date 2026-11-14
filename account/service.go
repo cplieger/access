@@ -273,11 +273,11 @@ func (s *Service) recentAuth(r Rules, p access.Principal) error { //nolint:gocri
 	return access.RequireRecentAuth(p, r.RecentAuth, s.now())
 }
 
-// RequireAdminScope admits p to the admin-scope operations: nil for a full
+// RequireAdminScope admits p to the admin-scope operations: nil for a
 // session, or for a principal the built-in API-key verifier produced
 // (access.Principal.IsAPIKey) carrying Config.AdminScope when that is set.
-// Otherwise ErrSessionRequired for a recovery session or when AdminScope is
-// empty, and ErrScopeRequired.
+// Otherwise ErrSessionRequired when AdminScope is empty, and
+// ErrScopeRequired.
 func (s *Service) RequireAdminScope(p access.Principal) error { //nolint:gocritic // hugeParam: as RequireRecentAuth
 	if s.closed.Load() {
 		return ErrServiceClosed
@@ -301,14 +301,14 @@ func (s *Service) RequireKeyPermission(p access.Principal, scope string) error {
 	return s.admitKey(p, scope, func() error { return s.recentAuth(r, p) })
 }
 
-// admitKey is the one shape of both guards: a full session gets session's
-// answer, a recovery session and an empty scope ErrSessionRequired, a key
-// carrying scope nil, and anything else ErrScopeRequired.
+// admitKey is the one shape of both guards: a session gets session's
+// answer, an empty scope ErrSessionRequired, a key carrying scope nil, and
+// anything else ErrScopeRequired.
 func (*Service) admitKey(p access.Principal, scope string, session func() error) error { //nolint:gocritic // hugeParam: as RequireRecentAuth
 	switch {
 	case p.IsSession():
 		return session()
-	case p.IsRecoverySession(), scope == "":
+	case scope == "":
 		return ErrSessionRequired
 	case p.IsAPIKey() && p.HasScope(scope):
 		return nil

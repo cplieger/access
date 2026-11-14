@@ -22,8 +22,7 @@ var designClasses = map[string]struct {
 	"authLoginPasskeyFinish": {open: ClassPublic}, "authLogout": {open: ClassPublic}, "authOIDCStartSignIn": {open: ClassPublic},
 	"authOIDCStartLink": {open: ClassRecentAuth}, "authOIDCStartStepUp": {open: ClassSession}, "authOIDCCallback": {open: ClassPublic},
 	"authOIDCPending": {open: ClassPublic}, "authOIDCLinkPending": {open: ClassRecentAuth}, "authOIDCUnlink": {open: ClassRecentAuth},
-	"authRecoveryStart": {open: ClassPublic}, "authRecoveryPassword": {open: ClassRecovery}, "authRecoveryPasskeyBegin": {open: ClassRecovery},
-	"authRecoveryPasskeyFinish": {open: ClassRecovery}, "authInviteAcceptPassword": {open: ClassPublic}, "authMe": {open: ClassSession},
+	"authInviteAcceptPassword": {open: ClassPublic}, "authMe": {open: ClassSession},
 	"authProfile": {open: ClassSession}, "authMethodReenable": {open: ClassRecentAuth}, "authStepUpPassword": {open: ClassSession},
 	"authStepUpPasskeyBegin": {open: ClassSession}, "authStepUpPasskeyFinish": {open: ClassSession}, "authPasswordSet": {open: ClassRecentAuth},
 	"authPasswordRemove": {open: ClassRecentAuth}, "authPasskeys": {open: ClassSession}, "authPasskeyRegisterBegin": {open: ClassRecentAuth},
@@ -38,7 +37,6 @@ var designClasses = map[string]struct {
 	"authAdminUserCreate":  {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
 	"authAdminUserUpdate":  {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
 	"authAdminUserDelete":  {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
-	"authAdminRecovery":    {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
 	"authAdminInvite":      {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
 	"authAdminKeys":        {open: ClassSession, scoped: ClassKeyScope, scope: "admin"},
 	"authAdminKeyRevoke":   {open: ClassSession, scoped: ClassKeyScope, scope: "admin"},
@@ -90,12 +88,11 @@ func TestDescriptorClassesFromScopes(t *testing.T) {
 
 func TestDescriptorQueryTable(t *testing.T) {
 	want := map[string]reflect.Type{
-		"authLoginPasskeyBegin":     reflect.TypeFor[PasskeyBeginQuery](),
-		"authOIDCStartSignIn":       reflect.TypeFor[OIDCSignInQuery](),
-		"authOIDCCallback":          reflect.TypeFor[OIDCCallbackQuery](),
-		"authRecoveryPasskeyFinish": reflect.TypeFor[RecoveryPasskeyFinishQuery](),
-		"authAdminUsers":            reflect.TypeFor[AdminUsersQuery](),
-		"authAdminSecurityLog":      reflect.TypeFor[AdminSecurityLogQuery](),
+		"authLoginPasskeyBegin": reflect.TypeFor[PasskeyBeginQuery](),
+		"authOIDCStartSignIn":   reflect.TypeFor[OIDCSignInQuery](),
+		"authOIDCCallback":      reflect.TypeFor[OIDCCallbackQuery](),
+		"authAdminUsers":        reflect.TypeFor[AdminUsersQuery](),
+		"authAdminSecurityLog":  reflect.TypeFor[AdminSecurityLogQuery](),
 	}
 	for i := range specs {
 		d := specs[i].descriptor(&DescriptorConfig{Prefix: "/p", OIDCPrefix: "/o"})
@@ -103,7 +100,7 @@ func TestDescriptorQueryTable(t *testing.T) {
 			t.Errorf("%s Query = %v, want %v", d.Name, d.Query, want[d.Name])
 		}
 	}
-	for _, name := range []string{"authSetupPassword", "authSetupPasskeyBegin", "authRecoveryStart", "authInviteAcceptPassword", "authOIDCStartLink", "authOIDCStartStepUp"} {
+	for _, name := range []string{"authSetupPassword", "authSetupPasskeyBegin", "authInviteAcceptPassword", "authOIDCStartLink", "authOIDCStartStepUp"} {
 		if d := specNamed(t, name).descriptor(&DescriptorConfig{Prefix: "/p", OIDCPrefix: "/o"}); d.Query != nil {
 			t.Errorf("%s Query = %v, want nil", name, d.Query)
 		}
@@ -115,9 +112,8 @@ func TestCodesOrder(t *testing.T) {
 	refusals := map[Class][]access.Code{
 		ClassSession:       {access.CodeSessionRequired},
 		ClassRecentAuth:    {access.CodeSessionRequired, access.CodeRecentAuthRequired},
-		ClassKeyScope:      {access.CodeScopeRequired, access.CodeSessionRequired},
-		ClassKeyPermission: {access.CodeRecentAuthRequired, access.CodeScopeRequired, access.CodeSessionRequired},
-		ClassRecovery:      {access.CodeSessionRequired},
+		ClassKeyScope:      {access.CodeScopeRequired},
+		ClassKeyPermission: {access.CodeRecentAuthRequired, access.CodeScopeRequired},
 	}
 	order := access.Codes()
 	for _, dc := range []DescriptorConfig{{}, {Prefix: "/p", OIDCPrefix: "/o", AdminScope: "a", ManageUsersScope: "u", CreateKeysScope: "k"}} {

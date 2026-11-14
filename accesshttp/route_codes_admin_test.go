@@ -44,7 +44,6 @@ func adminScenarios() map[scenarioKey]scenario {
 		}
 	}
 	aliceID := func(t *testing.T, e *env) string { return e.userID(t, "alice") }
-	rootID := func(t *testing.T, e *env) string { return e.userID(t, "root") }
 	missing := func(*testing.T, *env) string { return missingUserID }
 	newUser := func(name, password string) string {
 		return `{"username":"` + name + `","password":"` + password + `","role":"user"}`
@@ -82,12 +81,7 @@ func adminScenarios() map[scenarioKey]scenario {
 	out[scenarioKey{del, access.CodeUnavailable}] = closing(envOptions{}, byRoot(del, aliceID, ""))
 	out[scenarioKey{del, access.CodeNotFound}] = scenario{arrange: byRoot(del, missing, "")}
 
-	const recovery, invite = "authAdminRecovery", "authAdminInvite"
-	hours := func(n int) string { return `{"hours":` + strconv.Itoa(n) + `}` }
-	out[scenarioKey{recovery, access.CodeForbidden}] = scenario{arrange: byRoot(recovery, rootID, hours(0))}
-	out[scenarioKey{recovery, access.CodeUnavailable}] = closing(envOptions{}, byRoot(recovery, aliceID, hours(0)))
-	out[scenarioKey{recovery, access.CodeBadRequest}] = scenario{arrange: byRoot(recovery, aliceID, hours(7*24+1))}
-	out[scenarioKey{recovery, access.CodeNotFound}] = scenario{arrange: byRoot(recovery, missing, hours(0))}
+	const invite = "authAdminInvite"
 	inviteBody := func(n int) string { return `{"role":"user","hours":` + strconv.Itoa(n) + `}` }
 	out[scenarioKey{invite, access.CodeForbidden}] = byAlice(invite, inviteBody(0))
 	out[scenarioKey{invite, access.CodeUnavailable}] = closing(envOptions{}, byRoot(invite, missing, inviteBody(0)))

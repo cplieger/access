@@ -96,26 +96,6 @@ func (s stubAccount) Logout(ctx context.Context, tokenHash access.Hash) error {
 	return stubbedErr(s, "Logout", func() error { return s.accountAPI.Logout(ctx, tokenHash) })
 }
 
-func (s stubAccount) StartRecovery(ctx context.Context, c account.Client, token access.Secret) (account.Recovery, error) {
-	return stubbed(s, "StartRecovery", func() (account.Recovery, error) { return s.accountAPI.StartRecovery(ctx, c, token) })
-}
-
-func (s stubAccount) RecoverWithPassword(ctx context.Context, p access.Principal, password access.Secret, opts account.RecoverOptions) error {
-	return stubbedErr(s, "RecoverWithPassword", func() error { return s.accountAPI.RecoverWithPassword(ctx, p, password, opts) })
-}
-
-func (s stubAccount) RecoverPasskeyBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (account.PendingCeremony, error) {
-	return stubbed(s, "RecoverPasskeyBegin", func() (account.PendingCeremony, error) {
-		return s.accountAPI.RecoverPasskeyBegin(ctx, p, origin)
-	})
-}
-
-func (s stubAccount) RecoverPasskeyFinish(ctx context.Context, p access.Principal, ceremonyID string, body io.Reader, opts account.RecoverOptions) error {
-	return stubbedErr(s, "RecoverPasskeyFinish", func() error {
-		return s.accountAPI.RecoverPasskeyFinish(ctx, p, ceremonyID, body, opts)
-	})
-}
-
 func (s stubAccount) AcceptInvitePassword(ctx context.Context, c account.Client, in account.AcceptInvite) (account.SignedIn, error) {
 	return stubbed(s, "AcceptInvitePassword", func() (account.SignedIn, error) { return s.accountAPI.AcceptInvitePassword(ctx, c, in) })
 }
@@ -234,10 +214,6 @@ func (s stubAccount) UpdateUser(ctx context.Context, p access.Principal, userID 
 
 func (s stubAccount) DeleteUser(ctx context.Context, p access.Principal, userID int64) error {
 	return stubbedErr(s, "DeleteUser", func() error { return s.accountAPI.DeleteUser(ctx, p, userID) })
-}
-
-func (s stubAccount) IssueRecovery(ctx context.Context, a account.Actor, userID int64, ttl time.Duration) (account.IssuedToken, error) {
-	return stubbed(s, "IssueRecovery", func() (account.IssuedToken, error) { return s.accountAPI.IssueRecovery(ctx, a, userID, ttl) })
 }
 
 func (s stubAccount) CreateInvite(ctx context.Context, p access.Principal, role access.Role, ttl time.Duration) (account.IssuedToken, error) {

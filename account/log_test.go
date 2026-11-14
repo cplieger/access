@@ -213,12 +213,12 @@ func wantShown(before, after records, e *account.LogEntry) shown {
 
 // labeledPrincipal stores a session of u whose Label and UserAgent name it
 // and returns the principal the Authenticator grants for it.
-func labeledPrincipal(t *testing.T, f *fixture, u *access.User, kind access.SessionKind, method access.Method) access.Principal {
+func labeledPrincipal(t *testing.T, f *fixture, u *access.User, method access.Method) access.Principal {
 	t.Helper()
 	now := time.Now()
 	id := newSessionID(t)
 	sess := &access.Session{
-		ID: id, UserID: u.ID, Kind: kind, AuthMethod: method, CreatedAt: now, LastActivity: now, AuthTime: now,
+		ID: id, UserID: u.ID, AuthMethod: method, CreatedAt: now, LastActivity: now, AuthTime: now,
 		Label: "label-" + id[:8], UserAgent: "agent-" + id[:8], Secure: true,
 	}
 	p, _ := f.principalOf(t, sess)
@@ -259,10 +259,8 @@ func labeledActorFor(t *testing.T, w *opWorld, class opClass) access.Principal {
 	switch class {
 	case classPublic, classOutOfBand:
 		return access.Principal{}
-	case classRecovery:
-		return labeledPrincipal(t, w.fixture, w.alice, access.SessionRecovery, access.MethodRecovery)
 	default:
-		return labeledPrincipal(t, w.fixture, w.root, access.SessionFull, access.MethodPassword)
+		return labeledPrincipal(t, w.fixture, w.root, access.MethodPassword)
 	}
 }
 
@@ -349,7 +347,7 @@ func TestLogActorSnapshot(t *testing.T) {
 	t.Run("logout", func(t *testing.T) {
 		t.Parallel()
 		w := newOpWorld(t, worldOptions{})
-		p := labeledPrincipal(t, w.fixture, w.alice, access.SessionFull, access.MethodPassword)
+		p := labeledPrincipal(t, w.fixture, w.alice, access.MethodPassword)
 		entries := snapshotCall(t, w.mem, func() error { return w.svc.Logout(t.Context(), p.SessionTokenHash()) })
 		if got := shownOf(&entries[0]); got.label == "" || got.userAgent == "" {
 			t.Errorf("Logout's entry snapshot = %+v, want the ended session's", got)
@@ -359,7 +357,7 @@ func TestLogActorSnapshot(t *testing.T) {
 		t.Parallel()
 		f := newOIDCFixture(t, rigFor(t, "link-subject"), pwOptions{})
 		u := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
-		p := labeledPrincipal(t, f.fixture, u, access.SessionFull, access.MethodPassword)
+		p := labeledPrincipal(t, f.fixture, u, access.MethodPassword)
 		flow, claims := f.rig.sessionFlow(t, oidc.IntentLink, u, p.SessionID)
 		entries := snapshotCall(t, f.mem, func() error { _, err := f.complete(t, localClient, flow, claims); return err })
 		if got := shownOf(&entries[0]); entries[0].Event.Kind != account.EventOIDCLinked || got.label == "" {
@@ -371,7 +369,7 @@ func TestLogActorSnapshot(t *testing.T) {
 		f := newOIDCFixture(t, rigFor(t, "step-subject"), pwOptions{})
 		u := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
 		linkIdentity(t, f.mem, u, f.rig.identity())
-		p := labeledPrincipal(t, f.fixture, u, access.SessionFull, access.MethodPassword)
+		p := labeledPrincipal(t, f.fixture, u, access.MethodPassword)
 		flow, claims := f.rig.sessionFlow(t, oidc.IntentStepUp, u, p.SessionID)
 		entries := snapshotCall(t, f.mem, func() error { _, err := f.complete(t, localClient, flow, claims); return err })
 		e := &entries[0]
@@ -441,7 +439,7 @@ func TestLogActorSnapshot(t *testing.T) {
 	t.Run("actor_deleted_before", func(t *testing.T) {
 		t.Parallel()
 		w := newOpWorld(t, worldOptions{})
-		p := labeledPrincipal(t, w.fixture, w.root, access.SessionFull, access.MethodPassword)
+		p := labeledPrincipal(t, w.fixture, w.root, access.MethodPassword)
 		other := putSession(t, w.mem, liveSession(t, w.root))
 		if err := w.mem.DeleteSession(t.Context(), access.SessionRef{ID: p.SessionID, UserID: w.root.ID}); err != nil {
 			t.Fatalf("DeleteSession: %v", err)
@@ -458,7 +456,7 @@ func TestLogActorSnapshot(t *testing.T) {
 	t.Run("frozen_actor", func(t *testing.T) {
 		t.Parallel()
 		w := newOpWorld(t, worldOptions{scoped: true})
-		p := labeledPrincipal(t, w.fixture, w.root, access.SessionFull, access.MethodPassword)
+		p := labeledPrincipal(t, w.fixture, w.root, access.MethodPassword)
 		kp, key := labeledKeyPrincipal(t, w.fixture, w.root, scopeUsers)
 		other := putSession(t, w.mem, liveSession(t, w.root))
 		if err := w.svc.RevokeSession(t.Context(), p, other.ID); err != nil {
@@ -496,7 +494,7 @@ func mustPrincipal(t *testing.T, f *fixture, token access.Secret) access.Princip
 // clientOperations take a Client, whose IP their entries record.
 var clientOperations = []string{
 	"SetupWithPassword", "SetupPasskeyFinish", "PasswordLogin", "PasskeyLoginFinish", "OIDCComplete",
-	"AcceptInvitePassword", "StartRecovery", "StepUpPassword", "StepUpPasskeyFinish", "SetPassword", "RemovePassword",
+	"AcceptInvitePassword", "StepUpPassword", "StepUpPasskeyFinish", "SetPassword", "RemovePassword",
 }
 
 func TestLogIP(t *testing.T) {
@@ -595,7 +593,7 @@ func TestLockEntryWrittenBySweep(t *testing.T) {
 		p := newPW(t, pwOptions{store: fs})
 		u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
 		p.failN(t, clientAt(1), "alice", account.FailureCap)
-		q := labeledPrincipal(t, p.fixture, u, access.SessionFull, access.MethodPasskey)
+		q := labeledPrincipal(t, p.fixture, u, access.MethodPasskey)
 		fs.resetRecord()
 		if err := p.svc.ReenableMethod(t.Context(), q, access.MethodPassword); err != nil {
 			t.Fatalf("ReenableMethod = %v", err)

@@ -27,7 +27,7 @@ func attributionsOf(t testing.TB, f *fixture, userID int64) []access.KeyAttribut
 func (w *adminWorld) key(t *testing.T, in account.NewKey) minted {
 	t.Helper()
 	m := w.f.mint(t, account.As(w.pr), w.root.ID, in)
-	w.pr = w.f.sessionPrincipal(t, w.root, access.SessionFull, time.Now())
+	w.pr = w.f.sessionPrincipal(t, w.root, time.Now())
 	return m
 }
 
@@ -71,9 +71,6 @@ func TestKeyManagesUsers(t *testing.T) {
 	if _, err := w.f.svc.CreateInvite(ctx, k.p, access.RoleUser, 0); err != nil {
 		t.Errorf("CreateInvite from the key = %v", err)
 	}
-	if _, err := w.f.svc.IssueRecovery(ctx, account.As(k.p), w.alice.ID, 0); err != nil {
-		t.Errorf("IssueRecovery from the key = %v", err)
-	}
 	if err := w.f.svc.RevokeAPIKey(ctx, w.pr, k.key.ID); err != nil {
 		t.Fatalf("RevokeAPIKey = %v", err)
 	}
@@ -102,10 +99,6 @@ func TestKeyManagesUsers(t *testing.T) {
 			"DeleteUser": func() error { return f.svc.DeleteUser(t.Context(), kp, target.ID) },
 			"CreateInvite": func() error {
 				_, err := f.svc.CreateInvite(t.Context(), kp, access.RoleUser, 0)
-				return err
-			},
-			"IssueRecovery": func() error {
-				_, err := f.svc.IssueRecovery(t.Context(), account.As(kp), target.ID, 0)
 				return err
 			},
 		} {
@@ -183,15 +176,11 @@ func TestKeyNoAdminTarget(t *testing.T) {
 					_, err := w.f.svc.CreateInvite(ctx, k.p, tc.role, 0)
 					return err
 				},
-				"IssueRecovery": func() error {
-					_, err := w.f.svc.IssueRecovery(ctx, account.As(k.p), high.ID, 0)
-					return err
-				},
 			}
 			wantOp := map[string]account.Operation{
 				"CreateUser": account.OpCreateUser, "UpdateUser_promote": account.OpSetRole, "UpdateUser_demote": account.OpSetRole,
 				"UpdateUser_disable": account.OpSetEnabled, "UpdateUser_enable": account.OpSetEnabled,
-				"DeleteUser": account.OpDeleteUser, "CreateInvite": account.OpInvite, "IssueRecovery": account.OpIssueRecovery,
+				"DeleteUser": account.OpDeleteUser, "CreateInvite": account.OpInvite,
 			}
 			for name, op := range ops {
 				w.fs.resetRecord()
@@ -226,13 +215,9 @@ func TestKeyNoAdminTarget(t *testing.T) {
 					_, err := w.f.svc.CreateInvite(ctx, k.p, access.RoleUser, 0)
 					return err
 				},
-				"IssueRecovery": func() error {
-					_, err := w.f.svc.IssueRecovery(ctx, account.As(k.p), w.alice.ID, 0)
-					return err
-				},
 				"DeleteUser": func() error { return w.f.svc.DeleteUser(ctx, k.p, w.alice.ID) },
 			}
-			for _, name := range []string{"CreateUser", "UpdateUser", "CreateInvite", "IssueRecovery", "DeleteUser"} {
+			for _, name := range []string{"CreateUser", "UpdateUser", "CreateInvite", "DeleteUser"} {
 				if err := ok[name](); err != nil {
 					t.Errorf("%s on a RoleUser = %v, want nil", name, err)
 				}
@@ -265,10 +250,6 @@ func TestKeyNoAdminTarget(t *testing.T) {
 					return err
 				},
 				"DeleteUser": func(id int64) error { return svc.DeleteUser(t.Context(), k.p, id) },
-				"IssueRecovery": func(id int64) error {
-					_, err := svc.IssueRecovery(t.Context(), account.As(k.p), id, 0)
-					return err
-				},
 			} {
 				existing, gone := op(high.ID), op(9999)
 				if reason(existing) != tc.existing || reason(gone) != tc.gone {
@@ -432,10 +413,6 @@ func TestKeyAttributionWrites(t *testing.T) {
 			_, err := w.f.svc.CreateInvite(ctx, k.p, access.RoleUser, 0)
 			return err
 		},
-		"IssueRecovery_from_K": func() error {
-			_, err := w.f.svc.IssueRecovery(ctx, account.As(k.p), u.ID, 0)
-			return err
-		},
 		"CreateAPIKey_from_root": func() error {
 			_, err := w.f.svc.CreateAPIKey(ctx, account.As(root.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 			return err
@@ -519,7 +496,7 @@ func TestUsersAttributedToKey(t *testing.T) {
 	t.Parallel()
 	w := newAdminWorld(t, options{}, nil)
 	boss := mustUser(t, w.f.mem, "boss", access.RoleAdmin)
-	bp := w.f.sessionPrincipal(t, boss, access.SessionFull, time.Now())
+	bp := w.f.sessionPrincipal(t, boss, time.Now())
 	k := w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
 	k2 := w.f.mint(t, account.As(k.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
 	k3 := w.f.mint(t, account.As(k2.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})

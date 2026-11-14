@@ -54,16 +54,6 @@ func (a *recordingAccount) PasswordLogin(_ context.Context, _ account.Client, in
 	return signedIn, nil
 }
 
-func (a *recordingAccount) StartRecovery(_ context.Context, _ account.Client, token access.Secret) (account.Recovery, error) {
-	a.record("authRecoveryStart", token)
-	return account.Recovery{}, nil
-}
-
-func (a *recordingAccount) RecoverWithPassword(_ context.Context, _ access.Principal, password access.Secret, _ account.RecoverOptions) error {
-	a.record("authRecoveryPassword", password)
-	return nil
-}
-
 func (a *recordingAccount) AcceptInvitePassword(_ context.Context, _ account.Client, in account.AcceptInvite) (account.SignedIn, error) {
 	a.record("authInviteAcceptPassword", in.Token, in.Password)
 	return signedIn, nil
@@ -136,7 +126,7 @@ type secretCase struct {
 func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler, *recordingAccount, map[string]secretCase) {
 	t.Helper()
 	svc, authn := newService(t)
-	u, err := svc.CreateUser(t.Context(), account.OutOfBand("test"), account.NewUser{Username: "alice", Password: access.NewSecret(secretsPassword), Role: access.RoleAdmin})
+	_, err := svc.CreateUser(t.Context(), account.OutOfBand("test"), account.NewUser{Username: "alice", Password: access.NewSecret(secretsPassword), Role: access.RoleAdmin})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,15 +136,6 @@ func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler,
 		t.Fatal(err)
 	}
 	session := &http.Cookie{Name: cfg.CookieName(true), Value: in.Token.Reveal()}
-	tok, err := svc.IssueRecovery(t.Context(), account.OutOfBand("test"), u.ID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rec, err := svc.StartRecovery(t.Context(), account.Client{Secure: true}, tok.Plaintext)
-	if err != nil {
-		t.Fatal(err)
-	}
-	recovery := &http.Cookie{Name: cfg.CookieName(true), Value: rec.Issued.Token.Reveal()}
 
 	fake := &recordingAccount{AccountAPI: svc, got: map[string][]string{}}
 	h, err := accesshttp.NewWithAccount(accesshttp.Config{
@@ -174,8 +155,6 @@ func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler,
 		"authSetupPassword":        {body: map[string]string{"token": "tok-setup", "username": "bob", "password": "pw-setup"}, want: []string{"tok-setup", "pw-setup"}, required: []string{"password"}},
 		"authSetupPasskeyBegin":    {body: map[string]string{"token": "tok-passkey", "username": "bob"}, want: []string{"tok-passkey"}},
 		"authLoginPassword":        {body: map[string]string{"username": "bob", "password": "pw-login"}, want: []string{"pw-login"}, required: []string{"password"}},
-		"authRecoveryStart":        {body: map[string]string{"token": "tok-recovery"}, want: []string{"tok-recovery"}, required: []string{"token"}},
-		"authRecoveryPassword":     {cookie: recovery, body: map[string]string{"password": "pw-recovered"}, want: []string{"pw-recovered"}, required: []string{"password"}},
 		"authInviteAcceptPassword": {body: map[string]string{"token": "tok-invite", "username": "carol", "password": "pw-invite"}, want: []string{"tok-invite", "pw-invite"}, required: []string{"token", "password"}},
 		"authStepUpPassword":       {cookie: session, body: map[string]string{"password": "pw-stepup"}, want: []string{"pw-stepup"}, required: []string{"password"}},
 		"authPasswordSet":          {cookie: session, body: map[string]string{"current_password": "pw-current", "password": "pw-next"}, want: []string{"pw-current", "pw-next"}, required: []string{"password"}},

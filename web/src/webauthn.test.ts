@@ -4,7 +4,6 @@ import type { Answer } from "./test-helpers/server.js";
 import { fixture } from "./test-helpers/wire.js";
 import {
   passkeySupport,
-  recoverWithPasskey,
   registerPasskey,
   sendSignals,
   setupWithPasskey,
@@ -114,12 +113,6 @@ describe("the DOMException outcome mapping", () => {
       const s = fakeServer({ "POST /api/auth/passkeys/begin": creation });
       expect(await registerPasskey(s.client)).toEqual(register[name]);
       expect(s.sent.map((x) => x.route)).toEqual(["POST /api/auth/passkeys/begin"]);
-
-      const r = fakeServer({ "POST /api/auth/recovery/passkey/begin": creation });
-      expect(await recoverWithPasskey(r.client, { keepSessions: false, keepKeys: false })).toEqual(
-        register[name],
-      );
-      expect(r.sent).toHaveLength(1);
 
       // Setup has no exclusion list to collide with, so the name is a plain failure there.
       const t = fakeServer({ "POST /api/auth/setup/passkey/begin": creation });
@@ -367,19 +360,14 @@ describe("registerPasskey", () => {
     ["auth_duplicate_credential", { kind: "duplicate" }],
   ];
   for (const [code, want] of refused) {
-    it(`maps a finish ${code} for registration and recovery`, async () => {
+    it(`maps a finish ${code} for registration`, async () => {
       bareplatform();
       credentialsCreate(attests);
       const s = fakeServer({
         "POST /api/auth/passkeys/begin": creation,
         "POST /api/auth/passkeys/finish": refusal(400, code),
-        "POST /api/auth/recovery/passkey/begin": creation,
-        "POST /api/auth/recovery/passkey/finish": refusal(400, code),
       });
       expect(await registerPasskey(s.client)).toEqual(want);
-      expect(await recoverWithPasskey(s.client, { keepSessions: false, keepKeys: false })).toEqual(
-        want,
-      );
       expect(s.sent.some((x) => x.route.includes("signals"))).toBe(false);
     });
   }
@@ -470,24 +458,6 @@ describe("setupWithPasskey", () => {
       kind: "failed",
       error: { status: 409, code: "auth_setup_complete" },
     });
-  });
-});
-
-describe("recoverWithPasskey", () => {
-  it("sends the keep flags as the finish route's query and reads its 204", async () => {
-    bareplatform();
-    credentialsCreate(attests);
-    const s = fakeServer({
-      "POST /api/auth/recovery/passkey/begin": creation,
-      "POST /api/auth/recovery/passkey/finish": noContent,
-    });
-    expect(await recoverWithPasskey(s.client, { keepSessions: true, keepKeys: true })).toEqual({
-      kind: "recovered",
-    });
-    expect(s.sent[1]?.route).toBe(
-      "POST /api/auth/recovery/passkey/finish?keep_sessions=true&keep_keys=true",
-    );
-    expect(s.sent[1]?.headers.get("X-Auth-Ceremony")).toBe("c-create");
   });
 });
 

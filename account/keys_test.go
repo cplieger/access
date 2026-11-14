@@ -27,7 +27,7 @@ func TestKeyPermissionScopesAdminOnly(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, keyOptions(options{}, nil))
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
-		pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+		pr := f.sessionPrincipal(t, u, time.Now())
 		for _, scope := range permissions {
 			for name, a := range map[string]account.Actor{"session": account.As(pr), "out_of_band": account.OutOfBand("admin-socket")} {
 				_, err := f.svc.CreateAPIKey(t.Context(), a, u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read", scope}})
@@ -54,7 +54,7 @@ func TestKeyPermissionScopesAdminOnly(t *testing.T) {
 		f := newFixture(t, keyOptions(options{}, nil))
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
 		for _, scope := range permissions {
-			pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+			pr := f.sessionPrincipal(t, admin, time.Now())
 			if _, err := f.svc.CreateAPIKey(t.Context(), account.As(pr), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scope}}); err != nil {
 				t.Errorf("an admin session minting %s = %v", scope, err)
 			}
@@ -62,7 +62,7 @@ func TestKeyPermissionScopesAdminOnly(t *testing.T) {
 				t.Errorf("out of band minting %s for an admin = %v", scope, err)
 			}
 		}
-		pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+		pr := f.sessionPrincipal(t, admin, time.Now())
 		parent := f.mint(t, account.As(pr), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: permissions})
 		child, err := f.svc.CreateAPIKey(t.Context(), account.As(parent.p), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeAdmin}})
 		if err != nil {
@@ -77,7 +77,7 @@ func TestKeyPermissionScopesAdminOnly(t *testing.T) {
 		fs := newFaultStore()
 		f := newFixture(t, keyOptions(options{store: fs}, nil))
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-		pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+		pr := f.sessionPrincipal(t, admin, time.Now())
 		entered, release := fs.holdUpdate()
 		done := make(chan error, 1)
 		go func() {
@@ -108,7 +108,7 @@ func TestKeyMintingPolicy(t *testing.T) {
 		f := newFixture(t, keyOptions(options{}, rec))
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-		pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+		pr := f.sessionPrincipal(t, u, time.Now())
 		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(pr), u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}}); !errors.Is(err, account.ErrPolicyRefused) {
 			t.Errorf("a RoleUser session under KeysAdminOnly = %v, want ErrPolicyRefused", err)
 		}
@@ -122,7 +122,7 @@ func TestKeyMintingPolicy(t *testing.T) {
 		if len(keysOf(t, f.mem, u.ID)) != 0 || !unrotated(t, f.mem, pr) {
 			t.Error("the refused mint wrote a key or rotated the session")
 		}
-		apr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+		apr := f.sessionPrincipal(t, admin, time.Now())
 		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(apr), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}}); err != nil {
 			t.Errorf("an admin session = %v, want a key", err)
 		}
@@ -143,7 +143,7 @@ func TestKeyMintingPolicy(t *testing.T) {
 		f := newFixture(t, keyOptions(options{}, nil))
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
 		other := mustUser(t, f.mem, "bob", access.RoleUser)
-		pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+		pr := f.sessionPrincipal(t, u, time.Now())
 		created, err := f.svc.CreateAPIKey(t.Context(), account.As(pr), u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 		if err != nil {
 			t.Fatalf("a RoleUser session under RolePolicy{} = %v, want a key", err)
@@ -151,7 +151,7 @@ func TestKeyMintingPolicy(t *testing.T) {
 		if created.Issued.Token.IsZero() || created.Issued.Session.ID != pr.SessionID {
 			t.Error("a session mint did not rotate the session into Issued")
 		}
-		pr2 := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+		pr2 := f.sessionPrincipal(t, u, time.Now())
 		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(pr2), other.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}}); reason(err) != "other_user" {
 			t.Errorf("a session naming another user = %v, want other_user", err)
 		}
@@ -163,7 +163,7 @@ func TestKeyMintingPolicy(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, keyOptions(options{}, nil))
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
-		stale := f.sessionPrincipal(t, u, access.SessionFull, time.Now().Add(-time.Hour))
+		stale := f.sessionPrincipal(t, u, time.Now().Add(-time.Hour))
 		if _, err := f.svc.CreateAPIKey(t.Context(), account.As(stale), u.ID, account.NewKey{Label: uniqueLabel()}); !errors.Is(err, access.ErrRecentAuthRequired) {
 			t.Errorf("a stale session = %v, want ErrRecentAuthRequired", err)
 		}
@@ -231,8 +231,8 @@ func TestAdminKeyListRevoke(t *testing.T) {
 	f := newFixture(t, keyOptions(options{}, nil))
 	admin := mustUser(t, f.mem, "root", access.RoleAdmin)
 	u := mustUser(t, f.mem, "alice", access.RoleUser)
-	apr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
-	upr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+	apr := f.sessionPrincipal(t, admin, time.Now())
+	upr := f.sessionPrincipal(t, u, time.Now())
 	adminKey := f.mint(t, account.OutOfBand("admin-socket"), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 	userKey := f.mint(t, account.As(upr), u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 	ownKey := f.mint(t, account.OutOfBand("admin-socket"), u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"write"}})
@@ -253,7 +253,7 @@ func TestAdminKeyListRevoke(t *testing.T) {
 	if err := f.svc.RevokeAnyAPIKey(t.Context(), account.As(apr), 9999); !errors.Is(err, account.ErrNotFound) {
 		t.Errorf("an admin revoking an unknown key = %v, want ErrNotFound", err)
 	}
-	upr2 := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+	upr2 := f.sessionPrincipal(t, u, time.Now())
 	if _, err := f.svc.AllAPIKeys(t.Context(), account.As(upr2)); !errors.Is(err, account.ErrPolicyRefused) {
 		t.Errorf("a RoleUser's AllAPIKeys = %v, want ErrPolicyRefused", err)
 	}
@@ -294,12 +294,12 @@ func TestKeyMintsNarrowerKey(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, keyOptions(options{}, nil))
 	admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-	pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+	pr := f.sessionPrincipal(t, admin, time.Now())
 	root := f.mint(t, account.As(pr), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeKeys, "read"}, ExpiresIn: 2 * time.Hour})
 	if !slices.Equal(root.key.LineageIDs, []int64{root.key.ID}) {
 		t.Errorf("a session-minted key's path = %v, want its own ID alone", root.key.LineageIDs)
 	}
-	watcher := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+	watcher := f.sessionPrincipal(t, admin, time.Now())
 	child, err := f.svc.CreateAPIKey(t.Context(), account.As(root.p), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}, ExpiresIn: time.Hour})
 	if err != nil {
 		t.Fatalf("the key minting a narrower key = %v", err)
@@ -327,7 +327,7 @@ func TestKeyLineageDepth(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, keyOptions(options{}, nil))
 	admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-	pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+	pr := f.sessionPrincipal(t, admin, time.Now())
 	cur := f.mint(t, account.As(pr), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeKeys}})
 	for len(cur.key.LineageIDs) < account.MaxKeyLineage {
 		next := f.mint(t, account.As(cur.p), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeKeys}})
@@ -350,7 +350,7 @@ func TestKeyCannotEscalate(t *testing.T) {
 	setup := func(t *testing.T, o options) (*fixture, *access.User, minted) {
 		f := newFixture(t, keyOptions(o, nil))
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-		pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+		pr := f.sessionPrincipal(t, admin, time.Now())
 		return f, admin, f.mint(t, account.As(pr), admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeKeys, "read"}, ExpiresIn: time.Hour})
 	}
 	t.Run("refusals", func(t *testing.T) {
@@ -383,7 +383,7 @@ func TestKeyCannotEscalate(t *testing.T) {
 		t.Parallel()
 		fs := newFaultStore()
 		f, admin, parent := setup(t, options{store: fs})
-		pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+		pr := f.sessionPrincipal(t, admin, time.Now())
 		entered, release := fs.holdUpdate()
 		done := make(chan error, 1)
 		go func() {
@@ -432,7 +432,7 @@ type family struct{ p, c, s, g minted }
 
 func newFamily(t *testing.T, f *fixture, admin *access.User, expiresIn time.Duration) family {
 	t.Helper()
-	pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+	pr := f.sessionPrincipal(t, admin, time.Now())
 	in := func() account.NewKey {
 		return account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeKeys, "read"}, ExpiresIn: expiresIn}
 	}
@@ -450,7 +450,7 @@ func TestRevokeCascades(t *testing.T) {
 		f := newFixture(t, keyOptions(options{store: fs}, nil))
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
 		fam := newFamily(t, f, admin, 0)
-		return f, admin, fam, f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+		return f, admin, fam, f.sessionPrincipal(t, admin, time.Now())
 	}
 	revokes := map[string]func(*testing.T, *fixture, access.Principal, int64) error{
 		"RevokeAPIKey": func(t *testing.T, f *fixture, p access.Principal, id int64) error {
@@ -531,7 +531,7 @@ func laterClock() *testClock { return newTestClock(time.Now().Add(time.Minute)) 
 
 func TestRevokeDeletesIssuedTokens(t *testing.T) {
 	t.Parallel()
-	type tokens struct{ childInvite, grandRecovery, sessionInvite access.OneTimeToken }
+	type tokens struct{ childInvite, grandInvite, sessionInvite access.OneTimeToken }
 	setup := func(t *testing.T, fs *faultStore, clock *testClock) (*fixture, *access.User, family, tokens) {
 		o := options{store: fs, rules: func() account.Rules {
 			r := keyRules()
@@ -543,16 +543,15 @@ func TestRevokeDeletesIssuedTokens(t *testing.T) {
 		}
 		f := newFixture(t, keyOptions(o, nil))
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-		target := mustUser(t, f.mem, "alice", access.RoleUser)
 		var expiresIn time.Duration
 		if clock != nil {
 			expiresIn = time.Hour
 		}
 		fam := newFamily(t, f, admin, expiresIn)
 		return f, admin, fam, tokens{
-			childInvite:   seedToken(t, f.mem, access.PurposeInvite, 0, fam.c.key.ID, 24*time.Hour),
-			grandRecovery: seedToken(t, f.mem, access.PurposeRecovery, target.ID, fam.g.key.ID, 24*time.Hour),
-			sessionInvite: seedToken(t, f.mem, access.PurposeInvite, 0, 0, 24*time.Hour),
+			childInvite:   seedToken(t, f.mem, access.PurposeInvite, fam.c.key.ID, 24*time.Hour),
+			grandInvite:   seedToken(t, f.mem, access.PurposeInvite, fam.g.key.ID, 24*time.Hour),
+			sessionInvite: seedToken(t, f.mem, access.PurposeInvite, 0, 24*time.Hour),
 		}
 	}
 	check := func(t *testing.T, f *fixture, tok tokens, revoked bool) {
@@ -560,8 +559,8 @@ func TestRevokeDeletesIssuedTokens(t *testing.T) {
 		if got := tokenStored(t, f.mem, tok.childInvite); got == revoked {
 			t.Errorf("the child's invite stored = %t, want %t", got, !revoked)
 		}
-		if got := tokenStored(t, f.mem, tok.grandRecovery); got == revoked {
-			t.Errorf("the grandchild's recovery token stored = %t, want %t", got, !revoked)
+		if got := tokenStored(t, f.mem, tok.grandInvite); got == revoked {
+			t.Errorf("the grandchild's invite stored = %t, want %t", got, !revoked)
 		}
 		if !tokenStored(t, f.mem, tok.sessionInvite) {
 			t.Error("the session-issued invite is gone")
@@ -580,7 +579,7 @@ func TestRevokeDeletesIssuedTokens(t *testing.T) {
 			}
 			fs := newFaultStore()
 			f, admin, fam, tok := setup(t, fs, clock)
-			pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+			pr := f.sessionPrincipal(t, admin, time.Now())
 			if expired {
 				clock.add(2 * time.Hour)
 				keys, err := f.svc.APIKeys(t.Context(), pr)
@@ -617,7 +616,7 @@ func TestRevokeDeletesIssuedTokens(t *testing.T) {
 					}
 					fs := newFaultStore()
 					f, admin, fam, tok := setup(t, fs, c)
-					pr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+					pr := f.sessionPrincipal(t, admin, time.Now())
 					if expired {
 						c.add(2 * time.Hour)
 					}
@@ -649,11 +648,10 @@ func TestRevokeDeletesIssuedTokens(t *testing.T) {
 			t.Fatalf("UpdateUser: %v", err)
 		}
 		fam := newFamily(t, p.fixture, admin, 0)
-		target := mustUser(t, p.mem, "alice", access.RoleUser)
 		tok := tokens{
-			childInvite:   seedToken(t, p.mem, access.PurposeInvite, 0, fam.c.key.ID, 24*time.Hour),
-			grandRecovery: seedToken(t, p.mem, access.PurposeRecovery, target.ID, fam.g.key.ID, 24*time.Hour),
-			sessionInvite: seedToken(t, p.mem, access.PurposeInvite, 0, 0, 24*time.Hour),
+			childInvite:   seedToken(t, p.mem, access.PurposeInvite, fam.c.key.ID, 24*time.Hour),
+			grandInvite:   seedToken(t, p.mem, access.PurposeInvite, fam.g.key.ID, 24*time.Hour),
+			sessionInvite: seedToken(t, p.mem, access.PurposeInvite, 0, 24*time.Hour),
 		}
 		pr, _ := p.signedInVia(t, admin, access.MethodPassword)
 		if _, err := p.setPassword(t.Context(), pr, goodPassword, newPassword); err != nil {
@@ -733,7 +731,7 @@ func TestAllAPIKeysOwner(t *testing.T) {
 	admin := mustUser(t, f.mem, "root", access.RoleAdmin)
 	alice := mustUser(t, f.mem, "alice", access.RoleUser)
 	bob := mustUser(t, f.mem, "bob", access.RoleUser)
-	apr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+	apr := f.sessionPrincipal(t, admin, time.Now())
 	aliceKey := f.mint(t, account.OutOfBand("admin-socket"), alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 	bobKey := f.mint(t, account.OutOfBand("admin-socket"), bob.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 	all, err := f.svc.AllAPIKeys(t.Context(), account.As(apr))
@@ -817,7 +815,7 @@ func TestAllKeysActors(t *testing.T) {
 		f := newFixture(t, keyOptions(options{}, nil))
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
-		apr := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+		apr := f.sessionPrincipal(t, admin, time.Now())
 		scoped := f.mint(t, socket, admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeAdmin}})
 		target := f.mint(t, socket, u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 		if err := f.svc.RevokeAPIKey(t.Context(), apr, scoped.key.ID); err != nil {
@@ -847,7 +845,7 @@ func TestRenameAPIKey(t *testing.T) {
 		t.Helper()
 		f := newFixture(t, keyOptions(options{}, nil))
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
-		return world{f: f, u: u, pr: f.sessionPrincipal(t, u, access.SessionFull, time.Now()), k: seedKey(t, f.mem, u.ID, "Agent", time.Time{})}
+		return world{f: f, u: u, pr: f.sessionPrincipal(t, u, time.Now()), k: seedKey(t, f.mem, u.ID, "Agent", time.Time{})}
 	}
 	label := func(t *testing.T, w world, id int64) string {
 		t.Helper()
@@ -884,11 +882,10 @@ func TestRenameAPIKey(t *testing.T) {
 		t.Parallel()
 		w := setup(t)
 		for name, p := range map[string]access.Principal{
-			"key":              w.f.keyPrincipal(t, w.u, "read"),
-			"bypass":           w.f.bypassPrincipal(t),
-			"custom":           w.f.customPrincipal(t, access.MethodAPIKey, w.k.ID, scopeKeys),
-			"recovery_session": w.f.sessionPrincipal(t, w.u, access.SessionRecovery, time.Now()),
-			"zero":             {},
+			"key":    w.f.keyPrincipal(t, w.u, "read"),
+			"bypass": w.f.bypassPrincipal(t),
+			"custom": w.f.customPrincipal(t, access.MethodAPIKey, w.k.ID, scopeKeys),
+			"zero":   {},
 		} {
 			t.Run(name, func(t *testing.T) {
 				if err := w.f.svc.RenameAPIKey(t.Context(), p, w.k.ID, "Renamed"); !errors.Is(err, account.ErrSessionRequired) {
@@ -904,7 +901,7 @@ func TestRenameAPIKey(t *testing.T) {
 		t.Parallel()
 		w := setup(t)
 		bob := mustUser(t, w.f.mem, "bob", access.RoleAdmin)
-		pb := w.f.sessionPrincipal(t, bob, access.SessionFull, time.Now())
+		pb := w.f.sessionPrincipal(t, bob, time.Now())
 		if err := w.f.svc.RenameAPIKey(t.Context(), pb, w.k.ID, "Renamed"); !errors.Is(err, account.ErrNotFound) {
 			t.Errorf("RenameAPIKey of another user's key = %v, want ErrNotFound", err)
 		}

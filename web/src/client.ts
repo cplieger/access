@@ -13,7 +13,6 @@ import {
   parseOIDCStartResponse,
   parsePasskeyView,
   parsePendingLinkResponse,
-  parseRecoveryResponse,
   parseSecurityLogView,
   parseSessionView,
   parseSignedInResponse,
@@ -41,8 +40,6 @@ import type {
   PasswordRequest,
   PendingLinkResponse,
   ProfileRequest,
-  RecoverPasswordRequest,
-  RecoveryResponse,
   RedirectRequest,
   SecurityLogView,
   SessionView,
@@ -50,8 +47,6 @@ import type {
   SetupPasswordRequest,
   SignedInResponse,
   StateResponse,
-  TTLRequest,
-  TokenRequest,
   TokenResponse,
   TokenView,
   UserUpdateRequest,
@@ -100,11 +95,6 @@ export type PublicKeyCredentialJSON =
       readonly clientExtensionResults: { readonly credProps?: { readonly rk?: boolean } };
     };
 
-export interface RecoverFlags {
-  readonly keepSessions: boolean;
-  readonly keepKeys: boolean;
-}
-
 /**
  * One method per JSON route of accesshttp, each decoded through wire.ts: a 2xx body that is not
  * the route's type is the fetch instance's "decode" failure. The two redirect routes are
@@ -134,14 +124,6 @@ export interface AuthClient {
   oidcPending(): Promise<ApiResult<PendingLinkResponse>>;
   oidcLinkPending(): Promise<ApiResult<MeResponse>>;
   oidcUnlink(): Promise<ApiResult<void>>;
-  recoveryStart(r: TokenRequest): Promise<ApiResult<RecoveryResponse>>;
-  recoveryPassword(r: RecoverPasswordRequest): Promise<ApiResult<void>>;
-  recoveryPasskeyBegin(): Promise<ApiResult<CeremonyResponse>>;
-  recoveryPasskeyFinish(
-    ceremony: string,
-    credential: PublicKeyCredentialJSON,
-    o: RecoverFlags,
-  ): Promise<ApiResult<void>>;
   inviteAcceptPassword(r: InviteAcceptRequest): Promise<ApiResult<SignedInResponse>>;
   me(): Promise<ApiResult<MeResponse>>;
   updateProfile(r: ProfileRequest): Promise<ApiResult<MeResponse>>;
@@ -188,7 +170,6 @@ export interface AuthClient {
   adminCreateUser(r: NewUserRequest): Promise<ApiResult<UserView>>;
   adminUpdateUser(id: number, r: UserUpdateRequest): Promise<ApiResult<UserView>>;
   adminDeleteUser(id: number): Promise<ApiResult<void>>;
-  adminIssueRecovery(id: number, r: TTLRequest): Promise<ApiResult<TokenResponse>>;
   adminInvite(r: InviteRequest): Promise<ApiResult<TokenResponse>>;
   adminTokens(): Promise<ApiResult<readonly TokenView[]>>;
   adminKeys(): Promise<ApiResult<readonly KeyView[]>>;
@@ -291,20 +272,6 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     oidcPending: () => json("GET", p("/oidc/pending"), parsePendingLinkResponse),
     oidcLinkPending: () => json("POST", p("/oidc/link"), parseMeResponse),
     oidcUnlink: () => empty("DELETE", p("/oidc/link")),
-    recoveryStart: (r) => json("POST", p("/recovery"), parseRecoveryResponse, { body: r }),
-    recoveryPassword: (r) => empty("POST", p("/recovery/password"), r),
-    recoveryPasskeyBegin: () => json("POST", p("/recovery/passkey/begin"), parseCeremonyResponse),
-    recoveryPasskeyFinish: (c, cred, flags) =>
-      f.requestRaw<undefined>(
-        "POST",
-        p(
-          `/recovery/passkey/finish${query({
-            keep_sessions: flags.keepSessions ? "true" : undefined,
-            keep_keys: flags.keepKeys ? "true" : undefined,
-          })}`,
-        ),
-        { ...finish(c, cred), ignoreBody: true },
-      ),
     inviteAcceptPassword: (r) =>
       json("POST", p("/invite/password"), parseSignedInResponse, { body: r }),
     me: () => json("GET", p("/me"), parseMeResponse),
@@ -339,8 +306,6 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     adminCreateUser: (r) => json("POST", p("/users"), parseUserView, { body: r }),
     adminUpdateUser: (id, r) => json("PUT", p(`/users/${String(id)}`), parseUserView, { body: r }),
     adminDeleteUser: (id) => empty("DELETE", p(`/users/${String(id)}`)),
-    adminIssueRecovery: (id, r) =>
-      json("POST", p(`/users/${String(id)}/recovery`), parseTokenResponse, { body: r }),
     adminInvite: (r) => json("POST", p("/invites"), parseTokenResponse, { body: r }),
     adminTokens: () => json("GET", p("/tokens"), tokenList),
     adminKeys: () => json("GET", p("/admin/apikeys"), keyList),

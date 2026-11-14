@@ -17,20 +17,19 @@ const (
 
 // principals are one of each kind a guard meets, for one admin user.
 type principals struct {
-	fresh, stale, recovery, bypass, zero access.Principal
-	custom                               access.Principal // every scope, through a custom verifier
-	customLabelledKey                    access.Principal
-	keys                                 map[string]access.Principal
-	unscoped                             access.Principal
+	fresh, stale, bypass, zero access.Principal
+	custom                     access.Principal // every scope, through a custom verifier
+	customLabelledKey          access.Principal
+	keys                       map[string]access.Principal
+	unscoped                   access.Principal
 }
 
 func newPrincipals(t *testing.T, f *fixture) principals {
 	t.Helper()
 	u := mustUser(t, f.mem, "owner", access.RoleAdmin)
 	ps := principals{
-		fresh:             f.sessionPrincipal(t, u, access.SessionFull, time.Now()),
-		stale:             f.sessionPrincipal(t, u, access.SessionFull, time.Now().Add(-time.Hour)),
-		recovery:          f.sessionPrincipal(t, u, access.SessionRecovery, time.Now()),
+		fresh:             f.sessionPrincipal(t, u, time.Now()),
+		stale:             f.sessionPrincipal(t, u, time.Now().Add(-time.Hour)),
 		bypass:            f.bypassPrincipal(t),
 		custom:            f.customPrincipal(t, "agent", 0, adminScope, usersScope, keysScope),
 		customLabelledKey: f.customPrincipal(t, access.MethodAPIKey, 77, adminScope, usersScope, keysScope),
@@ -61,7 +60,6 @@ func TestRequireAdminScopeMatrix(t *testing.T) {
 			}{
 				{name: "fresh_session", p: ps.fresh},
 				{name: "stale_session", p: ps.stale},
-				{name: "recovery_session", p: ps.recovery, want: account.ErrSessionRequired},
 				{name: "admin_scope_key", p: ps.keys[adminScope], want: keyAnswer},
 				{name: "users_scope_key", p: ps.keys[usersScope], want: otherAnswer},
 				{name: "keys_scope_key", p: ps.keys[keysScope], want: otherAnswer},
@@ -113,7 +111,6 @@ func TestRequireKeyPermissionMatrix(t *testing.T) {
 			}
 			check("fresh_session", ps.fresh, nil)
 			check("stale_session", ps.stale, access.ErrRecentAuthRequired)
-			check("recovery_session", ps.recovery, account.ErrSessionRequired)
 			if !tc.set {
 				for s, p := range ps.keys {
 					check("key_"+s, p, account.ErrSessionRequired)
@@ -154,7 +151,6 @@ func TestActorPrecondition(t *testing.T) {
 		{name: "bypass", p: ps.bypass, want: account.ErrSessionRequired},
 		{name: "key", p: ps.keys[adminScope], want: account.ErrSessionRequired},
 		{name: "custom", p: ps.custom, want: account.ErrSessionRequired},
-		{name: "recovery_session", p: ps.recovery, want: account.ErrSessionRequired},
 		{name: "zero", p: ps.zero, want: account.ErrSessionRequired},
 	} {
 		if err := account.RequireSession(tc.p); !errors.Is(err, tc.want) || (tc.want == nil && err != nil) {

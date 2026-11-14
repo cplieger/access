@@ -25,9 +25,6 @@ const (
 	EventOIDCLinked          EventKind = "oidc_linked"
 	EventOIDCUnlinked        EventKind = "oidc_unlinked"
 	EventSetupTokenIssued    EventKind = "setup_token_issued" //nolint:gosec // G101: an event name, not a credential
-	EventRecoveryIssued      EventKind = "recovery_issued"
-	EventRecoveryConsumed    EventKind = "recovery_consumed"
-	EventRecoveryCompleted   EventKind = "recovery_completed"
 	EventKeyMinted           EventKind = "key_minted"
 	EventKeyRevoked          EventKind = "key_revoked"
 	EventKeyRotated          EventKind = "key_rotated"
@@ -39,7 +36,7 @@ const (
 	EventUserCreated         EventKind = "user_created"
 	EventInviteIssued        EventKind = "invite_issued"
 	EventMethodLocked        EventKind = "method_locked"    // a failure counter reached the cap; reported by the sweep, or by the Update that clears an unreported lock
-	EventMethodReenabled     EventKind = "method_reenabled" // recovery, ReenableMethod or a sign-in cleared a lock, after its commit
+	EventMethodReenabled     EventKind = "method_reenabled" // ReenableMethod or a sign-in cleared a lock, after its commit
 )
 
 // eventKinds is every EventKind in declaration order, with the class its
@@ -61,9 +58,6 @@ var eventKinds = [...]struct {
 	{EventOIDCLinked, LogClassChange},
 	{EventOIDCUnlinked, LogClassChange},
 	{EventSetupTokenIssued, LogClassChange},
-	{EventRecoveryIssued, LogClassChange},
-	{EventRecoveryConsumed, LogClassChange},
-	{EventRecoveryCompleted, LogClassChange},
 	{EventKeyMinted, LogClassChange},
 	{EventKeyRevoked, LogClassChange},
 	{EventKeyRotated, LogClassChange},
@@ -103,7 +97,7 @@ func classOf(k EventKind) LogClass {
 type Event struct {
 	At     time.Time
 	Kind   EventKind
-	Method access.Method // sign-in, step-up, lock, re-enable, and the credential a recovery installed
+	Method access.Method // sign-in, step-up, lock and re-enable
 	// Role is the new role of an EventRoleChanged, the created user's of an
 	// EventUserCreated and the invite's of an EventInviteIssued.
 	Role       access.Role
@@ -111,8 +105,7 @@ type Event struct {
 	Actor      EventActor
 	UserID     int64 // the account the event is about (target)
 	// KeyID is the key of a key event, and the issuing key of an
-	// EventRecoveryConsumed, EventRecoveryCompleted or invite-accepting
-	// EventUserCreated whose token a key issued.
+	// invite-accepting EventUserCreated whose token a key issued.
 	KeyID     int64
 	PasskeyID int64 // passkey events
 	// Seq is the Seq of the log entry this event's commit appended; 0 for

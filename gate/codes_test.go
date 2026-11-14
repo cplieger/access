@@ -13,7 +13,7 @@ import (
 // "The codes are fixed", in access.Codes() order.
 var authenticating = []access.Code{
 	access.CodeAuthRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeKeyInvalid,
-	access.CodeSessionRequired, access.CodeHTTPSRequired,
+	access.CodeHTTPSRequired,
 }
 
 func codesWith(extra ...access.Code) []access.Code {
@@ -35,14 +35,14 @@ func TestCodes(t *testing.T) {
 	t.Parallel()
 	want := map[string][]access.Code{
 		"pub":         {access.CodeMethodNotAllowed},
-		"sess":        codesWith(),
-		"sess_post":   codesWith(access.CodeCrossOrigin),
+		"sess":        codesWith(access.CodeSessionRequired),
+		"sess_post":   codesWith(access.CodeSessionRequired, access.CodeCrossOrigin),
 		"key":         codesWith(access.CodeKeyRequired),
 		"key_scoped":  codesWith(access.CodeKeyRequired, access.CodeScopeRequired),
 		"scoped":      codesWith(access.CodeScopeRequired, access.CodeForbidden),
 		"scoped_post": codesWith(access.CodeScopeRequired, access.CodeForbidden, access.CodeCrossOrigin),
-		"passive":     codesWith(),
-		"active":      codesWith(),
+		"passive":     codesWith(access.CodeSessionRequired),
+		"active":      codesWith(access.CodeSessionRequired),
 	}
 	for _, r := range classRoutes {
 		if got := gate.Codes(r); !slices.Equal(got, want[r.Name]) {
@@ -69,7 +69,6 @@ func TestCodes(t *testing.T) {
 		{g: g, creds: []cred{goneCred}},
 		{g: g, creds: []cred{withAgent("bad")}},
 		{g: g, creds: []cred{unknownKey}},
-		{g: g, creds: []cred{recoveryCred}},
 		{g: g, creds: []cred{withAgent("boom")}},
 		{g: g, creds: []cred{sessionCred}},
 		{g: g, creds: []cred{keyReadCred}},

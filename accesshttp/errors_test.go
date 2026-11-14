@@ -37,16 +37,14 @@ func TestErrorCodeTable(t *testing.T) {
 		{name: "method_locked_stays_invalid_credentials", err: failreason.Wrap(account.ErrInvalidCredentials, failreason.MethodLocked), code: "auth_invalid_credentials"},
 		{name: "custom_credential_refused", err: &access.InvalidCredentialError{Method: "agent", Err: access.ErrAccountDisabled}, code: "auth_invalid_credentials"},
 		{name: "key_refused", err: &access.InvalidCredentialError{Method: access.MethodAPIKey, Err: access.ErrInvalidAPIKey}, code: "auth_key_invalid"},
-		{name: "recovery_cookie_elsewhere", err: &access.InvalidCredentialError{Method: access.MethodRecovery, Err: access.ErrRestrictedSession}, code: "auth_session_required"},
 		{name: "https_required", err: access.ErrHTTPSRequired, code: "auth_https_required"},
 		{name: "recent_auth", err: access.ErrRecentAuthRequired, code: "auth_recent_auth_required"},
 		{name: "reenable_needs_other_method", err: failreason.Wrap(access.ErrRecentAuthRequired, failreason.ReenableNeedsOtherMethod), code: "auth_recent_auth_required", reason: "reenable_needs_other_method"},
 		{name: "sign_in_again", err: failreason.Wrap(access.ErrRecentAuthRequired, failreason.SignInAgain), code: "auth_recent_auth_required", reason: "sign_in_again"},
 		{name: "session_required", err: account.ErrSessionRequired, code: "auth_session_required"},
-		{name: "recovery_route", err: failreason.Wrap(account.ErrSessionRequired, "recovery"), code: "auth_session_required", reason: "recovery"},
 		{name: "scope_required", err: account.ErrScopeRequired, code: "auth_scope_required"},
 		{name: "policy", err: &account.PolicyError{Op: account.OpCreateUser, Reason: "admin_target"}, code: "auth_forbidden", reason: "admin_target"},
-		{name: "self_recovery", err: wrapped(&account.PolicyError{Reason: "self_recovery"}), code: "auth_forbidden", reason: "self_recovery"},
+		{name: "wrapped_policy", err: wrapped(&account.PolicyError{Reason: "other_user"}), code: "auth_forbidden", reason: "other_user"},
 		{name: "sso_governed", err: account.ErrSSOGoverned, code: "auth_forbidden", reason: "sso_governed"},
 		{name: "rate_limited", err: &ratelimit.RefusedError{Dimension: "ip", RetryAfter: time.Second}, code: "auth_rate_limited"},
 		{name: "hash_busy", err: access.ErrHashBusy, code: "auth_busy"},
@@ -213,7 +211,7 @@ func TestSessionGoneCodes(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	// Each operation rereads its caller's session or user and answers
 	// account.ErrSessionGone once it has gone.
-	for _, name := range []string{"authStepUpPassword", "authPasswordSet", "authPasswordRemove", "authRecoveryPassword", "authRecoveryPasskeyBegin", "authRecoveryPasskeyFinish", "authOIDCLinkPending", "authOIDCUnlink"} {
+	for _, name := range []string{"authStepUpPassword", "authPasswordSet", "authPasswordRemove", "authOIDCLinkPending", "authOIDCUnlink"} {
 		t.Run(name, func(t *testing.T) {
 			rt := e.route(t, name)
 			if !slices.Contains(opCodes[specNamed(t, name).op], access.CodeSessionExpired) {

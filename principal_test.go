@@ -58,7 +58,7 @@ func TestPrincipalPrinting(t *testing.T) {
 // principalFields are the text fields a principal reaches that hold no
 // secret: its own identifiers and enums, and its user's (recordFields).
 var principalFields = []string{
-	"access.Principal.Method", "access.Principal.SessionID", "access.Principal.SessionKind", "access.Principal.Scopes",
+	"access.Principal.Method", "access.Principal.SessionID", "access.Principal.Scopes",
 	"access.Principal.KeyLabel",
 	"access.User.Username", "access.User.Email", "access.User.DisplayName", "access.User.Role",
 	"access.User.WebAuthnHandle", "access.OIDCIdentity.Issuer", "access.OIDCIdentity.Subject",
@@ -67,11 +67,11 @@ var principalFields = []string{
 func TestPrincipalLogValue(t *testing.T) {
 	t.Parallel()
 	p := Principal{
-		User: &User{ID: 5}, Method: MethodPassword, SessionID: "sid", SessionKind: SessionRecovery,
+		User: &User{ID: 5}, Method: MethodPassword, SessionID: "sid",
 		KeyID: 3, Scopes: []string{"read"}, credential: NewHash("h"),
 	}
 	want := map[string]any{
-		"method": "password", "user_id": int64(5), "session_id": "sid", "session_kind": "recovery",
+		"method": "password", "user_id": int64(5), "session_id": "sid",
 		"key_id": int64(3), "scopes": []string{"read"},
 	}
 	if got := logAttrs(t, p); !reflect.DeepEqual(got, want) {
@@ -86,19 +86,16 @@ func TestPrincipalAccessors(t *testing.T) {
 	t.Parallel()
 	hash := NewHash("h")
 	full := Principal{User: &User{ID: 1, Enabled: true}, Method: MethodPassword, credential: hash, source: sourceSession}
-	recovery := full
-	recovery.SessionKind = SessionRecovery
 	key := Principal{User: &User{ID: 1, Enabled: true}, Method: MethodAPIKey, KeyID: 2, credential: hash, source: sourceAPIKey}
 	custom := Principal{User: &User{Enabled: true}, Method: "custom", SessionID: "forged", AuthTime: time.Now()}
 	customKey := Principal{User: &User{Enabled: true}, Method: MethodAPIKey, KeyID: 2, credential: hash}
 	for _, tt := range []struct {
-		name                string
-		p                   Principal
-		session, recovering bool
-		tokenHash, apiKey   bool
+		name              string
+		p                 Principal
+		session           bool
+		tokenHash, apiKey bool
 	}{
-		{name: "full session", p: full, session: true, tokenHash: true},
-		{name: "recovery session", p: recovery, recovering: true, tokenHash: true},
+		{name: "session", p: full, session: true, tokenHash: true},
 		{name: "key", p: key, apiKey: true},
 		{name: "custom filling session fields", p: custom},
 		{name: "custom filling key fields", p: customKey},
@@ -107,9 +104,6 @@ func TestPrincipalAccessors(t *testing.T) {
 			t.Parallel()
 			if got := tt.p.IsSession(); got != tt.session {
 				t.Errorf("IsSession() = %v, want %v", got, tt.session)
-			}
-			if got := tt.p.IsRecoverySession(); got != tt.recovering {
-				t.Errorf("IsRecoverySession() = %v, want %v", got, tt.recovering)
 			}
 			if got := tt.p.SessionTokenHash(); got.Equal(hash) != tt.tokenHash || got.IsZero() == tt.tokenHash {
 				t.Errorf("SessionTokenHash() zero = %v, want zero %v", got.IsZero(), !tt.tokenHash)
@@ -204,8 +198,6 @@ func TestRequireRecentAuth(t *testing.T) {
 	custom := Principal{User: &User{Enabled: true}, Method: "custom", SessionID: "sess-1", AuthTime: now}
 	stale := session
 	stale.AuthTime = now.Add(-2 * time.Minute)
-	recovery := session
-	recovery.SessionKind = SessionRecovery
 
 	for _, tt := range []struct {
 		name string
@@ -217,7 +209,6 @@ func TestRequireRecentAuth(t *testing.T) {
 		{name: "stale session", p: stale},
 		{name: "session at exactly now", p: func() Principal { s := session; s.AuthTime = now; return s }(), ok: true},
 		{name: "session in the future", p: func() Principal { s := session; s.AuthTime = now.Add(24 * time.Hour); return s }()},
-		{name: "recovery session", p: recovery},
 		{name: "key", p: key},
 		{name: "custom filling SessionID and AuthTime", p: custom},
 		{name: "zero", p: Principal{}},
@@ -243,15 +234,6 @@ func TestRequestMarks(t *testing.T) {
 	}
 	if !IsPassive(Passive(ctx)) {
 		t.Error("IsPassive(Passive(ctx)) = false")
-	}
-	if IsPassive(AllowRecoverySession(ctx)) {
-		t.Error("AllowRecoverySession marked the context passive")
-	}
-	if v, _ := AllowRecoverySession(ctx).Value(allowRecoveryKey{}).(bool); !v {
-		t.Error("AllowRecoverySession(ctx) carries no mark")
-	}
-	if v, _ := Passive(ctx).Value(allowRecoveryKey{}).(bool); v {
-		t.Error("Passive marked the context as allowing a recovery session")
 	}
 }
 
@@ -325,7 +307,7 @@ func TestPrincipalSecure(t *testing.T) {
 }
 
 // TestRequireRecentAuthSignInAgain pins the reason RequireRecentAuth's
-// refusal carries: sign_in_again for a full session over plain HTTP, whose
+// refusal carries: sign_in_again for a session over plain HTTP, whose
 // AuthTime nothing there refreshes, and none for a secure session or for any
 // principal a sign-in cannot help.
 func TestRequireRecentAuthSignInAgain(t *testing.T) {
@@ -333,15 +315,11 @@ func TestRequireRecentAuthSignInAgain(t *testing.T) {
 	f := newChainFixture(t)
 	now := time.Now()
 	perRequest := CookieConfig{Posture: PosturePerRequest}
-	// plainAt is a plain request carrying a new plain session of kind
-	// signed in at authTime.
-	plainAt := func(authTime time.Time, kind SessionKind) *http.Request {
-		method, created := MethodPassword, now.Add(-3*time.Hour)
-		if kind == SessionRecovery {
-			method, created = MethodRecovery, now
-		}
-		tok := f.addSession(t, &Session{ID: "plain-" + string(kind) + authTime.Format(time.RFC3339Nano), UserID: f.user.ID, AuthMethod: method, Kind: kind, CreatedAt: created, LastActivity: now, AuthTime: authTime})
-		r := httptest.NewRequestWithContext(AllowRecoverySession(t.Context()), http.MethodGet, "http://app.example/api", nil)
+	// plainAt is a plain request carrying a new plain session signed in at
+	// authTime.
+	plainAt := func(authTime time.Time) *http.Request {
+		tok := f.addSession(t, &Session{ID: "plain-" + authTime.Format(time.RFC3339Nano), UserID: f.user.ID, AuthMethod: MethodPassword, CreatedAt: now.Add(-3 * time.Hour), LastActivity: now, AuthTime: authTime})
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://app.example/api", nil)
 		r.AddCookie(&http.Cookie{Name: perRequest.CookieName(false), Value: tok})
 		return r
 	}
@@ -361,11 +339,10 @@ func TestRequireRecentAuthSignInAgain(t *testing.T) {
 		reason string
 		ok     bool
 	}{
-		{name: "fresh_plain_session", p: mustAuthenticate(t, a, plainAt(now, SessionFull)), ok: true},
-		{name: "stale_plain_session", p: mustAuthenticate(t, a, plainAt(now.Add(-2*time.Hour), SessionFull)), reason: failreason.SignInAgain},
-		{name: "future_plain_session", p: mustAuthenticate(t, a, plainAt(now.Add(time.Hour), SessionFull)), reason: failreason.SignInAgain},
+		{name: "fresh_plain_session", p: mustAuthenticate(t, a, plainAt(now)), ok: true},
+		{name: "stale_plain_session", p: mustAuthenticate(t, a, plainAt(now.Add(-2*time.Hour))), reason: failreason.SignInAgain},
+		{name: "future_plain_session", p: mustAuthenticate(t, a, plainAt(now.Add(time.Hour))), reason: failreason.SignInAgain},
 		{name: "stale_secure_session", p: staleSecure},
-		{name: "plain_recovery_session", p: mustAuthenticate(t, a, plainAt(now, SessionRecovery))},
 		{name: "plain_key", p: mustAuthenticate(t, a, plain(bearerRequest(f.key)))},
 		{name: "plain_custom_verifier", p: mustAuthenticate(t, mustAuthenticator(t, f.store, Config{Cookie: perRequest, Verifier: stubVerifier{p: custom, ok: true}}), plain(bearerRequest("")))},
 		{name: "plain_bypass", p: mustAuthenticate(t, mustAuthenticator(t, f.store, Config{Cookie: perRequest, Bypass: func() bool { return true }}), plain(bearerRequest("")))},

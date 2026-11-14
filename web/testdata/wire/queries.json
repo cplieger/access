@@ -22,9 +22,5 @@
   ],
   "authOIDCStartSignIn": [
     "redirect"
-  ],
-  "authRecoveryPasskeyFinish": [
-    "keep_keys",
-    "keep_sessions"
   ]
 }

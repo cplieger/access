@@ -2,7 +2,6 @@ package accesshttp
 
 import (
 	"bytes"
-	"cmp"
 	"fmt"
 	"maps"
 	"net/http"
@@ -18,13 +17,11 @@ import (
 	"github.com/cplieger/access/ratelimit"
 )
 
-// The companion cookies' lifetimes in seconds (§7.4, §4.1), and the
-// restricted recovery session's (§6.7).
+// The companion cookies' lifetimes in seconds (§7.4, §4.1).
 const (
-	deviceSeconds   = 180 * 24 * 60 * 60
-	flowSeconds     = 10 * 60
-	pendingSeconds  = 10 * 60
-	recoverySeconds = 15 * 60
+	deviceSeconds  = 180 * 24 * 60 * 60
+	flowSeconds    = 10 * 60
+	pendingSeconds = 10 * 60
 )
 
 // jarNames are the four cookie names a request to an origin uses, the
@@ -348,7 +345,6 @@ func TestSessionCookieLifetimeHTTP(t *testing.T) {
 		for _, tc := range sessionCookieCases() {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
-				lifetime := map[string]int{"authRecoveryStart": recoverySeconds}[tc.route]
 				e := newEnv(t, tc.opts)
 				got := setCookies(t, tc.run(t, e))
 				sessionName, deviceName := e.names()
@@ -356,7 +352,7 @@ func TestSessionCookieLifetimeHTTP(t *testing.T) {
 				if session == nil || session.Value == "" {
 					t.Fatalf("Set-Cookie %v, want a session cookie", slices.Sorted(maps.Keys(got)))
 				}
-				if want := cmp.Or(lifetime, int(e.authn.Timeouts().Absolute/time.Second)); session.MaxAge != want {
+				if want := int(e.authn.Timeouts().Absolute / time.Second); session.MaxAge != want {
 					t.Errorf("session cookie %q, want Max-Age %d", session.Raw, want)
 				}
 				if d := got[deviceName]; d != nil && d.MaxAge != deviceSeconds {

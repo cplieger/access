@@ -100,8 +100,7 @@ func (c *contract) wrongOwner(t *testing.T) {
 
 func (c *contract) issuedBy(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
-	u := mustUser(t, s, "subject")
-	tokens := issueTokens(t, s, u.ID, 7, 8, 0)
+	tokens := issueTokens(t, s, 7, 8, 0)
 	for _, ids := range [][]int64{{}, {0}} {
 		if n, err := s.DeleteOneTimeTokensIssuedBy(ctx, ids); err != nil || n != 0 {
 			t.Errorf("DeleteOneTimeTokensIssuedBy(%v) = (%d, %v), want (0, nil)", ids, n, err)
@@ -116,22 +115,16 @@ func (c *contract) issuedBy(t *testing.T) {
 			t.Errorf("token issued by %d: (found %t, IssuedByKey %d, %v), want found %t", tok.IssuedByKey, found, got.IssuedByKey, err, want)
 		}
 	}
-	rec := newSession(u.ID, epoch)
-	rec.Kind, rec.IssuedByKey = access.SessionRecovery, 7
-	mustSession(t, s, rec)
-	if got, found := sessionFound(t, s, rec.TokenHash); !found || got.IssuedByKey != 7 {
-		t.Errorf("recovery session IssuedByKey read back = %v, want 7", got)
-	}
 }
 
-// issueTokens writes a setup, an invite and a recovery token for subject
-// from each issuer.
-func issueTokens(t *testing.T, s account.Store, subject int64, issuers ...int64) []access.OneTimeToken {
+// issueTokens writes a setup, an invite and an app-defined token from each
+// issuer.
+func issueTokens(t *testing.T, s account.Store, issuers ...int64) []access.OneTimeToken {
 	t.Helper()
 	out := make([]access.OneTimeToken, 0, 3*len(issuers))
 	for _, issuer := range issuers {
-		for _, purpose := range []access.TokenPurpose{access.PurposeSetup, access.PurposeInvite, access.PurposeRecovery} {
-			tok := newToken(purpose, subject, epoch.Add(time.Hour))
+		for _, purpose := range []access.TokenPurpose{access.PurposeSetup, access.PurposeInvite, purposeApp} {
+			tok := newToken(purpose, epoch.Add(time.Hour))
 			tok.IssuedByKey = issuer
 			mustToken(t, s, tok)
 			out = append(out, tok)
@@ -148,7 +141,7 @@ func (c *contract) expiry(t *testing.T) {
 
 func (c *contract) expiredConsume(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
-	tok := newToken(access.PurposeInvite, 0, epoch)
+	tok := newToken(access.PurposeInvite, epoch)
 	mustToken(t, s, tok)
 	for _, when := range []string{"first", "second"} {
 		if _, found, err := s.ConsumeOneTimeToken(ctx, tok.Hash, epoch.Add(time.Millisecond)); err != nil || found {
@@ -164,28 +157,28 @@ func (c *contract) liveTokens(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
 	now := epoch.Add(time.Hour)
 	live := map[access.TokenPurpose]access.OneTimeToken{}
-	mustToken(t, s, newToken(access.PurposeSetup, 0, now.Add(time.Hour)))
-	for _, p := range []access.TokenPurpose{access.PurposeInvite, access.PurposeRecovery} {
-		tok := newToken(p, 1, now.Add(time.Hour))
+	mustToken(t, s, newToken(access.PurposeSetup, now.Add(time.Hour)))
+	for _, p := range []access.TokenPurpose{access.PurposeInvite, purposeApp} {
+		tok := newToken(p, now.Add(time.Hour))
 		tok.Role = access.RoleAdmin
 		mustToken(t, s, tok)
 		live[p] = tok
-		mustToken(t, s, newToken(p, 1, now))
+		mustToken(t, s, newToken(p, now))
 	}
-	got, err := s.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeInvite, access.PurposeRecovery}, now)
+	got, err := s.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeInvite, purposeApp}, now)
 	if err != nil || len(got) != 2 {
-		t.Fatalf("LiveOneTimeTokens([invite recovery]) = (%d tokens, %v), want the 2 live ones", len(got), err)
+		t.Fatalf("LiveOneTimeTokens([invite contract-app]) = (%d tokens, %v), want the 2 live ones", len(got), err)
 	}
 	for _, g := range got {
 		w, ok := live[g.Purpose]
-		if !ok || !g.Hash.Equal(w.Hash) || g.Role != w.Role || g.Subject != w.Subject || !g.ExpiresAt.Equal(w.ExpiresAt) {
+		if !ok || !g.Hash.Equal(w.Hash) || g.Role != w.Role || !g.ExpiresAt.Equal(w.ExpiresAt) {
 			t.Errorf("listed %v, want the live %s token as written", g, g.Purpose)
 		}
 	}
-	got[0].Purpose, got[0].Subject = mutated, 99
-	again, _ := s.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeInvite, access.PurposeRecovery}, now)
+	got[0].Purpose, got[0].Role = mutated, mutated
+	again, _ := s.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeInvite, purposeApp}, now)
 	for _, g := range again {
-		if g.Purpose == mutated || g.Subject == 99 {
+		if g.Purpose == mutated || g.Role == mutated {
 			t.Error("mutating a listed token changed the store")
 		}
 	}

@@ -23,7 +23,7 @@ Every setting is a field of a configuration struct or a function argument. The l
 
 `New` returns an error for a configuration that cannot work. That is a timeout or throttle below zero, an activity throttle at or above the idle timeout, a realm holding `"`, `\` or a control character, or a cookie configuration that `CookieConfig.Validate` refuses. `New` also refuses a nil store, and a `Verifier` that holds a nil pointer, map, slice, func or chan; a nil `Verifier` means none.
 
-The activity throttle exists to cut store writes. An API key's last use is written once the stored time is `d` old. A session's activity is written once the stored time is one window old. That window is the lesser of `d` and half the session's idle limit, which the session's own `IdleCap` and the 15-minute limit of a recovery session can lower, so a session in use never expires between two writes. The window runs from the time the store holds, so it holds across restarts, and requests that arrive together as a window ends may each write once. A failed write leaves the stored time old, so the next request tries it again. A failed write logs a warning at most once a minute for sessions and once a minute for keys. The next warning after that minute carries `suppressed`, the count of failures held back, when there were any. The stored last-activity time lags real activity by up to that window, which is why the throttle must stay below the idle timeout.
+The activity throttle exists to cut store writes. An API key's last use is written once the stored time is `d` old. A session's activity is written once the stored time is one window old. That window is the lesser of `d` and half the session's idle limit, which the session's own `IdleCap` can lower, so a session in use never expires between two writes. The window runs from the time the store holds, so it holds across restarts, and requests that arrive together as a window ends may each write once. A failed write leaves the stored time old, so the next request tries it again. A failed write logs a warning at most once a minute for sessions and once a minute for keys. The next warning after that minute carries `suppressed`, the count of failures held back, when there were any. The stored last-activity time lags real activity by up to that window, which is why the throttle must stay below the idle timeout.
 
 With `TimeoutSource`, a value at or below zero from the callback falls back to the matching static field. The same cap on the throttle window applies to the idle timeout the callback returns.
 
@@ -197,7 +197,7 @@ Each dimension keeps at most `MaxEntries` keys, which bounds the limiter's memor
 Past those keys, the limiter bounds no spray of new keys. What bounds one depends on the route:
 
 - Password attempts on an account (`PasswordLogin`, `StepUpPassword`, and the current-password check of `SetPassword` and `RemovePassword`). The durable failure cap, `account.FailureCap`, locks the password for a name and trust context after 100 consecutive failures, so a spray gets at most 100 consecutive guesses at each account in each context. Every password hash draws on the `access.HashBudget`, which bounds how many hashes run at once.
-- Attempts with no account (`SetupWithPassword`, `AcceptInvitePassword` and `StartRecovery`). Nothing beyond the IP limit bounds their rate. Those that hash a password draw on the `access.HashBudget`.
+- Attempts with no account (`SetupWithPassword` and `AcceptInvitePassword`). Nothing beyond the IP limit bounds their rate. Those that hash a password draw on the `access.HashBudget`.
 - Begin routes that hold a passkey ceremony (`SetupPasskeyBegin` and `PasskeyLoginBegin`). The pending-ceremony cache holds at most `account.Config.MaxPending` entries and evicts the oldest first. That bounds memory, not the request rate.
 - The OIDC sign-in start, the callback and the pending-link read. `account.Service.AdmitOIDC` charges the IP request limit on each, before `oidc.Provider.Begin` or `Finish` runs and before the pending-link cookie is read, and nothing beyond that limit bounds their rate. A callback without a flow cookie that `Begin` sealed fails when the cookie is opened, before any call to the identity provider.
 
@@ -237,7 +237,7 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 | `OIDC` | A function returning the OIDC provider | nil: OIDC off |
 | `OnEvent` | Receives every event after its commit, in the committing goroutine, with the `Seq` of its security-log entry, or 0 for `EventSessionsExpired`, which the log does not hold. It must not block. It is called at most once per event: a crash after the commit loses the call, never the log entry | nil: none |
 | `Breach` | The HTTP client for the breached-password check | nil: required only when `Rules.Breach` is not `BreachOff` |
-| `AdminScope` | The key scope that lets an admin's key list users, every user's keys and the live invite and recovery tokens, read the security log, and revoke any key | empty: session only |
+| `AdminScope` | The key scope that lets an admin's key list users, every user's keys and the live invite tokens, read the security log, and revoke any key | empty: session only |
 | `ManageUsersScope` | The key scope that lets a key manage `RoleUser` accounts, described below | empty: session only, under recent sign-in |
 | `CreateKeysScope` | The key scope that lets a key mint keys for its own user, described below | empty: session only, under recent sign-in |
 | `CleanupInterval` | How often expired sessions, tokens, pending ceremonies, stale failure records and security-log entries past `LogMaxAge` are swept, and locks reported | 5m |
@@ -272,8 +272,8 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 | `Breach` | The breached-password check: `BreachOff`, `BreachFailOpen` or `BreachFailClosed` | `BreachOff` |
 | `MaxSessionsPerUser` | The most sessions per user; a new one past it ends the user's least recently active | 0: unlimited |
 | `DisablePasswordLogin` | Refuses password sign-in and step-up | false: allowed |
-| `SSOGoverned` | Makes linking an OIDC identity remove the password and passkeys; only recovery restores a local method | false |
-| `RevokeKeysOnCredentialChange` | Deletes the user's API keys, and the tokens they issued, when `SetPassword` sets or changes the password, and when an OIDC link under `SSOGoverned` migrates the account. Disabling and deleting a user always delete the keys, and a recovery does unless `RecoverOptions.KeepKeys` is set | false |
+| `SSOGoverned` | Makes linking an OIDC identity remove the password and passkeys | false |
+| `RevokeKeysOnCredentialChange` | Deletes the user's API keys, and the tokens they issued, when `SetPassword` sets or changes the password, and when an OIDC link under `SSOGoverned` migrates the account. Disabling and deleting a user always delete the keys | false |
 | `HTTPSOrigin` | The app's HTTPS origin, `https://host` or `https://host:port`, which `Service.State` answers a plain request as `https_origin` so the sign-in screen can link there ([Plain HTTP](plain-http.md#what-the-screens-learn)). A link only; nothing trusts it. `Validate` refuses any other scheme, user info, a host that is not a hostname or an IP address in its browser form, an invalid port, the default port `:443`, an uppercase host, a path (`/` included), a query and a fragment | empty: none |
 
 An app may refuse a sign-in method in its own gate before `account` sees the attempt. `Rules` has no sign-in hook for that, and `MethodUsable` keeps the last-method guard from counting a method the app refuses.
@@ -282,12 +282,12 @@ An app may refuse a sign-in method in its own gate before `account` sees the att
 
 `ManageUsersScope` and `CreateKeysScope` are empty by default, and a key holds either only when the admin grants that scope when creating it. No other scope implies them, full access included.
 
-- A `ManageUsersScope` key creates, updates and deletes `RoleUser` accounts, invites `RoleUser` accounts and issues recovery for `RoleUser` accounts. It never reaches an admin account: it cannot create, promote, invite, recover, disable or delete one.
+- A `ManageUsersScope` key creates, updates and deletes `RoleUser` accounts and invites `RoleUser` accounts. It never reaches an admin account: it cannot create, promote, invite, disable or delete one.
 - A `CreateKeysScope` key mints keys for its own user only. Each key it mints carries a subset of its scopes and expires no later than it does, so a key can pass on a permission only when it holds it.
-- The invite and recovery links a key issues expire no later than the key and are re-checked against it when used.
+- The invite links a key issues expire no later than the key and are re-checked against it when used.
 - A key's expiry needs no cleanup: its descendant keys and every link they issued expire no later than it does, and every use refuses an expired key or link.
-- Revoking a key revokes every key minted below it and deletes their unused invite and recovery links, in one transaction.
-- The accounts the key or any key below it created, invited or took over through recovery stay, with their credentials. Each is attributed by an append-only record that carries the acting key's whole lineage, which `Service.Users` with `UserFilter.AttributedToKey` (`GET /users?key=`) filters by any key in that lineage, a revoked one included. Review and disable those accounts after revoking a leaked key.
+- Revoking a key revokes every key minted below it and deletes their unused invite links, in one transaction.
+- The accounts the key or any key below it created or invited stay, with their credentials. Each is attributed by an append-only record that carries the acting key's whole lineage, which `Service.Users` with `UserFilter.AttributedToKey` (`GET /users?key=`) filters by any key in that lineage, a revoked one included. Review and disable those accounts after revoking a leaked key.
 - A key's lineage holds at most `account.MaxKeyLineage` IDs, 8: a root key and seven generations of keys minted by keys. Minting below a full lineage is refused with the reason `lineage_too_deep`.
 
 Every key-authorized write re-reads the key and its owner inside its own transaction, so a key revoked or expired, or an owner disabled, deleted or demoted, authorises nothing that commits after the change. Leaving both scopes empty keeps all of these operations session-only under a recent sign-in.

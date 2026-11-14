@@ -152,6 +152,9 @@ const (
 	mutated    = "mutated"
 	unknownID  = "unknown"
 	testIssuer = "https://idp"
+	// purposeApp is an app-defined token purpose, which a store keeps as
+	// it keeps the library's own.
+	purposeApp access.TokenPurpose = "contract-app"
 
 	opSessionByHash  = "SessionByHash"
 	opUserByUsername = "UserByUsername"
@@ -230,13 +233,12 @@ func mustKey(t *testing.T, s account.Store, k *access.Key) {
 	}
 }
 
-func newToken(purpose access.TokenPurpose, subject int64, expires time.Time) access.OneTimeToken {
+func newToken(purpose access.TokenPurpose, expires time.Time) access.OneTimeToken {
 	return access.OneTimeToken{
 		CreatedAt: epoch,
 		ExpiresAt: expires,
 		Hash:      access.NewHash(fresh("token")),
 		Purpose:   purpose,
-		Subject:   subject,
 	}
 }
 

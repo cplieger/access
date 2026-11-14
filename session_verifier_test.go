@@ -211,59 +211,6 @@ func TestDuplicateSessionCookie(t *testing.T) {
 	}
 }
 
-func TestRecoverySessionRestricted(t *testing.T) {
-	t.Parallel()
-	week := 7 * 24 * time.Hour
-	recovery := func() *Session {
-		return &Session{ID: "r", Kind: SessionRecovery, AuthMethod: MethodRecovery, CreatedAt: sessionT0, LastActivity: sessionT0, Secure: true}
-	}
-	cfg := Config{IdleTimeout: week, AbsTimeout: week}
-
-	t.Run("refused without the mark", func(t *testing.T) {
-		t.Parallel()
-		a, store, _, token := clockedSession(t, recovery(), cfg)
-		_, err := a.Authenticate(sessionRequest(t.Context(), token))
-		var ice *InvalidCredentialError
-		if !errors.As(err, &ice) || !errors.Is(err, ErrRestrictedSession) || errors.Is(err, ErrUnauthenticated) {
-			t.Fatalf("Authenticate error = %v, want ErrInvalidCredential wrapping ErrRestrictedSession", err)
-		}
-		if ice.Method != MethodRecovery {
-			t.Errorf("refusal Method = %q, want %q", ice.Method, MethodRecovery)
-		}
-		if n := store.activities.Load(); n != 0 {
-			t.Errorf("store saw %d activity writes, want 0", n)
-		}
-	})
-	t.Run("granted with the mark and capped at 15 minutes", func(t *testing.T) {
-		t.Parallel()
-		a, store, clock, token := clockedSession(t, recovery(), cfg)
-		ctx := AllowRecoverySession(t.Context())
-		p, err := a.Authenticate(sessionRequest(ctx, token))
-		if err != nil || !p.IsRecoverySession() || p.IsSession() {
-			t.Fatalf("Authenticate = (%+v, %v), want a recovery principal", p, err)
-		}
-		want := sessionT0.Add(RecoverySessionLifetime)
-		if !p.IdleDeadline.Equal(want) || !p.AbsoluteDeadline.Equal(want) {
-			t.Errorf("deadlines = (%v, %v), want both %v", p.IdleDeadline, p.AbsoluteDeadline, want)
-		}
-		writes := store.activities.Load()
-		clock.Set(want.Add(time.Nanosecond))
-		if _, err := a.Authenticate(sessionRequest(ctx, token)); !errors.Is(err, ErrSessionExpired) {
-			t.Errorf("Authenticate 15 min + 1 ns after creation error = %v, want ErrSessionExpired", err)
-		}
-		if n := store.activities.Load(); n != writes {
-			t.Errorf("the refused request wrote activity (%d writes, want %d)", n, writes)
-		}
-	})
-	t.Run("the mark does not restrict a full session", func(t *testing.T) {
-		t.Parallel()
-		a, _, _, token := clockedSession(t, &Session{ID: "f", CreatedAt: sessionT0, LastActivity: sessionT0, Secure: true}, cfg)
-		if p, err := a.Authenticate(sessionRequest(AllowRecoverySession(t.Context()), token)); err != nil || !p.IsSession() {
-			t.Errorf("Authenticate = (%+v, %v), want the full session principal", p, err)
-		}
-	})
-}
-
 // TestSessionCapsEnforced pins that a session's own IdleCap and AbsoluteCap
 // bound its life and its principal's deadlines under far longer timeouts.
 func TestSessionCapsEnforced(t *testing.T) {

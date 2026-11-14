@@ -338,9 +338,6 @@ func bodyLimit(s *routeSpec) int {
 func (c *census) passing(t *testing.T, rt Route) *censusPrincipal {
 	t.Helper()
 	name := "recent_session"
-	if rt.Class == ClassRecovery {
-		name = "recovery_session"
-	}
 	p := c.principal(t, name)
 	if want := p.guardAnswer(&rt.Descriptor); want != "" {
 		t.Fatalf("%s's guard refuses %s with %s", rt.Name, name, want)

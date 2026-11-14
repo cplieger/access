@@ -50,10 +50,6 @@ type SessionTimeouts struct {
 	Absolute time.Duration
 }
 
-// RecoverySessionLifetime bounds a [SessionRecovery] session's idle and
-// absolute life, whatever the policy timeouts.
-const RecoverySessionLifetime = 15 * time.Minute
-
 // PlainSessionIdle and PlainSessionAbsolute bound a plain session (Secure
 // false), whatever the policy timeouts: its token crossed a network in clear,
 // so it lives no longer than one sitting.
@@ -65,18 +61,13 @@ const (
 // SessionDeadlines returns the instants after which s is expired: its last
 // activity plus the idle limit, and its creation plus the absolute limit.
 // Each limit is the policy's in t, lowered to [PlainSessionIdle] and
-// [PlainSessionAbsolute] for a plain session (Secure false), to
-// [RecoverySessionLifetime] for a [SessionRecovery] session, and to the
+// [PlainSessionAbsolute] for a plain session (Secure false), and to the
 // session's positive IdleCap or AbsoluteCap. s must not be nil.
 func SessionDeadlines(s *Session, t SessionTimeouts) (idle, absolute time.Time) {
 	idleLimit, absoluteLimit := t.Idle, t.Absolute
 	if !s.Secure {
 		idleLimit = min(idleLimit, PlainSessionIdle)
 		absoluteLimit = min(absoluteLimit, PlainSessionAbsolute)
-	}
-	if s.Kind == SessionRecovery {
-		idleLimit = min(idleLimit, RecoverySessionLifetime)
-		absoluteLimit = min(absoluteLimit, RecoverySessionLifetime)
 	}
 	if s.IdleCap > 0 {
 		idleLimit = min(idleLimit, s.IdleCap)

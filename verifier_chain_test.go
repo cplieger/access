@@ -683,8 +683,8 @@ func TestSynthesisedPrincipal(t *testing.T) {
 	if n := store.userReads.Load(); n != 0 {
 		t.Errorf("store saw %d UserByID calls, want 0 (a custom principal is never looked up)", n)
 	}
-	if p.IsSession() || p.IsRecoverySession() {
-		t.Error("synthesised principal passes IsSession or IsRecoverySession, want neither")
+	if p.IsSession() {
+		t.Error("synthesised principal passes IsSession, want not")
 	}
 }
 

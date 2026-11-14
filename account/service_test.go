@@ -285,7 +285,7 @@ func TestRulesReadOncePerOperation(t *testing.T) {
 		return account.Rules{RecentAuth: 2 * time.Minute}
 	}})
 	u := mustUser(t, f.mem, "alice", access.RoleAdmin)
-	p := f.sessionPrincipal(t, u, access.SessionFull, time.Now().Add(-90*time.Second))
+	p := f.sessionPrincipal(t, u, time.Now().Add(-90*time.Second))
 	calls = 0
 	if err := f.svc.RequireRecentAuth(p); err != nil {
 		t.Errorf("RequireRecentAuth(a 90s-old sign-in, RecentAuth 2m) = %v, want nil", err)
@@ -323,10 +323,10 @@ func TestRulesDefaults(t *testing.T) {
 		t.Errorf("the zero RecentAuth reads as %v, want 10m", r.RecentAuth)
 	}
 	u := mustUser(t, f.mem, "alice", access.RoleAdmin)
-	if err := f.svc.RequireRecentAuth(f.sessionPrincipal(t, u, access.SessionFull, time.Now().Add(-9*time.Minute))); err != nil {
+	if err := f.svc.RequireRecentAuth(f.sessionPrincipal(t, u, time.Now().Add(-9*time.Minute))); err != nil {
 		t.Errorf("RequireRecentAuth(9 minutes old) under the default = %v, want nil", err)
 	}
-	if err := f.svc.RequireRecentAuth(f.sessionPrincipal(t, u, access.SessionFull, time.Now().Add(-11*time.Minute))); !errors.Is(err, access.ErrRecentAuthRequired) {
+	if err := f.svc.RequireRecentAuth(f.sessionPrincipal(t, u, time.Now().Add(-11*time.Minute))); !errors.Is(err, access.ErrRecentAuthRequired) {
 		t.Errorf("RequireRecentAuth(11 minutes old) under the default = %v, want ErrRecentAuthRequired", err)
 	}
 }

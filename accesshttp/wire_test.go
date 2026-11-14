@@ -219,10 +219,10 @@ func TestViewsCarryEveryField(t *testing.T) {
 	wantRotated := wantKey
 	wantRotated.LastUsedAt, wantRotated.PreviousUntil = time.Time{}, at(5)
 	token := account.ListedToken{IssuerLineage: []int64{3, 5}, Token: access.OneTimeToken{
-		Purpose: access.PurposeInvite, Role: access.RoleUser, Subject: 9, IssuedByKey: 5, CreatedAt: at(1), ExpiresAt: at(5),
+		Purpose: access.PurposeInvite, Role: access.RoleUser, IssuedByKey: 5, CreatedAt: at(1), ExpiresAt: at(5),
 	}}
 	wantToken := TokenView{
-		Purpose: access.PurposeInvite, Role: access.RoleUser, Subject: 9, IssuedByKey: 5, IssuerLineage: []int64{3, 5},
+		Purpose: access.PurposeInvite, Role: access.RoleUser, IssuedByKey: 5, IssuerLineage: []int64{3, 5},
 		CreatedAt: at(1), ExpiresAt: at(5),
 	}
 	logPage := account.LogPage{

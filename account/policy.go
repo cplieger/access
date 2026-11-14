@@ -16,8 +16,7 @@ const (
 	OpSetRole       Operation = "set_role"
 	OpSetEnabled    Operation = "set_enabled"
 	OpInvite        Operation = "invite"
-	OpIssueRecovery Operation = "issue_recovery"
-	OpListUsers     Operation = "list_users"      // the admin user list, the live invite and recovery tokens, and the security log
+	OpListUsers     Operation = "list_users"      // the admin user list, the live invite tokens and the security log
 	OpManageAllKeys Operation = "manage_all_keys" // list and revoke every user's keys
 	OpMigrateToSSO  Operation = "migrate_to_sso"  // an OIDC link under Rules.SSOGoverned
 	OpCreateKeyFor  Operation = "create_key_for"  // an out-of-band actor mints a key for Target
@@ -57,9 +56,8 @@ type Decision struct {
 }
 
 // Policy decides who may change the user set and mint credentials. An
-// OutOfBand actor reaches it for OpCreateUser, OpIssueRecovery,
-// OpCreateKeyFor, OpManageAllKeys and OpRotateKey, so an app's own Policy
-// decides each. OpRotateKey's Target is the key's owner as stored.
+// OutOfBand actor reaches it for OpCreateUser, OpCreateKeyFor,
+// OpManageAllKeys and OpRotateKey, so an app's own Policy decides each. OpRotateKey's Target is the key's owner as stored.
 type Policy interface {
 	// Authorize returns nil, or a *PolicyError.
 	Authorize(ctx context.Context, d Decision) error
@@ -100,7 +98,7 @@ func (p RolePolicy) Authorize(_ context.Context, d Decision) error { //nolint:go
 		return outOfBandOn(d, enabled)
 	case OpRotateKey:
 		return p.rotateKey(d, actor, isPrincipal)
-	case OpIssueRecovery, OpManageAllKeys:
+	case OpManageAllKeys:
 		if d.Actor.isOutOfBand() {
 			return nil
 		}
@@ -206,11 +204,6 @@ func (SingleOwnerPolicy) Authorize(_ context.Context, d Decision) error { //noli
 			return refuse(ReasonSingleOwner)
 		}
 		return createViaZeroActor(d)
-	case OpIssueRecovery:
-		if !d.Actor.isOutOfBand() {
-			return refuse(ReasonOutOfBandOnly)
-		}
-		return nil
 	case OpManageAllKeys, OpRotateKey:
 		if d.Actor.isOutOfBand() {
 			return nil

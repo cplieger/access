@@ -28,21 +28,20 @@ var designOwnReasons = []string{
 	"sso_governed", "ttl_too_long", "ttl_negative", "no_change", "expiry_invalid", "redirect_too_long",
 	"current_password_required", "session_gone", "pending_too_large", "stale_authentication",
 	"flow_invalid", "discovery_failed", "exchange_failed", "token_invalid", "nonce_mismatch",
-	"no_username", "provisioning_disabled", "not_admitted", "username_invalid", "recovery",
+	"no_username", "provisioning_disabled", "not_admitted", "username_invalid",
 	"reenable_needs_other_method", "trailing_data", "malformed_json", "content_type", "body",
 	"unknown_field", "token_in_query",
 }
 
 // wireReasons is every Reason classify gives for the fixed-reason
 // producers: each sentinel row, each typed error built from its owner's
-// list, the guard's recovery refusal, account's re-enable refusal, the
+// list, account's re-enable refusal, the
 // session verifier's transport refusal, the recent-auth refusal of a plain
 // session and each fixed refusal of the body,
 // path and query decoders.
 func wireReasons(t *testing.T) []string {
 	t.Helper()
 	errs := []error{
-		(&Handler{}).admit(&Descriptor{Class: ClassRecovery}, access.Principal{}),
 		failreason.Wrap(access.ErrRecentAuthRequired, failreason.ReenableNeedsOtherMethod),
 		&access.InvalidCredentialError{Method: access.MethodPassword, Err: access.ErrSessionTransport},
 		failreason.Wrap(access.ErrRecentAuthRequired, failreason.SignInAgain),
@@ -93,7 +92,7 @@ func requestReasonErrors(t *testing.T) []error {
 		_, err := decodeJSON[LoginRequest](httptest.NewRecorder(), req)
 		return err
 	}
-	_, inQuery := decodeQuery(specNamed(t, "authRecoveryStart"), httptest.NewRequest(http.MethodPost, "/x?token=t", nil))
+	_, inQuery := decodeQuery(specNamed(t, "authInviteAcceptPassword"), httptest.NewRequest(http.MethodPost, "/x?token=t", nil))
 	errs := []error{
 		body("text/plain", strings.NewReader(`{}`)),
 		body("application/json", strings.NewReader(`{"username":`)),

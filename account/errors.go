@@ -28,12 +28,12 @@ var (
 	// ErrMethodNotLocked is ReenableMethod on a method locked in neither
 	// trust context.
 	ErrMethodNotLocked = errors.New("account: method is not locked")
-	// ErrSessionRequired is an operation for a full or a recovery session
-	// reached by any other principal, and RequireAdminScope or
-	// RequireKeyPermission refusing a recovery session or an empty scope.
+	// ErrSessionRequired is an operation for a session reached by any other
+	// principal, and RequireAdminScope or RequireKeyPermission refusing an
+	// empty scope.
 	ErrSessionRequired = errors.New("account: a signed-in session is required")
 	// ErrScopeRequired is RequireAdminScope or RequireKeyPermission under a
-	// set scope, for a principal that is no full session and no key carrying
+	// set scope, for a principal that is no session and no key carrying
 	// that scope.
 	ErrScopeRequired = errors.New("account: a key scope is required")
 	// ErrNoChange is an UpdateUser with no field set.
@@ -53,8 +53,8 @@ var (
 	ErrServiceClosed = fmt.Errorf("account: service closed: %w", access.ErrAuthBackend)
 	// ErrTTLTooLong is a token lifetime above 7 times its kind's default.
 	ErrTTLTooLong = errors.New("account: token lifetime too long")
-	// ErrTTLNegative is a negative token lifetime given to IssueRecovery,
-	// CreateInvite or IssueSetupToken.
+	// ErrTTLNegative is a negative token lifetime given to CreateInvite or
+	// IssueSetupToken.
 	ErrTTLNegative        = errors.New("account: token lifetime must not be negative")
 	ErrSetupTokenRequired = errors.New("account: a setup token is required")
 	// ErrPolicyRefused is matched by every *PolicyError.
@@ -110,7 +110,6 @@ const (
 	ReasonExpiryAfterParent  = "expiry_after_parent"
 	ReasonLineageTooDeep     = "lineage_too_deep"
 	ReasonPermissionNotAdmin = "permission_not_admin"
-	ReasonSelfRecovery       = "self_recovery"
 	ReasonOtherUser          = "other_user"
 	ReasonTargetNotEligible  = "target_not_eligible"
 	ReasonNotPrincipal       = "not_principal"
@@ -139,7 +138,6 @@ func PolicyReasons() []string {
 		ReasonExpiryAfterParent,
 		ReasonLineageTooDeep,
 		ReasonPermissionNotAdmin,
-		ReasonSelfRecovery,
 		ReasonOtherUser,
 		ReasonTargetNotEligible,
 		ReasonNotPrincipal,

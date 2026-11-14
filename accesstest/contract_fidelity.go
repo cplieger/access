@@ -129,14 +129,14 @@ func writeFilled(t *testing.T, s account.Store) fidelityRecords {
 	want = append(want, r.key.ID)
 	r.key.LineageIDs = want
 	r.session = filled[access.Session](f)
-	r.session.UserID, r.session.IssuedByKey = r.user.ID, r.key.ID
+	r.session.UserID = r.user.ID
 	check(t, "CreateSession", s.CreateSession(ctx, r.session))
 	r.passkey = filled[access.PasskeyCredential](f)
 	r.passkey.UserID, r.passkey.RawFlags = r.user.ID, 0x1D
 	r.passkey.UserPresent, r.passkey.UserVerified, r.passkey.BackupEligible, r.passkey.BackupState = access.DecodePasskeyFlags(0x1D)
 	check(t, "CreatePasskey", s.CreatePasskey(ctx, r.passkey))
 	r.token = filled[access.OneTimeToken](f)
-	r.token.Subject, r.token.IssuedByKey = r.user.ID, r.key.ID
+	r.token.IssuedByKey = r.key.ID
 	check(t, "CreateOneTimeToken", s.CreateOneTimeToken(ctx, *r.token))
 	r.attribution = filled[access.KeyAttribution](f)
 	r.attribution.UserID, r.attribution.KeyLineage = r.user.ID, slices.Clone(r.key.LineageIDs)

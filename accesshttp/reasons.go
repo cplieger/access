@@ -28,7 +28,6 @@ const (
 	ReasonProvisioningDisabled     = "provisioning_disabled"
 	ReasonNotAdmitted              = "not_admitted"
 	ReasonUsernameInvalid          = "username_invalid"
-	ReasonRecovery                 = "recovery" // auth_session_required on a recovery route
 	ReasonReenableNeedsOtherMethod = failreason.ReenableNeedsOtherMethod
 	ReasonTrailingData             = "trailing_data"  // auth_bad_request: data after the JSON value
 	ReasonMalformedJSON            = "malformed_json" // auth_bad_request: the body is not one JSON value
@@ -43,7 +42,7 @@ var ownReasons = []string{
 	ReasonSSOGoverned, ReasonTTLTooLong, ReasonTTLNegative, ReasonNoChange, ReasonExpiryInvalid, ReasonRedirectTooLong,
 	ReasonCurrentPasswordRequired, ReasonSessionGone, ReasonPendingTooLarge, ReasonStaleAuthentication,
 	ReasonFlowInvalid, ReasonDiscoveryFailed, ReasonExchangeFailed, ReasonTokenInvalid, ReasonNonceMismatch,
-	ReasonNoUsername, ReasonProvisioningDisabled, ReasonNotAdmitted, ReasonUsernameInvalid, ReasonRecovery,
+	ReasonNoUsername, ReasonProvisioningDisabled, ReasonNotAdmitted, ReasonUsernameInvalid,
 	ReasonReenableNeedsOtherMethod, ReasonTrailingData, ReasonMalformedJSON, ReasonContentType, ReasonBody,
 	ReasonUnknownField, ReasonTokenInQuery,
 }

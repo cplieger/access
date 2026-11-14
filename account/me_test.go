@@ -72,7 +72,7 @@ func TestMeMethods(t *testing.T) {
 	}
 	me := func(t *testing.T, f *fixture, u *access.User) account.Me {
 		t.Helper()
-		m, err := f.svc.Me(t.Context(), f.sessionPrincipal(t, u, access.SessionFull, time.Now()))
+		m, err := f.svc.Me(t.Context(), f.sessionPrincipal(t, u, time.Now()))
 		if err != nil {
 			t.Fatalf("Me = %v", err)
 		}
@@ -149,7 +149,7 @@ func TestMePasswordLoginDisabled(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, options{rules: func() account.Rules { return account.Rules{DisablePasswordLogin: true} }})
 	u := mustUser(t, f.mem, "alice", access.RoleUser)
-	me, err := f.svc.Me(t.Context(), f.sessionPrincipal(t, u, access.SessionFull, time.Now()))
+	me, err := f.svc.Me(t.Context(), f.sessionPrincipal(t, u, time.Now()))
 	if err != nil {
 		t.Fatalf("Me = %v", err)
 	}
@@ -163,15 +163,14 @@ func TestMeRefuses(t *testing.T) {
 	f := newFixture(t, options{})
 	u := mustUser(t, f.mem, "alice", access.RoleUser)
 	for name, pr := range map[string]access.Principal{
-		"key":      f.keyPrincipal(t, u, "read"),
-		"recovery": f.sessionPrincipal(t, u, access.SessionRecovery, time.Now()),
-		"bypass":   f.bypassPrincipal(t),
+		"key":    f.keyPrincipal(t, u, "read"),
+		"bypass": f.bypassPrincipal(t),
 	} {
 		if _, err := f.svc.Me(t.Context(), pr); !errors.Is(err, account.ErrSessionRequired) {
 			t.Errorf("Me(%s) = %v, want ErrSessionRequired", name, err)
 		}
 	}
-	pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+	pr := f.sessionPrincipal(t, u, time.Now())
 	if err := f.mem.DeleteUser(t.Context(), u.ID); err != nil {
 		t.Fatalf("DeleteUser: %v", err)
 	}
@@ -187,7 +186,7 @@ func TestMeCurrentSessionCapped(t *testing.T) {
 	u := mustUser(t, f.mem, "alice", access.RoleUser)
 	now := time.Now()
 	sess := &access.Session{
-		ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPasskey,
+		ID: newSessionID(t), UserID: u.ID, AuthMethod: access.MethodPasskey,
 		CreatedAt: now.Add(-2 * time.Hour), LastActivity: now, AuthTime: now.Add(-time.Hour),
 		IdleCap: 30 * time.Minute, AbsoluteCap: 12 * time.Hour, Secure: true,
 	}
