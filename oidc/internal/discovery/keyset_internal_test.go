@@ -1,0 +1,30 @@
+package discovery
+
+import (
+	"testing"
+	"time"
+)
+
+// Design 6.6 step 2: a miss under a set replaced since the verify began
+// re-verifies against the new set before it joins a refetch in flight or
+// consults the gate. The window between the cached verify and the miss
+// has no blocking point a black-box test could hold.
+func TestAfterMiss_ReplacedSetFirst(t *testing.T) {
+	t.Parallel()
+	for name, inflight := range map[string]bool{"refetch in flight": true, "gate open": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+			k := &KeySet{now: func() time.Time { return now }, inflight: inflight}
+			seen, newer := &snapshot{fetched: now}, &snapshot{fetched: now}
+			k.cur.Store(newer)
+			got, wait := k.afterMiss(t.Context(), seen)
+			if got != newer || wait != nil {
+				t.Errorf("afterMiss = %p, %v; want the newer set %p and no refetch", got, wait, newer)
+			}
+			if !k.attempted.IsZero() {
+				t.Errorf("the gate was consulted: attempted = %v", k.attempted)
+			}
+		})
+	}
+}
