@@ -59,6 +59,8 @@ A store built on an earlier dev tag persists the new `Session.Secure` field, the
 
 A session is bound to its transport ([Sessions](primitives.md#sessions)). One presented on the other transport is refused with `ErrSessionTransport`, answered as 401 `auth_session_expired` with `Reason` `transport_changed`, and revoked through the new `access.SessionRevoker` that `Authenticator.UseSessionRevoker` registers. `account.New` registers its Service, so a second `account.New` over one Authenticator fails; `Service.RevokeTransportMismatch` is the revoke, and its `session_revoked` entry's `Detail` is `transport_changed`. Sessions stored before this change read plain, so each HTTPS user is signed out once at the upgrade, on their next request.
 
+Under `PostureSecure`, `Authenticate` refuses every plain request with the new `ErrHTTPSRequired`, before the bypass and every verifier, and revokes nothing ([Session cookie](configuration.md#session-cookie)). `ErrorFor` answers it with the new code 403 `auth_https_required`, which every authenticating route of the gate and of `accesshttp` lists. A service behind a TLS proxy lists that proxy in its resolver before it upgrades, or every request reads plain and is refused. The gate's new `Route.HTTPS` refuses a plain request on its row with the same code ([Guarding your own routes](gate.md#the-classes)), and `gate.New` refuses it on a `Public` row.
+
 ## Records
 
 | auth v6 | access |

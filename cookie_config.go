@@ -14,8 +14,10 @@ type CookiePosture int
 
 const (
 	// PostureSecure is the default: every cookie is __Host-<base> with
-	// Secure, HttpOnly and SameSite, whatever the transport. Works on any
-	// HTTPS deployment, self-signed certificates included.
+	// Secure, HttpOnly and SameSite, whatever the transport, and
+	// [Authenticator.Authenticate] refuses every plain request with
+	// [ErrHTTPSRequired]. Works on any HTTPS deployment, self-signed
+	// certificates included.
 	PostureSecure CookiePosture = iota
 
 	// PosturePerRequest names each cookie from the transport:

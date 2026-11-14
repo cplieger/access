@@ -38,6 +38,7 @@ func TestErrorCodeTable(t *testing.T) {
 		{name: "custom_credential_refused", err: &access.InvalidCredentialError{Method: "agent", Err: access.ErrAccountDisabled}, code: "auth_invalid_credentials"},
 		{name: "key_refused", err: &access.InvalidCredentialError{Method: access.MethodAPIKey, Err: access.ErrInvalidAPIKey}, code: "auth_key_invalid"},
 		{name: "recovery_cookie_elsewhere", err: &access.InvalidCredentialError{Method: access.MethodRecovery, Err: access.ErrRestrictedSession}, code: "auth_session_required"},
+		{name: "https_required", err: access.ErrHTTPSRequired, code: "auth_https_required"},
 		{name: "recent_auth", err: access.ErrRecentAuthRequired, code: "auth_recent_auth_required"},
 		{name: "reenable_needs_other_method", err: failreason.Wrap(access.ErrRecentAuthRequired, failreason.ReenableNeedsOtherMethod), code: "auth_recent_auth_required", reason: "reenable_needs_other_method"},
 		{name: "session_required", err: account.ErrSessionRequired, code: "auth_session_required"},

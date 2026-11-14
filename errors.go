@@ -3,8 +3,8 @@ package access
 import "errors"
 
 // Errors of authentication. A verifier's or the [Authenticator]'s refusal
-// carries one of the first three; the rest are details or the answers of
-// [RequireRecentAuth] and [Authenticator.Recheck].
+// carries one of the first three or [ErrHTTPSRequired]; the rest are
+// details or the answers of [RequireRecentAuth] and [Authenticator.Recheck].
 var (
 	// ErrUnauthenticated means no usable credential. It is bare when none
 	// was presented, and wraps [ErrSessionExpired] or [ErrSessionNotFound]
@@ -31,6 +31,11 @@ var (
 	// other transport than the one it was created on (see
 	// [Session.Secure]); the session verifier revokes it.
 	ErrSessionTransport = errors.New("access: session bound to the other transport")
+	// ErrHTTPSRequired refuses a plain request ([ClientAddr.Secure] false)
+	// where only a secure one is served: [Authenticator.Authenticate]'s
+	// answer under [PostureSecure]. It wraps no other error, so it stops
+	// the chain.
+	ErrHTTPSRequired = errors.New("access: HTTPS required")
 )
 
 // InvalidCredentialError is the detail of [ErrInvalidCredential]; the error

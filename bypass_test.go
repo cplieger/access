@@ -18,7 +18,7 @@ func TestAuthenticate_bypass(t *testing.T) {
 	t.Run("active hook grants synthetic admin", func(t *testing.T) {
 		t.Parallel()
 		on := mustAuthenticator(t, db, Config{Bypass: func() bool { return true }})
-		p, err := on.Authenticate(httptest.NewRequest(http.MethodGet, "/", nil))
+		p, err := on.Authenticate(httptest.NewRequest(http.MethodGet, "https://app.example/", nil))
 		if err != nil {
 			t.Fatalf("Authenticate(bypass enabled) error = %v, want nil", err)
 		}
@@ -35,14 +35,14 @@ func TestAuthenticate_bypass(t *testing.T) {
 	t.Run("inactive hook does not authenticate", func(t *testing.T) {
 		t.Parallel()
 		off := mustAuthenticator(t, db, Config{Bypass: func() bool { return false }})
-		if _, err := off.Authenticate(httptest.NewRequest(http.MethodGet, "/", nil)); !errors.Is(err, ErrUnauthenticated) {
+		if _, err := off.Authenticate(httptest.NewRequest(http.MethodGet, "https://app.example/", nil)); !errors.Is(err, ErrUnauthenticated) {
 			t.Errorf("Authenticate(bypass disabled, no credentials) error = %v, want ErrUnauthenticated", err)
 		}
 	})
 	t.Run("each granted request gets its own principal", func(t *testing.T) {
 		t.Parallel()
 		on := mustAuthenticator(t, db, Config{Bypass: func() bool { return true }})
-		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r := httptest.NewRequest(http.MethodGet, "https://app.example/", nil)
 		firstP, err := on.Authenticate(r)
 		if err != nil {
 			t.Fatalf("Authenticate(first) error = %v, want nil", err)
@@ -92,7 +92,7 @@ func TestBypassWarnsOnEachEdge(t *testing.T) {
 		t.Errorf("construction log = %q, want the Info install line and no WARN", got)
 	}
 	request := func() error {
-		_, err := a.Authenticate(httptest.NewRequest(http.MethodGet, "/", nil))
+		_, err := a.Authenticate(httptest.NewRequest(http.MethodGet, "https://app.example/", nil))
 		return err
 	}
 	burst := func() {

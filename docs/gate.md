@@ -17,7 +17,7 @@ g, err := gate.New(gate.Config{Authenticator: authn, Errors: writeError}, []gate
 - a `Path` that does not start with `/`, is not clean, names a host, ends in `/`, or holds `{$}` anywhere but the root row `/{$}`;
 - two rows with one method and path, or patterns `http.ServeMux` refuses to register together;
 - a `Scope` on a `Public` or `Session` row, none on a `Scoped` row, or one that is not a single [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3) scope-token (printable ASCII other than space, `"` and `\`);
-- `Passive` on a `Public` row;
+- `Passive` or `HTTPS` on a `Public` row;
 - a row with no handler, or a handler with no row.
 
 The gate serves its rows and nothing else. A route with no row cannot be reached through it.
@@ -35,9 +35,11 @@ Every class but `Public` runs `Authenticator.Authenticate`, under `access.Passiv
 
 `Config.Allow` decides a `Scoped` row and a `Key` row with a `Scope`, for sessions and keys alike, so a scope lattice or a role cap is yours to write. Left nil, it admits a full session, and an API key holding the row's scope. The gate never compares scopes itself.
 
-Every authenticating row also answers a credential `Authenticate` refuses, mapped by `access.ErrorFor`: 401 `auth_required` with no credential, `auth_session_expired` for a session cookie whose session is gone, `auth_key_invalid` for a refused API key, `auth_invalid_credentials` for any other refused credential, and 403 `auth_session_required` for a recovery-session cookie. A store failure is 503 `auth_unavailable` with `Retry-After: 5`, logged at WARN. An error `ErrorFor` does not map, which only a custom verifier returns, is 503 `auth_unavailable` too, logged at ERROR, and when it carries the request's own ended context it is the client walking away, logged at DEBUG. The gate writes these lines to `Config.Logger`, which is `slog.Default()` when nil. It does not use the `Authenticator`'s `Logger`, so pass the same logger to both. The handler never runs for a refused request.
+Every authenticating row also answers a credential `Authenticate` refuses, mapped by `access.ErrorFor`: 401 `auth_required` with no credential, `auth_session_expired` for a session cookie whose session is gone, `auth_key_invalid` for a refused API key, `auth_invalid_credentials` for any other refused credential, 403 `auth_session_required` for a recovery-session cookie, and 403 `auth_https_required` for any plain request under `PostureSecure`, before a credential is read. A store failure is 503 `auth_unavailable` with `Retry-After: 5`, logged at WARN. An error `ErrorFor` does not map, which only a custom verifier returns, is 503 `auth_unavailable` too, logged at ERROR, and when it carries the request's own ended context it is the client walking away, logged at DEBUG. The gate writes these lines to `Config.Logger`, which is `slog.Default()` when nil. It does not use the `Authenticator`'s `Logger`, so pass the same logger to both. The handler never runs for a refused request.
 
 API keys are read from the `Authorization: Bearer` header only.
+
+A row with `HTTPS` set admits only a secure request, as `access.ClientAddr.Secure` answers it. A plain request its class admits gets 403 `auth_https_required`, and the handler does not run. Under `PostureSecure` every plain request is refused already, so the field matters under `PosturePerRequest`: set it on a route of your own that issues a long-lived secret, which a plain request must not receive.
 
 A `Session` or `Scoped` row whose method is not GET checks the request with Go's `http.CrossOriginProtection` first, as every unsafe auth route does, and refuses a cross-site browser request with 403 `auth_cross_origin`. A client sending a Bearer key sends no `Sec-Fetch-Site` or `Origin` header, so it passes. A `Key` row admits no session, so it needs no check.
 
@@ -78,7 +80,7 @@ The gate never serves the auth routes, so nothing authenticates an auth route tw
 `gate.Codes(route)` lists every code a row can answer, in `access.Codes()` order, and `gate.MountCodes()` what the gate answers outside any row, which is `auth_not_found`. Your app's error union is every row's `Codes` and `MountCodes()`.
 
 - Every row: `auth_method_not_allowed`.
-- Every row but `Public`: `auth_required`, `auth_session_expired`, `auth_invalid_credentials`, `auth_key_invalid`, `auth_session_required` and `auth_unavailable`.
+- Every row but `Public`: `auth_required`, `auth_session_expired`, `auth_invalid_credentials`, `auth_key_invalid`, `auth_session_required`, `auth_https_required` and `auth_unavailable`. `auth_https_required` is listed under either posture, since a route table does not know which one the `Authenticator` runs.
 - `Session`: `auth_cross_origin` when its method is not GET.
 - `Key`: `auth_key_required`, and `auth_scope_required` with a `Scope`.
 - `Scoped`: `auth_scope_required` and `auth_forbidden`, and `auth_cross_origin` when its method is not GET.
@@ -116,6 +118,6 @@ Set `Config.Audit` to receive one `access.AuditEvent` for each refusal of a pres
 
 On both kinds, `Method` is `access.MethodAPIKey` for a Bearer key, your custom verifier's own method for its principal, the bypass method for the bypass principal, and empty for a session cookie, except on `transport_changed`, which names the method the session signed in with. `KeyID` and `UserID` are set when the gate knows them, and `IP` is the client address `Authenticator.ClientAddr` resolves.
 
-A request with no credential (`auth_required`) and a 503 send no event, so a store outage never counts as failed sign-ins.
+A request with no credential (`auth_required`), a plain request refused with `auth_https_required` and a 503 send no event, so neither a store outage nor a TLS proxy missing from your trusted proxies counts as failed sign-ins.
 
 The reason is for your records only, except `transport_changed`. A client sees `auth_key_invalid` or `auth_session_expired` with an empty `Reason`, and an unknown key, an expired key and a retired previous secret get byte-identical answers, so a refusal never tells a key holder which keys exist. `transport_changed` is answered as `auth_session_expired` with that `Reason`, so the screen can say the user was signed out rather than show an error; it reveals nothing, because the session is already revoked.

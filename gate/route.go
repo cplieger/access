@@ -93,6 +93,9 @@ func checkRoute(rt *Route) []error {
 	if rt.Passive && rt.Class == Public {
 		bad("Passive on a Public route, which authenticates nothing")
 	}
+	if rt.HTTPS && rt.Class == Public {
+		bad("HTTPS on a Public route, which admits every request")
+	}
 	return errs
 }
 

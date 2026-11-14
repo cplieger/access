@@ -28,6 +28,7 @@ var specCodes = []struct {
 	{"auth_session_required", "A signed-in session is required.", 403},
 	{"auth_scope_required", "The key lacks the required scope.", 403},
 	{"auth_key_required", "This route needs an API key.", 403},
+	{"auth_https_required", "This needs HTTPS.", 403},
 	{"auth_forbidden", "This action is not allowed.", 403},
 	{"auth_rate_limited", "Too many attempts. Try again later.", 429},
 	{"auth_busy", "The server is busy. Try again shortly.", 503},
@@ -134,6 +135,7 @@ func TestErrorFor(t *testing.T) {
 		{name: "custom_verifier_refusal", err: &access.InvalidCredentialError{Method: "agent"}, code: "auth_invalid_credentials", status: 401, detail: "The credentials are not valid."},
 		{name: "recovery_session", err: &access.InvalidCredentialError{Method: access.MethodRecovery, Err: access.ErrRestrictedSession}, code: "auth_session_required", status: 403, detail: "A signed-in session is required."},
 		{name: "transport_changed", err: &access.InvalidCredentialError{Method: access.MethodPassword, Err: access.ErrSessionTransport}, code: "auth_session_expired", status: 401, detail: "Your session has ended. Sign in again.", reason: "transport_changed"},
+		{name: "https_required", err: access.ErrHTTPSRequired, code: "auth_https_required", status: 403, detail: "This needs HTTPS."},
 		{name: "backend", err: fmt.Errorf("%w: %w", access.ErrAuthBackend, errors.New("disk")), code: "auth_unavailable", status: 503, detail: "The service is unavailable. Try again shortly.", retryAfter: 5 * time.Second},
 		{name: "wrapped", err: fmt.Errorf("verify: %w", &access.InvalidCredentialError{Method: access.MethodAPIKey, Err: access.ErrInvalidAPIKey}), code: "auth_key_invalid", status: 401, detail: "The API key is not valid."},
 	}
@@ -214,7 +216,7 @@ func TestGuardErrorForHidesKeyReason(t *testing.T) {
 	}
 	var first access.Error
 	for i, key := range []string{unknown.Plaintext.Reveal(), expired, retired} {
-		r := httptest.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
+		r := httptest.NewRequestWithContext(ctx, http.MethodGet, "https://app.example/", nil)
 		r.Header.Set("Authorization", "Bearer "+key)
 		_, authErr := authn.Authenticate(r)
 		e, ok := access.ErrorFor(authErr)

@@ -35,11 +35,11 @@ type Config struct {
 	// quotes as it is.
 	Realm string
 	// Bypass reports whether authentication is bypassed. While it returns
-	// true, [Authenticator.Authenticate] grants every request [MethodBypass]
-	// with its own copy of a synthetic admin user whose ID is 0, which names
-	// no stored user. [New] logs one Info line when it is set; each request
-	// that finds it on after one that found it off, the first included, logs
-	// a WARN.
+	// true, [Authenticator.Authenticate] grants [MethodBypass] to every
+	// request, a plain one under [PostureSecure] excepted, with its own copy
+	// of a synthetic admin user whose ID is 0, which names no stored user.
+	// [New] logs one Info line when it is set; each request that finds it on
+	// after one that found it off, the first included, logs a WARN.
 	Bypass func() bool
 	// TimeoutSource is read on every verification, so a hot-reloaded value
 	// applies without a new Authenticator. Each non-positive field it

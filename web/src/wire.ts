@@ -758,6 +758,7 @@ export const CODES = [
   "auth_session_required",
   "auth_scope_required",
   "auth_key_required",
+  "auth_https_required",
   "auth_forbidden",
   "auth_rate_limited",
   "auth_busy",

@@ -227,12 +227,14 @@ var opCodes = map[string][]access.Code{
 }
 
 // guardCodes is what a class's guard can answer: the Authenticator's
-// refusals on every class that authenticates, then the class predicate's.
+// refusals on every class that authenticates, auth_https_required among
+// them since a descriptor does not know the posture, then the class
+// predicate's.
 func guardCodes(c Class) []access.Code {
 	if c == ClassPublic {
 		return nil
 	}
-	codes := []access.Code{access.CodeAuthRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeKeyInvalid, access.CodeUnavailable, access.CodeSessionRequired}
+	codes := []access.Code{access.CodeAuthRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeKeyInvalid, access.CodeUnavailable, access.CodeSessionRequired, access.CodeHTTPSRequired}
 	switch c {
 	case ClassRecentAuth:
 		codes = append(codes, access.CodeRecentAuthRequired)

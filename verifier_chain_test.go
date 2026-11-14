@@ -200,6 +200,17 @@ func (f chainFixture) addSession(t *testing.T, s *Session) string {
 	return plaintext.Reveal()
 }
 
+// storedSession is the session token names, read past the store's
+// counters; it fails t when the session is gone.
+func (f chainFixture) storedSession(t *testing.T, token string) *Session {
+	t.Helper()
+	s, found, err := f.store.fakeSessionStore.SessionByHash(t.Context(), SessionHash(token))
+	if err != nil || !found {
+		t.Fatalf("SessionByHash = %v, %t, %v; want the stored session", s, found, err)
+	}
+	return s
+}
+
 // addUserKey stores a new enabled user with one key and returns the key.
 func (f chainFixture) addUserKey(t *testing.T) (key string, userID int64) {
 	t.Helper()

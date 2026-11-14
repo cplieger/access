@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -690,4 +691,78 @@ func TestAuthenticateSetsPrincipalIP(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestPostureSecureRefusesPlain pins that under PostureSecure Authenticate
+// refuses a plain request with ErrHTTPSRequired before the bypass and any
+// verifier: no store read, no activity write, no revoke, and the custom
+// verifier never runs.
+func TestPostureSecureRefusesPlain(t *testing.T) {
+	t.Parallel()
+	custom := Principal{User: &User{Username: "agent", Enabled: true}, Method: "agent_key"}
+	for _, tc := range []struct {
+		name    string
+		bypass  bool
+		session func(f chainFixture, t *testing.T) string // the token the request presents, when any
+		key     bool
+	}{
+		{name: "secure_session", session: func(f chainFixture, _ *testing.T) string { return f.session }},
+		{name: "plain_session", session: func(f chainFixture, t *testing.T) string {
+			now := time.Now()
+			return f.addSession(t, &Session{ID: "plain", UserID: f.user.ID, AuthMethod: MethodPassword, CreatedAt: now, LastActivity: now.Add(-time.Minute), AuthTime: now})
+		}},
+		{name: "api_key", key: true},
+		{name: "custom_verifier"},
+		{name: "bypass", bypass: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newChainFixture(t)
+			var calls atomic.Int32
+			cfg := Config{Verifier: stubVerifier{p: custom, ok: true, calls: &calls}}
+			if tc.bypass {
+				cfg.Bypass = func() bool { return true }
+			}
+			a := mustAuthenticator(t, f.store, cfg)
+			rev := &fakeRevoker{}
+			if err := a.UseSessionRevoker(rev); err != nil {
+				t.Fatalf("UseSessionRevoker = %v", err)
+			}
+			r := httptest.NewRequest(http.MethodGet, "http://app.example/api", nil)
+			var token string
+			if tc.session != nil {
+				token = tc.session(f, t)
+				c := a.Cookie()
+				r.AddCookie(&http.Cookie{Name: c.CookieName(false), Value: token})
+			}
+			if tc.key {
+				r.Header.Set("Authorization", "Bearer "+f.key)
+			}
+			var before *Session
+			if token != "" {
+				before = f.storedSession(t, token)
+			}
+			p, err := a.Authenticate(r)
+			if !errors.Is(err, ErrHTTPSRequired) || errors.Is(err, ErrUnauthenticated) {
+				t.Fatalf("Authenticate(plain, PostureSecure) = %+v, %v; want ErrHTTPSRequired alone", p, err)
+			}
+			if !isZeroPrincipal(p) {
+				t.Errorf("Authenticate(plain, PostureSecure) principal = %+v, want zero", p)
+			}
+			if n := calls.Load(); n != 0 {
+				t.Errorf("custom verifier calls = %d, want 0", n)
+			}
+			if s, k, w := f.store.sessReads.Load(), f.store.keyReads.Load(), f.store.activities.Load()+f.store.touches.Load(); s+k+w != 0 {
+				t.Errorf("store session reads %d, key reads %d, writes %d; want none", s, k, w)
+			}
+			if n := len(rev.revoked()); n != 0 {
+				t.Errorf("revokes = %d, want 0", n)
+			}
+			if before != nil {
+				if after := f.storedSession(t, token); !after.LastActivity.Equal(before.LastActivity) {
+					t.Errorf("session LastActivity = %v, want unchanged %v", after.LastActivity, before.LastActivity)
+				}
+			}
+		})
+	}
 }

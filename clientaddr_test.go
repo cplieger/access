@@ -182,7 +182,7 @@ func TestConfigClientAddrServed(t *testing.T) {
 	f := newChainFixture(t)
 	a := mustAuthenticator(t, f.store, Config{ClientAddr: func(*http.Request) ClientAddr { return want }})
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "https://app.example/", nil)
 	r.AddCookie(&http.Cookie{Name: defaultSecureCookieName, Value: f.session})
 	if got := a.ClientAddr(r); got != want {
 		t.Errorf("ClientAddr = %+v, want the resolver's %+v", got, want)

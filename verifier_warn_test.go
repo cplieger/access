@@ -259,10 +259,10 @@ func TestUnlistedProxyWarn(t *testing.T) { //nolint:paralleltest // asserts on c
 	unlisted := func(r *http.Request) ClientAddr {
 		return ClientAddr{Peer: netip.MustParseAddrPort(r.RemoteAddr).Addr(), Via: ViaDirect, Secure: r.TLS != nil}
 	}
-	setup := func(t *testing.T) (*Authenticator, *capture.Recorder, *testClock) {
+	setup := func(t *testing.T, posture CookiePosture) (*Authenticator, *capture.Recorder, *testClock) {
 		t.Helper()
 		logger, h := capture.New()
-		a := mustAuthenticator(t, newFakeSessionStore(), Config{Logger: logger, ClientAddr: unlisted, Bypass: func() bool { return true }})
+		a := mustAuthenticator(t, newFakeSessionStore(), Config{Logger: logger, ClientAddr: unlisted, Bypass: func() bool { return true }, Cookie: CookieConfig{Posture: posture}})
 		clock := &testClock{at: sessionT0}
 		setProxyWarnClock(a, clock)
 		return a, h, clock
@@ -302,7 +302,7 @@ func TestUnlistedProxyWarn(t *testing.T) { //nolint:paralleltest // asserts on c
 		}
 	}
 	t.Run("once per interval", func(t *testing.T) {
-		a, h, clock := setup(t)
+		a, h, clock := setup(t, PosturePerRequest)
 		mustAuthenticate(t, a, request("http://app.example/", "https"))
 		check(t, h, 0)
 		clock.Set(sessionT0.Add(30 * time.Second))
@@ -311,6 +311,13 @@ func TestUnlistedProxyWarn(t *testing.T) { //nolint:paralleltest // asserts on c
 		clock.Set(sessionT0.Add(warnInterval))
 		mustAuthenticate(t, a, request("http://app.example/", "https"))
 		check(t, h, 0, 1)
+	})
+	t.Run("logs before a PostureSecure refusal", func(t *testing.T) {
+		a, h, _ := setup(t, PostureSecure)
+		if _, err := a.Authenticate(request("http://app.example/", "https")); !errors.Is(err, ErrHTTPSRequired) {
+			t.Fatalf("Authenticate = %v, want ErrHTTPSRequired", err)
+		}
+		check(t, h, 0)
 	})
 	for _, tc := range []struct {
 		name   string
@@ -326,7 +333,7 @@ func TestUnlistedProxyWarn(t *testing.T) { //nolint:paralleltest // asserts on c
 		{name: "a secure request", target: "https://app.example/", proto: "https"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			a, h, _ := setup(t)
+			a, h, _ := setup(t, PosturePerRequest)
 			r := request(tc.target, tc.proto)
 			want := unlisted(r)
 			p := mustAuthenticate(t, a, r)

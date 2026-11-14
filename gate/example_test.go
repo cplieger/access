@@ -35,7 +35,7 @@ func ExampleNew() {
 	mux.Handle("/api/", g)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/me", nil))
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "https://app.example/api/me", nil))
 	fmt.Println(w.Code, w.Header().Get("WWW-Authenticate"), w.Body.String())
 	// Output: 401 Bearer realm="access" {"code":"auth_required"}
 }

@@ -232,6 +232,7 @@ func newCensus(t *testing.T, set, bypass bool) *census {
 		{name: "unknown_key", fault: access.CodeKeyInvalid, send: func(r *http.Request) { bearer(r, access.NewSecret("not-a-key")) }},
 		{name: "agent_refused", fault: access.CodeInvalidCredentials, send: fault("refused")},
 		{name: "agent_store_down", fault: access.CodeUnavailable, send: fault("down")},
+		{name: "plain_request", fault: access.CodeHTTPSRequired, send: func(r *http.Request) { r.TLS = nil }},
 	}
 	return c
 }

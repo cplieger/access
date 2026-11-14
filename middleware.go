@@ -84,16 +84,19 @@ var syntheticAdminUser = User{
 }
 
 // Authenticate runs the chain on r and returns the first [Principal] a
-// verifier grants, with IP and Secure from Config.ClientAddr's answer for r
-// and User and Scopes copied for the caller to keep. Else it returns the
-// first error matching [ErrUnauthenticated] a verifier returned, or bare
-// ErrUnauthenticated; any other verifier error at once. A granted principal
-// whose User is nil or disabled, or whose Method is empty, is refused with an
-// [*InvalidCredentialError]. A plain request whose X-Forwarded-Proto claims
-// https logs a WARN at most once a minute, and is answered as without it.
+// verifier grants, with IP and Secure from Config.ClientAddr's answer and
+// copies of User and Scopes; else the first error matching
+// [ErrUnauthenticated] a verifier returned, or bare ErrUnauthenticated, and
+// any other verifier error at once. A granted principal whose User is nil or
+// disabled, or whose Method is empty, is refused with an
+// [*InvalidCredentialError]. A plain request claiming https logs a
+// rate-limited WARN, and under [PostureSecure] gets [ErrHTTPSRequired] first.
 func (a *Authenticator) Authenticate(r *http.Request) (Principal, error) {
 	ca := a.ClientAddr(r)
 	a.warnUnlistedProxy(r, ca)
+	if !ca.Secure && a.cfg.Cookie.Posture == PostureSecure {
+		return Principal{}, ErrHTTPSRequired
+	}
 	if a.bypassed() {
 		// A deep copy per request, so no consumer can mutate the principal
 		// handed to any other request: User holds a slice.

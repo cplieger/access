@@ -13,7 +13,7 @@ import (
 // "The codes are fixed", in access.Codes() order.
 var authenticating = []access.Code{
 	access.CodeAuthRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeKeyInvalid,
-	access.CodeSessionRequired,
+	access.CodeSessionRequired, access.CodeHTTPSRequired,
 }
 
 func codesWith(extra ...access.Code) []access.Code {
@@ -60,6 +60,7 @@ func TestCodes(t *testing.T) {
 		g      *gate.Gate
 		method string // "" is the row's own
 		creds  []cred
+		plain  bool
 	}
 	scenarios := []scenario{
 		{g: g, method: http.MethodDelete},
@@ -76,6 +77,7 @@ func TestCodes(t *testing.T) {
 		{g: g, creds: []cred{agentCred}},
 		{g: bg},
 		{g: g, creds: []cred{sessionCred, crossSite}},
+		{g: g, creds: []cred{sessionCred}, plain: true},
 	}
 	for _, r := range classRoutes {
 		t.Run(r.Name, func(t *testing.T) {
@@ -87,7 +89,11 @@ func TestCodes(t *testing.T) {
 				if method == "" {
 					method = r.Method
 				}
-				a := do(t, f, sc.g, method, r.Path, sc.creds...)
+				send := do
+				if sc.plain {
+					send = doPlain
+				}
+				a := send(t, f, sc.g, method, r.Path, sc.creds...)
 				if a.status == http.StatusOK {
 					continue
 				}

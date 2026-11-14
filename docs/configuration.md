@@ -109,6 +109,8 @@ if err != nil {
 | `PostureSecure` (the default) | `__Host-<Name>` with Secure | `__Host-<Name>` with Secure, the one name of the deployment |
 | `PosturePerRequest` | `__Host-<Name>` with Secure | `<Name>` without Secure |
 
+Under `PostureSecure`, `Authenticate` refuses every plain request with `access.ErrHTTPSRequired`, which `ErrorFor` answers with 403 `auth_https_required`. It does so before the bypass and before any verifier, so a plain request reads no session, writes no activity and revokes nothing. Behind a TLS proxy your resolver does not trust, every request reads plain and is refused, and the warning above names the proxy's address.
+
 `PosturePerRequest` suits one instance that serves both plain-HTTP LAN traffic and HTTPS traffic through a proxy.
 
 Each cookie method takes the request's transport, the `ClientAddr.Secure` your resolver answers for it ([Authenticator configuration](#authenticator-configuration)): `CookieName(secure)`, `SetCookie(w, secure, value, maxAge)`, `ReadCookie(r, secure)` and `ClearCookie(w, secure)`. The Authenticator and `accesshttp` pass it themselves. `SetCookie` always sets HttpOnly and sends `Cache-Control: no-store`. When `secure` is false it drops a positive `maxAge`, so a cookie set on a plain request carries neither `Max-Age` nor `Expires` and ends with the browser session; a clear sends `Max-Age=0` on either transport. `ReadCookie` reads only the name for the request's transport, never the other one, and only when the request carries exactly one cookie of that name.

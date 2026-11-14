@@ -279,12 +279,22 @@ func mustGate(t *testing.T, cfg gate.Config, routes []gate.Route, s *served) *ga
 	return g
 }
 
-// do serves one request on h and decodes a refusal's code.
 // do serves one request for target, a path, over https to the host
-// httptest uses by default.
+// httptest uses by default, and decodes a refusal's code.
 func do(t *testing.T, f *fixture, h http.Handler, method, target string, creds ...cred) answer {
 	t.Helper()
-	r := httptest.NewRequestWithContext(t.Context(), method, "https://example.com"+target, nil)
+	return doAt(t, f, h, method, "https://example.com"+target, creds...)
+}
+
+// doPlain is do over plain HTTP.
+func doPlain(t *testing.T, f *fixture, h http.Handler, method, target string, creds ...cred) answer {
+	t.Helper()
+	return doAt(t, f, h, method, "http://example.com"+target, creds...)
+}
+
+func doAt(t *testing.T, f *fixture, h http.Handler, method, url string, creds ...cred) answer {
+	t.Helper()
+	r := httptest.NewRequestWithContext(t.Context(), method, url, nil)
 	for _, c := range creds {
 		c(f, r)
 	}
