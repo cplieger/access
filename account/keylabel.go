@@ -20,13 +20,9 @@ func checkKeyLabel(label string) error {
 }
 
 // requireLabelFree refuses with ErrKeyLabelTaken a label an unexpired key
-// of userID's other than except carries at now. It reads the keys in tx, so
-// the check and the write that follows it are one Update.
-func requireLabelFree(ctx context.Context, tx Tx, userID int64, label string, now time.Time, except int64) error {
-	keys, err := tx.ListAPIKeysByUserID(ctx, userID)
-	if err != nil {
-		return err
-	}
+// of keys other than except carries at now. keys is the owner's keys as
+// read in the Update that writes the label, so no other write lands between.
+func requireLabelFree(keys []access.Key, label string, now time.Time, except int64) error {
 	want := labelKey(label)
 	if slices.ContainsFunc(keys, func(k access.Key) bool {
 		return k.ID != except && !keyExpired(&k, now) && labelKey(k.Label) == want
@@ -34,6 +30,16 @@ func requireLabelFree(ctx context.Context, tx Tx, userID int64, label string, no
 		return refuse(ErrKeyLabelTaken)
 	}
 	return nil
+}
+
+// labelFreeIn is requireLabelFree for a new key of userID, over the keys
+// tx reads.
+func labelFreeIn(ctx context.Context, tx Tx, userID int64, label string, now time.Time) error {
+	keys, err := tx.ListAPIKeysByUserID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	return requireLabelFree(keys, label, now, 0)
 }
 
 // labelKey is the form two key labels are compared in: NFC, then full

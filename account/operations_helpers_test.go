@@ -464,6 +464,10 @@ func sessionOperations() []operation {
 		{name: "APIKeys", class: classSession, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
 			return opCall{run: func(ctx context.Context) error { _, err := w.svc.APIKeys(ctx, p); return err }, want: none}
 		}},
+		{name: "RenameAPIKey", class: classSession, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			k, label := w.storedKey(t, w.owner(t, p), "read"), w.name("renamed ")
+			return opCall{run: func(ctx context.Context) error { return w.svc.RenameAPIKey(ctx, p, k.ID, label) }, want: none}
+		}},
 		{name: "RevokeAPIKey", class: classSession, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			u := w.owner(t, p)
 			k := w.storedKey(t, u, "read")

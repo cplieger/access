@@ -270,6 +270,18 @@ func serveKeyCreate(h *Handler, c *call) error {
 	return nil
 }
 
+func serveKeyRename(h *Handler, c *call) error {
+	req, err := decodeJSON[NameRequest](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	if err := h.acct.RenameAPIKey(c.r.Context(), c.p, c.id, req.Name); err != nil {
+		return err
+	}
+	noContent(c.w)
+	return nil
+}
+
 func serveKeyRevoke(h *Handler, c *call) error {
 	if err := h.acct.RevokeAPIKey(c.r.Context(), c.p, c.id); err != nil {
 		return err

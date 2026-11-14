@@ -60,6 +60,7 @@ type accountAPI interface {
 	RevokeOtherSessions(ctx context.Context, p access.Principal) error
 	APIKeys(ctx context.Context, p access.Principal) ([]access.Key, error)
 	CreateAPIKey(ctx context.Context, a account.Actor, userID int64, in account.NewKey) (account.CreatedKey, error)
+	RenameAPIKey(ctx context.Context, p access.Principal, id int64, label string) error
 	RevokeAPIKey(ctx context.Context, p access.Principal, id int64) error
 	Users(ctx context.Context, p access.Principal, f account.UserFilter) ([]account.ListedUser, error)
 	CreateUser(ctx context.Context, a account.Actor, in account.NewUser) (*access.User, error)

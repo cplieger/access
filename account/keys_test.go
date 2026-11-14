@@ -834,3 +834,151 @@ func TestAllKeysActors(t *testing.T) {
 		}
 	})
 }
+
+func TestRenameAPIKey(t *testing.T) {
+	t.Parallel()
+	type world struct {
+		f  *fixture
+		u  *access.User
+		pr access.Principal
+		k  access.Key
+	}
+	setup := func(t *testing.T) world {
+		t.Helper()
+		f := newFixture(t, keyOptions(options{}, nil))
+		u := mustUser(t, f.mem, "alice", access.RoleUser)
+		return world{f: f, u: u, pr: f.sessionPrincipal(t, u, access.SessionFull, time.Now()), k: seedKey(t, f.mem, u.ID, "Agent", time.Time{})}
+	}
+	label := func(t *testing.T, w world, id int64) string {
+		t.Helper()
+		keys, err := w.f.mem.ListAPIKeysByUserID(t.Context(), w.u.ID)
+		if err != nil {
+			t.Fatalf("ListAPIKeysByUserID: %v", err)
+		}
+		for _, k := range keys {
+			if k.ID == id {
+				return k.Label
+			}
+		}
+		t.Fatalf("key %d is gone", id)
+		return ""
+	}
+	t.Run("session_renames_its_key", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		before := len(w.f.events.all())
+		if err := w.f.svc.RenameAPIKey(t.Context(), w.pr, w.k.ID, "Deploy bot"); err != nil {
+			t.Fatalf("RenameAPIKey = %v", err)
+		}
+		if got := label(t, w, w.k.ID); got != "Deploy bot" {
+			t.Errorf("label = %q, want %q", got, "Deploy bot")
+		}
+		if found, ok, err := w.f.mem.APIKeyByHash(t.Context(), w.k.KeyHash); err != nil || !ok || found.ID != w.k.ID {
+			t.Errorf("APIKeyByHash after the rename = %v, %v, %v; want key %d", found, ok, err, w.k.ID)
+		}
+		if got := len(w.f.events.all()); got != before {
+			t.Errorf("events after the rename = %d, want %d", got, before)
+		}
+	})
+	t.Run("not_a_session", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		for name, p := range map[string]access.Principal{
+			"key":              w.f.keyPrincipal(t, w.u, "read"),
+			"bypass":           w.f.bypassPrincipal(t),
+			"custom":           w.f.customPrincipal(t, access.MethodAPIKey, w.k.ID, scopeKeys),
+			"recovery_session": w.f.sessionPrincipal(t, w.u, access.SessionRecovery, time.Now()),
+			"zero":             {},
+		} {
+			t.Run(name, func(t *testing.T) {
+				if err := w.f.svc.RenameAPIKey(t.Context(), p, w.k.ID, "Renamed"); !errors.Is(err, account.ErrSessionRequired) {
+					t.Errorf("RenameAPIKey = %v, want ErrSessionRequired", err)
+				}
+			})
+		}
+		if got := label(t, w, w.k.ID); got != "Agent" {
+			t.Errorf("label after the refusals = %q, want Agent", got)
+		}
+	})
+	t.Run("another_users_key", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		bob := mustUser(t, w.f.mem, "bob", access.RoleAdmin)
+		pb := w.f.sessionPrincipal(t, bob, access.SessionFull, time.Now())
+		if err := w.f.svc.RenameAPIKey(t.Context(), pb, w.k.ID, "Renamed"); !errors.Is(err, account.ErrNotFound) {
+			t.Errorf("RenameAPIKey of another user's key = %v, want ErrNotFound", err)
+		}
+		if got := label(t, w, w.k.ID); got != "Agent" {
+			t.Errorf("label after the refusal = %q, want Agent", got)
+		}
+	})
+	t.Run("missing_key", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		if err := w.f.svc.RenameAPIKey(t.Context(), w.pr, w.k.ID+1000, "Renamed"); !errors.Is(err, account.ErrNotFound) {
+			t.Errorf("RenameAPIKey of no key = %v, want ErrNotFound", err)
+		}
+	})
+	t.Run("label_rule", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		for _, tc := range []struct {
+			name, label string
+			reason      string
+		}{
+			{"empty", "", account.ReasonEmpty},
+			{"multi_line", "deploy\nbot", account.ReasonDisallowedCharacter},
+			{"too_long", strings.Repeat("x", 129), account.ReasonTooLong},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				err := w.f.svc.RenameAPIKey(t.Context(), w.pr, w.k.ID, tc.label)
+				if te, ok := errors.AsType[*account.TextError](err); !ok || *te != (account.TextError{Field: account.TextFieldLabel, Reason: tc.reason}) {
+					t.Errorf("RenameAPIKey = %v, want TextError{label, %s}", err, tc.reason)
+				}
+			})
+		}
+		if got := label(t, w, w.k.ID); got != "Agent" {
+			t.Errorf("label after the refusals = %q, want Agent", got)
+		}
+	})
+	t.Run("taken_label", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		seedKey(t, w.f.mem, w.u.ID, "Deploy", time.Time{})
+		if err := w.f.svc.RenameAPIKey(t.Context(), w.pr, w.k.ID, "deploy"); !errors.Is(err, account.ErrKeyLabelTaken) {
+			t.Errorf("RenameAPIKey over another key's label = %v, want ErrKeyLabelTaken", err)
+		}
+		if got := label(t, w, w.k.ID); got != "Agent" {
+			t.Errorf("label after the refusal = %q, want Agent", got)
+		}
+	})
+	t.Run("expired_key_frees_its_label", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		seedKey(t, w.f.mem, w.u.ID, "Old", time.Now().Add(-time.Minute))
+		if err := w.f.svc.RenameAPIKey(t.Context(), w.pr, w.k.ID, "old"); err != nil {
+			t.Errorf("RenameAPIKey over an expired key's label = %v, want nil", err)
+		}
+	})
+	t.Run("recase_own_label", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		if err := w.f.svc.RenameAPIKey(t.Context(), w.pr, w.k.ID, "AGENT"); err != nil {
+			t.Fatalf("RenameAPIKey recasing its own label = %v, want nil", err)
+		}
+		if got := label(t, w, w.k.ID); got != "AGENT" {
+			t.Errorf("label = %q, want AGENT", got)
+		}
+	})
+	t.Run("expired_key", func(t *testing.T) {
+		t.Parallel()
+		w := setup(t)
+		gone := seedKey(t, w.f.mem, w.u.ID, "Gone", time.Now().Add(-time.Minute))
+		if err := w.f.svc.RenameAPIKey(t.Context(), w.pr, gone.ID, "Gone 2"); err != nil {
+			t.Fatalf("RenameAPIKey of an expired key = %v, want nil", err)
+		}
+		if got := label(t, w, gone.ID); got != "Gone 2" {
+			t.Errorf("label = %q, want %q", got, "Gone 2")
+		}
+	})
+}

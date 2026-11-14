@@ -11,6 +11,8 @@ import (
 
 // NewKey is the input of CreateAPIKey.
 type NewKey struct {
+	// Label is required, one line of at most 128 runes, and no label of the
+	// owner's unexpired keys after NFC and case folding (ErrKeyLabelTaken).
 	Label     string
 	Scopes    []string
 	ExpiresIn time.Duration // 0 = never; a negative value is ErrKeyExpiryInvalid
@@ -35,11 +37,10 @@ func (m *minter) principal() access.Principal {
 // OutOfBand (OpCreateKeyFor) or a principal of userID's own user that
 // RequireKeyPermission admits under CreateKeysScope (OpCreateOwnKey; another
 // user is other_user). Scopes come from Rules().Scopes (ErrUnknownScope), a
-// permission scope only on a RoleAdmin owner (permission_not_admin); the
-// label is required, one line of at most 128 runes, and no label of
-// userID's unexpired keys after NFC and case folding (ErrKeyLabelTaken),
-// and ExpiresIn is not negative. A key actor's parent is re-read in the Update and bounds the child's scopes,
-// expiry and depth. Only a session actor's session rotates into Issued.
+// permission scope only on a RoleAdmin owner (permission_not_admin); Label
+// and ExpiresIn meet NewKey's rules. A key actor's parent is re-read in the
+// Update and bounds the child's scopes, expiry and depth. Only a session
+// actor's session rotates into Issued.
 func (s *Service) CreateAPIKey(ctx context.Context, a Actor, userID int64, in NewKey) (CreatedKey, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	r, err := s.begin()
 	if err != nil {
@@ -74,7 +75,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, a Actor, userID int64, in Ne
 		if mintErr := s.authorizeMint(ctx, tx, j, m, &key); mintErr != nil {
 			return mintErr
 		}
-		if labelErr := requireLabelFree(ctx, tx, userID, key.Label, now, 0); labelErr != nil {
+		if labelErr := labelFreeIn(ctx, tx, userID, key.Label, now); labelErr != nil {
 			return labelErr
 		}
 		if createErr := tx.CreateAPIKey(ctx, &key); createErr != nil {
@@ -240,6 +241,36 @@ func (s *Service) RevokeAPIKey(ctx context.Context, p access.Principal, id int64
 		}
 		s.addKeysRevoked(j, userID, revoked, eventActor(As(p)))
 		return nil
+	})
+}
+
+// RenameAPIKey sets the label of p's own key id, expired or not, under
+// NewKey.Label's rule, the key's own label aside, so a key can be recased.
+// p must be a full session (ErrSessionRequired); a key of another user, or
+// none, is ErrNotFound. A rename changes no authority and logs no event.
+func (s *Service) RenameAPIKey(ctx context.Context, p access.Principal, id int64, label string) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
+	if _, err := s.begin(); err != nil {
+		return err
+	}
+	if err := requireSession(p); err != nil {
+		return err
+	}
+	if err := checkKeyLabel(label); err != nil {
+		return err
+	}
+	ref, now := access.KeyRef{ID: id, UserID: p.User.ID}, s.now()
+	return s.update(ctx, func(tx Tx) error {
+		keys, err := tx.ListAPIKeysByUserID(ctx, ref.UserID)
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(keys, func(k access.Key) bool { return k.ID == id }) {
+			return refuse(ErrNotFound)
+		}
+		if labelErr := requireLabelFree(keys, label, now, id); labelErr != nil {
+			return labelErr
+		}
+		return tx.UpdateAPIKeyLabel(ctx, ref, label)
 	})
 }
 

@@ -144,6 +144,7 @@ const bindings: Readonly<Record<string, Binding>> = {
   },
   authKeys: { method: "keys", call: (c) => c.keys() },
   authKeyCreate: { method: "createKey", call: (c, b) => c.createKey(b) },
+  authKeyRename: { method: "renameKey", call: (c, b) => c.renameKey(7, b) },
   authKeyRevoke: { method: "revokeKey", call: (c) => c.revokeKey(7) },
   authAdminUsers: { method: "adminUsers", call: (c) => c.adminUsers() },
   authAdminUserCreate: { method: "adminCreateUser", call: (c, b) => c.adminCreateUser(b) },
@@ -247,8 +248,8 @@ describe("the route table", () => {
     const methods = Object.keys(client).filter(
       (k) => typeof client[k as keyof AuthClient] === "function",
     );
-    expect(methods).toHaveLength(49);
-    expect(jsonRoutes).toHaveLength(49);
+    expect(methods).toHaveLength(50);
+    expect(jsonRoutes).toHaveLength(50);
     expect(Object.keys(bindings).sort()).toEqual(jsonRoutes.map((r) => r.name).sort());
     expect(
       Object.values(bindings)

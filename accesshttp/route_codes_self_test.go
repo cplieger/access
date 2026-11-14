@@ -478,7 +478,7 @@ func keyBody(t testing.TB, label string, scopes ...string) string {
 }
 
 func addKeyScenarios(out map[scenarioKey]scenario) {
-	const create, revoke = "authKeyCreate", "authKeyRevoke"
+	const create, rename, revoke = "authKeyCreate", "authKeyRename", "authKeyRevoke"
 	mint := func(t *testing.T, e *env) *http.Request {
 		return e.post(t, create, keyBody(t, "ci"), e.aliceSession(t))
 	}
@@ -495,6 +495,20 @@ func addKeyScenarios(out map[scenarioKey]scenario) {
 	}}
 	out[scenarioKey{create, access.CodeUnknownScope}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, create, keyBody(t, "ci", "unlisted"), e.aliceSession(t))
+	}}
+	renameOwn := func(name string) func(t *testing.T, e *env) *http.Request {
+		return func(t *testing.T, e *env) *http.Request {
+			cookie := e.aliceSession(t)
+			e.mintKey(t, "alice", account.NewKey{Label: "Agent"})
+			k := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+			return e.at(t, rename, strconv.FormatInt(k.Key.ID, 10), jsonBody(t, NameRequest{Name: name}), cookie)
+		}
+	}
+	out[scenarioKey{rename, access.CodeUnavailable}] = closing(envOptions{}, renameOwn("deploy"))
+	out[scenarioKey{rename, access.CodeBadRequest}] = scenario{arrange: renameOwn("two\nlines")}
+	out[scenarioKey{rename, access.CodeKeyLabelTaken}] = scenario{arrange: renameOwn("agent")}
+	out[scenarioKey{rename, access.CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		return e.at(t, rename, "1", jsonBody(t, NameRequest{Name: "deploy"}), e.aliceSession(t))
 	}}
 	out[scenarioKey{revoke, access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		return e.at(t, revoke, "1", "", e.aliceSession(t))

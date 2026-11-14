@@ -79,7 +79,7 @@ type PasswordRemoveRequest struct {
 	CurrentPassword string `json:"current_password"`
 }
 
-// NameRequest renames a passkey or a session.
+// NameRequest renames a passkey, a session or an API key.
 type NameRequest struct {
 	Name string `json:"name"`
 }

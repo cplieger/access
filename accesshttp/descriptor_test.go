@@ -31,6 +31,7 @@ var designClasses = map[string]struct {
 	"authWebAuthnSignals": {open: ClassSession}, "authSessions": {open: ClassSession}, "authSessionRename": {open: ClassSession},
 	"authSessionRevoke": {open: ClassSession}, "authSessionsRevokeOthers": {open: ClassRecentAuth}, "authKeys": {open: ClassSession},
 	"authKeyCreate":        {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "keys"},
+	"authKeyRename":        {open: ClassSession},
 	"authKeyRevoke":        {open: ClassSession},
 	"authAdminUsers":       {open: ClassSession, scoped: ClassKeyScope, scope: "admin"},
 	"authAdminUserCreate":  {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},

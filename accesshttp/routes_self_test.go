@@ -639,6 +639,41 @@ func TestRouteAuthKeyCreateLabel(t *testing.T) {
 	})
 }
 
+func TestRouteAuthKeyRename(t *testing.T) {
+	rename := func(t *testing.T, e *env, id int64, name string, cookie *http.Cookie) *httptest.ResponseRecorder {
+		t.Helper()
+		return do(e.route(t, "authKeyRename"), e.at(t, "authKeyRename", strconv.FormatInt(id, 10), jsonBody(t, NameRequest{Name: name}), cookie))
+	}
+	t.Run("success", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		cookie := e.aliceSession(t)
+		key := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+		e.requireStatus(t, rename(t, e, key.Key.ID, "deploy", cookie), http.StatusNoContent)
+		views := decoded[[]KeyView](t, e, do(e.route(t, "authKeys"), e.post(t, "authKeys", "", cookie)), http.StatusOK)
+		if len(views) != 1 || views[0].ID != key.Key.ID || views[0].Label != "deploy" {
+			t.Errorf("keys %+v, want key %d labelled deploy", views, key.Key.ID)
+		}
+	})
+	t.Run("empty", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		cookie := e.aliceSession(t)
+		key := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+		if got := e.requireRefused(t, rename(t, e, key.Key.ID, "", cookie), access.CodeBadRequest); got.Reason != "label_empty" {
+			t.Errorf("reason %q, want label_empty", got.Reason)
+		}
+	})
+	t.Run("taken", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		cookie := e.aliceSession(t)
+		e.mintKey(t, "alice", account.NewKey{Label: "Agent"})
+		key := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
+		w := rename(t, e, key.Key.ID, "agent", cookie)
+		if e.requireRefused(t, w, access.CodeKeyLabelTaken); w.Code != http.StatusConflict {
+			t.Errorf("status %d, want 409", w.Code)
+		}
+	})
+}
+
 func TestRouteAuthKeyRevoke(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
