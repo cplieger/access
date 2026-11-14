@@ -50,8 +50,9 @@ type Config struct {
 	// [Authenticator.ClientAddr]. Its answer's Via says how the request
 	// arrived, and one left zero ([ViaUnknown]) is no known client. Nil
 	// treats no peer as a proxy: Peer is r.RemoteAddr's address, unmapped,
-	// and Via is [ViaDirect], or [ViaUntrustedForwarding] when Forwarded,
-	// X-Forwarded-For or X-Real-IP is present.
+	// Secure is r.TLS != nil, and Via is [ViaDirect], or
+	// [ViaUntrustedForwarding] when Forwarded, X-Forwarded-For, X-Real-IP or
+	// X-Forwarded-Proto is present.
 	ClientAddr func(*http.Request) ClientAddr
 	// Verifier runs between the built-in session and API-key verifiers. The
 	// API-key verifier refuses every Bearer value it cannot find, so a

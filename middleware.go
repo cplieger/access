@@ -26,8 +26,10 @@ type AuthenticatorStore interface {
 // Authenticator resolves an HTTP request to a [Principal].
 // Create with [New].
 type Authenticator struct {
-	sessions *sessionVerifier
-	keys     *apiKeyVerifier
+	// proxyWarn limits the unlisted-proxy WARN Authenticate logs.
+	proxyWarn warnLimiter
+	sessions  *sessionVerifier
+	keys      *apiKeyVerifier
 	// chain is sessions, Config.Verifier if set, then keys, which refuses
 	// every Bearer value it cannot find, so nothing after it would see a
 	// Bearer credential.
@@ -54,7 +56,7 @@ func New(store AuthenticatorStore, cfg Config) (*Authenticator, error) { //nolin
 	if err != nil {
 		return nil, err
 	}
-	a := &Authenticator{cfg: cfg}
+	a := &Authenticator{cfg: cfg, proxyWarn: warnLimiter{now: time.Now}}
 	a.sessions = &sessionVerifier{store: store, cfg: &a.cfg, now: time.Now, warn: warnLimiter{now: time.Now}}
 	a.keys = &apiKeyVerifier{store: store, cfg: &a.cfg, now: time.Now, warn: warnLimiter{now: time.Now}}
 	a.chain = []CredentialVerifier{a.sessions}
@@ -81,18 +83,21 @@ var syntheticAdminUser = User{
 	Enabled:  true,
 }
 
-// Authenticate runs the chain on r. It returns the first [Principal] a
-// verifier grants; else the first error matching
-// [ErrUnauthenticated] a verifier returned; else bare ErrUnauthenticated. Any
-// other verifier error is returned at once. A granted principal whose User
-// is nil or disabled, or whose Method is empty, is refused with an
-// [*InvalidCredentialError]. The principal's User and Scopes are copies the
-// caller may keep and change.
+// Authenticate runs the chain on r and returns the first [Principal] a
+// verifier grants, with IP and Secure from Config.ClientAddr's answer for r
+// and User and Scopes copied for the caller to keep. Else it returns the
+// first error matching [ErrUnauthenticated] a verifier returned, or bare
+// ErrUnauthenticated; any other verifier error at once. A granted principal
+// whose User is nil or disabled, or whose Method is empty, is refused with an
+// [*InvalidCredentialError]. A plain request whose X-Forwarded-Proto claims
+// https logs a WARN at most once a minute, and is answered as without it.
 func (a *Authenticator) Authenticate(r *http.Request) (Principal, error) {
+	ca := a.ClientAddr(r)
+	a.warnUnlistedProxy(r, ca)
 	if a.bypassed() {
 		// A deep copy per request, so no consumer can mutate the principal
 		// handed to any other request: User holds a slice.
-		return Principal{User: syntheticAdminUser.Clone(), Method: MethodBypass, IP: a.ClientAddr(r).IP()}, nil
+		return Principal{User: syntheticAdminUser.Clone(), Method: MethodBypass, IP: ca.IP(), Secure: ca.Secure}, nil
 	}
 
 	ctx := r.Context()
@@ -117,7 +122,7 @@ func (a *Authenticator) Authenticate(r *http.Request) (Principal, error) {
 		if !ok {
 			continue
 		}
-		p.IP = a.ClientAddr(r).IP()
+		p.IP, p.Secure = ca.IP(), ca.Secure
 		return grant(p)
 	}
 	if unusable != nil {
@@ -157,8 +162,22 @@ func (a *Authenticator) Recheck(ctx context.Context, p Principal) (Principal, er
 	if !ok {
 		return Principal{}, ErrNotRecheckable
 	}
-	q.IP = p.IP
+	q.IP, q.Secure = p.IP, p.Secure
 	return grant(q)
+}
+
+// warnUnlistedProxy logs when ca is not Secure but r's first
+// X-Forwarded-Proto token is https: the likely cause is a TLS proxy missing
+// from the resolver's trusted set.
+func (a *Authenticator) warnUnlistedProxy(r *http.Request, ca ClientAddr) {
+	if ca.Secure {
+		return
+	}
+	first, _, _ := strings.Cut(r.Header.Get("X-Forwarded-Proto"), ",")
+	if !strings.EqualFold(strings.TrimSpace(first), "https") {
+		return
+	}
+	a.proxyWarn.log(a.cfg.log(), "access: a request claims HTTPS but is not secure; if its peer is your TLS proxy, add it to the trusted proxies", "peer", ca.Peer)
 }
 
 // grant refuses p if no request may act as it, and otherwise returns it

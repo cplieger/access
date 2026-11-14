@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"slices"
 	"strings"
@@ -251,4 +252,58 @@ func TestRequestMarks(t *testing.T) {
 	if v, _ := Passive(ctx).Value(allowRecoveryKey{}).(bool); v {
 		t.Error("Passive marked the context as allowing a recovery session")
 	}
+}
+
+// TestPrincipalSecure pins Principal.Secure as the resolver's answer for the
+// request Authenticate verified, whichever verifier granted it, the bypass
+// included, and as Recheck's input's.
+func TestPrincipalSecure(t *testing.T) {
+	t.Parallel()
+	f := newChainFixture(t)
+	// A custom verifier's own Secure is not the request's.
+	custom := Principal{User: &User{Username: "agent", Enabled: true}, Method: "agent_key", Secure: true}
+	at := func(target string, r *http.Request) *http.Request {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+		req.Header = r.Header
+		return req
+	}
+	for _, tc := range []struct {
+		cfg  Config
+		req  func() *http.Request
+		name string
+	}{
+		{name: "session", req: func() *http.Request { return withSession(bearerRequest(""), f.session) }},
+		{name: "key", req: func() *http.Request { return bearerRequest(f.key) }},
+		{name: "custom verifier", cfg: Config{Verifier: stubVerifier{p: custom, ok: true}}, req: func() *http.Request { return bearerRequest("") }},
+		{name: "bypass", cfg: Config{Bypass: func() bool { return true }}, req: func() *http.Request { return bearerRequest("") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			a := mustAuthenticator(t, f.store, tc.cfg)
+			for target, want := range map[string]bool{"https://app.example/api": true, "http://app.example/api": false} {
+				if p := mustAuthenticate(t, a, at(target, tc.req())); p.Secure != want {
+					t.Errorf("Authenticate(%s).Secure = %v, want %v", target, p.Secure, want)
+				}
+			}
+		})
+	}
+	t.Run("recheck", func(t *testing.T) {
+		t.Parallel()
+		a := mustAuthenticator(t, f.store, Config{})
+		for name, r := range map[string]*http.Request{
+			"session": withSession(bearerRequest(""), f.session),
+			"key":     bearerRequest(f.key),
+		} {
+			for target, want := range map[string]bool{"https://app.example/api": true, "http://app.example/api": false} {
+				p := mustAuthenticate(t, a, at(target, r))
+				q, err := a.Recheck(t.Context(), p)
+				if err != nil {
+					t.Fatalf("Recheck(%s over %s) = %v", name, target, err)
+				}
+				if q.Secure != want {
+					t.Errorf("Recheck(%s over %s).Secure = %v, want the passed principal's %v", name, target, q.Secure, want)
+				}
+			}
+		}
+	})
 }

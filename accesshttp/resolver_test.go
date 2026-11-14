@@ -99,7 +99,7 @@ func TestOneResolver(t *testing.T) {
 		r.Header.Set("X-Forwarded-For", "203.0.113.9")
 		w := do(e.route(t, "authSetupPassword"), r)
 		peer := netip.MustParseAddr("10.0.0.5")
-		want := access.ClientAddr{Peer: peer, Via: access.ViaUntrustedForwarding}
+		want := access.ClientAddr{Peer: peer, Via: access.ViaUntrustedForwarding, Secure: true}
 		if got := seen.all(); len(got) != 1 || got[0].ClientAddr != want {
 			t.Errorf("setup rule received %+v, want one Client carrying %+v", got, want)
 		}

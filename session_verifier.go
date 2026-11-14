@@ -3,9 +3,7 @@ package access
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/cplieger/access/internal/failreason"
@@ -113,48 +111,4 @@ func sessionPrincipal(sess *Session, user *User, hash Hash, ts SessionTimeouts) 
 		credential:       hash,
 		source:           sourceSession,
 	}
-}
-
-// activityWarnInterval is how long after a failed-write WARN further
-// failures are only counted: a store failing every write would otherwise log
-// once per request.
-const activityWarnInterval = time.Minute
-
-// warnLimiter rate-limits one verifier's failed-write WARN; it is the
-// verifiers' only mutable state.
-type warnLimiter struct {
-	last time.Time
-	// now is read only under mu, so the times allow compares never run
-	// backwards: a time read before the lock lets a later failure log first
-	// and date the interval from the later instant.
-	now        func() time.Time
-	mu         sync.Mutex
-	suppressed int
-}
-
-// allow reports whether a failure now logs and, when it does, the failures
-// counted since the last WARN, resetting the count.
-func (l *warnLimiter) allow() (ok bool, suppressed int) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := l.now()
-	if now.Sub(l.last) < activityWarnInterval {
-		l.suppressed++
-		return false, 0
-	}
-	suppressed, l.last, l.suppressed = l.suppressed, now, 0
-	return true, suppressed
-}
-
-// log writes msg with args at WARN unless allow refuses, adding the
-// suppressed count when it is not zero.
-func (l *warnLimiter) log(logger *slog.Logger, msg string, args ...any) {
-	ok, n := l.allow()
-	if !ok {
-		return
-	}
-	if n > 0 {
-		args = append(args, "suppressed", n)
-	}
-	logger.Warn(msg, args...)
 }

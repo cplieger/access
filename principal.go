@@ -44,6 +44,9 @@ type Principal struct {
 	// custom verifier that fills SessionID and AuthTime, or Method and KeyID,
 	// cannot pass IsSession, IsRecoverySession, RequireRecentAuth or IsAPIKey.
 	source principalSource
+	// Secure is the [ClientAddr.Secure] of the request Authenticate verified,
+	// or Recheck's input's; false for a principal built elsewhere.
+	Secure bool
 }
 
 // principalSource is which verifier produced a Principal. Its zero value is

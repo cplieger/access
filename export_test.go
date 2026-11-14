@@ -31,3 +31,7 @@ func setVerifierClock(a *Authenticator, c *testClock) {
 	a.sessions.warn.now = c.Now
 	a.keys.warn.now = c.Now
 }
+
+// setProxyWarnClock makes a's unlisted-proxy WARN limiter read c instead of
+// time.Now.
+func setProxyWarnClock(a *Authenticator, c *testClock) { a.proxyWarn.now = c.Now }

@@ -66,6 +66,38 @@ var (
 	testForwarded = netip.MustParseAddr("203.0.113.9")
 )
 
+// TestDefaultClientAddrSecure pins the default resolver's transport: TLS at
+// this server is secure, and an X-Forwarded-Proto from any peer is an
+// untrusted forwarding header that never makes a request secure.
+func TestDefaultClientAddrSecure(t *testing.T) {
+	t.Parallel()
+	peer := netip.MustParseAddr("192.0.2.1")
+	for _, tt := range []struct {
+		name   string
+		target string
+		proto  string
+		want   ClientAddr
+	}{
+		{name: "tls", target: "https://app.example/", want: ClientAddr{Peer: peer, Via: ViaDirect, Secure: true}},
+		{name: "plain", target: "http://app.example/", want: ClientAddr{Peer: peer, Via: ViaDirect}},
+		{name: "plain claiming https", target: "http://app.example/", proto: "https", want: ClientAddr{Peer: peer, Via: ViaUntrustedForwarding}},
+		{name: "tls with a proto header", target: "https://app.example/", proto: "https", want: ClientAddr{Peer: peer, Via: ViaUntrustedForwarding, Secure: true}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			a := mustAuthenticator(t, newFakeSessionStore(), Config{})
+			r := httptest.NewRequest(http.MethodGet, tt.target, nil)
+			r.RemoteAddr = "192.0.2.1:4711"
+			if tt.proto != "" {
+				r.Header.Set("X-Forwarded-Proto", tt.proto)
+			}
+			if got := a.ClientAddr(r); got != tt.want {
+				t.Errorf("ClientAddr(%s, X-Forwarded-Proto %q) = %+v, want %+v", tt.target, tt.proto, got, tt.want)
+			}
+		})
+	}
+}
+
 type clientAddrCase struct {
 	wantIP          netip.Addr
 	name            string

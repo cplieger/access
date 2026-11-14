@@ -18,7 +18,7 @@ Every setting is a field of a configuration struct or a function argument. The l
 | `ActivityThrottle` | Writes an API key's last use once the stored one is this old, and always on its first use, and a session's activity once the stored one is as old as the lesser of this and half that session's idle limit | `0`, a write on every request |
 | `TimeoutSource` | Reads the two timeouts from a callback on every verification, for settings you reload at run time | _(unset)_ |
 | `Verifier` | Adds your own `CredentialVerifier` between the session cookie and the API key | _(unset)_ |
-| `ClientAddr` | Your resolver for how a request reached you and from which address, behind `Authenticator.ClientAddr`, the rate limiter, each session's last IP and the setup rule | the socket peer, with no proxy trusted |
+| `ClientAddr` | Your resolver for how a request reached you, from which address and whether over TLS, behind `Authenticator.ClientAddr`, the rate limiter, each session's last IP, each principal's transport and the setup rule | the socket peer, with no proxy trusted and only TLS at your server secure |
 | `Bypass` | A development hook that grants a synthetic admin user while it returns true | _(unset)_ |
 
 `New` returns an error for a configuration that cannot work. That is a timeout or throttle below zero, an activity throttle at or above the idle timeout, a realm holding `"`, `\` or a control character, or a cookie configuration that `CookieConfig.Validate` refuses. `New` also refuses a nil store, and a `Verifier` that holds a nil pointer, map, slice, func or chan; a nil `Verifier` means none.
@@ -33,7 +33,7 @@ The `Authenticator` writes no response itself. `access/gate` answers a request i
 
 The `Verifier` runs after the session cookie and before the API-key verifier, which refuses every Bearer value it cannot find. A verifier for another Bearer credential answers `ok` false and a nil error for every value that is not its own. Its principal may carry a user your app made up with no stored row. That user must be non-nil and enabled, the `Method` must be non-empty, and the `Authenticator` never looks the user up in the store.
 
-`ClientAddr` returns an `access.ClientAddr`. `Peer` is the connection's remote address, `Forwarded` is the client a trusted proxy sent, and `Via` says how the request reached you:
+`ClientAddr` returns an `access.ClientAddr`. `Peer` is the connection's remote address, `Forwarded` is the client a trusted proxy sent, `Via` says how the request reached you, and `Secure` says whether it crossed no network in clear:
 
 | `Via` | When your resolver answers it |
 | --- | --- |
@@ -45,11 +45,13 @@ The `Verifier` runs after the session cookie and before the API-key verifier, wh
 
 `IP()` is the client's address: `Forwarded` under `ViaProxy`, and `Peer` otherwise. The rate limiter, each session's last IP and a principal's IP read it. `ClientKnown()` is true when `Via` is `ViaDirect` or `ViaProxy` and `IP()` is a valid address. A unix-socket listener has no valid address, so its clients are unknown. `SetupLocality` requires a setup token for every client whose `ClientKnown()` is false.
 
-With the `github.com/cplieger/go/httpserver` resolver, map its `ClientResolution` in one switch:
+`Secure` is true when TLS ended at your server or at a proxy you trust. Each principal carries it as `Principal.Secure`. A resolver that leaves it false reads every request as plain HTTP.
+
+With the `github.com/cplieger/go/httpserver` resolver, v1.5.0-dev.1 or later, map its `ClientResolution` in one function:
 
 ```go
-func clientAddr(res httpserver.ClientResolution) access.ClientAddr {
-	c := access.ClientAddr{Peer: res.Peer}
+func clientAddr(r *http.Request, res httpserver.ClientResolution) access.ClientAddr {
+	c := access.ClientAddr{Peer: res.Peer, Secure: r.TLS != nil || res.ForwardedHTTPS}
 	switch {
 	case res.Forwarded:
 		c.Via, c.Forwarded = access.ViaProxy, res.IP
@@ -66,9 +68,15 @@ func clientAddr(res httpserver.ClientResolution) access.ClientAddr {
 
 Keep `ViaDirect` as the last arm. Without the `PeerTrusted` arm, a trusted proxy that forwards no client address reads as a direct client, often a loopback one. Anything else you distrust from an untrusted peer, such as its `X-Forwarded-Proto`, also answers `ViaUntrustedForwarding`. When you pass a `SetupLocality.Local`, test it through your real resolver with whole requests. A trusted peer with no `X-Forwarded-For` must require a setup token. So must a trusted peer whose `X-Forwarded-For` holds only trusted hops.
 
+`ForwardedHTTPS` is true only when a trusted peer sent exactly one `X-Forwarded-Proto` field holding the one token `https`, in any case. A list such as `https, http`, a repeated field and an untrusted peer all read as plain, so the check fails closed, and `Forwarded: proto=` is not read. A proxy you trust must set `X-Forwarded-Proto` itself, replacing the client's value rather than appending to it. Caddy does.
+
+An app that serves a loopback origin by configuration, such as `http://localhost`, may also set `Secure` for a loopback request, because a browser treats that origin as secure. Set it only when `Via` is `ViaDirect`, the peer is a loopback address, and the hostname of `r.Host` is `localhost` or a loopback literal, since the browser decides by the origin it was given. Requiring the `Host` refuses a relay on the same host that delivers LAN traffic over loopback with a LAN `Host`, such as socat, `ssh -R` or a tunnel daemon. The library does not make this call itself, because it cannot see a forwarder on the same host.
+
 A forwarded address is only the peer your proxy saw. A forwarder in front of the proxy, such as a container runtime's port proxy, a tunnel daemon or a masquerading router, arrives as `ViaProxy` with a loopback or private `Forwarded`. The library cannot see that hop. A port proxy or router directly in front of your app arrives as `ViaDirect` from its own address. Only a `Local` that requires `ViaDirect`, refuses your host's own forwarders (such as a route gateway or the container's own address), and then accepts only a loopback or private `IP()` bounds token-free setup to the host's own networks.
 
-Without `ClientAddr`, no peer is treated as a proxy. `Peer` is the connection's address, with an IPv4-mapped IPv6 address unmapped. `Via` is `ViaUntrustedForwarding` when the request carries `Forwarded`, `X-Forwarded-For` or `X-Real-IP`, which the default ignores, and `ViaDirect` otherwise.
+Without `ClientAddr`, no peer is treated as a proxy. `Peer` is the connection's address, with an IPv4-mapped IPv6 address unmapped. `Via` is `ViaUntrustedForwarding` when the request carries `Forwarded`, `X-Forwarded-For`, `X-Real-IP` or `X-Forwarded-Proto`, which the default ignores, and `ViaDirect` otherwise. `Secure` is true only for a request that reached your server over TLS.
+
+When a request is not `Secure` but the first token of its `X-Forwarded-Proto` is `https`, `Authenticate` logs a warning with the request's `peer`: that peer is most likely a TLS proxy missing from your resolver's trusted set. The warning logs at most once a minute, and the next one carries `suppressed`, the count held back, when there were any. The header decides nothing.
 
 `Bypass` logs one info line when `New` installs it. It logs a warning on each request that finds the hook on after a request that found it off, the first request included. The synthetic user's ID is 0, which no stored user has. Keep it off in production.
 

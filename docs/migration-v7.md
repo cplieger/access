@@ -51,6 +51,8 @@ New in the root package: `Principal`, `Rechecker`, `Authenticator.Recheck`, `Req
 
 The refusal vocabulary is in the root package as well, so an app that guards its own routes imports neither `accesshttp` nor the passkey and OIDC packages behind it: `Code`, every `Code…` constant and `Codes`, `Error`, `ErrorWriter`, `AuditEvent`, `NewError`, `ErrorFor`, and `Authenticator.Challenge` with its `Config.Realm`. A service built on an earlier access dev tag renames `accesshttp.Code…`, `accesshttp.Codes`, `accesshttp.Error`, `accesshttp.ErrorWriter` and `accesshttp.AuditEvent` to these `access.` names. The wire strings are unchanged. A service built on an earlier dev tag also replaces `Authenticator.RequireAuth` with `access/gate`, and drops `Config.Unauthorized`, which is gone with it. Every 401 the auth routes answer now carries a `WWW-Authenticate` challenge, and `account.New` and `Rules.Validate` refuse a key scope that is not one RFC 6750 scope-token (printable ASCII other than space, `"` and `\`). Two codes are new: 403 `auth_key_required`, a gate `Key` row reached without an API key, and 409 `auth_key_label_taken`, a key label the owner's keys already carry.
 
+A service built on an earlier dev tag sets `ClientAddr.Secure` in its resolver, to `r.TLS != nil || res.ForwardedHTTPS` with `github.com/cplieger/go/httpserver` v1.5.0-dev.1 or later ([Authenticator configuration](configuration.md#authenticator-configuration)). A resolver that leaves it false reads every request as plain HTTP. `Principal.Secure` carries it, set by `Authenticate` and kept by `Recheck`. The default resolver answers `Secure` from `r.TLS`, and reads an `X-Forwarded-Proto` from any peer as `ViaUntrustedForwarding`.
+
 ## Records
 
 | auth v6 | access |
