@@ -12,7 +12,6 @@ import (
 	"slices"
 	"time"
 
-	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/cplieger/access"
 	"golang.org/x/oauth2"
 )
@@ -75,9 +74,6 @@ const (
 	// maxCookieBytes bounds a cookie's name plus value: a user agent drops
 	// a longer one (RFC 6265bis section 5.6).
 	maxCookieBytes = 4096
-	// authTimeSkew is the clock difference the freshness check tolerates
-	// between the provider and this host.
-	authTimeSkew = 60 * time.Second
 )
 
 // Flow is what Finish recovers from the flow cookie.
@@ -223,52 +219,11 @@ func (p *Provider) complete(ctx context.Context, st *flowState, cb Callback) (Cl
 	if err != nil {
 		return Claims{}, fmt.Errorf("%w: %w", ErrTokenInvalid, err)
 	}
-	claims, err := p.verifiedClaims(idt, st.nonce)
-	if err != nil {
-		return Claims{}, err
-	}
-	claims.Identity = access.OIDCIdentity{Issuer: idt.Issuer, Subject: idt.Subject}
-	if st.flow.Intent != IntentSignIn && (claims.AuthTime.IsZero() || claims.AuthTime.Before(st.flow.BeganAt.Add(-authTimeSkew))) {
-		return Claims{}, ErrStaleAuthentication
-	}
-	return claims, nil
-}
-
-// verifiedClaims checks a token go-oidc verified and decodes its claims.
-func (p *Provider) verifiedClaims(idt *gooidc.IDToken, nonce string) (Claims, error) {
-	var raw map[string]json.RawMessage
-	if err := idt.Claims(&raw); err != nil {
+	var payload json.RawMessage
+	if err := idt.Claims(&payload); err != nil {
 		return Claims{}, fmt.Errorf("%w: %w", ErrTokenInvalid, err)
 	}
-	if err := p.checkToken(idt, raw, nonce); err != nil {
-		return Claims{}, err
-	}
-	return decodeClaims(raw)
-}
-
-// checkToken applies the checks go-oidc leaves to its caller: every audience
-// is this client and a present azp equals it whatever the audience count
-// (OpenID Connect Core 1.0 section 3.1.3.7 steps 3 to 5), the nonce is the
-// sealed one, and the subject is not empty.
-func (p *Provider) checkToken(idt *gooidc.IDToken, raw map[string]json.RawMessage, nonce string) error {
-	for _, aud := range idt.Audience {
-		if aud != p.cfg.ClientID {
-			return fmt.Errorf("%w: aud holds another client", ErrTokenInvalid)
-		}
-	}
-	if azpRaw, present := raw["azp"]; present {
-		var azp string
-		if err := json.Unmarshal(azpRaw, &azp); err != nil || azp != p.cfg.ClientID {
-			return fmt.Errorf("%w: azp is not the client ID", ErrTokenInvalid)
-		}
-	}
-	if subtle.ConstantTimeCompare([]byte(idt.Nonce), []byte(nonce)) != 1 {
-		return ErrNonceMismatch
-	}
-	if idt.Subject == "" {
-		return fmt.Errorf("%w: empty sub", ErrTokenInvalid)
-	}
-	return nil
+	return checkIDToken(payload, &claimRules{now: p.cfg.Now(), issuer: p.cfg.IssuerURL, clientID: p.cfg.ClientID, nonce: st.nonce, flow: st.flow})
 }
 
 // flowState is the sealed payload of the flow cookie.

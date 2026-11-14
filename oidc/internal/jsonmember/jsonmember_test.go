@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cplieger/access/oidc/internal/jsonmember"
 )
@@ -99,13 +100,73 @@ func TestString(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, want := range map[string]string{"s": "x", "esc": "A\n", "empty": ""} {
-		if got, ok := jsonmember.String(m, name); !ok || got != want {
+		if got, ok := jsonmember.String(m[name]); !ok || got != want {
 			t.Errorf("String(%s) = %q, %v; want %q, true", name, got, ok, want)
 		}
 	}
 	for _, name := range []string{"null", "num", "t", "f", "arr", "obj", "absent", "S"} {
-		if got, ok := jsonmember.String(m, name); ok || got != "" {
+		if got, ok := jsonmember.String(m[name]); ok || got != "" {
 			t.Errorf("String(%s) = %q, %v; want \"\", false", name, got, ok)
+		}
+	}
+	if got, ok := jsonmember.String(jsontext.Value(`"a" x`)); ok {
+		t.Errorf(`String("a" x) = %q, true; want false for text that is not one value`, got)
+	}
+}
+
+// RFC 8259 §3: true and false are literal names; a string spelling one, a
+// number, null and an absent member are other values.
+func TestBool(t *testing.T) {
+	t.Parallel()
+	for v, want := range map[string]bool{`true`: true, `false`: false, ` true `: true} {
+		if got, ok := jsonmember.Bool(jsontext.Value(v)); !ok || got != want {
+			t.Errorf("Bool(%s) = %v, %v; want %v, true", v, got, ok, want)
+		}
+	}
+	for _, v := range []string{`"true"`, `"false"`, `1`, `0`, `null`, `[true]`, `tru`, `truex`, `True`, ``} {
+		if got, ok := jsonmember.Bool(jsontext.Value(v)); ok || got {
+			t.Errorf("Bool(%q) = %v, %v; want false, false", v, got, ok)
+		}
+	}
+}
+
+// RFC 7519 §2: a NumericDate is a JSON number of seconds since
+// 1970-01-01T00:00:00Z, which may carry a fraction. The range [0,
+// 253402300799] (9999-12-31T23:59:59Z) is judged on the number itself, so
+// -0.1 is not read as 0 nor 1e300 converted to an integer; null, a string
+// and an absent member are not numbers (RFC 8259 §6).
+func TestNumericDate(t *testing.T) {
+	t.Parallel()
+	for v, want := range map[string]int64{
+		`0`:                          0,
+		`-0`:                         0,
+		`0.5`:                        0,
+		`1`:                          1,
+		`1760000000`:                 1_760_000_000,
+		`1760000000.999`:             1_760_000_000,
+		`1.76e9`:                     1_760_000_000,
+		`17600000000E-1`:             1_760_000_000,
+		`253402300799`:               253_402_300_799,
+		`253402300799.0`:             253_402_300_799,
+		`2.53402300799e11`:           253_402_300_799,
+		`1E+3`:                       1000,
+		`1e-400`:                     0,
+		`0.000000000000000000001e25`: 10_000,
+		`1e-99999999999999999999`:    0,
+		`-0e5`:                       0,
+	} {
+		got, ok := jsonmember.NumericDate(jsontext.Value(v))
+		if !ok || !got.Equal(time.Unix(want, 0)) {
+			t.Errorf("NumericDate(%s) = %v, %v; want %v, true", v, got, ok, time.Unix(want, 0).UTC())
+		}
+	}
+	for _, v := range []string{
+		`-1`, `-0.1`, `-1e-3`, `-1e-400`, `253402300800`, `253402300799.5`, `253402300799.00000000001`,
+		`2.534023008e11`, `1e300`, `1e400`, `-1e400`, `1e99999999999999999999`, `1e12`,
+		`"1760000000"`, `null`, `true`, `[1760000000]`, `{}`, ``, `01`, `1760000000 1`, `.5`, `1.`, `+1`,
+	} {
+		if got, ok := jsonmember.NumericDate(jsontext.Value(v)); ok {
+			t.Errorf("NumericDate(%q) = %v, true; want false", v, got)
 		}
 	}
 }

@@ -113,6 +113,9 @@ type IdPOptions struct {
 	// Subject, when non-nil, is the sub claim, an empty string included; nil
 	// is DefaultIdPSubject.
 	Subject *string
+	// PreferredUsername, when non-nil, is the preferred_username claim, an
+	// empty string included; nil is DefaultIdPUsername.
+	PreferredUsername *string
 	// EmailVerified, when non-nil, is written as the email_verified claim
 	// as given, so a string "true" tests a relying party's tolerance; nil
 	// is the boolean true. NewIdP fails the test when it does not encode as
@@ -412,6 +415,9 @@ func frozenClaims(o *IdPOptions, clientID string) (map[string]json.RawMessage, e
 	}
 	if o.Subject != nil {
 		set["sub"] = *o.Subject
+	}
+	if o.PreferredUsername != nil {
+		set["preferred_username"] = *o.PreferredUsername
 	}
 	if len(o.Audience) == 1 {
 		set["aud"] = o.Audience[0]

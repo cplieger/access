@@ -58,7 +58,7 @@ func Parse(issuer string, data []byte) (Document, error) {
 	if err != nil {
 		return Document{}, fmt.Errorf("%w: %w", ErrDocument, err)
 	}
-	if got, ok := jsonmember.String(m, "issuer"); !ok || got != issuer {
+	if got, ok := jsonmember.String(m["issuer"]); !ok || got != issuer {
 		return Document{}, fmt.Errorf("%w: issuer is not the configured issuer", ErrDocument)
 	}
 	loopbackIssuer := loopbackHTTP(issuer)
@@ -71,7 +71,7 @@ func Parse(issuer string, data []byte) (Document, error) {
 		{&d.TokenEndpoint, "token_endpoint"},
 		{&d.JWKSURI, "jwks_uri"},
 	} {
-		raw, ok := jsonmember.String(m, e.name)
+		raw, ok := jsonmember.String(m[e.name])
 		if !ok || !endpointAllowed(raw, loopbackIssuer) {
 			return Document{}, fmt.Errorf("%w: %s must be an absolute https URL with a host and no userinfo", ErrDocument, e.name)
 		}

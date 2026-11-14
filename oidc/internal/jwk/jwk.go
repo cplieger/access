@@ -136,7 +136,7 @@ func (s Set) All() iter.Seq[Key] { return slices.Values(s.keys) }
 // key. The private-member check comes first, so it refuses the set
 // whatever the key's crv, use or key_ops.
 func classify(m map[string]jsontext.Value) (k Key, ok bool, err error) {
-	kty, _ := jsonmember.String(m, "kty")
+	kty, _ := jsonmember.String(m["kty"])
 	if kty == "RSA" || kty == "EC" || kty == "OKP" {
 		for _, name := range privateMembers {
 			if _, found := m[name]; found {
@@ -163,12 +163,12 @@ func classify(m map[string]jsontext.Value) (k Key, ok bool, err error) {
 // present and malformed, or alg names a row of another key type.
 func identity(m map[string]jsontext.Value, f family) (kid string, hasKID bool, alg Alg, ok bool) {
 	if _, found := m["kid"]; found {
-		if kid, hasKID = jsonmember.String(m, "kid"); !hasKID {
+		if kid, hasKID = jsonmember.String(m["kid"]); !hasKID {
 			return "", false, 0, false
 		}
 	}
 	if _, found := m["alg"]; found {
-		name, _ := jsonmember.String(m, "alg")
+		name, _ := jsonmember.String(m["alg"])
 		if alg, ok = ParseAlg(name); !ok || alg.row().family != f {
 			return "", false, 0, false
 		}
@@ -180,7 +180,7 @@ func identity(m map[string]jsontext.Value, f family) (kid string, hasKID bool, a
 // verification (RFC 7517 §4.2, §4.3).
 func restrictsNothing(m map[string]jsontext.Value) bool {
 	if _, found := m["use"]; found {
-		if use, _ := jsonmember.String(m, "use"); use != "sig" {
+		if use, _ := jsonmember.String(m["use"]); use != "sig" {
 			return false
 		}
 	}
@@ -238,7 +238,7 @@ func generatedBy65537(r, p uint64) bool {
 }
 
 func ecKey(m map[string]jsontext.Value) (crypto.PublicKey, family, bool) {
-	crv, _ := jsonmember.String(m, "crv")
+	crv, _ := jsonmember.String(m["crv"])
 	var f family
 	var curve elliptic.Curve
 	switch crv {
@@ -266,7 +266,7 @@ func ecKey(m map[string]jsontext.Value) (crypto.PublicKey, family, bool) {
 }
 
 func okpKey(m map[string]jsontext.Value) (crypto.PublicKey, family, bool) {
-	if crv, _ := jsonmember.String(m, "crv"); crv != "Ed25519" {
+	if crv, _ := jsonmember.String(m["crv"]); crv != "Ed25519" {
 		return nil, familyNone, false
 	}
 	x, ok := uintMember(m, "x")
@@ -303,7 +303,7 @@ func smallOrder(x []byte) bool {
 // base64url with zero trailing bits (RFC 4648 §3.5). The alphabet scan
 // comes first because base64's decoder skips CR and LF even when Strict.
 func uintMember(m map[string]jsontext.Value, name string) ([]byte, bool) {
-	s, ok := jsonmember.String(m, name)
+	s, ok := jsonmember.String(m[name])
 	if !ok || strings.ContainsFunc(s, notBase64URL) {
 		return nil, false
 	}

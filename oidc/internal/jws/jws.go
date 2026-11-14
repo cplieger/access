@@ -107,7 +107,7 @@ func (t *Token) readHeader(header []byte) error {
 	if err != nil {
 		return err
 	}
-	name, ok := jsonmember.String(m, "alg")
+	name, ok := jsonmember.String(m["alg"])
 	if !ok {
 		return errors.New("alg is not a string")
 	}
@@ -115,7 +115,7 @@ func (t *Token) readHeader(header []byte) error {
 		return errors.New("alg is not accepted")
 	}
 	if _, found := m["kid"]; found {
-		if t.kid, t.hasKID = jsonmember.String(m, "kid"); !t.hasKID {
+		if t.kid, t.hasKID = jsonmember.String(m["kid"]); !t.hasKID {
 			return errors.New("kid is not a string")
 		}
 	}
@@ -127,7 +127,7 @@ func (t *Token) readHeader(header []byte) error {
 	if _, found := m["typ"]; found {
 		// RFC 7515 §4.1.9 and RFC 7519 §5.1: a media type, compared
 		// case-insensitively, whose "application/" prefix may be omitted.
-		typ, _ := jsonmember.String(m, "typ")
+		typ, _ := jsonmember.String(m["typ"])
 		if !strings.EqualFold(typ, "JWT") && !strings.EqualFold(typ, "application/jwt") {
 			return errors.New("typ is not JWT")
 		}

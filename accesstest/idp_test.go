@@ -302,7 +302,7 @@ func TestIdPRefusedAlgorithmsFailGoOIDC(t *testing.T) {
 }
 
 func TestIdPClaimKnobs(t *testing.T) {
-	empty, wrong := "", "wrong-nonce"
+	empty, wrong, username := "", "wrong-nonce", "other-user"
 	cases := []struct {
 		check func(t *testing.T, idp *accesstest.IdP, header, claims map[string]any, input string, sig []byte)
 		name  string
@@ -338,6 +338,8 @@ func TestIdPClaimKnobs(t *testing.T) {
 			}
 		}},
 		{name: "sub_empty", opts: accesstest.IdPOptions{Subject: &empty}, check: claimIs("sub", "")},
+		{name: "preferred_username", opts: accesstest.IdPOptions{PreferredUsername: &username}, check: claimIs("preferred_username", "other-user")},
+		{name: "preferred_username_empty", opts: accesstest.IdPOptions{PreferredUsername: &empty}, check: claimIs("preferred_username", "")},
 		{name: "email_verified_string", opts: accesstest.IdPOptions{EmailVerified: "true"}, check: claimIs("email_verified", "true")},
 		{name: "auth_time_absent", opts: accesstest.IdPOptions{OmitAuthTime: true}, check: func(t *testing.T, _ *accesstest.IdP, _, c map[string]any, _ string, _ []byte) {
 			if _, ok := c["auth_time"]; ok {
