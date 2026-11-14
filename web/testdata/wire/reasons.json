@@ -34,6 +34,7 @@
   "contains_forbidden_word",
   "common",
   "breached",
+  "is_temporary_password",
   "out_of_band_only",
   "key_not_current",
   "key_retiring",

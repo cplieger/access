@@ -12,12 +12,14 @@ type Method string
 
 // Auth method identifiers stored in sessions and used for method guards.
 const (
-	MethodPassword Method = "password"
-	MethodPasskey  Method = "passkey"
-	MethodOIDC     Method = "oidc"
-	MethodRecovery Method = "recovery" // the restricted session a recovery token opens
-	MethodAPIKey   Method = "api_key"
-	MethodBypass   Method = "bypass"
+	MethodPassword     Method = "password"
+	MethodPasskey      Method = "passkey"
+	MethodOIDC         Method = "oidc"
+	MethodTOTP         Method = "totp"
+	MethodRecoveryCode Method = "recovery_code"
+	MethodRecovery     Method = "recovery" // the restricted session a recovery token opens
+	MethodAPIKey       Method = "api_key"
+	MethodBypass       Method = "bypass"
 )
 
 // Role is a typed string identifying a user's authorization level.
@@ -61,6 +63,11 @@ type User struct {
 
 	ID      int64 `json:"id"`
 	Enabled bool  `json:"-"`
+	// Owner marks a break-glass account; an owner always has RoleAdmin.
+	Owner bool `json:"-"`
+	// WaitingApproval marks a registration an admin has not approved yet;
+	// such an account is also not Enabled.
+	WaitingApproval bool `json:"-"`
 }
 
 // Clone returns a deep copy, or nil for a nil u.
@@ -73,13 +80,16 @@ func (u *User) Clone() *User {
 	return &c
 }
 
-// LogValue emits the id, username and role, and presence markers for the
-// password hash, the WebAuthn handle and the OIDC link.
+// LogValue emits the id, username, role, owner and waiting flags, and
+// presence markers for the password hash, the WebAuthn handle and the OIDC
+// link.
 func (u User) LogValue() slog.Value { //nolint:gocritic // hugeParam: a value receiver applies LogValue to a User value too
 	return slog.GroupValue(
 		slog.Int64("id", u.ID),
 		slog.String("username", u.Username),
 		slog.String("role", string(u.Role)),
+		slog.Bool("owner", u.Owner),
+		slog.Bool("waiting_approval", u.WaitingApproval),
 		slog.Bool("has_password", !u.PasswordHash.IsZero()),
 		slog.Bool("has_webauthn_handle", len(u.WebAuthnHandle) > 0),
 		slog.Bool("has_oidc", !u.OIDC.IsZero()),
@@ -457,4 +467,69 @@ func (a *KeyAttribution) Clone() *KeyAttribution {
 // Contains reports whether keyID is in KeyLineage.
 func (a KeyAttribution) Contains(keyID int64) bool { //nolint:gocritic // hugeParam: a value receiver keeps it callable on a non-addressable record
 	return slices.Contains(a.KeyLineage, keyID)
+}
+
+// TOTP is a user's authenticator-app record, one per user. Sealed is the
+// secret sealed with [Sealer.SealAtRest] for the purpose "totp:" and the
+// user's ID, so a record copied onto another user's row does not open.
+// LastStep is the highest time step accepted, which no later code may
+// reuse.
+type TOTP struct {
+	CreatedAt time.Time
+	Sealed    string `json:"-"`
+	UserID    int64
+	LastStep  int64
+}
+
+// LogValue emits the user, creation time and last step, never Sealed.
+func (t TOTP) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Int64("user_id", t.UserID),
+		slog.Time("created_at", t.CreatedAt),
+		slog.Int64("last_step", t.LastStep),
+	)
+}
+
+// RecoveryCode is a user's saved recovery code, one per user, stored only
+// as the password hasher's salted hash (NIST SP 800-63B-4 §4.2.1.1).
+type RecoveryCode struct {
+	CreatedAt time.Time
+	Hash      Hash `json:"-"`
+	UserID    int64
+}
+
+// LogValue emits the user and creation time, never Hash.
+func (c RecoveryCode) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Int64("user_id", c.UserID),
+		slog.Time("created_at", c.CreatedAt),
+	)
+}
+
+// TemporaryPassword is an admin-issued, single-use password, one per user,
+// kept apart from [User.PasswordHash], so a store that drops it fails
+// closed. IssuedByUser is the issuing admin and IssuedByKey the issuing API
+// key; both are zero for an out-of-band issue. Dormant marks one issued
+// while the user's local methods were dormant, whose one use is the admin
+// link.
+type TemporaryPassword struct {
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+	Hash         Hash `json:"-"`
+	UserID       int64
+	IssuedByUser int64
+	IssuedByKey  int64
+	Dormant      bool
+}
+
+// LogValue emits every field but Hash.
+func (p TemporaryPassword) LogValue() slog.Value { //nolint:gocritic // hugeParam: a value receiver applies LogValue to a TemporaryPassword value too
+	return slog.GroupValue(
+		slog.Int64("user_id", p.UserID),
+		slog.Int64("issued_by_user", p.IssuedByUser),
+		slog.Int64("issued_by_key", p.IssuedByKey),
+		slog.Bool("dormant", p.Dormant),
+		slog.Time("created_at", p.CreatedAt),
+		slog.Time("expires_at", p.ExpiresAt),
+	)
 }

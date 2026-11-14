@@ -51,6 +51,7 @@ func TestChallenge(t *testing.T) {
 		{"rfc6750_3_unknown_passkey", "auth_unknown_credential", "", bare},
 		{"rfc6750_3_assertion", "auth_assertion_failed", "", bare},
 		{"rfc6750_3_sso", "auth_oidc_failed", "", bare},
+		{"rfc6750_3_second_factor_code", "auth_code_invalid", "", bare},
 	}
 	challenged := map[access.Code]bool{}
 	for _, tc := range rows {

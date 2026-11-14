@@ -99,6 +99,13 @@ func TestErrorCodeTable(t *testing.T) {
 		{name: "oidc_stale", err: oidc.ErrStaleAuthentication, code: "auth_oidc_failed", reason: "stale_authentication"},
 		{name: "not_found", err: account.ErrNotFound, code: "auth_not_found"},
 		{name: "method_not_allowed", err: errMethodNotAllowed, code: "auth_method_not_allowed"},
+		{name: "code_invalid", err: account.ErrCodeInvalid, code: "auth_code_invalid"},
+		{name: "second_factor_required", err: account.ErrSecondFactorRequired, code: "auth_second_factor_required"},
+		{name: "second_factor_unavailable", err: account.ErrSecondFactorUnavailable, code: "auth_second_factor_unavailable"},
+		{name: "totp_disabled", err: account.ErrTOTPDisabled, code: "auth_totp_disabled"},
+		{name: "registration_closed", err: account.ErrRegistrationClosed, code: "auth_registration_closed"},
+		{name: "registration_full", err: account.ErrRegistrationFull, code: "auth_registration_full"},
+		{name: "sso_only", err: account.ErrSSOOnly, code: "auth_sso_only"},
 	}
 	reached := map[access.Code]bool{}
 	for _, row := range rows {

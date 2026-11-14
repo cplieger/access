@@ -9,10 +9,11 @@ import (
 
 // TestPasswordRejections pins the list to the wire values and to this
 // package's validators: each validator rejection is listed, and each listed
-// value but breached, which account produces, comes from a validator.
+// value but the last two, breached and is_temporary_password (design 4.9,
+// 4.12), which account produces, comes from a validator.
 func TestPasswordRejections(t *testing.T) {
 	t.Parallel()
-	want := []PasswordRejection{"too_short", "too_long", "contains_username", "contains_forbidden_word", "common", "breached"}
+	want := []PasswordRejection{"too_short", "too_long", "contains_username", "contains_forbidden_word", "common", "breached", "is_temporary_password"}
 	if got := PasswordRejections(); !slices.Equal(got, want) {
 		t.Fatalf("PasswordRejections() = %v, want %v", got, want)
 	}
@@ -23,7 +24,8 @@ func TestPasswordRejections(t *testing.T) {
 		PasswordContainsForbiddenWord: ValidatePasswordContext("examplecorp2026", PasswordContext{ForbiddenWords: []string{"examplecorp"}}),
 		PasswordCommon:                ValidatePasswordCommon("qazwsxedcrfvtgb"),
 	}
-	for _, r := range want[:len(want)-1] {
+	validators := want[:len(want)-2]
+	for _, r := range validators {
 		t.Run(string(r), func(t *testing.T) {
 			t.Parallel()
 			pe, ok := errors.AsType[*PasswordError](produced[r])
@@ -32,7 +34,7 @@ func TestPasswordRejections(t *testing.T) {
 			}
 		})
 	}
-	if len(produced) != len(want)-1 {
-		t.Errorf("%d producers for %d validator rejections", len(produced), len(want)-1)
+	if len(produced) != len(validators) {
+		t.Errorf("%d producers for %d validator rejections", len(produced), len(validators))
 	}
 }

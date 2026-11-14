@@ -9,7 +9,16 @@ export type Validator<T> = (value: unknown) => T | undefined;
 /** @internal Go's Role constants. */
 export const ROLES = ["admin", "user"] as const;
 /** @internal Go's Method constants. */
-export const METHODS = ["password", "passkey", "oidc", "recovery", "api_key", "bypass"] as const;
+export const METHODS = [
+  "password",
+  "passkey",
+  "oidc",
+  "totp",
+  "recovery_code",
+  "recovery",
+  "api_key",
+  "bypass",
+] as const;
 /** @internal Go's TokenPurpose constants. */
 export const TOKEN_PURPOSES = ["setup", "recovery", "invite"] as const;
 
@@ -801,8 +810,14 @@ export const CODES = [
   "auth_password_rejected",
   "auth_breach_check_unavailable",
   "auth_password_login_disabled",
+  "auth_code_invalid",
+  "auth_second_factor_required",
+  "auth_second_factor_unavailable",
+  "auth_totp_disabled",
   "auth_setup_complete",
   "auth_setup_token_required",
+  "auth_registration_closed",
+  "auth_registration_full",
   "auth_token_invalid",
   "auth_last_method",
   "auth_identity_taken",
@@ -820,6 +835,7 @@ export const CODES = [
   "auth_registration_failed",
   "auth_oidc_unavailable",
   "auth_oidc_failed",
+  "auth_sso_only",
   "auth_not_found",
   "auth_method_not_allowed",
 ] as const;
@@ -864,6 +880,7 @@ export const REASONS = [
   "contains_forbidden_word",
   "common",
   "breached",
+  "is_temporary_password",
   "out_of_band_only",
   "key_not_current",
   "key_retiring",

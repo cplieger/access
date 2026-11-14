@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -21,6 +22,11 @@ var (
 	// ErrSealTooLarge is Seal's refusal of a payload over MaxSealPayload.
 	ErrSealTooLarge = errors.New("access: payload too large to seal")
 )
+
+// atRestPrefix starts the additional data of every at-rest value. Seal and
+// Open panic on a purpose holding its NUL, so no cookie value and no
+// at-rest value share additional data, whatever the purpose strings.
+const atRestPrefix = "access/at-rest\x00"
 
 // SealerKeySize is the length of every Sealer key: AES-256.
 const SealerKeySize = 32
@@ -143,17 +149,70 @@ func (p prefixedNonce) Open(dst, _, ciphertext, additionalData []byte) ([]byte, 
 
 // Seal returns base64url(nonce || ciphertext) of payload under the first
 // key, with expires sealed inside and purpose bound as additional data, so
-// a payload sealed for one cookie cannot open as another. A payload longer
-// than MaxSealPayload is refused with ErrSealTooLarge, so Open never
-// refuses what Seal accepted. Every value carries a random 96-bit nonce,
-// whichever GCM constructor the build accepts, so a first key seals at
-// most 2^32 values: before then, put a new key first and keep the old one
-// after it.
+// a payload sealed for one cookie cannot open as another. A payload over
+// MaxSealPayload is refused with ErrSealTooLarge, so Open never refuses
+// what Seal accepted; a purpose holding a NUL byte panics. Each value
+// carries a random 96-bit nonce, so a first key seals at most 2^32 values,
+// at-rest values included: before then, put a new key first and keep the
+// old one after it.
 func (s *Sealer) Seal(purpose string, payload []byte, expires time.Time) (string, error) {
+	checkSealPurpose(purpose)
 	if len(payload) > MaxSealPayload {
 		return "", ErrSealTooLarge
 	}
 	return sealWith(s.aead(0), purpose, payload, expires), nil
+}
+
+// SealAtRest returns base64url(nonce || ciphertext) of payload under the
+// first key, for a value a store keeps: no expiry is sealed inside, and the
+// additional data is "access/at-rest\x00" + purpose, so it never opens
+// with Open and a Seal value never opens with OpenAtRest. A payload longer
+// than MaxSealPayload is refused with ErrSealTooLarge.
+func (s *Sealer) SealAtRest(purpose string, payload []byte) (string, error) {
+	if len(payload) > MaxSealPayload {
+		return "", ErrSealTooLarge
+	}
+	sealed := s.aead(0).Seal(nil, nil, payload, []byte(atRestPrefix+purpose)) //nolint:gosec // G407: a nil nonce is the API; newAEAD's AEAD draws one per call
+	return sealEncoding.EncodeToString(sealed), nil
+}
+
+// OpenAtRest returns the payload of a value SealAtRest made for purpose,
+// trying each key in ring order, and current, which reports that the
+// ring's first key opened it, so a false answer marks a value to re-seal.
+// It returns ErrSealInvalid for anything it cannot authenticate.
+func (s *Sealer) OpenAtRest(purpose, sealed string) (payload []byte, current bool, err error) {
+	raw, ok := decodeSealed(sealed, sealOverhead)
+	if !ok {
+		return nil, false, ErrSealInvalid
+	}
+	for i := range s.ring {
+		if plain, err := s.aead(i).Open(nil, nil, raw, []byte(atRestPrefix+purpose)); err == nil {
+			return plain, i == 0, nil
+		}
+	}
+	return nil, false, ErrSealInvalid
+}
+
+// checkSealPurpose panics on a Seal or Open purpose holding a NUL byte.
+func checkSealPurpose(purpose string) {
+	if strings.IndexByte(purpose, 0) >= 0 {
+		panic("access: Sealer: a Seal or Open purpose holds a NUL byte")
+	}
+}
+
+// decodeSealed decodes a sealed value of at least minRaw bytes, refusing one
+// over 4096 characters before decoding.
+func decodeSealed(sealed string, minRaw int) ([]byte, bool) {
+	if len(sealed) > maxSealedLen {
+		return nil, false
+	}
+	raw, err := sealEncoding.DecodeString(sealed)
+	// The decoder skips '\r' and '\n'; the length check refuses them, so
+	// exactly one string opens to a given value.
+	if err != nil || sealEncoding.EncodedLen(len(raw)) != len(sealed) || len(raw) < minRaw {
+		return nil, false
+	}
+	return raw, true
 }
 
 // sealWith is Seal under aead, with no bound on the payload's length.
@@ -170,14 +229,11 @@ func sealWith(aead cipher.AEAD, purpose string, payload []byte, expires time.Tim
 // key in ring order. It returns ErrSealInvalid for anything it cannot
 // authenticate, a value over 4096 bytes refused before decoding, and
 // ErrSealExpired for an authentic value when now is not before its expiry.
+// A purpose holding a NUL byte panics, as a programming error.
 func (s *Sealer) Open(purpose, sealed string, now time.Time) ([]byte, error) {
-	if len(sealed) > maxSealedLen {
-		return nil, ErrSealInvalid
-	}
-	raw, err := sealEncoding.DecodeString(sealed)
-	// The decoder skips '\r' and '\n'; the length check refuses them, so
-	// exactly one string opens to a given value.
-	if err != nil || sealEncoding.EncodedLen(len(raw)) != len(sealed) || len(raw) < sealOverhead+sealFrameLen {
+	checkSealPurpose(purpose)
+	raw, ok := decodeSealed(sealed, sealOverhead+sealFrameLen)
+	if !ok {
 		return nil, ErrSealInvalid
 	}
 	for i := range s.ring {

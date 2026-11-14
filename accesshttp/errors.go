@@ -86,6 +86,13 @@ var sentinelCodes = []struct {
 	{oidc.ErrNotAdmitted, access.CodeOIDCFailed, ReasonNotAdmitted},
 	{account.ErrNotFound, access.CodeNotFound, ""},
 	{account.ErrInvalidCredentials, access.CodeInvalidCredentials, ""},
+	{account.ErrCodeInvalid, access.CodeCodeInvalid, ""},
+	{account.ErrSecondFactorRequired, access.CodeSecondFactorRequired, ""},
+	{account.ErrSecondFactorUnavailable, access.CodeSecondFactorUnavailable, ""},
+	{account.ErrTOTPDisabled, access.CodeTOTPDisabled, ""},
+	{account.ErrRegistrationClosed, access.CodeRegistrationClosed, ""},
+	{account.ErrRegistrationFull, access.CodeRegistrationFull, ""},
+	{account.ErrSSOOnly, access.CodeSSOOnly, ""},
 }
 
 // routeError maps err for a route answering codes. broken reports a code

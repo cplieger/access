@@ -15,7 +15,9 @@ import (
 )
 
 // specCodes is the specified code table, in Codes order, each code with its
-// status and detail; it is written from the spec, not from the table.
+// status and detail; it is written from the spec, not from the table. The
+// second-factor and registration rows are design 4.11's, auth_sso_only is
+// 5.7's, each status as the UI contracts' codes tables give it.
 var specCodes = []struct {
 	code   access.Code
 	detail string
@@ -42,8 +44,14 @@ var specCodes = []struct {
 	{"auth_password_rejected", "The password is not allowed.", 400},
 	{"auth_breach_check_unavailable", "The password check is unavailable. Try again shortly.", 503},
 	{"auth_password_login_disabled", "Password sign-in is turned off.", 403},
+	{"auth_code_invalid", "That code is not right.", 401},
+	{"auth_second_factor_required", "A second factor is required.", 403},
+	{"auth_second_factor_unavailable", "The second factor cannot be checked right now. Try again later.", 503},
+	{"auth_totp_disabled", "Authenticator apps are turned off in this app.", 403},
 	{"auth_setup_complete", "Setup is already complete.", 409},
 	{"auth_setup_token_required", "A setup token is required.", 401},
+	{"auth_registration_closed", "Sign-ups are closed.", 403},
+	{"auth_registration_full", "Sign-ups are paused until an administrator reviews the waiting accounts.", 403},
 	{"auth_token_invalid", "The link is not valid or has expired.", 401},
 	{"auth_last_method", "The last sign-in method cannot be removed.", 409},
 	{"auth_identity_taken", "That identity is linked to another account.", 409},
@@ -61,12 +69,15 @@ var specCodes = []struct {
 	{"auth_registration_failed", "The passkey could not be registered.", 400},
 	{"auth_oidc_unavailable", "Single sign-on is not available.", 400},
 	{"auth_oidc_failed", "Single sign-on failed.", 401},
+	{"auth_sso_only", "Use your organisation's sign-in.", 403},
 	{"auth_not_found", "Not found.", 404},
 	{"auth_method_not_allowed", "Method not allowed.", 405},
 }
 
 // specRetryAfter is the Retry-After the spec gives the 503 codes that carry
-// no limiter window; every other code has none.
+// no limiter window; every other code has none, auth_second_factor_unavailable
+// included: a record whose key is gone opens after an operator restores the
+// key, not after a wait (design 4.3).
 var specRetryAfter = map[access.Code]time.Duration{
 	"auth_busy":                     time.Second,
 	"auth_unavailable":              5 * time.Second,

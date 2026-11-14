@@ -72,6 +72,26 @@ var (
 	// ErrBreachCheckUnavailable is access's sentinel, so either name matches
 	// the refusal under BreachFailClosed.
 	ErrBreachCheckUnavailable = access.ErrBreachCheckUnavailable
+	// ErrCodeInvalid is a TOTP or recovery code that does not match, or a
+	// match refused as reused or locked.
+	ErrCodeInvalid = errors.New("account: the code is not valid")
+	// ErrSecondFactorRequired is a password sign-in or a setting that needs
+	// a second factor the user cannot bind or does not hold.
+	ErrSecondFactorRequired = errors.New("account: a second factor is required")
+	// ErrSecondFactorUnavailable is a TOTP record no Sealer key opens; it
+	// counts as no wrong code.
+	ErrSecondFactorUnavailable = errors.New("account: the second factor cannot be opened")
+	// ErrTOTPDisabled is a TOTP operation under Rules.DisableTOTP.
+	ErrTOTPDisabled = errors.New("account: authenticator apps are turned off")
+	// ErrRegistrationClosed is a registration while Rules.Registration is
+	// off.
+	ErrRegistrationClosed = errors.New("account: registration is closed")
+	// ErrRegistrationFull is a registration while the waiting accounts are
+	// at Rules.MaxWaitingRegistrations.
+	ErrRegistrationFull = errors.New("account: registration is full")
+	// ErrSSOOnly is a local-method operation the stored SSO mode forbids
+	// for the user.
+	ErrSSOOnly = errors.New("account: the identity provider is this account's only sign-in")
 )
 
 // The PolicyError Reasons, in PolicyReasons order. RolePolicy and

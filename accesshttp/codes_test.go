@@ -78,6 +78,13 @@ var accountSentinels = []struct {
 	{name: "oidc_stale", err: oidc.ErrStaleAuthentication, code: access.CodeOIDCFailed},
 	{name: "session_gone", err: account.ErrSessionGone, code: access.CodeSessionExpired},
 	{name: "not_found", err: account.ErrNotFound, code: access.CodeNotFound},
+	{name: "code_invalid", err: account.ErrCodeInvalid, code: access.CodeCodeInvalid},
+	{name: "second_factor_required", err: account.ErrSecondFactorRequired, code: access.CodeSecondFactorRequired},
+	{name: "second_factor_unavailable", err: account.ErrSecondFactorUnavailable, code: access.CodeSecondFactorUnavailable},
+	{name: "totp_disabled", err: account.ErrTOTPDisabled, code: access.CodeTOTPDisabled},
+	{name: "registration_closed", err: account.ErrRegistrationClosed, code: access.CodeRegistrationClosed},
+	{name: "registration_full", err: account.ErrRegistrationFull, code: access.CodeRegistrationFull},
+	{name: "sso_only", err: account.ErrSSOOnly, code: access.CodeSSOOnly},
 }
 
 // finishFailure is §7.2's code for a WebAuthn finish failure the table does
