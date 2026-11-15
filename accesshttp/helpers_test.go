@@ -46,6 +46,8 @@ type env struct {
 	provider atomic.Pointer[oidc.Provider]
 	// around, when set, wraps the handler of every route route returns.
 	around func(Route) http.Handler
+	// sealer is Config.TOTP.Sealer under envOptions.totp.
+	sealer *access.Sealer
 }
 
 type envOptions struct {
@@ -70,6 +72,8 @@ type envOptions struct {
 	mem *accesstest.MemStore
 	// passkeys sets the relying party for testOrigin.
 	passkeys bool
+	// totp wires TOTP with env.sealer.
+	totp bool
 }
 
 // fastParams is OWASP's lightest Argon2id row, so a test hashes quickly at
@@ -157,6 +161,10 @@ func newEnv(t testing.TB, o envOptions) *env {
 		},
 		Logger:     logger,
 		FailureKey: []byte("accesshttp-test-failure-key-32by"),
+	}
+	if o.totp {
+		e.sealer = access.NewEphemeralSealer()
+		cfg.TOTP = account.TOTPConfig{Sealer: e.sealer, Issuer: "Example"}
 	}
 	if o.edit != nil {
 		o.edit(&cfg)

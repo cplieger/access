@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import {
   parseCeremonyResponse,
+  parseCodeRequest,
   parseInviteAcceptRequest,
   parseInviteRequest,
   parseKeyCreatedResponse,
@@ -22,6 +23,7 @@ import {
   parsePendingLinkResponse,
   parseProfileRequest,
   parseRedirectRequest,
+  parseSecondFactorProof,
   parseSecurityLogView,
   parseSessionView,
   parseSetupPasskeyBeginRequest,
@@ -29,6 +31,11 @@ import {
   parseSignInOutcome,
   parseSignedInResponse,
   parseStateResponse,
+  parseStepUpCodeRequest,
+  parseTOTPBeginResponse,
+  parseTOTPFinishRequest,
+  parseTOTPFinishResponse,
+  parseTicketRequest,
   parseTokenRequest,
   parseTokenResponse,
   parseTokenView,
@@ -42,6 +49,7 @@ import type { Validator } from "../wire.js";
 // pins the keys against index.json in both directions.
 export const validators: Readonly<Record<string, Validator<unknown>>> = {
   CeremonyResponse: parseCeremonyResponse,
+  CodeRequest: parseCodeRequest,
   InviteAcceptRequest: parseInviteAcceptRequest,
   InviteRequest: parseInviteRequest,
   KeyCreatedResponse: parseKeyCreatedResponse,
@@ -63,6 +71,7 @@ export const validators: Readonly<Record<string, Validator<unknown>>> = {
   PendingLinkResponse: parsePendingLinkResponse,
   ProfileRequest: parseProfileRequest,
   RedirectRequest: parseRedirectRequest,
+  SecondFactorProof: parseSecondFactorProof,
   SecurityLogView: parseSecurityLogView,
   SessionView: parseSessionView,
   SetupPasskeyBeginRequest: parseSetupPasskeyBeginRequest,
@@ -71,6 +80,11 @@ export const validators: Readonly<Record<string, Validator<unknown>>> = {
   SignInOutcome: parseSignInOutcome,
   SignedInResponse: parseSignedInResponse,
   StateResponse: parseStateResponse,
+  StepUpCodeRequest: parseStepUpCodeRequest,
+  TOTPBeginResponse: parseTOTPBeginResponse,
+  TOTPFinishRequest: parseTOTPFinishRequest,
+  TOTPFinishResponse: parseTOTPFinishResponse,
+  TicketRequest: parseTicketRequest,
   TokenRequest: parseTokenRequest,
   TokenResponse: parseTokenResponse,
   TokenView: parseTokenView,
@@ -150,8 +164,8 @@ export interface WireField {
   readonly open: boolean;
   /** The fields of a struct-typed field, or of each element of a struct-list field. */
   readonly fields?: readonly WireField[];
-  /** One arm of a union type: exactly one of its arms is present. */
-  readonly arm: boolean;
+  /** The arm of a union type the field belongs to: exactly one arm's fields are present. */
+  readonly arm?: string;
 }
 
 function wireFields(at: string, fields: unknown): WireField[] {
@@ -175,16 +189,17 @@ function wireFields(at: string, fields: unknown): WireField[] {
     if (f["open"] === true && values === undefined) {
       throw new Error(`types.json ${at}.${f["name"]} has an open marker without values`);
     }
-    if (f["arm"] !== undefined && (f["arm"] !== true || f["optional"] !== true)) {
+    const arm = f["arm"];
+    if (arm !== undefined && (typeof arm !== "string" || arm === "" || f["optional"] !== true)) {
       throw new Error(
-        `types.json ${at}.${f["name"]} has an arm marker that is not true on an optional field`,
+        `types.json ${at}.${f["name"]} has an arm that is not a name on an optional field`,
       );
     }
     return {
       name: f["name"],
       optional: f["optional"] === true,
       open: f["open"] === true,
-      arm: f["arm"] === true,
+      ...(typeof arm === "string" ? { arm } : {}),
       ...(values === undefined ? {} : { values }),
       ...(f["fields"] === undefined
         ? {}

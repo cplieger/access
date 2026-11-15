@@ -124,24 +124,28 @@ func serveStepUpPasskeyFinish(h *Handler, c *call) error {
 }
 
 func servePasskeys(h *Handler, c *call) error {
-	creds, err := h.acct.Passkeys(c.r.Context(), c.p)
+	passkeys, err := h.acct.Passkeys(c.r.Context(), c.p)
 	if err != nil {
 		return err
 	}
-	views := make([]PasskeyView, len(creds))
-	for i := range creds {
-		views[i] = passkeyView(&creds[i])
+	views := make([]PasskeyView, len(passkeys))
+	for i := range passkeys {
+		views[i] = passkeyView(&passkeys[i])
 	}
 	writeJSON(c.w, http.StatusOK, views)
 	return nil
 }
 
 func servePasskeyRegisterBegin(h *Handler, c *call) error {
+	proof, err := decodeProof(c.w, c.r)
+	if err != nil {
+		return err
+	}
 	origin, err := requestOrigin(c.r)
 	if err != nil {
 		return err
 	}
-	pc, err := h.acct.PasskeyRegisterBegin(c.r.Context(), c.p, origin)
+	pc, err := h.acct.PasskeyRegisterBegin(c.r.Context(), c.client, c.p, origin, proof)
 	if err != nil {
 		return err
 	}
@@ -175,7 +179,11 @@ func servePasskeyRename(h *Handler, c *call) error {
 }
 
 func servePasskeyRemove(h *Handler, c *call) error {
-	if err := h.acct.RemovePasskey(c.r.Context(), c.p, c.id); err != nil {
+	proof, err := decodeProof(c.w, c.r)
+	if err != nil {
+		return err
+	}
+	if err := h.acct.RemovePasskey(c.r.Context(), c.client, c.p, c.id, proof); err != nil {
 		return err
 	}
 	noContent(c.w)

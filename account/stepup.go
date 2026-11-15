@@ -9,14 +9,15 @@ import (
 
 // StepUpPassword re-proves p's user with password and rotates p's session to
 // AuthTime now and AuthMethod MethodPassword, with the device cookie in Issued.
-// A plain c or p is access.ErrHTTPSRequired, any but a full session
-// ErrSessionRequired, Rules.DisablePasswordLogin ErrPasswordLoginDisabled and
-// a dormant user ErrSSOOnly. The attempt is limited on the account and device,
-// never the IP, and counted like PasswordLogin's without an allowance slot. A
-// wrong or locked password is ErrInvalidCredentials, a session rotated or
-// ended meanwhile ErrSessionGone.
+// Before the limiter: a plain c or p is access.ErrHTTPSRequired, any but a full
+// session ErrSessionRequired, Rules.DisablePasswordLogin ErrPasswordLoginDisabled,
+// a dormant user ErrSSOOnly and one holding a second factor ErrSecondFactorHeld.
+// The attempt is limited on the account and device and counted like
+// PasswordLogin's without an allowance slot. A wrong or locked password is
+// ErrInvalidCredentials, a session rotated or ended meanwhile ErrSessionGone.
 func (s *Service) StepUpPassword(ctx context.Context, c Client, p access.Principal, password access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
-	if err := s.passwordStepUpAdmitted(ctx, c, p); err != nil {
+	r, err := s.passwordStepUpAdmitted(ctx, c, p)
+	if err != nil {
 		return Issued{}, err
 	}
 	canonical := p.User.Username
@@ -36,6 +37,9 @@ func (s *Service) StepUpPassword(ctx context.Context, c Client, p access.Princip
 		}
 		if modeErr := requireLocal(ctx, tx, u, ErrSSOOnly); modeErr != nil {
 			return modeErr
+		}
+		if heldErr := s.refuseHeld(ctx, tx, r, u); heldErr != nil {
+			return heldErr
 		}
 		var rotErr error
 		if rot, rotErr = s.rotate(ctx, tx, p, u.ID, access.MethodPassword); rotErr != nil {
@@ -59,17 +63,37 @@ func (s *Service) StepUpPassword(ctx context.Context, c Client, p access.Princip
 }
 
 // passwordStepUpAdmitted is StepUpPassword's refusals before any limiter
-// charge, in its godoc's order.
-func (s *Service) passwordStepUpAdmitted(ctx context.Context, c Client, p access.Principal) error { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
+// charge, in its godoc's order, and the operation's Rules.
+func (s *Service) passwordStepUpAdmitted(ctx context.Context, c Client, p access.Principal) (Rules, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
 	r, err := s.beginOver(plainRefused, c.Secure && p.Secure)
 	if err != nil {
-		return err
+		return Rules{}, err
 	}
 	if sessErr := requireSession(p); sessErr != nil {
-		return sessErr
+		return Rules{}, sessErr
 	}
 	if r.DisablePasswordLogin {
-		return ErrPasswordLoginDisabled
+		return Rules{}, ErrPasswordLoginDisabled
 	}
-	return s.localAllowed(ctx, p.User)
+	u, err := s.ownUser(ctx, p)
+	if err != nil {
+		return Rules{}, err
+	}
+	if modeErr := s.localAllowed(ctx, u); modeErr != nil {
+		return Rules{}, modeErr
+	}
+	return r, answer(s.refuseHeld(ctx, s.store, r, u))
+}
+
+// refuseHeld is a refused ErrSecondFactorHeld, read through tx, for a user
+// holding a second factor: a password alone never steps them up.
+func (s *Service) refuseHeld(ctx context.Context, tx Tx, r Rules, u *access.User) error { //nolint:gocritic // hugeParam: the operation's one Rules value
+	held, err := s.secondFactorHeld(ctx, tx, r, u)
+	switch {
+	case err != nil:
+		return err
+	case held:
+		return refuse(ErrSecondFactorHeld)
+	}
+	return nil
 }

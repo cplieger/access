@@ -37,6 +37,7 @@ func operationScenarios() map[scenarioKey]scenario {
 	maps.Copy(out, selfScenarios())
 	maps.Copy(out, adminScenarios())
 	maps.Copy(out, ssoScenarios())
+	maps.Copy(out, totpScenarios())
 	maps.Copy(out, plainScenarios())
 	return out
 }
@@ -50,7 +51,7 @@ func plainScenarios() map[scenarioKey]scenario {
 	out := map[scenarioKey]scenario{}
 	anonymous := []string{
 		"authSetupPassword", "authSetupPasskeyBegin", "authSetupPasskeyFinish", "authLoginPassword", "authLoginPasskeyBegin",
-		"authLoginPasskeyFinish", "authInviteAcceptPassword", "authInviteAcceptOIDC", "authOIDCStartSignIn", "authOIDCCallback", "authOIDCPending", "authOIDCCreatePending",
+		"authLoginPasskeyFinish", "authLoginCode", "authLoginSecondPasskeyBegin", "authLoginSecondPasskeyFinish", "authInviteAcceptPassword", "authInviteAcceptOIDC", "authOIDCStartSignIn", "authOIDCCallback", "authOIDCPending", "authOIDCCreatePending",
 	}
 	for _, route := range anonymous {
 		out[scenarioKey{route, access.CodeHTTPSRequired}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
@@ -123,12 +124,14 @@ func with(opts ...envOptions) envOptions {
 			out.mem = o.mem
 		}
 		out.passkeys = out.passkeys || o.passkeys
+		out.totp = out.totp || o.totp
 	}
 	return out
 }
 
 var (
 	passkeys      = envOptions{passkeys: true}
+	totpOn        = envOptions{totp: true}
 	limited       = envOptions{limits: ipLimit}
 	tokenRequired = envOptions{rules: func(r *account.Rules) { r.SetupTokenRequired = nil }}
 	vanishes      = envOptions{wrap: vanish}

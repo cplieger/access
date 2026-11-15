@@ -52,6 +52,7 @@ type opWorld struct {
 	// client is the Client every call is made from; a prep arranges its
 	// records from localClient.
 	client account.Client
+	sealer *access.Sealer // Config.TOTP.Sealer
 	// census makes an out-of-band operation's Actor As(p) for every p,
 	// the zero principal included.
 	census bool
@@ -69,7 +70,7 @@ type worldOptions struct {
 
 func newOpWorld(t *testing.T, o worldOptions) *opWorld {
 	t.Helper()
-	w := &opWorld{fs: newFaultStore(), devs: map[int64]*accesstest.PasskeyDevice{}, client: localClient}
+	w := &opWorld{fs: newFaultStore(), devs: map[int64]*accesstest.PasskeyDevice{}, client: localClient, sealer: access.NewEphemeralSealer()}
 	rules := func() account.Rules {
 		r := keyRules()
 		r.SetupTokenRequired = tokenless
@@ -79,10 +80,12 @@ func newOpWorld(t *testing.T, o worldOptions) *opWorld {
 		}
 		return r
 	}
-	opts := options{store: w.fs, rules: rules, posture: o.posture}
-	if o.policy != nil {
-		opts.edit = func(c *account.Config) { c.Policy = o.policy }
-	}
+	opts := options{store: w.fs, rules: rules, posture: o.posture, edit: func(c *account.Config) {
+		c.TOTP = account.TOTPConfig{Sealer: w.sealer, Issuer: testIssuer}
+		if o.policy != nil {
+			c.Policy = o.policy
+		}
+	}}
 	if o.scoped {
 		opts = keyOptions(opts, nil)
 	}
@@ -199,6 +202,38 @@ func (w *opWorld) keysOfUser(t *testing.T, u *access.User) []int64 {
 	ids := keyIDs(keysOf(t, w.mem, u.ID))
 	slices.Sort(ids)
 	return ids
+}
+
+// pendingTicket gives alice a TOTP record and answers her pending sign-in
+// from w.client, or from localClient where w.client's step 1 is refused,
+// with the record's secret.
+func (w *opWorld) pendingTicket(t *testing.T) (access.Secret, []byte) {
+	t.Helper()
+	secret := sealTOTP(t, w.mem, w.sealer, w.alice)
+	for _, c := range []account.Client{w.client, localClient} {
+		out, err := w.step1(t.Context(), c, "alice", goodPassword)
+		if err == nil && out.Pending != nil {
+			return out.Pending.Ticket, secret
+		}
+	}
+	t.Fatal("alice's step 1 answered no pending sign-in")
+	return access.Secret{}, nil
+}
+
+// secondPasskey begins alice's passkey second step from localClient and
+// answers its ceremony and her device's assertion.
+func (w *opWorld) secondPasskey(t *testing.T) (account.PendingCeremony, []byte) {
+	t.Helper()
+	sealTOTP(t, w.mem, w.sealer, w.alice)
+	out, err := w.step1(t.Context(), localClient, "alice", goodPassword)
+	if err != nil || out.Pending == nil {
+		t.Fatalf("alice's step 1 = %v, want a pending sign-in", err)
+	}
+	pc, err := w.svc.SecondFactorPasskeyBegin(t.Context(), localClient, out.Pending.Ticket, w.origin)
+	if err != nil {
+		t.Fatalf("SecondFactorPasskeyBegin: %v", err)
+	}
+	return pc, w.devs[w.alice.ID].Assert(browserJSON(t, pc.Assertion))
 }
 
 // opCall is one arranged call: run makes it, and want, read after it
@@ -318,6 +353,39 @@ func publicOperations() []operation {
 					return err
 				},
 				want: func() []account.Event { return []account.Event{signedIn(in, access.MethodPassword)} },
+			}
+		}},
+		{name: "SignInWithCode", class: classPublic, transport: plainPerRequest, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket, secret := w.pendingTicket(t)
+			var out account.LoginResult
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					out, err = w.svc.SignInWithCode(ctx, w.client, ticket, codeNow(secret))
+					return err
+				},
+				want: func() []account.Event { return []account.Event{signedIn(out.SignedIn, access.MethodPassword)} },
+			}
+		}},
+		{name: "SecondFactorPasskeyBegin", class: classPublic, transport: plainRefused, readOnly: true, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			sealTOTP(t, w.mem, w.sealer, w.alice)
+			out, err := w.step1(t.Context(), localClient, "alice", goodPassword)
+			if err != nil || out.Pending == nil {
+				t.Fatalf("alice's step 1 = %v, want a pending sign-in", err)
+			}
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.SecondFactorPasskeyBegin(ctx, w.client, out.Pending.Ticket, w.origin)
+				return err
+			}, want: none}
+		}},
+		{name: "SecondFactorPasskeyFinish", class: classPublic, transport: plainRefused, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			pc, assertion := w.secondPasskey(t)
+			var out account.LoginResult
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					out, err = w.svc.SecondFactorPasskeyFinish(ctx, w.client, pc.ID, bytes.NewReader(assertion))
+					return err
+				},
+				want: func() []account.Event { return []account.Event{signedIn(out.SignedIn, access.MethodPassword)} },
 			}
 		}},
 		{name: "PasskeyLoginBegin", class: classPublic, transport: plainRefused, readOnly: true, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
@@ -448,6 +516,29 @@ func sessionOperations() []operation {
 				}),
 			}
 		}},
+		{name: "StepUpCode", class: classSession, transport: plainRefused, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			secret := sealTOTP(t, w.mem, w.sealer, w.owner(t, p))
+			return opCall{
+				run: func(ctx context.Context) error {
+					_, err := w.svc.StepUpCode(ctx, w.client, p, codeNow(secret))
+					return err
+				},
+				want: events(account.Event{
+					Kind: account.EventSteppedUp, UserID: actorOf(p).UserID, Method: access.MethodTOTP,
+					SessionIDs: []string{p.SessionID}, Actor: actorOf(p),
+				}),
+			}
+		}},
+		{name: "RemoveTOTP", class: classSession, transport: plainAllowed, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			u := w.owner(t, p)
+			secret := sealTOTP(t, w.mem, w.sealer, u)
+			return opCall{
+				run: func(ctx context.Context) error {
+					return w.svc.RemoveTOTP(ctx, w.client, p, account.ProofCode(codeNow(secret)))
+				},
+				want: events(account.Event{Kind: account.EventTOTPRemoved, UserID: u.ID, Actor: actorOf(p)}),
+			}
+		}},
 		{name: "StepUpPasskeyBegin", class: classSession, transport: plainRefused, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
 			return opCall{run: func(ctx context.Context) error { _, err := w.svc.StepUpPasskeyBegin(ctx, p, w.origin); return err }, want: none}
 		}},
@@ -548,12 +639,31 @@ func recentOperations() []operation {
 				want: events(account.Event{Kind: account.EventPasswordRemoved, UserID: u.ID, Method: access.MethodPassword, Actor: actorOf(p)}),
 			}
 		}},
+		{name: "BeginTOTP", class: classRecentAuth, transport: plainRefused, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
+			return opCall{run: func(ctx context.Context) error { _, err := w.svc.BeginTOTP(ctx, p); return err }, want: none}
+		}},
+		{name: "FinishTOTP", class: classRecentAuth, transport: plainRefused, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			e, err := w.svc.BeginTOTP(t.Context(), p)
+			if err != nil {
+				if e, err = w.svc.BeginTOTP(t.Context(), w.actorFor(t, classRecentAuth)); err != nil {
+					t.Fatalf("BeginTOTP with the default principal = %v", err)
+				}
+			}
+			in := account.TOTPFinish{Ticket: e.Ticket, Code: codeNow(secretOf(t, e))}
+			return opCall{
+				run:  func(ctx context.Context) error { _, err := w.svc.FinishTOTP(ctx, w.client, p, in); return err },
+				want: events(account.Event{Kind: account.EventTOTPAdded, UserID: actorOf(p).UserID, Actor: actorOf(p)}),
+			}
+		}},
 		{name: "PasskeyRegisterBegin", class: classRecentAuth, transport: plainRefused, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
-			return opCall{run: func(ctx context.Context) error { _, err := w.svc.PasskeyRegisterBegin(ctx, p, w.origin); return err }, want: none}
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.PasskeyRegisterBegin(ctx, w.client, p, w.origin, account.SecondFactorProof{})
+				return err
+			}, want: none}
 		}},
 		{name: "PasskeyRegisterFinish", class: classRecentAuth, transport: plainRefused, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			_, pc := finishWith(t, w, classRecentAuth, p, func(q access.Principal) (account.PendingCeremony, error) {
-				return w.svc.PasskeyRegisterBegin(t.Context(), q, w.origin)
+				return w.svc.PasskeyRegisterBegin(t.Context(), w.client, q, w.origin, account.SecondFactorProof{})
 			})
 			body := accesstest.NewPasskeyDevice(t).Register(browserJSON(t, pc.Creation))
 			var reg account.Registered
@@ -563,7 +673,7 @@ func recentOperations() []operation {
 					return err
 				},
 				want: func() []account.Event {
-					return []account.Event{{Kind: account.EventPasskeyAdded, UserID: actorOf(p).UserID, PasskeyID: reg.Passkey.ID, Actor: actorOf(p)}}
+					return []account.Event{{Kind: account.EventPasskeyAdded, UserID: actorOf(p).UserID, PasskeyID: reg.Passkey.Credential.ID, Actor: actorOf(p)}}
 				},
 			}
 		}},
@@ -571,7 +681,9 @@ func recentOperations() []operation {
 			u := w.owner(t, p)
 			id := w.storedPasskey(t, u)
 			return opCall{
-				run:  func(ctx context.Context) error { return w.svc.RemovePasskey(ctx, p, id) },
+				run: func(ctx context.Context) error {
+					return w.svc.RemovePasskey(ctx, w.client, p, id, account.SecondFactorProof{})
+				},
 				want: events(account.Event{Kind: account.EventPasskeyRemoved, UserID: u.ID, PasskeyID: id, Actor: actorOf(p)}),
 			}
 		}},

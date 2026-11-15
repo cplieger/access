@@ -156,6 +156,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 		},
 		PasskeyCount: 2, HasPassword: true, OIDCLinked: true, OIDCAvailable: true, PasskeysAvailable: true, PasswordLogin: true,
 		SecondFactorHeld: true, PasswordStepUp: true,
+		TOTP: account.TOTPState{Since: created, Enrolled: true, Usable: true, Removable: true},
 	}
 	wantMethods := MethodsView{
 		Locks: []MethodLockView{
@@ -164,6 +165,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 		},
 		PasskeyCount: 2, Password: true, OIDCLinked: true, OIDCAvailable: true, PasskeysAvailable: true, PasswordLogin: true,
 		SecondFactorHeld: true, PasswordStepUp: true,
+		TOTP: TOTPView{Since: created, Enrolled: true, Usable: true, Removable: true},
 	}
 	at := func(h int) time.Time { return created.Add(time.Duration(h) * time.Hour) }
 	me := account.Me{
@@ -180,13 +182,13 @@ func TestViewsCarryEveryField(t *testing.T) {
 	wantListed := wantUser
 	wantListed.Methods = &UserMethodsView{Password: true, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true}
 	wantListed.KeyLineage = []int64{3, 5}
-	passkey := access.PasskeyCredential{
+	passkey := account.Passkey{Credential: access.PasskeyCredential{
 		ID: 2, Name: "laptop", RPID: testRPID, CreatedAt: at(1), LastUsedAt: at(2),
 		BackupEligible: true, BackupState: true, CloneWarning: true,
-	}
+	}, Removable: true}
 	wantPasskey := PasskeyView{
 		ID: 2, Name: "laptop", RPID: testRPID, CreatedAt: at(1), LastUsedAt: at(2),
-		BackupEligible: true, BackedUp: true, CloneWarning: true,
+		BackupEligible: true, BackedUp: true, CloneWarning: true, Removable: true,
 	}
 	session := access.Session{
 		ID: "sess", Label: "laptop", UserAgent: "Firefox", LastIP: "192.0.2.1", AuthMethod: access.MethodPasskey,
@@ -291,6 +293,9 @@ func TestViewsCarryEveryField(t *testing.T) {
 			{account.Methods{PasskeyCount: 3}, MethodsView{PasskeyCount: 3}, "passkey_count"},
 			{account.Methods{SecondFactorHeld: true}, MethodsView{SecondFactorHeld: true}, "second_factor_held"},
 			{account.Methods{PasswordStepUp: true}, MethodsView{PasswordStepUp: true}, "password_step_up"},
+			{account.Methods{TOTP: account.TOTPState{Enrolled: true}}, MethodsView{TOTP: TOTPView{Enrolled: true}}, "totp_enrolled"},
+			{account.Methods{TOTP: account.TOTPState{Usable: true}}, MethodsView{TOTP: TOTPView{Usable: true}}, "totp_usable"},
+			{account.Methods{TOTP: account.TOTPState{Removable: true}}, MethodsView{TOTP: TOTPView{Removable: true}}, "totp_removable"},
 		} {
 			tc.want.Locks = []MethodLockView{}
 			if got := methodsView(tc.in); !reflect.DeepEqual(got, tc.want) {
@@ -300,13 +305,14 @@ func TestViewsCarryEveryField(t *testing.T) {
 	})
 	t.Run("passkey_flags_one_at_a_time", func(t *testing.T) {
 		for _, tc := range []struct {
-			in   access.PasskeyCredential
+			in   account.Passkey
 			want PasskeyView
 			name string
 		}{
-			{access.PasskeyCredential{BackupEligible: true}, PasskeyView{BackupEligible: true}, "backup_eligible"},
-			{access.PasskeyCredential{BackupState: true}, PasskeyView{BackedUp: true}, "backed_up"},
-			{access.PasskeyCredential{CloneWarning: true}, PasskeyView{CloneWarning: true}, "clone_warning"},
+			{account.Passkey{Credential: access.PasskeyCredential{BackupEligible: true}}, PasskeyView{BackupEligible: true}, "backup_eligible"},
+			{account.Passkey{Credential: access.PasskeyCredential{BackupState: true}}, PasskeyView{BackedUp: true}, "backed_up"},
+			{account.Passkey{Credential: access.PasskeyCredential{CloneWarning: true}}, PasskeyView{CloneWarning: true}, "clone_warning"},
+			{account.Passkey{Removable: true}, PasskeyView{Removable: true}, "removable"},
 		} {
 			if got := passkeyView(&tc.in); got != tc.want {
 				t.Errorf("%s: view %+v, want %+v", tc.name, got, tc.want)

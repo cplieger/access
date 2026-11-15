@@ -27,6 +27,9 @@ type accountAPI interface {
 	SetupPasskeyBegin(ctx context.Context, c account.Client, in account.SetupPasskey) (account.PendingCeremony, error)
 	SetupPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.SignedIn, error)
 	PasswordLogin(ctx context.Context, c account.Client, in account.Credentials) (account.LoginResult, error)
+	SignInWithCode(ctx context.Context, c account.Client, ticket access.Secret, code string) (account.LoginResult, error)
+	SecondFactorPasskeyBegin(ctx context.Context, c account.Client, ticket access.Secret, origin webauthn.Origin) (account.PendingCeremony, error)
+	SecondFactorPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.LoginResult, error)
 	PasskeyLoginBegin(ctx context.Context, c account.Client, origin webauthn.Origin, mode account.LoginMode) (account.PendingCeremony, error)
 	PasskeyLoginFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.SignedIn, error)
 	AdmitOIDC(c account.Client) (*oidc.Provider, error)
@@ -39,6 +42,10 @@ type accountAPI interface {
 	Logout(ctx context.Context, tokenHash access.Hash) error
 	AcceptInvitePassword(ctx context.Context, c account.Client, in account.AcceptInvite) (account.SignedIn, error)
 	StepUpPassword(ctx context.Context, c account.Client, p access.Principal, password access.Secret) (account.Issued, error)
+	StepUpCode(ctx context.Context, c account.Client, p access.Principal, code string) (account.Issued, error)
+	BeginTOTP(ctx context.Context, p access.Principal) (account.TOTPEnrolment, error)
+	FinishTOTP(ctx context.Context, c account.Client, p access.Principal, in account.TOTPFinish) (account.Enrolled, error)
+	RemoveTOTP(ctx context.Context, c account.Client, p access.Principal, proof account.SecondFactorProof) error
 	SetPassword(ctx context.Context, c account.Client, p access.Principal, current, password access.Secret) (account.Issued, error)
 	RemovePassword(ctx context.Context, c account.Client, p access.Principal, current access.Secret) (account.Issued, error)
 	Me(ctx context.Context, p access.Principal) (account.Me, error)
@@ -46,11 +53,11 @@ type accountAPI interface {
 	ReenableMethod(ctx context.Context, p access.Principal, method access.Method) error
 	StepUpPasskeyBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (account.PendingCeremony, error)
 	StepUpPasskeyFinish(ctx context.Context, c account.Client, p access.Principal, ceremonyID string, body io.Reader) (account.Issued, error)
-	Passkeys(ctx context.Context, p access.Principal) ([]access.PasskeyCredential, error)
-	PasskeyRegisterBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (account.PendingCeremony, error)
+	Passkeys(ctx context.Context, p access.Principal) ([]account.Passkey, error)
+	PasskeyRegisterBegin(ctx context.Context, c account.Client, p access.Principal, origin webauthn.Origin, proof account.SecondFactorProof) (account.PendingCeremony, error)
 	PasskeyRegisterFinish(ctx context.Context, p access.Principal, ceremonyID string, body io.Reader) (account.Registered, error)
 	RenamePasskey(ctx context.Context, p access.Principal, id int64, name string) error
-	RemovePasskey(ctx context.Context, p access.Principal, id int64) error
+	RemovePasskey(ctx context.Context, c account.Client, p access.Principal, id int64, proof account.SecondFactorProof) error
 	WebAuthnSignals(ctx context.Context, p access.Principal) (webauthn.Signals, error)
 	Sessions(ctx context.Context, p access.Principal) ([]access.Session, error)
 	RenameSession(ctx context.Context, p access.Principal, in account.SessionLabel) error

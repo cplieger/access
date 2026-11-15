@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/webauthn"
 )
 
@@ -27,8 +28,13 @@ var secretFields = map[string]bool{"password": true, "token": true, "current_pas
 // *http.MaxBytesError or a requestError whose reason names a field, never
 // encoding/json's text, which quotes a mistyped value.
 func decodeJSON[T any](w http.ResponseWriter, r *http.Request) (T, error) {
+	return decodeJSONUpTo[T](w, r, maxBodyBytes)
+}
+
+// decodeJSONUpTo is decodeJSON for a body of at most limit bytes.
+func decodeJSONUpTo[T any](w http.ResponseWriter, r *http.Request, limit int64) (T, error) {
 	var v T
-	data, err := readBody(w, r, maxBodyBytes)
+	data, err := readBody(w, r, limit)
 	if err != nil {
 		return v, err
 	}
@@ -106,11 +112,43 @@ func checkFields(t reflect.Type, present map[string]json.RawMessage) error {
 	return nil
 }
 
+// decodeProof decodes an optional SecondFactorProof body, up to a WebAuthn
+// response's cap since it may carry an assertion: no body, or {}, is no
+// proof, and a body naming both arms, or half of the passkey one, is
+// refused by the field it should not or does not hold.
+func decodeProof(w http.ResponseWriter, r *http.Request) (account.SecondFactorProof, error) {
+	if r.ContentLength == 0 {
+		return account.SecondFactorProof{}, nil
+	}
+	req, err := decodeJSONUpTo[SecondFactorProof](w, r, webauthn.MaxResponseBytes)
+	if err != nil {
+		return account.SecondFactorProof{}, err
+	}
+	passkey := req.Ceremony != "" || len(req.Assertion) > 0
+	switch {
+	case req.Code != "" && passkey:
+		return account.SecondFactorProof{}, fieldRefused("code")
+	case req.Code != "":
+		return account.ProofCode(req.Code), nil
+	case !passkey:
+		return account.SecondFactorProof{}, nil
+	case req.Ceremony == "":
+		return account.SecondFactorProof{}, fieldRefused("ceremony")
+	case len(req.Assertion) == 0:
+		return account.SecondFactorProof{}, fieldRefused("assertion")
+	}
+	return account.ProofPasskey(req.Ceremony, req.Assertion), nil
+}
+
+// fieldRefused is a refusal naming the body field key, the open family of
+// auth_bad_request reasons.
+func fieldRefused(key string) error { return badRequest(key) }
+
 // requireSecret wraps a decoded password or token field; an empty one is
 // the missing field named by key.
 func requireSecret(key, value string) (access.Secret, error) {
 	if value == "" {
-		return access.Secret{}, badRequest(key)
+		return access.Secret{}, fieldRefused(key)
 	}
 	return access.NewSecret(value), nil
 }
@@ -136,7 +174,7 @@ func pathValues(s *routeSpec, r *http.Request, c *call) error {
 		c.sessionID = id
 	case pathMethod:
 		switch m := access.Method(r.PathValue(key)); m {
-		case access.MethodPassword, access.MethodPasskey, access.MethodOIDC:
+		case access.MethodPassword, access.MethodPasskey, access.MethodOIDC, access.MethodTOTP:
 			c.method = m
 		default:
 			return badRequest(key)

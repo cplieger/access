@@ -50,7 +50,7 @@ func browserJSON(t testing.TB, v any) []byte {
 // register enrols dev for pr's user and returns the result.
 func (p *pkFixture) register(t testing.TB, pr access.Principal, dev *accesstest.PasskeyDevice) (account.Registered, error) {
 	t.Helper()
-	pc, err := p.svc.PasskeyRegisterBegin(t.Context(), pr, p.origin)
+	pc, err := p.svc.PasskeyRegisterBegin(t.Context(), localClient, pr, p.origin, account.SecondFactorProof{})
 	if err != nil {
 		t.Fatalf("PasskeyRegisterBegin: %v", err)
 	}
@@ -66,7 +66,7 @@ func (p *pkFixture) enrol(t testing.TB, u *access.User, dev *accesstest.PasskeyD
 	if err != nil {
 		t.Fatalf("PasskeyRegisterFinish: %v", err)
 	}
-	return reg.Passkey
+	return reg.Passkey.Credential
 }
 
 // signIn runs a passkey sign-in in mode from c on dev.

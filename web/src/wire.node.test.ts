@@ -133,7 +133,7 @@ function err(status: number, code?: string, body?: unknown): ApiErr {
 }
 
 // The union types: types.json marks their fields as arms.
-const unions = index.filter((t) => fieldsOf(t).some((x) => x.arm));
+const unions = index.filter((t) => fieldsOf(t).some((x) => x.arm !== undefined));
 
 describe("wire fixtures", () => {
   it("has one validator per Go wire type, and a type for every fixture", () => {
@@ -158,9 +158,9 @@ describe("wire fixtures", () => {
     const f = fixture(type);
     expect(isObject(f)).toBe(true);
     const rows = fieldsOf(type);
-    const arms = rows.filter((x) => x.arm).map((x) => x.name);
-    // A union's fixture sets its first arm alone; each other arm has a variant.
-    const want = arms.length > 0 ? [arms[0]] : rows.map((x) => x.name);
+    const first = rows.find((x) => x.arm !== undefined)?.arm;
+    // A union's fixture sets its first arm's fields alone; each other arm has a variant.
+    const want = rows.filter((x) => first === undefined || x.arm === first).map((x) => x.name);
     expect(Object.keys(f as object).sort()).toEqual(want.sort());
   });
 
@@ -181,7 +181,7 @@ describe("wire fixtures", () => {
       expect(sites.length).toBeGreaterThanOrEqual(fieldsOf(type).length);
       const arms = new Set(
         fieldsOf(type)
-          .filter((x) => x.arm)
+          .filter((x) => x.arm !== undefined)
           .map((x) => x.name),
       );
       for (const { path, optional } of sites) {
@@ -202,19 +202,22 @@ describe("wire fixtures", () => {
 
   const variants = [...fixtures.keys()].filter((n) => !META.has(n) && n.includes("."));
 
-  it("has the five absent-optional variants and one variant per further union arm", () => {
+  it("has the absent-optional variants and one variant per further union arm", () => {
     expect(variants.sort()).toEqual([
       "NewUserRequest.noPassword",
       "PasswordChangeRequest.noCurrent",
       "PendingLinkResponse.noCreate",
+      "SecondFactorProof.passkey",
       "SetupPasskeyBeginRequest.noToken",
       "SetupPasswordRequest.noToken",
       "SignInOutcome.pending",
+      "TOTPFinishRequest.noCurrent",
+      "TOTPFinishResponse.none",
     ]);
   });
 
-  it("SignInOutcome is the one union", () => {
-    expect(unions).toEqual(["SignInOutcome"]);
+  it("SecondFactorProof and SignInOutcome are the unions", () => {
+    expect(unions).toEqual(["SecondFactorProof", "SignInOutcome"]);
   });
 
   it.each(unions)("%s: every arm has a fixture, and two arms or none are refused", (type) => {

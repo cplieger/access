@@ -3,6 +3,7 @@ package account
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"slices"
 	"sync"
 	"time"
 
@@ -15,8 +16,10 @@ const (
 	// maxPendingSignIns bounds the pending sign-ins of existing users,
 	// which only a correct first factor creates.
 	maxPendingSignIns = 10000
-	// ticketLifetime is a pending sign-in's life; it covers installing an
-	// authenticator app.
+	// maxEnrolments bounds the TOTP enrolments begun from a session.
+	maxEnrolments = 10000
+	// ticketLifetime is a pending sign-in's and an enrolment's life; it
+	// covers installing an authenticator app.
 	ticketLifetime = 10 * time.Minute
 )
 
@@ -29,7 +32,9 @@ const (
 	purposeSetup
 	purposeRegister
 	purposeStepUp
-	purposeSignIn // a pending sign-in of an existing user
+	purposeSignIn       // a pending sign-in of an existing user
+	purposeSecondFactor // a passkey assertion as a pending sign-in's second step
+	purposeEnrolTOTP    // a TOTP enrolment a session began
 )
 
 // pendingList is one of the cache's lists. Each has one lifetime, so its
@@ -40,28 +45,44 @@ type pendingList int
 const (
 	listCeremony pendingList = iota
 	listSignIn
+	listEnrolment
 	numLists
 )
 
 func (p pendingPurpose) list() pendingList {
-	if p == purposeSignIn {
+	switch p {
+	case purposeSignIn:
 		return listSignIn
+	case purposeEnrolTOTP:
+		return listEnrolment
+	default:
+		return listCeremony
 	}
-	return listCeremony
 }
 
 // pending is what a begin call or a step leaves for the next.
 type pending struct {
+	enrol      enrolment
 	setupToken access.Hash // the setup token a setup finish spends; zero when setup asked for none
 	ceremony   webauthn.Ceremony
-	user       access.User // the ceremony's user, setup's provisional user, the ticket's user, or zero for a sign-in ceremony
-	ticket     ticket
+	// ticketID is the pending sign-in a second-factor ceremony was begun
+	// for.
+	ticketID access.Secret
+	user     access.User // the ceremony's user, setup's provisional user, the ticket's user, or zero for a sign-in ceremony
+	ticket   ticket
+}
+
+// enrolment is a TOTP enrolment's state between BeginTOTP and FinishTOTP.
+type enrolment struct {
+	issued    time.Time
+	secret    access.Secret
+	sessionID string // the beginning session; no other finishes it
 }
 
 type pendingEntry struct {
+	expires    time.Time
 	prev, next *pendingEntry
 	id         string
-	expires    time.Time
 	value      pending
 	purpose    pendingPurpose
 }
@@ -88,6 +109,7 @@ func newPendingCache(maxCeremonies int) *pendingCache {
 	c := &pendingCache{byID: make(map[string]*pendingEntry), byUser: make(map[int64]*pendingEntry)}
 	c.lists[listCeremony] = entryList{lifetime: webauthn.CeremonyTimeout, max: maxCeremonies}
 	c.lists[listSignIn] = entryList{lifetime: ticketLifetime, max: maxPendingSignIns}
+	c.lists[listEnrolment] = entryList{lifetime: ticketLifetime, max: maxEnrolments}
 	return c
 }
 
@@ -140,6 +162,54 @@ func (c *pendingCache) take(id string, purpose pendingPurpose, now time.Time) (p
 		return pending{}, false
 	}
 	return e.value, true
+}
+
+// peek returns id's entry when it is of purpose and not expired at now,
+// leaving it in place: a second step refused for a wrong code keeps its
+// ticket. A pending sign-in comes back with its own copy of the methods.
+func (c *pendingCache) peek(id string, purpose pendingPurpose, now time.Time) (pending, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.byID[id]
+	if !ok || e.purpose != purpose || !now.Before(e.expires) {
+		return pending{}, false
+	}
+	v := e.value
+	v.ticket.methods = slices.Clone(v.ticket.methods)
+	return v, true
+}
+
+// drop removes id's entry, if any.
+func (c *pendingCache) drop(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.byID[id]; ok {
+		c.unlinkLocked(e)
+	}
+}
+
+// markFailed records that id's pending sign-in met its first refused
+// second step, reporting whether this call is the first; false for an
+// entry that is gone.
+func (c *pendingCache) markFailed(id string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.byID[id]
+	if !ok || e.purpose != purposeSignIn || e.value.ticket.failed {
+		return false
+	}
+	e.value.ticket.failed = true
+	return true
+}
+
+// unmarkFailed undoes markFailed when the security log refused its entry,
+// so the next refusal journals it.
+func (c *pendingCache) unmarkFailed(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.byID[id]; ok && e.purpose == purposeSignIn {
+		e.value.ticket.failed = false
+	}
 }
 
 // dropUser removes userID's pending sign-in, if any.

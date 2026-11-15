@@ -39,13 +39,13 @@ type Rules struct {
 	// library's rule for a local client.
 	SetupTokenRequired func(ctx context.Context, c Client) bool
 	// MethodUsable reports whether m can sign u in now under the app's own
-	// rules; the last-method guard and UsableMethods AND it into every
-	// method they count. tx is what the count reads: a removal's own Update
-	// when it decides, the Store for RemovePassword's pre-check, the
-	// caller's tx in UsableMethods. An app may type-assert tx to its own
-	// transaction type; MethodUsable must not block or call the Store
-	// outside tx. The guard reads Config.RP() and Config.OIDC() as
-	// published. Nil means every held method is usable.
+	// rules: the last-method guard and UsableMethods AND it into every method
+	// they count, and tickets and second factors ask it for passkeys. tx is
+	// what the check reads: the deciding Update, the Store for a pre-check,
+	// Me and Passkeys, or the caller's tx in UsableMethods; an app may
+	// type-assert it. MethodUsable must not block or call the Store outside
+	// tx. Config.RP() and Config.OIDC() are read as published. Nil means
+	// every held method is usable.
 	MethodUsable func(ctx context.Context, tx Tx, u *access.User, m access.Method) bool
 	// SessionCaps returns per-session limits for a session about to be
 	// created for c by sign-in method m, read once before the change that

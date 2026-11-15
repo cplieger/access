@@ -36,6 +36,12 @@ const (
 	ReasonTokenInQuery             = "token_in_query"           // auth_bad_request: a token route got a token in its URL
 	ReasonEnrolNeedsKnownDevice    = "enrol_needs_known_device" // auth_second_factor_required at a password sign-in
 	ReasonNoUsableMethod           = "no_usable_method"         // auth_forbidden: the app allows no next step
+	// ReasonSecondFactorProofRequired is auth_bad_request: a change that
+	// needs a current second factor carried none.
+	ReasonSecondFactorProofRequired = "second_factor_proof_required"
+	ReasonLastSecondFactor          = "last_second_factor"  // auth_last_method: the rule needs the factor kept
+	ReasonSecondFactorHeld          = "second_factor_held"  // auth_second_factor_required: step up with the factor
+	ReasonTOTPNeedsPassword         = "totp_needs_password" // auth_forbidden: TOTP protects only a password
 )
 
 // ownReasons is accesshttp's part of Reasons.
@@ -46,6 +52,7 @@ var ownReasons = []string{
 	ReasonNoUsername, ReasonProvisioningDisabled, ReasonNotAdmitted, ReasonUsernameInvalid,
 	ReasonReenableNeedsOtherMethod, ReasonTrailingData, ReasonMalformedJSON, ReasonContentType, ReasonBody,
 	ReasonUnknownField, ReasonTokenInQuery, ReasonEnrolNeedsKnownDevice, ReasonNoUsableMethod,
+	ReasonSecondFactorProofRequired, ReasonLastSecondFactor, ReasonSecondFactorHeld, ReasonTOTPNeedsPassword,
 }
 
 // providerErrorPrefix starts the Reason of an IdP's own error answer, which
@@ -54,7 +61,7 @@ const providerErrorPrefix = "provider_error:"
 
 // Reasons returns every fixed access.Error Reason, each once, in a stable order:
 // accesshttp's own, then access's ErrorReasons and PasswordRejections, account's PolicyReasons,
-// UsernameReasons, TextErrors and LogFilterReasons, and webauthn's
+// CodeReasons, UsernameReasons, TextErrors and LogFilterReasons, and webauthn's
 // OriginRejections.
 // Two families stay open and are not listed: "provider_error:" followed by
 // an IdP's error code on auth_oidc_failed, and on auth_bad_request the name
@@ -67,6 +74,7 @@ func Reasons() []string {
 		all = append(all, string(r))
 	}
 	all = append(all, account.PolicyReasons()...)
+	all = append(all, account.CodeReasons()...)
 	all = append(all, account.UsernameReasons()...)
 	for _, te := range account.TextErrors() {
 		all = append(all, textReason(te.Field, te.Reason))

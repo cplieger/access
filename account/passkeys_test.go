@@ -43,22 +43,22 @@ func TestPasskeyCeremonies(t *testing.T) {
 			t.Fatalf("first registration = %v", err)
 		}
 		stored := passkeysOf(t, p.mem, u.ID)
-		if len(stored) != 1 || stored[0].ID != first.Passkey.ID || stored[0].RPID != rpID || stored[0].UserID != u.ID {
+		if len(stored) != 1 || stored[0].ID != first.Passkey.Credential.ID || stored[0].RPID != rpID || stored[0].UserID != u.ID {
 			t.Fatalf("stored passkeys = %+v, want the one registered under %s for user %d", stored, rpID, u.ID)
 		}
-		if first.Passkey.Name != "Passkey 1" {
-			t.Errorf("first name = %q, want Passkey 1 (an unknown authenticator is numbered)", first.Passkey.Name)
+		if first.Passkey.Credential.Name != "Passkey 1" {
+			t.Errorf("first name = %q, want Passkey 1 (an unknown authenticator is numbered)", first.Passkey.Credential.Name)
 		}
 		added := eventsOf(p.events, account.EventPasskeyAdded)
-		if len(added) != 1 || added[0].PasskeyID != first.Passkey.ID || added[0].UserID != u.ID || added[0].Actor.SessionID != pr.SessionID {
-			t.Errorf("EventPasskeyAdded = %+v, want one naming passkey %d, user %d and the session", added, first.Passkey.ID, u.ID)
+		if len(added) != 1 || added[0].PasskeyID != first.Passkey.Credential.ID || added[0].UserID != u.ID || added[0].Actor.SessionID != pr.SessionID {
+			t.Errorf("EventPasskeyAdded = %+v, want one naming passkey %d, user %d and the session", added, first.Passkey.Credential.ID, u.ID)
 		}
 		second, err := p.register(t, p.principal(t, first.Issued.Token), accesstest.NewPasskeyDevice(t))
 		if err != nil {
 			t.Fatalf("second registration from the rotated session = %v", err)
 		}
-		if second.Passkey.Name != "Passkey 2" {
-			t.Errorf("second name = %q, want Passkey 2", second.Passkey.Name)
+		if second.Passkey.Credential.Name != "Passkey 2" {
+			t.Errorf("second name = %q, want Passkey 2", second.Passkey.Credential.Name)
 		}
 	})
 	t.Run("modal_sign_in", func(t *testing.T) {
@@ -143,7 +143,7 @@ func TestPasskeyCeremonies(t *testing.T) {
 		dev := accesstest.NewPasskeyDevice(t)
 		pk := p.enrol(t, u, dev)
 		pr, _ := p.signedInVia(t, u, access.MethodPassword)
-		if err := p.svc.RemovePasskey(t.Context(), pr, pk.ID); err != nil {
+		if err := p.svc.RemovePasskey(t.Context(), localClient, pr, pk.ID, account.SecondFactorProof{}); err != nil {
 			t.Fatalf("RemovePasskey = %v", err)
 		}
 		before := len(sessionsOf(t, p.mem, u.ID))
@@ -296,7 +296,7 @@ func TestPasskeyCeremonyRefusals(t *testing.T) {
 		}
 	})
 	t.Run("another_users_ceremony", func(t *testing.T) {
-		pc, err := p.svc.PasskeyRegisterBegin(t.Context(), aliceP, p.origin)
+		pc, err := p.svc.PasskeyRegisterBegin(t.Context(), localClient, aliceP, p.origin, account.SecondFactorProof{})
 		if err != nil {
 			t.Fatalf("PasskeyRegisterBegin: %v", err)
 		}
@@ -333,7 +333,7 @@ func TestCeremonyBeginRecordsItsUser(t *testing.T) {
 		purpose account.PendingPurpose
 	}{
 		{name: "register", purpose: account.PurposeRegister, begin: func(t *testing.T) (account.PendingCeremony, error) {
-			return w.svc.PasskeyRegisterBegin(t.Context(), session, w.origin)
+			return w.svc.PasskeyRegisterBegin(t.Context(), localClient, session, w.origin, account.SecondFactorProof{})
 		}},
 		{name: "step_up", purpose: account.PurposeStepUp, begin: func(t *testing.T) (account.PendingCeremony, error) {
 			w.enrol(t, alice, accesstest.NewPasskeyDevice(t))
@@ -387,7 +387,7 @@ func TestPasskeysUnavailable(t *testing.T) {
 			return err
 		},
 		"register_begin": func() error {
-			_, err := p.svc.PasskeyRegisterBegin(t.Context(), pr, origin)
+			_, err := p.svc.PasskeyRegisterBegin(t.Context(), localClient, pr, origin, account.SecondFactorProof{})
 			return err
 		},
 		"register_finish": func() error {
@@ -440,7 +440,7 @@ func TestPasskeysWithoutRP(t *testing.T) {
 		}
 	})
 	t.Run("remove", func(t *testing.T) {
-		if err := p.svc.RemovePasskey(t.Context(), pr, gone.ID); err != nil {
+		if err := p.svc.RemovePasskey(t.Context(), localClient, pr, gone.ID, account.SecondFactorProof{}); err != nil {
 			t.Fatalf("RemovePasskey with no relying party = %v", err)
 		}
 		if got := passkeysOf(t, p.mem, u.ID); len(got) != 1 || got[0].ID != kept.ID {
@@ -456,7 +456,7 @@ func TestPasskeySessionPrecondition(t *testing.T) {
 	pk := p.enrol(t, u, accesstest.NewPasskeyDevice(t))
 	ops := map[string]func(access.Principal) error{
 		"register_begin": func(pr access.Principal) error {
-			_, err := p.svc.PasskeyRegisterBegin(t.Context(), pr, p.origin)
+			_, err := p.svc.PasskeyRegisterBegin(t.Context(), localClient, pr, p.origin, account.SecondFactorProof{})
 			return err
 		},
 		"step_up_begin": func(pr access.Principal) error {
@@ -468,7 +468,9 @@ func TestPasskeySessionPrecondition(t *testing.T) {
 			return err
 		},
 		"rename": func(pr access.Principal) error { return p.svc.RenamePasskey(t.Context(), pr, pk.ID, "laptop") },
-		"remove": func(pr access.Principal) error { return p.svc.RemovePasskey(t.Context(), pr, pk.ID+1000) },
+		"remove": func(pr access.Principal) error {
+			return p.svc.RemovePasskey(t.Context(), localClient, pr, pk.ID+1000, account.SecondFactorProof{})
+		},
 		"signals": func(pr access.Principal) error {
 			_, err := p.svc.WebAuthnSignals(t.Context(), pr)
 			return err
@@ -521,7 +523,7 @@ func TestRemovePasskeyLastUsable(t *testing.T) {
 		t.Helper()
 		before := passkeysOf(t, e.p.mem, e.u.ID)
 		events := len(e.p.events.all())
-		err := e.p.svc.RemovePasskey(t.Context(), e.pr, id)
+		err := e.p.svc.RemovePasskey(t.Context(), localClient, e.pr, id, account.SecondFactorProof{})
 		after := passkeysOf(t, e.p.mem, e.u.ID)
 		if want != nil {
 			if !errors.Is(err, want) {
@@ -660,7 +662,7 @@ func TestPasskeysAndSignals(t *testing.T) {
 	}
 	ids := make([]int64, len(listed))
 	for i := range listed {
-		ids[i] = listed[i].ID
+		ids[i] = listed[i].Credential.ID
 	}
 	slices.Sort(ids)
 	if want := []int64{usable.ID, foreign.ID}; !slices.Equal(ids, want) {

@@ -283,7 +283,9 @@ func txScenarios() []txScenario {
 		{name: "remove_second_last_passkey", prep: func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
 			p := w.recent(t, w.alice)
 			id := passkeysOf(t, w.mem, w.alice.ID)[0].ID
-			return func(ctx context.Context) error { return w.svc.RemovePasskey(ctx, p, id) },
+			return func(ctx context.Context) error {
+					return w.svc.RemovePasskey(ctx, w.client, p, id, account.SecondFactorProof{})
+				},
 				func(t *testing.T) {
 					if n := len(passkeysOf(t, w.mem, w.alice.ID)); n != 0 {
 						t.Errorf("alice holds %d passkeys", n)

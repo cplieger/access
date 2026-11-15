@@ -140,13 +140,20 @@ func (e *env) principal(t testing.TB, cookie *http.Cookie) access.Principal {
 // enrol registers a new device's passkey for name through the Service.
 func (e *env) enrol(t testing.TB, name string) *accesstest.PasskeyDevice {
 	t.Helper()
+	return e.enrolFrom(t, e.sessionCookie(t, name))
+}
+
+// enrolFrom registers a new device for cookie's session's user, and
+// returns it.
+func (e *env) enrolFrom(t testing.TB, cookie *http.Cookie) *accesstest.PasskeyDevice {
+	t.Helper()
 	dev := accesstest.NewPasskeyDevice(t)
-	p := e.principal(t, e.sessionCookie(t, name))
+	p := e.principal(t, cookie)
 	origin, err := webauthn.ParseOrigin(testOrigin)
 	if err != nil {
 		t.Fatalf("ParseOrigin: %v", err)
 	}
-	pc, err := e.svc.PasskeyRegisterBegin(t.Context(), p, origin)
+	pc, err := e.svc.PasskeyRegisterBegin(t.Context(), account.Client{Secure: true}, p, origin, account.SecondFactorProof{})
 	if err != nil {
 		t.Fatalf("PasskeyRegisterBegin: %v", err)
 	}
@@ -204,6 +211,31 @@ func (v vanishing) UnlinkOIDC(ctx context.Context, p access.Principal) error {
 	return v.accountAPI.UnlinkOIDC(ctx, p)
 }
 
+func (v vanishing) StepUpCode(ctx context.Context, c account.Client, p access.Principal, code string) (account.Issued, error) {
+	v.drop(ctx, p)
+	return v.accountAPI.StepUpCode(ctx, c, p, code)
+}
+
+func (v vanishing) BeginTOTP(ctx context.Context, p access.Principal) (account.TOTPEnrolment, error) {
+	v.drop(ctx, p)
+	return v.accountAPI.BeginTOTP(ctx, p)
+}
+
+func (v vanishing) FinishTOTP(ctx context.Context, c account.Client, p access.Principal, in account.TOTPFinish) (account.Enrolled, error) {
+	v.drop(ctx, p)
+	return v.accountAPI.FinishTOTP(ctx, c, p, in)
+}
+
+func (v vanishing) RemoveTOTP(ctx context.Context, c account.Client, p access.Principal, proof account.SecondFactorProof) error {
+	v.drop(ctx, p)
+	return v.accountAPI.RemoveTOTP(ctx, c, p, proof)
+}
+
+func (v vanishing) Passkeys(ctx context.Context, p access.Principal) ([]account.Passkey, error) {
+	v.drop(ctx, p)
+	return v.accountAPI.Passkeys(ctx, p)
+}
+
 func (v vanishing) Me(ctx context.Context, p access.Principal) (account.Me, error) {
 	v.drop(ctx, p)
 	return v.accountAPI.Me(ctx, p)
@@ -234,9 +266,9 @@ func (v vanishing) StepUpPasskeyFinish(ctx context.Context, c account.Client, p 
 	return v.accountAPI.StepUpPasskeyFinish(ctx, c, p, id, body)
 }
 
-func (v vanishing) PasskeyRegisterBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (account.PendingCeremony, error) {
+func (v vanishing) PasskeyRegisterBegin(ctx context.Context, c account.Client, p access.Principal, origin webauthn.Origin, proof account.SecondFactorProof) (account.PendingCeremony, error) {
 	v.drop(ctx, p)
-	return v.accountAPI.PasskeyRegisterBegin(ctx, p, origin)
+	return v.accountAPI.PasskeyRegisterBegin(ctx, c, p, origin, proof)
 }
 
 func (v vanishing) PasskeyRegisterFinish(ctx context.Context, p access.Principal, id string, body io.Reader) (account.Registered, error) {
@@ -244,9 +276,9 @@ func (v vanishing) PasskeyRegisterFinish(ctx context.Context, p access.Principal
 	return v.accountAPI.PasskeyRegisterFinish(ctx, p, id, body)
 }
 
-func (v vanishing) RemovePasskey(ctx context.Context, p access.Principal, id int64) error {
+func (v vanishing) RemovePasskey(ctx context.Context, c account.Client, p access.Principal, id int64, proof account.SecondFactorProof) error {
 	v.drop(ctx, p)
-	return v.accountAPI.RemovePasskey(ctx, p, id)
+	return v.accountAPI.RemovePasskey(ctx, c, p, id, proof)
 }
 
 func (v vanishing) WebAuthnSignals(ctx context.Context, p access.Principal) (webauthn.Signals, error) {

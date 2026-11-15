@@ -13,23 +13,35 @@ import (
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/ratelimit"
+	"github.com/cplieger/access/totp"
 )
 
 // sfFixture is a pkFixture with TOTP wired and Rules a test changes between
 // calls.
 type sfFixture struct {
 	*pkFixture
-	rules atomic.Pointer[account.Rules]
+	sealer *access.Sealer // Config.TOTP.Sealer
+	rules  atomic.Pointer[account.Rules]
+	// at is Config.Now when set, so a test can reach a later TOTP step;
+	// nil runs on time.Now.
+	at atomic.Pointer[time.Time]
 }
 
 func newSF(t testing.TB, r account.Rules, o pwOptions) *sfFixture {
 	t.Helper()
-	f := &sfFixture{}
+	return newSFSealed(t, access.NewEphemeralSealer(), r, o)
+}
+
+// newSFSealed is newSF with sealer as Config.TOTP.Sealer.
+func newSFSealed(t testing.TB, sealer *access.Sealer, r account.Rules, o pwOptions) *sfFixture {
+	t.Helper()
+	f := &sfFixture{sealer: sealer}
 	f.rules.Store(&r)
 	o.rules = func() account.Rules { return *f.rules.Load() }
 	edit := o.edit
 	o.edit = func(c *account.Config) {
-		c.TOTP = account.TOTPConfig{Sealer: access.NewEphemeralSealer(), Issuer: "Example"}
+		c.TOTP = account.TOTPConfig{Sealer: f.sealer, Issuer: testIssuer}
+		c.Now = f.now
 		if edit != nil {
 			edit(c)
 		}
@@ -39,6 +51,21 @@ func newSF(t testing.TB, r account.Rules, o pwOptions) *sfFixture {
 }
 
 func (f *sfFixture) set(r account.Rules) { f.rules.Store(&r) }
+
+// now is the Service's clock.
+func (f *sfFixture) now() time.Time {
+	if at := f.at.Load(); at != nil {
+		return *at
+	}
+	return time.Now()
+}
+
+// nextStep moves the Service's clock one TOTP period on and returns it.
+func (f *sfFixture) nextStep() time.Time {
+	next := f.now().Add(totp.Period)
+	f.at.Store(&next)
+	return next
+}
 
 // knownDevice is a device cookie for name sealed by a secure sign-in.
 func (f *sfFixture) knownDevice(name string) access.Secret {

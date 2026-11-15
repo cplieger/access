@@ -59,8 +59,9 @@ func (s *Service) meIn(ctx context.Context, tx Tx, r Rules, u *access.User, p ac
 }
 
 // methods is what u can sign in with under r, read from tx (the store
-// itself for single calls): its passkey count, whether it holds a second
-// factor and may step up by password, and the locks of its failure records.
+// itself for single calls): its passkey count, its TOTP record, whether it
+// holds a second factor and may step up by password, and the locks of its
+// failure records.
 // A read error is returned as it is.
 func (s *Service) methods(ctx context.Context, tx Tx, r Rules, u *access.User) (Methods, error) { //nolint:gocritic // hugeParam: the operation's one Rules value
 	passkeys, err := tx.PasskeysByUserID(ctx, u.ID)
@@ -75,7 +76,12 @@ func (s *Service) methods(ctx context.Context, tx Tx, r Rules, u *access.User) (
 	if err != nil {
 		return Methods{}, err
 	}
+	totpState, err := s.totpState(ctx, tx, r, u)
+	if err != nil {
+		return Methods{}, err
+	}
 	m := Methods{
+		TOTP:              totpState,
 		PasskeyCount:      len(passkeys),
 		HasPassword:       !u.PasswordHash.IsZero(),
 		OIDCLinked:        !u.OIDC.IsZero(),
@@ -96,6 +102,17 @@ func (s *Service) methods(ctx context.Context, tx Tx, r Rules, u *access.User) (
 		}
 	}
 	return m, nil
+}
+
+// totpState is u's TOTP record as its own view reads it through tx.
+func (s *Service) totpState(ctx context.Context, tx Tx, r Rules, u *access.User) (TOTPState, error) { //nolint:gocritic // hugeParam: the operation's one Rules value
+	rec, found, err := tx.TOTPByUserID(ctx, u.ID)
+	if err != nil || !found {
+		return TOTPState{}, err
+	}
+	st := TOTPState{Since: rec.CreatedAt, Enrolled: true, Usable: s.totpOn(r)}
+	st.Removable, err = s.removable(ctx, tx, r, u, credential{method: access.MethodTOTP})
+	return st, err
 }
 
 // lockOf reads from tx which trust contexts of name's method records are

@@ -148,14 +148,46 @@ func (s stubAccount) StepUpPasskeyFinish(ctx context.Context, c account.Client, 
 	})
 }
 
-func (s stubAccount) Passkeys(ctx context.Context, p access.Principal) ([]access.PasskeyCredential, error) {
-	return stubbed(s, "Passkeys", func() ([]access.PasskeyCredential, error) { return s.accountAPI.Passkeys(ctx, p) })
+func (s stubAccount) Passkeys(ctx context.Context, p access.Principal) ([]account.Passkey, error) {
+	return stubbed(s, "Passkeys", func() ([]account.Passkey, error) { return s.accountAPI.Passkeys(ctx, p) })
 }
 
-func (s stubAccount) PasskeyRegisterBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (account.PendingCeremony, error) {
+func (s stubAccount) PasskeyRegisterBegin(ctx context.Context, c account.Client, p access.Principal, origin webauthn.Origin, proof account.SecondFactorProof) (account.PendingCeremony, error) {
 	return stubbed(s, "PasskeyRegisterBegin", func() (account.PendingCeremony, error) {
-		return s.accountAPI.PasskeyRegisterBegin(ctx, p, origin)
+		return s.accountAPI.PasskeyRegisterBegin(ctx, c, p, origin, proof)
 	})
+}
+
+func (s stubAccount) SignInWithCode(ctx context.Context, c account.Client, ticket access.Secret, code string) (account.LoginResult, error) {
+	return stubbed(s, "SignInWithCode", func() (account.LoginResult, error) { return s.accountAPI.SignInWithCode(ctx, c, ticket, code) })
+}
+
+func (s stubAccount) SecondFactorPasskeyBegin(ctx context.Context, c account.Client, ticket access.Secret, origin webauthn.Origin) (account.PendingCeremony, error) {
+	return stubbed(s, "SecondFactorPasskeyBegin", func() (account.PendingCeremony, error) {
+		return s.accountAPI.SecondFactorPasskeyBegin(ctx, c, ticket, origin)
+	})
+}
+
+func (s stubAccount) SecondFactorPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.LoginResult, error) {
+	return stubbed(s, "SecondFactorPasskeyFinish", func() (account.LoginResult, error) {
+		return s.accountAPI.SecondFactorPasskeyFinish(ctx, c, ceremonyID, body)
+	})
+}
+
+func (s stubAccount) StepUpCode(ctx context.Context, c account.Client, p access.Principal, code string) (account.Issued, error) {
+	return stubbed(s, "StepUpCode", func() (account.Issued, error) { return s.accountAPI.StepUpCode(ctx, c, p, code) })
+}
+
+func (s stubAccount) BeginTOTP(ctx context.Context, p access.Principal) (account.TOTPEnrolment, error) {
+	return stubbed(s, "BeginTOTP", func() (account.TOTPEnrolment, error) { return s.accountAPI.BeginTOTP(ctx, p) })
+}
+
+func (s stubAccount) FinishTOTP(ctx context.Context, c account.Client, p access.Principal, in account.TOTPFinish) (account.Enrolled, error) {
+	return stubbed(s, "FinishTOTP", func() (account.Enrolled, error) { return s.accountAPI.FinishTOTP(ctx, c, p, in) })
+}
+
+func (s stubAccount) RemoveTOTP(ctx context.Context, c account.Client, p access.Principal, proof account.SecondFactorProof) error {
+	return stubbedErr(s, "RemoveTOTP", func() error { return s.accountAPI.RemoveTOTP(ctx, c, p, proof) })
 }
 
 func (s stubAccount) PasskeyRegisterFinish(ctx context.Context, p access.Principal, ceremonyID string, body io.Reader) (account.Registered, error) {
@@ -168,8 +200,8 @@ func (s stubAccount) RenamePasskey(ctx context.Context, p access.Principal, id i
 	return stubbedErr(s, "RenamePasskey", func() error { return s.accountAPI.RenamePasskey(ctx, p, id, name) })
 }
 
-func (s stubAccount) RemovePasskey(ctx context.Context, p access.Principal, id int64) error {
-	return stubbedErr(s, "RemovePasskey", func() error { return s.accountAPI.RemovePasskey(ctx, p, id) })
+func (s stubAccount) RemovePasskey(ctx context.Context, c account.Client, p access.Principal, id int64, proof account.SecondFactorProof) error {
+	return stubbedErr(s, "RemovePasskey", func() error { return s.accountAPI.RemovePasskey(ctx, c, p, id, proof) })
 }
 
 func (s stubAccount) WebAuthnSignals(ctx context.Context, p access.Principal) (webauthn.Signals, error) {

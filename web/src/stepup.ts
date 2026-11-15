@@ -7,15 +7,25 @@ import type { StepUpOutcome } from "./webauthn.js";
 import { authCode, errorReason } from "./wire.js";
 import type { MeResponse } from "./wire.js";
 
-/** Asks the user how to re-authenticate, given the methods the account holds. */
+/** A way to re-authenticate. */
+export type StepUpMethod = "password" | "passkey" | "oidc" | "totp";
+
+/**
+ * Asks the user how to re-authenticate, given the methods the account holds and what withStepUp
+ * offers: the password only while methods.password_step_up, the code only while
+ * methods.totp.usable. A choice outside offered is answered cancelled, with no request.
+ */
 export type StepUpPrompt = (
   methods: MeResponse["methods"],
-) => Promise<"password" | "passkey" | "oidc" | "cancel">;
+  offered: readonly StepUpMethod[],
+) => Promise<StepUpMethod | "cancel">;
 
 export interface StepUpOptions {
   readonly prompt: StepUpPrompt;
   /** The user's current password, or null when the user cancels. */
   readonly password: () => Promise<string | null>;
+  /** A code from the user's authenticator app, or null when the user cancels. */
+  readonly code: () => Promise<string | null>;
   /**
    * Where an OIDC step-up returns: the app's own relative path, at most 512 bytes, in which
    * the app encodes what to continue. Default location.pathname + location.search, or
@@ -85,7 +95,18 @@ export async function withStepUp<T>(
   if (!me.ok) {
     return { kind: "step-up-failed", error: me };
   }
-  const choice = await o.prompt(me.data.methods);
+  const { methods } = me.data;
+  const offered: StepUpMethod[] = ["passkey", "oidc"];
+  if (methods.password_step_up) {
+    offered.unshift("password");
+  }
+  if (methods.totp.usable) {
+    offered.push("totp");
+  }
+  const choice = await o.prompt(methods, offered);
+  if (choice !== "cancel" && !offered.includes(choice)) {
+    return { kind: "cancelled" };
+  }
   switch (choice) {
     case "cancel":
       return { kind: "cancelled" };
@@ -95,6 +116,14 @@ export async function withStepUp<T>(
         return { kind: "cancelled" };
       }
       const res = await c.stepUpPassword({ password });
+      return res.ok ? retry() : { kind: "step-up-failed", error: res };
+    }
+    case "totp": {
+      const code = await o.code();
+      if (code === null) {
+        return { kind: "cancelled" };
+      }
+      const res = await c.stepUpCode(code);
       return res.ok ? retry() : { kind: "step-up-failed", error: res };
     }
     case "passkey": {

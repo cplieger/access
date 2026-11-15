@@ -15,8 +15,10 @@ export type { ShownOnce } from "./secret.js";
 export { createSessionsModel } from "./sessions.js";
 export type { SessionsModel } from "./sessions.js";
 export { withStepUp } from "./stepup.js";
-export type { StepUpOptions, StepUpPrompt, StepUpResult } from "./stepup.js";
+export type { StepUpMethod, StepUpOptions, StepUpPrompt, StepUpResult } from "./stepup.js";
 export {
+  loginSecondPasskey,
+  passkeyProof,
   passkeySupport,
   registerPasskey,
   sendSignals,
@@ -26,14 +28,17 @@ export {
 } from "./webauthn.js";
 export type {
   DOMExceptionName,
+  PasskeyProofOutcome,
   PasskeySignInOutcome,
   RegisterOutcome,
+  SecondPasskeyOutcome,
   StepUpOutcome,
 } from "./webauthn.js";
 export {
   authCode,
   authReason,
   parseCeremonyResponse,
+  parseCodeRequest,
   parseCurrentSessionView,
   parseInviteAcceptRequest,
   parseInviteRequest,
@@ -58,6 +63,7 @@ export {
   parseProfileRequest,
   parseReadiness,
   parseRedirectRequest,
+  parseSecondFactorProof,
   parseSessionView,
   parseSetupPasskeyBeginRequest,
   parseSetupPasswordRequest,
@@ -65,6 +71,12 @@ export {
   parseSignInOutcome,
   parseSignedInResponse,
   parseStateResponse,
+  parseStepUpCodeRequest,
+  parseTOTPBeginResponse,
+  parseTOTPFinishRequest,
+  parseTOTPFinishResponse,
+  parseTOTPView,
+  parseTicketRequest,
   parseTokenRequest,
   parseTokenResponse,
   parseTokenView,
@@ -74,10 +86,12 @@ export {
   parseWebAuthnSignals,
 } from "./wire.js";
 export type {
+  AssertionJSON,
   AuthCode,
   AuthReason,
   CeremonyOptions,
   CeremonyResponse,
+  CodeRequest,
   CurrentSessionView,
   HTTPSFeature,
   InviteAcceptRequest,
@@ -110,6 +124,7 @@ export type {
   Readiness,
   ReadinessRefusal,
   RedirectRequest,
+  SecondFactorProof,
   SecurityLogView,
   SessionView,
   SetupPasskeyBeginRequest,
@@ -119,6 +134,12 @@ export type {
   SSOMode,
   SSORequest,
   StateResponse,
+  StepUpCodeRequest,
+  TOTPBeginResponse,
+  TOTPFinishRequest,
+  TOTPFinishResponse,
+  TOTPView,
+  TicketRequest,
   TokenRequest,
   TokenResponse,
   TokenView,

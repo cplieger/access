@@ -112,7 +112,15 @@ type OIDCOutcome struct {
 // Registered is an enrolled passkey and the rotated session.
 type Registered struct {
 	Issued  Issued
-	Passkey access.PasskeyCredential
+	Passkey Passkey
+}
+
+// Passkey is one of a user's own passkeys, with whether RemovePasskey would
+// remove it: false when the last-method or the second-factor guard would
+// refuse.
+type Passkey struct {
+	Credential access.PasskeyCredential
+	Removable  bool
 }
 
 // CreatedKey is a minted key; Plaintext is shown once.
@@ -144,6 +152,7 @@ type MethodLock struct {
 
 // Methods is what a user can sign in with.
 type Methods struct {
+	TOTP              TOTPState
 	Locks             []MethodLock // locked methods only
 	PasskeyCount      int
 	HasPassword       bool
@@ -158,6 +167,18 @@ type Methods struct {
 	// holds one, no second factor is held, and neither DisablePasswordLogin
 	// nor the stored SSO mode refuses it.
 	PasswordStepUp bool
+}
+
+// TOTPState is a user's TOTP record as their own view reads it.
+type TOTPState struct {
+	Since    time.Time // the record's CreatedAt; zero with none
+	Enrolled bool      // a record is stored
+	// Usable is a record that reads as present: TOTP wired and not turned
+	// off by Rules.DisableTOTP.
+	Usable bool
+	// Removable is whether RemoveTOTP would remove it: false with no
+	// record, and while the second-factor guard would refuse.
+	Removable bool
 }
 
 // CurrentSession is the caller's own session.

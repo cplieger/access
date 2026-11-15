@@ -8,6 +8,8 @@ import {
   sendSignals,
   setupWithPasskey,
   signInWithPasskey,
+  loginSecondPasskey,
+  passkeyProof,
   stepUpWithPasskey,
   toCreationOptions,
   toRequestOptions,
@@ -315,6 +317,64 @@ describe("stepUpWithPasskey", () => {
       "POST /api/auth/stepup/passkey/finish",
     ]);
     expect(s.sent[1]?.headers.get("X-Auth-Ceremony")).toBe("c-get");
+  });
+});
+
+// Design 4.4: a passkey as a pending sign-in's second step.
+describe("loginSecondPasskey", () => {
+  it("sends the ticket, then the assertion, and answers the sign-in step's outcome", async () => {
+    bareplatform();
+    credentialsGet(resolves);
+    const s = fakeServer({
+      "POST /api/auth/login/second-passkey/begin": request,
+      "POST /api/auth/login/second-passkey/finish": ok("SignInOutcome"),
+    });
+    expect(await loginSecondPasskey(s.client, "t-1")).toEqual({
+      kind: "answered",
+      result: fixture("SignInOutcome"),
+    });
+    expect(s.sent[0]?.body).toEqual({ ticket: "t-1" });
+    expect(s.sent[1]?.body).toEqual(assertionJSON);
+    expect(s.sent[1]?.headers.get("X-Auth-Ceremony")).toBe("c-get");
+  });
+
+  it("maps a refused assertion as signInWithPasskey does", async () => {
+    bareplatform();
+    credentialsGet(resolves);
+    const s = fakeServer({
+      "POST /api/auth/login/second-passkey/begin": request,
+      "POST /api/auth/login/second-passkey/finish": refusal(401, "auth_assertion_failed"),
+    });
+    expect(await loginSecondPasskey(s.client, "t-1")).toEqual({ kind: "verification-failed" });
+  });
+});
+
+// Design 4.30 and 4.31: a passkey proof is a step-up ceremony's assertion, sent with the change.
+describe("passkeyProof", () => {
+  it("answers the ceremony with its assertion and finishes no step-up", async () => {
+    bareplatform();
+    credentialsGet(resolves);
+    const s = fakeServer({ "POST /api/auth/stepup/passkey/begin": request });
+    expect(await passkeyProof(s.client)).toEqual({
+      kind: "proof",
+      proof: { ceremony: "c-get", assertion: assertionJSON },
+    });
+    expect(s.sent.map((x) => x.route)).toEqual(["POST /api/auth/stepup/passkey/begin"]);
+  });
+
+  it("is cancelled when the user dismisses the authenticator", async () => {
+    bareplatform();
+    credentialsGet(throws("NotAllowedError"));
+    const s = fakeServer({ "POST /api/auth/stepup/passkey/begin": request });
+    expect(await passkeyProof(s.client)).toEqual({ kind: "cancelled" });
+  });
+
+  it("sends a proof with the registration begin when one is given", async () => {
+    bareplatform();
+    credentialsCreate(() => Promise.resolve(null));
+    const s = fakeServer({ "POST /api/auth/passkeys/begin": creation });
+    await registerPasskey(s.client, { code: "123456" });
+    expect(s.sent[0]?.body).toEqual({ code: "123456" });
   });
 });
 

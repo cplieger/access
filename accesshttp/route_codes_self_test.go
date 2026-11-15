@@ -95,7 +95,7 @@ func (e *env) stepUpFinish(t testing.TB, cookie *http.Cookie, dev *accesstest.Pa
 // fresh device when nil), edited, after between runs.
 func (e *env) registerFinish(t testing.TB, cookie *http.Cookie, dev *accesstest.PasskeyDevice, edit func([]byte) []byte, between func()) *http.Request {
 	t.Helper()
-	pc, err := e.svc.PasskeyRegisterBegin(t.Context(), e.principal(t, cookie), testOriginOf(t))
+	pc, err := e.svc.PasskeyRegisterBegin(t.Context(), account.Client{Secure: true}, e.principal(t, cookie), testOriginOf(t), account.SecondFactorProof{})
 	if err != nil {
 		t.Fatalf("PasskeyRegisterBegin: %v", err)
 	}

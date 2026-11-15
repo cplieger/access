@@ -240,6 +240,9 @@ func TestServicePrinting(t *testing.T) {
 				// A pending sign-in's step and methods are its public answer;
 				// the digest is a HashKey, which shows no more than the Hash.
 				"account.ticket.next", "account.ticket.methods", "account.ticket.digest",
+				// A session ID names a session, as Principal.SessionID does;
+				// only its token, which the store holds as a hash, signs in.
+				"account.enrolment.sessionID",
 			},
 		}
 		for _, line := range printcheck.Unmasked(allow, reflect.TypeFor[*account.Service]()) {

@@ -2,7 +2,7 @@ import { createFetch } from "@cplieger/reactive/fetch";
 import type { ApiResult } from "@cplieger/reactive/fetch";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { createAuthClient } from "./client.js";
-import type { AuthReason } from "./wire.js";
+import type { AuthReason, CodeRequest, StepUpCodeRequest } from "./wire.js";
 import { authReason } from "./wire.js";
 import type { AuthClient, PublicKeyCredentialJSON } from "./client.js";
 import { fakeServer } from "./test-helpers/server.js";
@@ -84,6 +84,19 @@ const bindings: Readonly<Record<string, Binding>> = {
     credential: true,
   },
   authLoginPassword: { method: "loginPassword", call: (c, b) => c.loginPassword(b) },
+  authLoginCode: {
+    method: "loginCode",
+    call: (c, b: CodeRequest) => c.loginCode(b.ticket, b.code),
+  },
+  authLoginSecondPasskeyBegin: {
+    method: "loginSecondPasskeyBegin",
+    call: (c, b) => c.loginSecondPasskeyBegin(b),
+  },
+  authLoginSecondPasskeyFinish: {
+    method: "loginSecondPasskeyFinish",
+    call: (c) => c.loginSecondPasskeyFinish(CEREMONY, credential),
+    credential: true,
+  },
   authLoginPasskeyBegin: { method: "loginPasskeyBegin", call: (c) => c.loginPasskeyBegin() },
   authLoginPasskeyFinish: {
     method: "loginPasskeyFinish",
@@ -109,6 +122,13 @@ const bindings: Readonly<Record<string, Binding>> = {
   authProfile: { method: "updateProfile", call: (c, b) => c.updateProfile(b) },
   authMethodReenable: { method: "reenableMethod", call: (c) => c.reenableMethod("password") },
   authStepUpPassword: { method: "stepUpPassword", call: (c, b) => c.stepUpPassword(b) },
+  authStepUpCode: {
+    method: "stepUpCode",
+    call: (c, b: StepUpCodeRequest) => c.stepUpCode(b.code),
+  },
+  authTOTPBegin: { method: "beginTOTP", call: (c) => c.beginTOTP() },
+  authTOTPFinish: { method: "finishTOTP", call: (c, b) => c.finishTOTP(b) },
+  authTOTPRemove: { method: "removeTOTP", call: (c, b) => c.removeTOTP(b) },
   authStepUpPasskeyBegin: { method: "stepUpPasskeyBegin", call: (c) => c.stepUpPasskeyBegin() },
   authStepUpPasskeyFinish: {
     method: "stepUpPasskeyFinish",
@@ -120,7 +140,7 @@ const bindings: Readonly<Record<string, Binding>> = {
   authPasskeys: { method: "passkeys", call: (c) => c.passkeys() },
   authPasskeyRegisterBegin: {
     method: "passkeyRegisterBegin",
-    call: (c) => c.passkeyRegisterBegin(),
+    call: (c, b) => c.passkeyRegisterBegin(b),
   },
   authPasskeyRegisterFinish: {
     method: "passkeyRegisterFinish",
@@ -128,7 +148,7 @@ const bindings: Readonly<Record<string, Binding>> = {
     credential: true,
   },
   authPasskeyRename: { method: "renamePasskey", call: (c, b) => c.renamePasskey(7, b) },
-  authPasskeyRemove: { method: "removePasskey", call: (c) => c.removePasskey(7) },
+  authPasskeyRemove: { method: "removePasskey", call: (c, b) => c.removePasskey(7, b) },
   authWebAuthnSignals: { method: "webauthnSignals", call: (c) => c.webauthnSignals() },
   authSessions: { method: "sessions", call: (c) => c.sessions() },
   authSessionRename: { method: "renameSession", call: (c, b) => c.renameSession("7", b) },
@@ -255,8 +275,8 @@ describe("the route table", () => {
     const methods = Object.keys(client).filter(
       (k) => typeof client[k as keyof AuthClient] === "function",
     );
-    expect(methods).toHaveLength(52);
-    expect(jsonRoutes).toHaveLength(52);
+    expect(methods).toHaveLength(59);
+    expect(jsonRoutes).toHaveLength(59);
     expect(Object.keys(bindings).sort()).toEqual(jsonRoutes.map((r) => r.name).sort());
     expect(
       Object.values(bindings)
@@ -311,7 +331,9 @@ describe.each(jsonRoutes)("$name", (route) => {
 
   if (route.response !== null) {
     it(`${b.method} refuses a 2xx body that is not ${route.response}`, async () => {
-      const { client } = stub(200, route.array ? [{}] : {});
+      // A member no wire type declares: {} is a whole answer where every field is optional.
+      const bad = { not_a_wire_field: true };
+      const { client } = stub(200, route.array ? [bad] : bad);
       const result = await b.call(client, request as never);
       expect(result).toMatchObject({ ok: false, status: 200, code: "decode" });
     });
@@ -322,6 +344,20 @@ describe.each(jsonRoutes)("$name", (route) => {
     const { client } = stub(403, body);
     const result = await b.call(client, request as never);
     expect(result).toMatchObject({ ok: false, status: 403, code: body.code, body });
+  });
+});
+
+// Design 4.30 and 4.5: a proof rides the body only when the screen has one.
+describe("an optional proof", () => {
+  it.each<[string, (c: AuthClient) => Promise<ApiResult<unknown>>]>([
+    ["removeTOTP()", (c) => c.removeTOTP()],
+    ["removePasskey(7)", (c) => c.removePasskey(7)],
+    ["passkeyRegisterBegin()", (c) => c.passkeyRegisterBegin()],
+  ])("%s sends no body", async (_, call) => {
+    const { client, sent } = stub(204);
+    await call(client);
+    expect(sent[0]?.body).toBeUndefined();
+    expect(sent[0]?.headers.get("Content-Type")).toBeNull();
   });
 });
 

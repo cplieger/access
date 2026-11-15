@@ -216,7 +216,7 @@ func TestSSOModeSessionRefusals(t *testing.T) {
 				t.Errorf("SetPassword = %v, want ErrSSOOnly %t", err, !owner)
 			}
 			pr, _ = f.signedInVia(t, u, access.MethodOIDC)
-			if _, err := f.svc.PasskeyRegisterBegin(t.Context(), pr, f.origin); !want(err) {
+			if _, err := f.svc.PasskeyRegisterBegin(t.Context(), localClient, pr, f.origin, account.SecondFactorProof{}); !want(err) {
 				t.Errorf("PasskeyRegisterBegin = %v, want ErrSSOOnly %t", err, !owner)
 			}
 			if _, err := f.stepUp(t.Context(), localClient, pr, goodPassword); !want(err) {
@@ -243,7 +243,7 @@ func TestSSOModeCeremonyBegunBeforeChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StepUpPasskeyBegin: %v", err)
 	}
-	reg, err := f.svc.PasskeyRegisterBegin(t.Context(), pr, f.origin)
+	reg, err := f.svc.PasskeyRegisterBegin(t.Context(), localClient, pr, f.origin, account.SecondFactorProof{})
 	if err != nil {
 		t.Fatalf("PasskeyRegisterBegin: %v", err)
 	}

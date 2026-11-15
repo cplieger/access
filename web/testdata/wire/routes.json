@@ -45,6 +45,33 @@
     "array": false
   },
   {
+    "request": "CodeRequest",
+    "response": "SignInOutcome",
+    "name": "authLoginCode",
+    "method": "POST",
+    "path": "{prefix}/login/code",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "TicketRequest",
+    "response": "CeremonyResponse",
+    "name": "authLoginSecondPasskeyBegin",
+    "method": "POST",
+    "path": "{prefix}/login/second-passkey/begin",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "SignInOutcome",
+    "name": "authLoginSecondPasskeyFinish",
+    "method": "POST",
+    "path": "{prefix}/login/second-passkey/finish",
+    "kind": "json",
+    "array": false
+  },
+  {
     "request": null,
     "response": "CeremonyResponse",
     "name": "authLoginPasskeyBegin",
@@ -216,6 +243,15 @@
     "array": false
   },
   {
+    "request": "StepUpCodeRequest",
+    "response": null,
+    "name": "authStepUpCode",
+    "method": "POST",
+    "path": "{prefix}/stepup/code",
+    "kind": "json",
+    "array": false
+  },
+  {
     "request": "PasswordChangeRequest",
     "response": null,
     "name": "authPasswordSet",
@@ -235,6 +271,33 @@
   },
   {
     "request": null,
+    "response": "TOTPBeginResponse",
+    "name": "authTOTPBegin",
+    "method": "POST",
+    "path": "{prefix}/totp/begin",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "TOTPFinishRequest",
+    "response": "TOTPFinishResponse",
+    "name": "authTOTPFinish",
+    "method": "POST",
+    "path": "{prefix}/totp/finish",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "SecondFactorProof",
+    "response": null,
+    "name": "authTOTPRemove",
+    "method": "DELETE",
+    "path": "{prefix}/totp",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
     "response": "PasskeyView",
     "name": "authPasskeys",
     "method": "GET",
@@ -243,7 +306,7 @@
     "array": true
   },
   {
-    "request": null,
+    "request": "SecondFactorProof",
     "response": "CeremonyResponse",
     "name": "authPasskeyRegisterBegin",
     "method": "POST",
@@ -270,7 +333,7 @@
     "array": false
   },
   {
-    "request": null,
+    "request": "SecondFactorProof",
     "response": null,
     "name": "authPasskeyRemove",
     "method": "DELETE",

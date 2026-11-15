@@ -110,13 +110,13 @@ func (s *Service) changePassword(ctx context.Context, r Rules, c Client, p acces
 }
 
 // RemovePassword removes p's own password, for a full session within RecentAuth
-// (plain c or p: access.ErrHTTPSRequired). current is that password: zero is
-// ErrCurrentPasswordRequired before any limiter call. A user holding no
-// password is ErrNotFound, and the last-method guard (ErrLastMethod) runs next,
-// both before the count, so neither refusal charges or counts anything. current
-// is then counted as SetPassword's. The removal commits only while the guard
-// passes and the verified hash is still stored, resets the password's failure
-// records, and rotates p's session into Issued with the device cookie.
+// (plain c or p: access.ErrHTTPSRequired). current is that password, zero being
+// ErrCurrentPasswordRequired; then a user holding none is ErrNotFound and the
+// last-method guard ErrLastMethod, all before any limiter charge or count.
+// current is counted as SetPassword's. The removal commits only while the guard
+// passes and the verified hash is stored, resets the password's failure
+// records, deletes the TOTP record and recovery code it protected, and rotates
+// p's session into Issued with the device cookie.
 func (s *Service) RemovePassword(ctx context.Context, c Client, p access.Principal, current access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
 	r, err := s.beginRecentSession(plainRefused, c.Secure && p.Secure, p)
 	if err != nil {
@@ -179,7 +179,22 @@ func (s *Service) removePasswordIn(ctx context.Context, tx Tx, j *journal, r Rul
 	}
 	s.addReenabled(j, cleared, p, a.ref.Trusted)
 	j.add(Event{Kind: EventPasswordRemoved, At: s.now(), UserID: p.User.ID, Method: access.MethodPassword, Actor: eventActor(As(p))})
-	return rot, nil
+	return rot, s.dropSecondFactors(ctx, tx, j, stored, eventActor(As(p)))
+}
+
+// dropSecondFactors deletes, inside tx, the TOTP record and recovery code
+// of u, whose password is gone: both protect only a password sign-in.
+func (s *Service) dropSecondFactors(ctx context.Context, tx Tx, j *journal, u *access.User, actor EventActor) error {
+	held, err := holds(ctx, tx, u, credential{method: access.MethodTOTP})
+	if err != nil {
+		return err
+	}
+	if held {
+		if err := s.deleteTOTPIn(ctx, tx, j, u, actor); err != nil {
+			return err
+		}
+	}
+	return tx.DeleteRecoveryCode(ctx, u.ID)
 }
 
 // beginRecentSession is the head of a change to p's own credential:

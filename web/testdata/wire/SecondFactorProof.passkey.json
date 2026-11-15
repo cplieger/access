@@ -1,0 +1,1 @@
+{"ceremony":"c1","assertion":{"id":"Y3JlZA","rawId":"Y3JlZA","type":"public-key","authenticatorAttachment":"platform","response":{"authenticatorData":"YXV0aA","clientDataJSON":"Y2xpZW50","signature":"c2ln","userHandle":"aGFuZGxl"},"clientExtensionResults":{}}}

@@ -36,6 +36,41 @@ type PendingCreateRequest struct {
 	Username string `json:"username"`
 }
 
+// CodeRequest is authLoginCode's body: the pending sign-in's ticket and a
+// code, six digits once spaces are removed.
+type CodeRequest struct {
+	Ticket string `json:"ticket"`
+	Code   string `json:"code"`
+}
+
+// TicketRequest is authLoginSecondPasskeyBegin's body.
+type TicketRequest struct {
+	Ticket string `json:"ticket"`
+}
+
+// StepUpCodeRequest is authStepUpCode's body.
+type StepUpCodeRequest struct {
+	Code string `json:"code"`
+}
+
+// TOTPFinishRequest is authTOTPFinish's body. CurrentCode is the replaced
+// authenticator's code, required when the user holds one.
+type TOTPFinishRequest struct {
+	Ticket      string `json:"ticket"`
+	Code        string `json:"code"`
+	CurrentCode string `json:"current_code,omitempty"`
+}
+
+// SecondFactorProof is a current second factor sent with a change that
+// needs one, in which exactly one arm is set: a code, or a ceremony from
+// authStepUpPasskeyBegin with its assertion. An absent body, or {}, is no
+// proof.
+type SecondFactorProof struct {
+	Code      string          `json:"code,omitempty" arm:"code"`
+	Ceremony  string          `json:"ceremony,omitempty" arm:"passkey"`
+	Assertion json.RawMessage `json:"assertion,omitempty" arm:"passkey"`
+}
+
 // LoginRequest is authLoginPassword's body.
 type LoginRequest struct {
 	Username string `json:"username"`
@@ -185,7 +220,7 @@ type UserMethodsView struct {
 	RoleFromProvider    bool `json:"role_from_provider"`
 }
 
-// SignInOutcome is a sign-in step's answer, in which exactly one field is set.
+// SignInOutcome is a sign-in step's answer, in which exactly one arm is set.
 type SignInOutcome struct {
 	SignedIn *SignedInResponse `json:"signed_in,omitempty"`
 	Pending  *Pending          `json:"pending,omitempty"`
@@ -226,6 +261,20 @@ type CeremonyResponse struct {
 	PublicKey json.RawMessage `json:"public_key"`
 }
 
+// TOTPBeginResponse is a begun TOTP enrolment, shown once: the otpauth URI
+// for a QR code, the secret as text, and the ticket authTOTPFinish takes.
+type TOTPBeginResponse struct {
+	URI    string `json:"uri"`
+	Text   string `json:"text"`
+	Ticket string `json:"ticket"`
+}
+
+// TOTPFinishResponse is authTOTPFinish's answer: the recovery code the
+// enrolment issued, shown once; absent when it issued none.
+type TOTPFinishResponse struct {
+	RecoveryCode string `json:"recovery_code,omitempty"`
+}
+
 // OIDCStartResponse is the link and step-up starts' answer.
 type OIDCStartResponse struct {
 	URL string `json:"url"`
@@ -250,6 +299,7 @@ type MethodLockView struct {
 
 // MethodsView is what a user can sign in with.
 type MethodsView struct {
+	TOTP              TOTPView         `json:"totp"`
 	Locks             []MethodLockView `json:"locks"` // [] when none
 	PasskeyCount      int              `json:"passkey_count"`
 	Password          bool             `json:"password"`
@@ -261,6 +311,14 @@ type MethodsView struct {
 	// removing a passkey needs a current second factor.
 	SecondFactorHeld bool `json:"second_factor_held"`
 	PasswordStepUp   bool `json:"password_step_up"` // step-up may offer the password
+}
+
+// TOTPView is account.TOTPState: the user's authenticator app.
+type TOTPView struct {
+	Since     time.Time `json:"since,omitzero"` // set while enrolled
+	Enrolled  bool      `json:"enrolled"`
+	Usable    bool      `json:"usable"`    // enrolled, and the app has authenticator apps on
+	Removable bool      `json:"removable"` // authTOTPRemove would remove it
 }
 
 // CurrentSessionView is the caller's own session.
@@ -298,6 +356,9 @@ type PasskeyView struct {
 	BackupEligible bool   `json:"backup_eligible"`
 	BackedUp       bool   `json:"backed_up"`
 	CloneWarning   bool   `json:"clone_warning,omitempty"`
+	// Removable is whether authPasskeyRemove would remove it; false where
+	// the last-method or the second-factor guard would refuse.
+	Removable bool `json:"removable"`
 }
 
 // SessionView is one session.
@@ -457,9 +518,8 @@ type shownOnce interface {
 	KeyCreatedResponse | TokenResponse
 }
 
-// writeShownOnce is the only accesshttp code that reveals a response field:
-// the plaintext enters resp inside this call, which encodes it to w and
-// drops it.
+// writeShownOnce reveals resp's one plaintext: it enters resp inside this
+// call, which encodes it to w and drops it.
 func writeShownOnce[R shownOnce](w http.ResponseWriter, status int, resp R, plaintext access.Secret) {
 	switch v := any(&resp).(type) {
 	case *KeyCreatedResponse:
@@ -500,10 +560,11 @@ func listedUserView(l *account.ListedUser) UserView {
 	return v
 }
 
-func passkeyView(p *access.PasskeyCredential) PasskeyView {
+func passkeyView(pk *account.Passkey) PasskeyView {
+	p := &pk.Credential
 	return PasskeyView{
 		ID: p.ID, Name: p.Name, RPID: p.RPID, CreatedAt: p.CreatedAt, LastUsedAt: p.LastUsedAt,
-		BackupEligible: p.BackupEligible, BackedUp: p.BackupState, CloneWarning: p.CloneWarning,
+		BackupEligible: p.BackupEligible, BackedUp: p.BackupState, CloneWarning: p.CloneWarning, Removable: pk.Removable,
 	}
 }
 
@@ -600,6 +661,7 @@ func methodsView(m account.Methods) MethodsView {
 		SecondFactorHeld:  m.SecondFactorHeld,
 		PasswordStepUp:    m.PasswordStepUp,
 		Locks:             locks,
+		TOTP:              TOTPView{Since: m.TOTP.Since, Enrolled: m.TOTP.Enrolled, Usable: m.TOTP.Usable, Removable: m.TOTP.Removable},
 	}
 }
 

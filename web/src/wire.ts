@@ -262,6 +262,88 @@ export interface TokenRequest {
 }
 export const parseTokenRequest: Validator<TokenRequest> = object({ token: req(str) });
 
+export interface CodeRequest {
+  readonly ticket: string;
+  /** Six digits; spaces are ignored. */
+  readonly code: string;
+}
+export const parseCodeRequest: Validator<CodeRequest> = object({
+  ticket: req(str),
+  code: req(str),
+});
+
+export interface TicketRequest {
+  readonly ticket: string;
+}
+export const parseTicketRequest: Validator<TicketRequest> = object({ ticket: req(str) });
+
+export interface StepUpCodeRequest {
+  readonly code: string;
+}
+export const parseStepUpCodeRequest: Validator<StepUpCodeRequest> = object({ code: req(str) });
+
+export interface TOTPFinishRequest {
+  readonly ticket: string;
+  /** The new authenticator's code. */
+  readonly code: string;
+  /** The replaced authenticator's code: required when one is enrolled. */
+  readonly current_code?: string;
+}
+export const parseTOTPFinishRequest: Validator<TOTPFinishRequest> = object({
+  ticket: req(str),
+  code: req(str),
+  current_code: opt(str),
+});
+
+/** A passkey assertion in the browser's credential JSON, as stepUpWithPasskey builds one. */
+export interface AssertionJSON {
+  readonly id: string;
+  readonly rawId: string;
+  readonly type: string;
+  readonly authenticatorAttachment?: string;
+  readonly response: {
+    readonly authenticatorData: string;
+    readonly clientDataJSON: string;
+    readonly signature: string;
+    readonly userHandle?: string;
+  };
+  readonly clientExtensionResults: { readonly credProps?: { readonly rk?: boolean } };
+}
+const parseAssertionJSON: Validator<AssertionJSON> = object<AssertionJSON>({
+  id: req(str),
+  rawId: req(str),
+  type: req(str),
+  authenticatorAttachment: opt(str),
+  response: req(
+    object<AssertionJSON["response"]>({
+      authenticatorData: req(str),
+      clientDataJSON: req(str),
+      signature: req(str),
+      userHandle: opt(str),
+    }),
+  ),
+  clientExtensionResults: req(
+    object<AssertionJSON["clientExtensionResults"]>({
+      credProps: opt(object<{ readonly rk?: boolean }>({ rk: opt(bool) })),
+    }),
+  ),
+});
+
+/**
+ * A current second factor, for a change that needs one while methods.second_factor_held (or,
+ * for removeTOTP, methods.totp.usable): a code, or an assertion answering stepUpPasskeyBegin's
+ * ceremony.
+ */
+export type SecondFactorProof =
+  { readonly code: string } | { readonly ceremony: string; readonly assertion: AssertionJSON };
+export const parseSecondFactorProof: Validator<SecondFactorProof> = anyOf<SecondFactorProof>(
+  object<{ readonly code: string }>({ code: req(str) }),
+  object<{ readonly ceremony: string; readonly assertion: AssertionJSON }>({
+    ceremony: req(str),
+    assertion: req(parseAssertionJSON),
+  }),
+);
+
 export interface PendingCreateRequest {
   readonly username: string;
 }
@@ -538,6 +620,29 @@ export interface OIDCStartResponse {
 }
 export const parseOIDCStartResponse: Validator<OIDCStartResponse> = object({ url: req(str) });
 
+/** A begun TOTP enrolment, shown once: keep it in memory until finishTOTP or discard. */
+export interface TOTPBeginResponse {
+  /** The otpauth URI, for a QR code. */
+  readonly uri: string;
+  /** The secret in base32, for typing in: group it in fours. */
+  readonly text: string;
+  /** What finishTOTP takes, for ten minutes, from this session. */
+  readonly ticket: string;
+}
+export const parseTOTPBeginResponse: Validator<TOTPBeginResponse> = object({
+  uri: req(str),
+  text: req(str),
+  ticket: req(str),
+});
+
+export interface TOTPFinishResponse {
+  /** The recovery code this enrolment issued: show it once. */
+  readonly recovery_code?: string;
+}
+export const parseTOTPFinishResponse: Validator<TOTPFinishResponse> = object({
+  recovery_code: opt(str),
+});
+
 export interface PendingLinkResponse {
   readonly issuer: string;
   readonly username_hint?: string;
@@ -566,6 +671,22 @@ export const parseMethodLockView: Validator<MethodLockView> = object({
   trusted: req(bool),
 });
 
+/** The user's authenticator app. */
+export interface TOTPView {
+  readonly enrolled: boolean;
+  readonly since?: string;
+  /** Enrolled, and the app has authenticator apps on: offer its code. */
+  readonly usable: boolean;
+  /** removeTOTP would remove it. */
+  readonly removable: boolean;
+}
+export const parseTOTPView: Validator<TOTPView> = object({
+  enrolled: req(bool),
+  since: opt(time),
+  usable: req(bool),
+  removable: req(bool),
+});
+
 export interface MethodsView {
   readonly password: boolean;
   readonly passkey_count: number;
@@ -577,6 +698,7 @@ export interface MethodsView {
   readonly second_factor_held: boolean;
   /** Step-up may offer the password. */
   readonly password_step_up: boolean;
+  readonly totp: TOTPView;
   readonly locks: readonly MethodLockView[];
 }
 export const parseMethodsView: Validator<MethodsView> = object({
@@ -588,6 +710,7 @@ export const parseMethodsView: Validator<MethodsView> = object({
   password_login: req(bool),
   second_factor_held: req(bool),
   password_step_up: req(bool),
+  totp: req(parseTOTPView),
   locks: req(list(parseMethodLockView)),
 });
 
@@ -639,6 +762,8 @@ export interface PasskeyView {
   readonly backed_up: boolean;
   readonly clone_warning?: boolean;
   readonly rp_id: string;
+  /** removePasskey would remove it. */
+  readonly removable: boolean;
 }
 export const parsePasskeyView: Validator<PasskeyView> = object({
   id: req(id),
@@ -649,6 +774,7 @@ export const parsePasskeyView: Validator<PasskeyView> = object({
   backed_up: req(bool),
   clone_warning: opt(bool),
   rp_id: req(str),
+  removable: req(bool),
 });
 
 export interface SessionView {
@@ -956,6 +1082,10 @@ export const REASONS = [
   "token_in_query",
   "enrol_needs_known_device",
   "no_usable_method",
+  "second_factor_proof_required",
+  "last_second_factor",
+  "second_factor_held",
+  "totp_needs_password",
   "transport_changed",
   "sign_in_again",
   "too_short",
@@ -988,6 +1118,10 @@ export const REASONS = [
   "owner_role",
   "last_owner",
   "owner_needs_local_method",
+  "code_invalid",
+  "code_reused",
+  "method_locked",
+  "current_code_invalid",
   "empty",
   "disallowed_character",
   "label_empty",

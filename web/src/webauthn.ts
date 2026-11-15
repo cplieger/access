@@ -1,7 +1,13 @@
 import type { ApiErr, ApiResult } from "@cplieger/reactive/fetch";
 import type { AuthClient, PublicKeyCredentialJSON } from "./client.js";
 import { authCode } from "./wire.js";
-import type { CeremonyResponse, PasskeyView, SignedInResponse } from "./wire.js";
+import type {
+  CeremonyResponse,
+  PasskeyView,
+  SecondFactorProof,
+  SignInOutcome,
+  SignedInResponse,
+} from "./wire.js";
 
 /** A DOMException's name from the authenticator call, or "" for a throw that is not a DOMException. */
 export type DOMExceptionName = string;
@@ -26,6 +32,16 @@ export type PasskeySignInOutcome =
 /** A step-up signs nobody in: /stepup/passkey/finish answers 204, so success carries no SignedInResponse. */
 export type StepUpOutcome =
   { readonly kind: "stepped-up" } | Exclude<PasskeySignInOutcome, { kind: "signed-in" }>;
+
+/** A passkey second step's answer: the sign-in step's, or why no assertion was made or taken. */
+export type SecondPasskeyOutcome =
+  | { readonly kind: "answered"; readonly result: SignInOutcome }
+  | Exclude<PasskeySignInOutcome, { kind: "signed-in" }>;
+
+/** A passkey proof for a change that needs a current second factor, or why none was made. */
+export type PasskeyProofOutcome =
+  | { readonly kind: "proof"; readonly proof: SecondFactorProof }
+  | Extract<PasskeySignInOutcome, { kind: "cancelled" | "timeout" | "failed" }>;
 
 interface Platform {
   readonly isConditionalMediationAvailable?: () => Promise<boolean>;
@@ -380,9 +396,47 @@ export async function signInWithPasskey(
   return res.ok ? { kind: "signed-in", result: res.data } : assertionRefused(res, got);
 }
 
-/** Registers a passkey for the signed-in user, then sends the provider the server's signals. */
-export async function registerPasskey(c: AuthClient): Promise<RegisterOutcome> {
-  const made = await create(await c.passkeyRegisterBegin());
+/** Completes a pending sign-in's passkey second step for ticket. */
+export async function loginSecondPasskey(
+  c: AuthClient,
+  ticket: string,
+): Promise<SecondPasskeyOutcome> {
+  const got = await get(await c.loginSecondPasskeyBegin({ ticket }));
+  if (got.kind !== "credential") {
+    return got;
+  }
+  const res = await c.loginSecondPasskeyFinish(got.ceremony, got.json);
+  return res.ok ? { kind: "answered", result: res.data } : assertionRefused(res, got);
+}
+
+/**
+ * An assertion from one of the signed-in user's passkeys, as the proof removeTOTP,
+ * removePasskey, passkeyRegisterBegin and registerPasskey take; the server spends it once.
+ */
+export async function passkeyProof(c: AuthClient): Promise<PasskeyProofOutcome> {
+  const got = await get(await c.stepUpPasskeyBegin());
+  if (got.kind !== "credential") {
+    return got;
+  }
+  const { json } = got;
+  if (!("signature" in json.response)) {
+    return { kind: "failed", error: wrongKind() };
+  }
+  return {
+    kind: "proof",
+    proof: { ceremony: got.ceremony, assertion: { ...json, response: json.response } },
+  };
+}
+
+/**
+ * Registers a passkey for the signed-in user, then sends the provider the server's signals;
+ * proof is needed while methods.second_factor_held.
+ */
+export async function registerPasskey(
+  c: AuthClient,
+  proof?: SecondFactorProof,
+): Promise<RegisterOutcome> {
+  const made = await create(await c.passkeyRegisterBegin(proof));
   if (made.kind !== "credential") {
     return made;
   }

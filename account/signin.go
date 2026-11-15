@@ -48,6 +48,7 @@ type ticket struct {
 	// only while the stored hash still matches it.
 	digest access.HashKey
 	secure bool // the minting request's transport
+	failed bool // a second step on it was refused and journalled
 }
 
 // secondFactorHeld is the one predicate of whether u, read through tx under
@@ -55,14 +56,7 @@ type ticket struct {
 // Rules.RequireSecondFactor a password and a usable passkey. Held means
 // usable, so a record totpOn turns off reads as absent.
 func (s *Service) secondFactorHeld(ctx context.Context, tx Tx, r Rules, u *access.User) (bool, error) { //nolint:gocritic // hugeParam: the operation's one Rules value
-	if held, err := s.usableTOTP(ctx, tx, r, u); err != nil || held {
-		return held, err
-	}
-	if !r.RequireSecondFactor || u.PasswordHash.IsZero() {
-		return false, nil
-	}
-	n, err := usablePasskeys(ctx, tx, r, s.rpID(), u, credential{})
-	return n > 0, err
+	return s.heldWithout(ctx, tx, r, u, credential{})
 }
 
 // usableTOTP reports whether u holds a TOTP record that reads as present.

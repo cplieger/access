@@ -140,6 +140,11 @@ func passthroughCases() []passthroughCase {
 			cookie := e.aliceSession(t)
 			return serve(t, e, "authStepUpPassword", e.post(t, "authStepUpPassword", jsonBody(t, PasswordRequest{Password: testPassword}), cookie))
 		}},
+		{name: "step_up_code", route: "authStepUpCode", opts: totpOn, run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+			cookie := e.aliceSession(t)
+			secret := e.giveTOTP(t, "alice", e.sealer)
+			return serve(t, e, "authStepUpCode", e.post(t, "authStepUpCode", jsonBody(t, StepUpCodeRequest{Code: codeNow(secret)}), cookie))
+		}},
 		{name: "step_up_passkey", route: "authStepUpPasskeyFinish", opts: passkeys, run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
 			cookie := e.aliceSession(t)
 			return serve(t, e, "authStepUpPasskeyFinish", e.stepUpFinish(t, cookie, e.enrol(t, "alice"), nil, nil))

@@ -20,6 +20,7 @@ import (
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/internal/printcheck"
 	"github.com/cplieger/access/oidc"
+	"github.com/cplieger/access/totp"
 )
 
 // wholeLog is a LogRange Limit no test log reaches.
@@ -50,8 +51,9 @@ func logSince(t testing.TB, s account.Store, before []account.LogEntry) []accoun
 }
 
 // sessionClass is the set of kinds in the session class: sign-ins, step-ups,
-// session revocations and refused OIDC admissions (design 5.7).
-var sessionClass = []account.EventKind{account.EventSignedIn, account.EventSteppedUp, account.EventSessionRevoked, account.EventOIDCNotAdmitted}
+// session revocations, refused OIDC admissions (design 5.7) and refused
+// second steps (design 4.11).
+var sessionClass = []account.EventKind{account.EventSignedIn, account.EventSteppedUp, account.EventSessionRevoked, account.EventOIDCNotAdmitted, account.EventSecondFactorFailed}
 
 func classOf(k account.EventKind) account.LogClass {
 	if slices.Contains(sessionClass, k) {
@@ -76,6 +78,35 @@ func stateVariants() []operation {
 					return err
 				},
 				want: events(account.Event{Kind: account.EventUserEnabled, UserID: target.ID, Actor: actorOf(p)}),
+			}
+		}},
+		// Design 4.5: a replacement journals totp_replaced.
+		{name: "FinishTOTP_replace", class: classRecentAuth, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			old := sealTOTP(t, w.mem, w.sealer, w.owner(t, p))
+			e, err := w.svc.BeginTOTP(t.Context(), p)
+			if err != nil {
+				t.Fatalf("BeginTOTP = %v", err)
+			}
+			in := account.TOTPFinish{Ticket: e.Ticket, Code: codeNow(secretOf(t, e)), CurrentCode: codeNow(old)}
+			return opCall{
+				run:  func(ctx context.Context) error { _, err := w.svc.FinishTOTP(ctx, w.client, p, in); return err },
+				want: events(account.Event{Kind: account.EventTOTPReplaced, UserID: actorOf(p).UserID, Actor: actorOf(p)}),
+			}
+		}},
+		// Design 4.4: a pending sign-in's first refused code journals
+		// second_factor_failed, which the run's refusal answers.
+		{name: "SignInWithCode_refused", class: classPublic, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket, secret := w.pendingTicket(t)
+			wrong := totp.Code(secret, totp.Step(time.Now().Add(-20*totp.Period)))
+			return opCall{
+				run: func(ctx context.Context) error {
+					_, err := w.svc.SignInWithCode(ctx, w.client, ticket, wrong)
+					if errors.Is(err, account.ErrCodeInvalid) {
+						return nil
+					}
+					return fmt.Errorf("a wrong code = %v, want ErrCodeInvalid", err)
+				},
+				want: events(account.Event{Kind: account.EventSecondFactorFailed, UserID: w.alice.ID, Method: access.MethodTOTP}),
 			}
 		}},
 		{name: "SetOwner_remove", class: classRecentAuth, ownerOnly: true, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
@@ -555,6 +586,7 @@ func mustPrincipal(t *testing.T, f *fixture, token access.Secret) access.Princip
 var clientOperations = []string{
 	"SetupWithPassword", "SetupPasskeyFinish", "PasswordLogin", "PasskeyLoginFinish", "OIDCComplete",
 	"AcceptInvitePassword", "CreatePendingOIDC", "StepUpPassword", "StepUpPasskeyFinish", "SetPassword", "RemovePassword",
+	"SignInWithCode", "SecondFactorPasskeyFinish", "StepUpCode",
 }
 
 func TestLogIP(t *testing.T) {

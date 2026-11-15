@@ -31,6 +31,8 @@ var designOwnReasons = []string{
 	"no_username", "provisioning_disabled", "not_admitted", "username_invalid",
 	"reenable_needs_other_method", "trailing_data", "malformed_json", "content_type", "body",
 	"unknown_field", "token_in_query", "enrol_needs_known_device", "no_usable_method",
+	// Design 4.31, 4.48 and 4.49.
+	"second_factor_proof_required", "last_second_factor", "second_factor_held", "totp_needs_password",
 }
 
 // wireReasons is every Reason classify gives for the fixed-reason
@@ -56,6 +58,9 @@ func wireReasons(t *testing.T) []string {
 	}
 	for _, r := range account.PolicyReasons() {
 		errs = append(errs, &account.PolicyError{Reason: r})
+	}
+	for _, r := range account.CodeReasons() {
+		errs = append(errs, &account.CodeError{Reason: r})
 	}
 	for _, r := range account.UsernameReasons() {
 		errs = append(errs, &account.UsernameError{Reason: r})
@@ -133,6 +138,7 @@ func TestReasonTable(t *testing.T) {
 			want = append(want, string(r))
 		}
 		want = append(want, account.PolicyReasons()...)
+		want = append(want, "code_invalid", "code_reused", "method_locked", "current_code_invalid")
 		want = append(want, account.UsernameReasons()...)
 		want = append(want, "label_empty", "label_disallowed_character", "label_too_long", "display_name_disallowed_character", "display_name_too_long")
 		want = append(want, "log_limit", "log_range", "log_kind", "log_id")

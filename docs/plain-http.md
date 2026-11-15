@@ -17,19 +17,20 @@ Under `PosturePerRequest`, a plain request may sign in and set up the first acco
 
 | Allowed over plain HTTP | Refused over plain HTTP with 403 `auth_https_required` |
 | --- | --- |
-| `authState`, `authSetupPassword`, `authLoginPassword`, `authLogout` | `authSetupPasskeyBegin`, `authSetupPasskeyFinish`, `authLoginPasskeyBegin`, `authLoginPasskeyFinish` |
+| `authState`, `authSetupPassword`, `authLoginPassword`, `authLoginCode`, `authLogout` | `authSetupPasskeyBegin`, `authSetupPasskeyFinish`, `authLoginPasskeyBegin`, `authLoginPasskeyFinish`, `authLoginSecondPasskeyBegin`, `authLoginSecondPasskeyFinish` |
 | `authMe`, `authProfile`, `authMethodReenable` | every OIDC route: `authOIDCStartSignIn`, `authOIDCStartLink`, `authOIDCStartStepUp`, `authInviteAcceptOIDC`, `authOIDCCallback`, `authOIDCPending`, `authOIDCCreatePending`, `authOIDCLinkPending` |
-| `authPasswordSet`, whose recent auth is the sign-in's time | `authStepUpPassword`, `authStepUpPasskeyBegin`, `authStepUpPasskeyFinish` |
-| `authPasskeys`, `authPasskeyRename`, `authPasskeyRemove`, `authWebAuthnSignals`, `authOIDCUnlink` | `authPasswordRemove` |
+| `authPasswordSet`, whose recent auth is the sign-in's time | `authStepUpPassword`, `authStepUpCode`, `authStepUpPasskeyBegin`, `authStepUpPasskeyFinish` |
+| `authPasskeys`, `authPasskeyRename`, `authPasskeyRemove` with a code as its proof, `authTOTPRemove`, `authWebAuthnSignals`, `authOIDCUnlink` | `authPasswordRemove`, `authTOTPBegin`, `authTOTPFinish` |
 | `authSessions`, `authSessionRename`, `authSessionRevoke`, `authSessionsRevokeOthers` | `authPasskeyRegisterBegin`, `authPasskeyRegisterFinish` |
 | `authKeys`, `authKeyRename`, `authKeyRevoke`, `authAdminKeys`, `authAdminKeyRevoke` | `authInviteAcceptPassword` |
 | `authAdminUsers`, `authAdminUserCreate`, `authAdminUserUpdate`, `authAdminOwner`, `authAdminUserDelete`, `authAdminOIDCUnlink`, `authAdminTokens`, `authAdminSecurityLog` | `authAdminSSOReadiness`, `authAdminSSOApply` |
 | every route of yours on the gate, by its class, except a row marked `HTTPS` | `authKeyCreate`, `authKeyRotate`, `authAdminInvite` |
 
-Three rows need a reason:
+Four rows need a reason:
 
 - **Reading and changing the SSO mode are refused.** A change moves every account's way in, so only an owner on a secure request makes it, and the readiness read answers the refusals the change would.
 - **Removing the password is refused.** Over plain HTTP the password is the session's only way back in, since every other sign-in method needs HTTPS.
+- **The code step is allowed, and the other second steps are not.** Over plain HTTP the code stops remote password reuse, but anyone on the path reads the session token in the response the code earns. A passkey assertion, and a passkey proof sent with a removal, need HTTPS, as every passkey ceremony does. A pending sign-in's ticket is bound to the transport that minted it: a plain ticket finishes only over plain HTTP, and a secure ticket presented over plain HTTP is cancelled, since it crossed in clear.
 - **Creating a user is allowed.** It answers no secret, and the new user's password is exposed exactly as a password change's is.
 
 `account` enforces the table, so an app that calls it directly gets the same answers: each operation's godoc names its plain answer. An `OutOfBand` actor has no transport and is never refused. An operation that takes both a `Client` and a `Principal` needs both to be secure. In `account` the refusal comes before any other check, limiter charge or store read, so a refused plain request costs nothing and its answer does not depend on its input. `accesshttp` and the gate only translate `access.ErrHTTPSRequired` into the code, and keep no copy of the table.

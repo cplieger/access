@@ -183,6 +183,24 @@ func TestRouteAuthMethodReenable(t *testing.T) {
 			t.Errorf("locks %+v after the re-enable, want none", got)
 		}
 	})
+	// Design 4.11 and the contract's unlock control: a TOTP lock unlocks from
+	// a session signed in another way.
+	t.Run("totp", func(t *testing.T) {
+		spy := &failureNames{}
+		e := newEnv(t, with(passkeys, totpOn, envOptions{edit: func(c *account.Config) { spy.Store = c.Store; c.Store = spy }}))
+		e.aliceSession(t)
+		cookie := e.passkeySession(t, e.enrol(t, "alice"))
+		decoded[MeResponse](t, e, do(e.route(t, "authMe"), e.post(t, "authMe", "", cookie)), http.StatusOK)
+		lock := account.FailureCount{Count: account.FailureCap, Locked: true, LockedAt: time.Now().Add(-time.Hour)}
+		lock.Name, lock.Method = spy.last(), access.MethodTOTP
+		if err := e.mem.PutAuthFailure(t.Context(), lock); err != nil {
+			t.Fatalf("PutAuthFailure: %v", err)
+		}
+		e.requireStatus(t, do(e.route(t, "authMethodReenable"), e.at(t, "authMethodReenable", string(access.MethodTOTP), "", cookie)), http.StatusNoContent)
+		if _, found, err := e.mem.AuthFailure(t.Context(), lock.FailureRef); err != nil || found {
+			t.Errorf("the TOTP lock after the re-enable: found %t, %v; want it cleared", found, err)
+		}
+	})
 }
 
 func TestRouteAuthStepUpPassword(t *testing.T) {
@@ -356,7 +374,7 @@ func TestRouteAuthPasskeys(t *testing.T) {
 			t.Fatalf("PasskeysByUserID = %d, %v", len(stored), err)
 		}
 		views := decoded[[]PasskeyView](t, e, do(e.route(t, "authPasskeys"), e.post(t, "authPasskeys", "", cookie)), http.StatusOK)
-		if want := passkeyView(&stored[0]); len(views) != 1 || views[0].ID != want.ID || views[0].Name != want.Name || views[0].RPID != testRPID || !views[0].CreatedAt.Equal(want.CreatedAt) {
+		if want := passkeyView(&account.Passkey{Credential: stored[0]}); len(views) != 1 || views[0].ID != want.ID || views[0].Name != want.Name || views[0].RPID != testRPID || !views[0].CreatedAt.Equal(want.CreatedAt) {
 			t.Errorf("passkeys %+v, want alice's one %+v", views, want)
 		}
 	})

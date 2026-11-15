@@ -64,6 +64,7 @@ var sentinelCodes = []struct {
 	{account.ErrSetupComplete, access.CodeSetupComplete, ""},
 	{account.ErrSetupTokenRequired, access.CodeSetupTokenRequired, ""},
 	{access.ErrTokenInvalid, access.CodeTokenInvalid, ""},
+	{account.ErrLastSecondFactor, access.CodeLastMethod, ReasonLastSecondFactor},
 	{account.ErrLastMethod, access.CodeLastMethod, ""},
 	{account.ErrOIDCIdentityTaken, access.CodeIdentityTaken, ""},
 	{account.ErrAlreadyLinked, access.CodeAlreadyLinked, ""},
@@ -89,6 +90,10 @@ var sentinelCodes = []struct {
 	{account.ErrNotFound, access.CodeNotFound, ""},
 	{account.ErrInvalidCredentials, access.CodeInvalidCredentials, ""},
 	{account.ErrCodeInvalid, access.CodeCodeInvalid, ""},
+	{account.ErrCodeMalformed, access.CodeBadRequest, ""},
+	{account.ErrSecondFactorProofRequired, access.CodeBadRequest, ReasonSecondFactorProofRequired},
+	{account.ErrSecondFactorHeld, access.CodeSecondFactorRequired, ReasonSecondFactorHeld},
+	{account.ErrPasswordRequired, access.CodeForbidden, ReasonTOTPNeedsPassword},
 	{account.ErrEnrolNeedsKnownDevice, access.CodeSecondFactorRequired, ReasonEnrolNeedsKnownDevice},
 	{account.ErrSecondFactorRequired, access.CodeSecondFactorRequired, ""},
 	{account.ErrNoUsableMethod, access.CodeForbidden, ReasonNoUsableMethod},
@@ -179,6 +184,12 @@ func typedCode(err error) (code access.Code, reason string, ok bool) {
 	}
 	if oe, is := errors.AsType[*webauthn.OriginError](err); is {
 		return access.CodeOriginRefused, string(oe.Reason), true
+	}
+	if ce, is := errors.AsType[*account.CodeError](err); is {
+		return access.CodeCodeInvalid, ce.Reason, true
+	}
+	if me, is := errors.AsType[*account.MalformedError](err); is {
+		return access.CodeBadRequest, me.Field, true
 	}
 	if pe, is := errors.AsType[*account.PolicyError](err); is {
 		return access.CodeForbidden, pe.Reason, true

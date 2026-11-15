@@ -7,8 +7,8 @@ import (
 	"github.com/cplieger/access"
 )
 
-// credential is one sign-in credential of a user: the password, the OIDC
-// link, or the passkey passkeyID names.
+// credential is one sign-in credential or second factor of a user: the
+// password, the OIDC link, the TOTP record, or the passkey passkeyID names.
 type credential struct {
 	method    access.Method
 	passkeyID int64
@@ -21,6 +21,9 @@ func holds(ctx context.Context, tx Tx, u *access.User, c credential) (bool, erro
 		return !u.PasswordHash.IsZero(), nil
 	case access.MethodOIDC:
 		return !u.OIDC.IsZero(), nil
+	case access.MethodTOTP:
+		_, found, err := tx.TOTPByUserID(ctx, u.ID)
+		return found, err
 	case access.MethodPasskey:
 		passkeys, err := tx.PasskeysByUserID(ctx, u.ID)
 		if err != nil {

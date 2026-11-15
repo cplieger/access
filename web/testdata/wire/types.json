@@ -7,6 +7,14 @@
       "name": "public_key"
     }
   ],
+  "CodeRequest": [
+    {
+      "name": "ticket"
+    },
+    {
+      "name": "code"
+    }
+  ],
   "InviteAcceptRequest": [
     {
       "name": "token"
@@ -171,6 +179,24 @@
     {
       "name": "methods",
       "fields": [
+        {
+          "name": "totp",
+          "fields": [
+            {
+              "name": "since",
+              "optional": true
+            },
+            {
+              "name": "enrolled"
+            },
+            {
+              "name": "usable"
+            },
+            {
+              "name": "removable"
+            }
+          ]
+        },
         {
           "name": "locks",
           "fields": [
@@ -361,6 +387,9 @@
     {
       "name": "clone_warning",
       "optional": true
+    },
+    {
+      "name": "removable"
     }
   ],
   "PasswordChangeRequest": [
@@ -504,6 +533,23 @@
         "for_linked",
         "only"
       ]
+    }
+  ],
+  "SecondFactorProof": [
+    {
+      "name": "code",
+      "optional": true,
+      "arm": "code"
+    },
+    {
+      "name": "ceremony",
+      "optional": true,
+      "arm": "passkey"
+    },
+    {
+      "name": "assertion",
+      "optional": true,
+      "arm": "passkey"
     }
   ],
   "SecurityLogView": [
@@ -798,7 +844,7 @@
         }
       ],
       "optional": true,
-      "arm": true
+      "arm": "signed_in"
     },
     {
       "name": "pending",
@@ -825,7 +871,7 @@
         }
       ],
       "optional": true,
-      "arm": true
+      "arm": "pending"
     }
   ],
   "Signals": [
@@ -978,6 +1024,45 @@
     },
     {
       "name": "totp"
+    }
+  ],
+  "StepUpCodeRequest": [
+    {
+      "name": "code"
+    }
+  ],
+  "TOTPBeginResponse": [
+    {
+      "name": "uri"
+    },
+    {
+      "name": "text"
+    },
+    {
+      "name": "ticket"
+    }
+  ],
+  "TOTPFinishRequest": [
+    {
+      "name": "ticket"
+    },
+    {
+      "name": "code"
+    },
+    {
+      "name": "current_code",
+      "optional": true
+    }
+  ],
+  "TOTPFinishResponse": [
+    {
+      "name": "recovery_code",
+      "optional": true
+    }
+  ],
+  "TicketRequest": [
+    {
+      "name": "ticket"
     }
   ],
   "TokenRequest": [

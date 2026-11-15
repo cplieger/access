@@ -22,12 +22,15 @@ Each operation appends its entries in the order it reports its events to `OnEven
 | Kind | Class | Appended by |
 | --- | --- | --- |
 | `user_created` | change | first-user setup (with the admin role), `CreateUser`, `AcceptInvitePassword`, and an OIDC sign-in, an invite accepted by OIDC or `CreatePendingOIDC` that creates the account, which is linked from the start and gets no `oidc_linked` |
-| `signed_in` | session | every full sign-in: password, passkey, OIDC (an invite accepted by OIDC included), `CreatePendingOIDC`, first-user setup and `AcceptInvitePassword` |
-| `stepped_up` | session | `StepUpPassword`, a passkey step-up and an OIDC step-up |
+| `signed_in` | session | every full sign-in: password, the second step of a pending password sign-in (with `Method` password), passkey, OIDC (an invite accepted by OIDC included), `CreatePendingOIDC`, first-user setup and `AcceptInvitePassword` |
+| `stepped_up` | session | `StepUpPassword`, `StepUpCode`, a passkey step-up and an OIDC step-up |
+| `second_factor_failed` | session | the first refused proof of a pending sign-in's second step, a code (`SignInWithCode`) or a passkey (`SecondFactorPasskeyFinish`), with `Method` the factor and, for a code, `Detail` the refusal's reason (`code_invalid`, `code_reused`, `method_locked`). Later refusals on the same ticket add nothing: the failure record counts them. A refusal after a correct password means someone else may hold it |
 | `session_revoked` | session | `RevokeSession`, `Logout` when it ended a session, a sign-in that ends sessions past `Rules.MaxSessionsPerUser`, with one entry naming every session it ended, the revoke of a session presented on the other transport, whose `Detail` is `transport_changed` (`account.LogDetailTransportChanged`), and a full sign-in that replaced the session its request presented, in an entry of its own ahead of any `MaxSessionsPerUser` entry, whose `Detail` is `signed_in_again` (`account.LogDetailSignedInAgain`) |
 | `user_sessions_revoked` | change | `RevokeOtherSessions`, `SetPassword`, an OIDC link that leaves the user's local methods dormant, `ApplySSO` and `MigrateSSO` for each account whose local sessions the new mode ends, and `SetOwner` removing an owner whose local methods the mode keeps dormant, and `AdminUnlinkOIDC`, which ends every session of the user, each when it ended at least one session of the user. A role change, a disable and a delete name the sessions they end in their own entry instead |
 | `password_set`, `password_changed` | change | `SetPassword`: `password_set` when the user held no password, `password_changed` when one was replaced |
 | `password_removed` | change | `RemovePassword` |
+| `totp_added`, `totp_replaced` | change | `FinishTOTP`: `totp_added` when the user held no TOTP, `totp_replaced` when the current code replaced one |
+| `totp_removed` | change | `RemoveTOTP`, and `RemovePassword`, which deletes the TOTP the password had |
 | `passkey_added` | change | `PasskeyRegisterFinish`. The passkey of a first-user setup gets no entry of its own: the setup appends `user_created` and `signed_in` |
 | `passkey_removed` | change | `RemovePasskey` |
 | `oidc_linked`, `oidc_unlinked` | change | `OIDCComplete` finishing a link and `LinkPendingOIDC`; `UnlinkOIDC` and `AdminUnlinkOIDC` |
@@ -89,7 +92,7 @@ A refused entry is an `*account.AppEntryError` whose `Reason` is `app_kind`, `ap
 
 The log has two classes, counted separately so that sign-in churn never removes an account change:
 
-- `session`: `signed_in`, `stepped_up`, `session_revoked` and `oidc_not_admitted`;
+- `session`: `signed_in`, `stepped_up`, `session_revoked`, `oidc_not_admitted` and `second_factor_failed`;
 - `change`: every other kind, your app's included.
 
 | `account.Config` field | What it sets | Default |

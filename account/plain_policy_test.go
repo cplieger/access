@@ -112,7 +112,7 @@ func TestPlainEitherHalf(t *testing.T) {
 	for _, op := range operations() {
 		byName[op.name] = op
 	}
-	for _, name := range []string{"StepUpPassword", "StepUpPasskeyFinish", "RemovePassword", "SetPassword"} {
+	for _, name := range []string{"StepUpPassword", "StepUpPasskeyFinish", "StepUpCode", "FinishTOTP", "RemovePassword", "SetPassword"} {
 		op := byName[name]
 		for _, half := range []struct {
 			name                    string

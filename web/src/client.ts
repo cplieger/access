@@ -19,6 +19,8 @@ import {
   parseSignInOutcome,
   parseSignedInResponse,
   parseStateResponse,
+  parseTOTPBeginResponse,
+  parseTOTPFinishResponse,
   parseTokenResponse,
   parseTokenView,
   parseUserView,
@@ -46,6 +48,7 @@ import type {
   ProfileRequest,
   Readiness,
   RedirectRequest,
+  SecondFactorProof,
   SecurityLogView,
   SessionView,
   SetupPasskeyBeginRequest,
@@ -53,6 +56,10 @@ import type {
   SignInOutcome,
   SignedInResponse,
   StateResponse,
+  TOTPBeginResponse,
+  TOTPFinishRequest,
+  TOTPFinishResponse,
+  TicketRequest,
   TokenRequest,
   TokenResponse,
   TokenView,
@@ -119,6 +126,14 @@ export interface AuthClient {
     credential: PublicKeyCredentialJSON,
   ): Promise<ApiResult<SignedInResponse>>;
   loginPassword(r: LoginRequest): Promise<ApiResult<SignInOutcome>>;
+  /** A pending sign-in's code step; continue with the answer's newest ticket. */
+  loginCode(ticket: string, code: string): Promise<ApiResult<SignInOutcome>>;
+  /** loginSecondPasskey's begin: a ceremony limited to the ticket's user's passkeys. */
+  loginSecondPasskeyBegin(r: TicketRequest): Promise<ApiResult<CeremonyResponse>>;
+  loginSecondPasskeyFinish(
+    ceremony: string,
+    credential: PublicKeyCredentialJSON,
+  ): Promise<ApiResult<SignInOutcome>>;
   loginPasskeyBegin(o?: {
     readonly mediation?: "conditional";
   }): Promise<ApiResult<CeremonyResponse>>;
@@ -141,6 +156,17 @@ export interface AuthClient {
   updateProfile(r: ProfileRequest): Promise<ApiResult<MeResponse>>;
   reenableMethod(method: string): Promise<ApiResult<void>>;
   stepUpPassword(r: PasswordRequest): Promise<ApiResult<void>>;
+  /** Offered only while methods.totp.usable. */
+  stepUpCode(code: string): Promise<ApiResult<void>>;
+  /** From Account under recent sign-in and HTTPS, for a user with a password. */
+  beginTOTP(): Promise<ApiResult<TOTPBeginResponse>>;
+  /** current_code is the replaced authenticator's code, required when one is enrolled. */
+  finishTOTP(r: TOTPFinishRequest): Promise<ApiResult<TOTPFinishResponse>>;
+  /**
+   * A proof while methods.totp.usable; none for an authenticator the app turned off, which
+   * needs a recent sign-in instead (withStepUp).
+   */
+  removeTOTP(proof?: SecondFactorProof): Promise<ApiResult<void>>;
   stepUpPasskeyBegin(): Promise<ApiResult<CeremonyResponse>>;
   stepUpPasskeyFinish(
     ceremony: string,
@@ -149,13 +175,15 @@ export interface AuthClient {
   setPassword(r: PasswordChangeRequest): Promise<ApiResult<void>>;
   removePassword(r: PasswordRemoveRequest): Promise<ApiResult<void>>;
   passkeys(): Promise<ApiResult<readonly PasskeyView[]>>;
-  passkeyRegisterBegin(): Promise<ApiResult<CeremonyResponse>>;
+  /** proof while methods.second_factor_held. */
+  passkeyRegisterBegin(proof?: SecondFactorProof): Promise<ApiResult<CeremonyResponse>>;
   passkeyRegisterFinish(
     ceremony: string,
     credential: PublicKeyCredentialJSON,
   ): Promise<ApiResult<PasskeyView>>;
   renamePasskey(id: number, r: NameRequest): Promise<ApiResult<void>>;
-  removePasskey(id: number): Promise<ApiResult<void>>;
+  /** proof while methods.second_factor_held. */
+  removePasskey(id: number, proof?: SecondFactorProof): Promise<ApiResult<void>>;
   webauthnSignals(): Promise<ApiResult<WebAuthnSignals>>;
   sessions(): Promise<ApiResult<readonly SessionView[]>>;
   renameSession(id: string, r: NameRequest): Promise<ApiResult<void>>;
@@ -278,6 +306,12 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     setupPasskeyFinish: (c, cred) =>
       json("POST", p("/setup/passkey/finish"), parseSignedInResponse, finish(c, cred)),
     loginPassword: (r) => json("POST", p("/login/password"), parseSignInOutcome, { body: r }),
+    loginCode: (ticket, code) =>
+      json("POST", p("/login/code"), parseSignInOutcome, { body: { ticket, code } }),
+    loginSecondPasskeyBegin: (r) =>
+      json("POST", p("/login/second-passkey/begin"), parseCeremonyResponse, { body: r }),
+    loginSecondPasskeyFinish: (c, cred) =>
+      json("POST", p("/login/second-passkey/finish"), parseSignInOutcome, finish(c, cred)),
     loginPasskeyBegin: (q) =>
       json(
         "POST",
@@ -301,6 +335,10 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     updateProfile: (r) => json("PUT", p("/profile"), parseMeResponse, { body: r }),
     reenableMethod: (m) => empty("POST", p(`/methods/${seg(m)}/reenable`)),
     stepUpPassword: (r) => empty("POST", p("/stepup/password"), r),
+    stepUpCode: (code) => empty("POST", p("/stepup/code"), { code }),
+    beginTOTP: () => json("POST", p("/totp/begin"), parseTOTPBeginResponse),
+    finishTOTP: (r) => json("POST", p("/totp/finish"), parseTOTPFinishResponse, { body: r }),
+    removeTOTP: (proof) => empty("DELETE", p("/totp"), proof),
     stepUpPasskeyBegin: () => json("POST", p("/stepup/passkey/begin"), parseCeremonyResponse),
     stepUpPasskeyFinish: (c, cred) =>
       f.requestRaw<undefined>("POST", p("/stepup/passkey/finish"), {
@@ -310,11 +348,17 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     setPassword: (r) => empty("PUT", p("/password"), r),
     removePassword: (r) => empty("DELETE", p("/password"), r),
     passkeys: () => json("GET", p("/passkeys"), passkeyList),
-    passkeyRegisterBegin: () => json("POST", p("/passkeys/begin"), parseCeremonyResponse),
+    passkeyRegisterBegin: (proof) =>
+      json(
+        "POST",
+        p("/passkeys/begin"),
+        parseCeremonyResponse,
+        proof === undefined ? {} : { body: proof },
+      ),
     passkeyRegisterFinish: (c, cred) =>
       json("POST", p("/passkeys/finish"), parsePasskeyView, finish(c, cred)),
     renamePasskey: (id, r) => empty("PUT", p(`/passkeys/${String(id)}`), r),
-    removePasskey: (id) => empty("DELETE", p(`/passkeys/${String(id)}`)),
+    removePasskey: (id, proof) => empty("DELETE", p(`/passkeys/${String(id)}`), proof),
     webauthnSignals: () => json("GET", p("/webauthn/signals"), parseWebAuthnSignals),
     sessions: () => json("GET", p("/sessions"), sessionList),
     renameSession: (id, r) => empty("PUT", p(`/sessions/${seg(id)}`), r),

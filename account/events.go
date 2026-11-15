@@ -51,6 +51,14 @@ const (
 	// EventRoleSyncSkipped one it left because the claim was unreadable.
 	EventRoleSynced      EventKind = "role_synced"
 	EventRoleSyncSkipped EventKind = "role_sync_skipped"
+	EventTOTPAdded       EventKind = "totp_added"
+	EventTOTPReplaced    EventKind = "totp_replaced"
+	EventTOTPRemoved     EventKind = "totp_removed"
+	// EventSecondFactorFailed is a pending sign-in's first refused second
+	// step; later refusals on the same ticket add nothing, since the
+	// failure record counts them. A refused code's entry carries the
+	// CodeError Reason as its Detail.
+	EventSecondFactorFailed EventKind = "second_factor_failed"
 )
 
 // eventKinds is every EventKind in declaration order, with the class its
@@ -91,6 +99,10 @@ var eventKinds = [...]struct {
 	{EventOIDCNotAdmitted, LogClassSession},
 	{EventRoleSynced, LogClassChange},
 	{EventRoleSyncSkipped, LogClassChange},
+	{EventTOTPAdded, LogClassChange},
+	{EventTOTPReplaced, LogClassChange},
+	{EventTOTPRemoved, LogClassChange},
+	{EventSecondFactorFailed, LogClassSession},
 }
 
 // EventKinds returns every EventKind, in declaration order.
@@ -118,7 +130,7 @@ func classOf(k EventKind) LogClass {
 type Event struct {
 	At     time.Time
 	Kind   EventKind
-	Method access.Method // sign-in, step-up, lock and re-enable
+	Method access.Method // sign-in, step-up, lock, re-enable and a refused second step
 	// Role is the new role of an EventRoleChanged or EventRoleSynced, the
 	// kept one of an EventRoleSyncSkipped, the created user's of an
 	// EventUserCreated and the invite's of an EventInviteIssued.

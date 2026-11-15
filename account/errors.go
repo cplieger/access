@@ -71,9 +71,25 @@ var (
 	// ErrBreachCheckUnavailable is access's sentinel, so either name matches
 	// the refusal under BreachFailClosed.
 	ErrBreachCheckUnavailable = access.ErrBreachCheckUnavailable
-	// ErrCodeInvalid is a TOTP or recovery code that does not match, or a
-	// match refused as reused or locked.
+	// ErrCodeInvalid is matched by every *CodeError: a TOTP or recovery
+	// code that does not match, or a match refused as reused or locked.
 	ErrCodeInvalid = errors.New("account: the code is not valid")
+	// ErrCodeMalformed is matched by every *MalformedError.
+	ErrCodeMalformed = errors.New("account: the code is malformed")
+	// ErrSecondFactorProofRequired is a change that needs a current second
+	// factor, sent with no proof; nothing is counted for it.
+	ErrSecondFactorProofRequired = errors.New("account: a current second factor is required")
+	// ErrLastSecondFactor is a removal Rules.RequireSecondFactor refuses,
+	// since it leaves a user who holds a second factor none they can use;
+	// it matches ErrLastMethod.
+	ErrLastSecondFactor = fmt.Errorf("account: the last second factor cannot be removed: %w", ErrLastMethod)
+	// ErrSecondFactorHeld is a password step-up of a user who holds a
+	// second factor, who steps up with it; it matches
+	// ErrSecondFactorRequired.
+	ErrSecondFactorHeld = fmt.Errorf("account: a user holding a second factor steps up with it: %w", ErrSecondFactorRequired)
+	// ErrPasswordRequired is a TOTP enrolment of a user who holds no
+	// password, the only sign-in a code protects.
+	ErrPasswordRequired = errors.New("account: an authenticator app needs a password to protect")
 	// ErrSecondFactorRequired is a password sign-in or a setting that needs
 	// a second factor the user cannot bind or does not hold.
 	ErrSecondFactorRequired = errors.New("account: a second factor is required")
@@ -187,6 +203,44 @@ func (e *PolicyError) Error() string {
 
 // Is reports ErrPolicyRefused.
 func (*PolicyError) Is(target error) bool { return target == ErrPolicyRefused }
+
+// The CodeError Reasons, in CodeReasons order.
+const (
+	ReasonCodeInvalid  = "code_invalid"
+	ReasonCodeReused   = "code_reused" // a code whose step was already accepted
+	ReasonMethodLocked = "method_locked"
+	// ReasonCurrentCodeInvalid is a replacement's current code, from the
+	// old secret, that does not match.
+	ReasonCurrentCodeInvalid = "current_code_invalid"
+)
+
+// CodeReasons returns every CodeError Reason, in a stable order.
+func CodeReasons() []string {
+	return []string{ReasonCodeInvalid, ReasonCodeReused, ReasonMethodLocked, ReasonCurrentCodeInvalid}
+}
+
+// CodeError is a code an operation refused, with why. Reason is one of
+// CodeReasons. It matches ErrCodeInvalid.
+type CodeError struct {
+	Reason string
+}
+
+func (e *CodeError) Error() string { return "account: code refused: " + e.Reason }
+
+// Is reports ErrCodeInvalid.
+func (*CodeError) Is(target error) bool { return target == ErrCodeInvalid }
+
+// MalformedError is a code that cannot be one: not six ASCII digits once
+// spaces are removed. Field names the input that held it. Nothing is
+// counted for it. It matches ErrCodeMalformed.
+type MalformedError struct {
+	Field string
+}
+
+func (e *MalformedError) Error() string { return "account: malformed code: " + e.Field }
+
+// Is reports ErrCodeMalformed.
+func (*MalformedError) Is(target error) bool { return target == ErrCodeMalformed }
 
 // ErrLogFilterInvalid is matched by every *LogFilterError.
 var ErrLogFilterInvalid = errors.New("account: log filter invalid")

@@ -192,7 +192,7 @@ func TestLastMethodUsable(t *testing.T) {
 			seed(t, p, u)
 		}
 		pr, _ := p.signedInVia(t, u, access.MethodPassword)
-		err := p.svc.RemovePasskey(t.Context(), pr, pk.ID)
+		err := p.svc.RemovePasskey(t.Context(), localClient, pr, pk.ID, account.SecondFactorProof{})
 		kept := slices.ContainsFunc(passkeysOf(t, p.mem, u.ID), func(k access.PasskeyCredential) bool { return k.ID == pk.ID })
 		switch {
 		case err == nil && kept:
@@ -288,17 +288,18 @@ func TestLastMethodUsable(t *testing.T) {
 		{name: "oidc_not_usable", want: account.ErrLastMethod, run: func(t *testing.T) error {
 			return removePassword(t, with(func(e *lastMethodEnv) { e.rules.MethodUsable = usableExcept(access.MethodOIDC) }), linked)
 		}},
-		{name: "passkey_removal_passes_its_update_tx", run: func(t *testing.T) error {
-			_, updates, usable := removalTxs(t, rp, func(p *pwFixture, _ *access.User, pr access.Principal, pk access.PasskeyCredential) error {
-				return p.svc.RemovePasskey(t.Context(), pr, pk.ID)
+		{name: "passkey_removal_passes_the_store_then_its_update_tx", run: func(t *testing.T) error {
+			store, updates, usable := removalTxs(t, rp, func(p *pwFixture, _ *access.User, pr access.Principal, pk access.PasskeyCredential) error {
+				return p.svc.RemovePasskey(t.Context(), localClient, pr, pk.ID, account.SecondFactorProof{})
 			})
-			if len(usable) == 0 {
-				t.Fatal("MethodUsable was never called")
+			if len(usable) < 2 {
+				t.Fatalf("MethodUsable was called %d times, want the pre-check's and the Update's", len(usable))
 			}
-			for i, tx := range usable {
-				if !slices.Contains(updates, tx) {
-					t.Errorf("MethodUsable call %d got tx %T, want the removal's Update tx", i, tx)
-				}
+			if usable[0] != store {
+				t.Errorf("the pre-check's MethodUsable got tx %T, want the Store", usable[0])
+			}
+			if last := usable[len(usable)-1]; !slices.Contains(updates, last) {
+				t.Errorf("the deciding MethodUsable got tx %T, want the removal's Update tx", last)
 			}
 			return nil
 		}},
@@ -433,7 +434,7 @@ func TestLastMethodConcurrent(t *testing.T) {
 		return err
 	}
 	removePasskey := func(t *testing.T, f fixture) error {
-		return f.p.svc.RemovePasskey(t.Context(), f.pr, f.usable.ID)
+		return f.p.svc.RemovePasskey(t.Context(), localClient, f.pr, f.usable.ID, account.SecondFactorProof{})
 	}
 	keptOne := func(t *testing.T, f fixture) {
 		t.Helper()

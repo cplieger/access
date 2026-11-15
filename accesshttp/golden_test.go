@@ -64,6 +64,7 @@ func goldenMethods() MethodsView {
 		Locks:    []MethodLockView{{Method: access.MethodPassword, Untrusted: true, Trusted: true}},
 		Password: true, PasskeyCount: 1, OIDCLinked: true, OIDCAvailable: true, PasskeysAvailable: true, PasswordLogin: true,
 		SecondFactorHeld: true, PasswordStepUp: true,
+		TOTP: TOTPView{Since: goldenTime, Enrolled: true, Usable: true, Removable: true},
 	}
 }
 
@@ -73,6 +74,12 @@ func goldenKey() KeyView {
 		CreatedAt: goldenTime, ExpiresAt: goldenLater, LastUsedAt: goldenTime, PreviousUntil: goldenLater, ParentKeyID: 3,
 	}
 }
+
+// goldenAssertion is a passkey assertion in the browser's credential JSON
+// (WebAuthn Level 3 §5.1 toJSON), as the client sends one in a proof.
+const goldenAssertion = `{"id":"Y3JlZA","rawId":"Y3JlZA","type":"public-key","authenticatorAttachment":"platform",` +
+	`"response":{"authenticatorData":"YXV0aA","clientDataJSON":"Y2xpZW50","signature":"c2ln","userHandle":"aGFuZGxl"},` +
+	`"clientExtensionResults":{}}`
 
 // fixtures is every wire file the tests write, request fixtures first.
 func fixtures() []fixture {
@@ -87,6 +94,13 @@ func fixtures() []fixture {
 		{name: "SetupPasswordRequest.noToken", absent: "token", request: true, value: SetupPasswordRequest{Username: "owner", Password: "fixture-password"}},
 		{name: "SetupPasskeyBeginRequest", request: true, value: SetupPasskeyBeginRequest{Token: "fixture-setup-token", Username: "owner"}},
 		{name: "SetupPasskeyBeginRequest.noToken", absent: "token", request: true, value: SetupPasskeyBeginRequest{Username: "owner"}},
+		{name: "CodeRequest", request: true, value: CodeRequest{Ticket: "fixture-ticket", Code: "123456"}},
+		{name: "TicketRequest", request: true, value: TicketRequest{Ticket: "fixture-ticket"}},
+		{name: "StepUpCodeRequest", request: true, value: StepUpCodeRequest{Code: "123456"}},
+		{name: "TOTPFinishRequest", request: true, value: TOTPFinishRequest{Ticket: "fixture-ticket", Code: "123456", CurrentCode: "654321"}},
+		{name: "TOTPFinishRequest.noCurrent", absent: "current_code", request: true, value: TOTPFinishRequest{Ticket: "fixture-ticket", Code: "123456"}},
+		{name: "SecondFactorProof", request: true, value: SecondFactorProof{Code: "123456"}},
+		{name: "SecondFactorProof.passkey", request: true, value: SecondFactorProof{Ceremony: "c1", Assertion: json.RawMessage(goldenAssertion)}},
 		{name: "LoginRequest", request: true, value: LoginRequest{Username: "alice", Password: "fixture-password"}},
 		{name: "RedirectRequest", request: true, value: RedirectRequest{Redirect: "/settings"}},
 		{name: "InviteAcceptRequest", request: true, value: InviteAcceptRequest{Token: "fixture-invite-token", Username: "bob", Password: "fixture-password"}},
@@ -121,6 +135,9 @@ func fixtures() []fixture {
 			Ticket: "fixture-ticket", Next: account.NextSecondFactor, Methods: []PendingMethod{PendingTOTP, PendingPasskey, PendingRecoveryCode, PendingPassword},
 		}}},
 		{name: "CeremonyResponse", value: CeremonyResponse{Ceremony: "c1", PublicKey: json.RawMessage(`{"publicKey":{"challenge":"Y2hhbGxlbmdl"},"mediation":"conditional"}`)}},
+		{name: "TOTPBeginResponse", value: TOTPBeginResponse{URI: "otpauth://totp/Example:alice?secret=GEZDGNBVGY3TQOJQ&issuer=Example&algorithm=SHA1&digits=6&period=30", Text: "GEZDGNBVGY3TQOJQ", Ticket: "fixture-ticket"}},
+		{name: "TOTPFinishResponse", value: TOTPFinishResponse{RecoveryCode: "ABCD-EFGH-JKMN-PQRS"}},
+		{name: "TOTPFinishResponse.none", absent: "recovery_code", value: TOTPFinishResponse{}},
 		{name: "OIDCStartResponse", value: OIDCStartResponse{URL: "https://idp.example.com/authorize?state=x"}},
 		{name: "PendingLinkResponse", value: PendingLinkResponse{Issuer: "https://idp.example.com", UsernameHint: "alice", Email: "alice@example.com", CanCreate: true, SuggestedUsername: "alice_2"}},
 		{name: "PendingLinkResponse.noCreate", absent: "suggested_username", value: PendingLinkResponse{Issuer: "https://idp.example.com", UsernameHint: "alice"}},
@@ -130,7 +147,7 @@ func fixtures() []fixture {
 		}},
 		{name: "PasskeyView", value: PasskeyView{
 			ID: 2, Name: "laptop", RPID: testRPID, CreatedAt: goldenTime, LastUsedAt: goldenLater,
-			BackupEligible: true, BackedUp: true, CloneWarning: true,
+			BackupEligible: true, BackedUp: true, CloneWarning: true, Removable: true,
 		}},
 		{name: "Signals", value: signals},
 		{name: "SessionView", value: SessionView{
@@ -228,9 +245,9 @@ type wireField struct {
 	Fields   []wireField `json:"fields,omitempty"`
 	Optional bool        `json:"optional,omitempty"`
 	Open     bool        `json:"open,omitempty"`
-	// Arm marks one arm of a union type, whose doc comment carries
-	// unionDoc: exactly one of its arms is present.
-	Arm bool `json:"arm,omitempty"`
+	// Arm names the arm of a union type a field belongs to, the union's doc
+	// comment carrying unionDoc: exactly one arm's fields are present.
+	Arm string `json:"arm,omitempty"`
 }
 
 func wireTypeName(typ reflect.Type) *string {
@@ -280,10 +297,10 @@ func wireFields(t *testing.T, typ reflect.Type) []wireField {
 			name = f.Name
 		}
 		optional := f.Type.Kind() == reflect.Pointer || slices.Contains(strings.Split(opts, ","), "omitempty") || slices.Contains(strings.Split(opts, ","), "omitzero")
-		if union && f.Type.Kind() != reflect.Pointer {
-			t.Fatalf("%s.%s is an arm of a union and no pointer", typ.Name(), f.Name)
+		row := wireField{Name: name, Optional: optional}
+		if union {
+			row.Arm = armOf(t, typ, &f, name, optional)
 		}
-		row := wireField{Name: name, Optional: optional, Arm: union}
 		elem := f.Type
 		for elem.Kind() == reflect.Pointer || elem.Kind() == reflect.Slice {
 			elem = elem.Elem()
@@ -304,8 +321,26 @@ func wireFields(t *testing.T, typ reflect.Type) []wireField {
 const openDoc = "are app-defined"
 
 // unionDoc is the phrase a struct's doc comment carries when it is a union
-// of its pointer fields, as SignInOutcome is.
-const unionDoc = "exactly one field is set"
+// of arms: each pointer field is an arm, its key its name, as in
+// SignInOutcome, and fields sharing an arm tag are one arm, as in
+// SecondFactorProof.
+const unionDoc = "exactly one arm is set"
+
+// armOf is the arm union field f, keyed name, belongs to: its arm tag, or
+// for a pointer its own key. An arm field is optional.
+func armOf(t *testing.T, typ reflect.Type, f *reflect.StructField, name string, optional bool) string {
+	t.Helper()
+	arm := f.Tag.Get("arm")
+	switch {
+	case arm == "" && f.Type.Kind() != reflect.Pointer:
+		t.Fatalf("%s.%s is in a union, neither a pointer nor tagged with its arm", typ.Name(), f.Name)
+	case arm == "":
+		arm = name
+	case !optional:
+		t.Fatalf("%s.%s is an arm field the encoder always sends", typ.Name(), f.Name)
+	}
+	return arm
+}
 
 // isUnion reports whether typ's doc comment carries unionDoc.
 func isUnion(t *testing.T, typ reflect.Type) bool {
@@ -694,17 +729,30 @@ func fieldsType(t *testing.T, name string) reflect.Type {
 // every field.
 func checkArm(t *testing.T, v reflect.Value) {
 	t.Helper()
+	typ := v.Type()
+	fields := map[string][]int{} // an arm: its fields
 	var set []string
 	for i := range v.NumField() {
-		if f := v.Field(i); !f.IsNil() {
-			set = append(set, v.Type().Field(i).Name)
-			for _, path := range zeroFields(f.Elem(), v.Type().Name()+"."+v.Type().Field(i).Name) {
-				t.Errorf("%s is zero in the fixture", path)
-			}
+		sf := typ.Field(i)
+		name, _, _ := strings.Cut(sf.Tag.Get("json"), ",")
+		arm := armOf(t, typ, &sf, name, true)
+		fields[arm] = append(fields[arm], i)
+		if !v.Field(i).IsZero() && !slices.Contains(set, arm) {
+			set = append(set, arm)
 		}
 	}
 	if len(set) != 1 {
-		t.Errorf("%s sets arms %v, want exactly one", v.Type().Name(), set)
+		t.Errorf("%s sets arms %v, want exactly one", typ.Name(), set)
+		return
+	}
+	for _, i := range fields[set[0]] {
+		f := v.Field(i)
+		if f.Kind() == reflect.Pointer {
+			f = f.Elem()
+		}
+		for _, path := range zeroFields(f, typ.Name()+"."+typ.Field(i).Name) {
+			t.Errorf("%s is zero in the fixture", path)
+		}
 	}
 }
 
