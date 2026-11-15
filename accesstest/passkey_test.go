@@ -166,7 +166,6 @@ func (m passkeyCustody) RecordAssertion(ctx context.Context, userID int64, credI
 // read back.
 type registrationBody struct {
 	Response struct {
-		AuthenticatorData  string `json:"authenticatorData"`
 		PublicKey          string `json:"publicKey"`
 		AttestationObject  string `json:"attestationObject"`
 		PublicKeyAlgorithm int    `json:"publicKeyAlgorithm"`
