@@ -236,6 +236,48 @@ func (w *opWorld) secondPasskey(t *testing.T) (account.PendingCeremony, []byte) 
 	return pc, w.devs[w.alice.ID].Assert(browserJSON(t, pc.Assertion))
 }
 
+// recoveryTicket gives alice a TOTP record and a recovery code, and
+// answers her pending sign-in from localClient with that code.
+func (w *opWorld) recoveryTicket(t *testing.T) (access.Secret, string) {
+	t.Helper()
+	sealTOTP(t, w.mem, w.sealer, w.alice)
+	const code = "7K3M9QW2XZ8R4T6V"
+	h, err := w.hasher.Hash(t.Context(), code)
+	if err != nil {
+		t.Fatalf("Hash: %v", err)
+	}
+	if err := w.mem.SetRecoveryCode(t.Context(), access.RecoveryCode{UserID: w.alice.ID, Hash: h}); err != nil {
+		t.Fatalf("SetRecoveryCode: %v", err)
+	}
+	out, err := w.step1(t.Context(), localClient, "alice", goodPassword)
+	if err != nil || out.Pending == nil {
+		t.Fatalf("alice's step 1 = %v, want a pending sign-in", err)
+	}
+	return out.Pending.Ticket, code
+}
+
+// recoveredTicket is alice's NextEnrol ticket after her recovery code
+// matched, from localClient.
+func (w *opWorld) recoveredTicket(t *testing.T) access.Secret {
+	t.Helper()
+	ticket, code := w.recoveryTicket(t)
+	out, err := w.svc.SignInWithRecoveryCode(t.Context(), localClient, ticket, code)
+	if err != nil || out.Pending == nil {
+		t.Fatalf("SignInWithRecoveryCode = %v, want a recovered enrolment", err)
+	}
+	return out.Pending.Ticket
+}
+
+// recoveryEvents are a recovered enrolment's finish's entries before the
+// factor it binds, by alice in the session in made.
+func recoveryEvents(alice int64, in account.SignedIn) []account.Event {
+	actor := account.EventActor{UserID: alice, SessionID: in.Session.ID}
+	return []account.Event{
+		{Kind: account.EventTOTPRemoved, UserID: alice, Actor: actor},
+		{Kind: account.EventRecoveryCodeUsed, UserID: alice, Actor: actor},
+	}
+}
+
 // opCall is one arranged call: run makes it, and want, read after it
 // returned, is every event it must emit, in order, compared on everything
 // but At. A call that asks the Policy names the actor and the target user
@@ -386,6 +428,74 @@ func publicOperations() []operation {
 					return err
 				},
 				want: func() []account.Event { return []account.Event{signedIn(out.SignedIn, access.MethodPassword)} },
+			}
+		}},
+		{name: "SignInWithRecoveryCode", class: classPublic, transport: plainRefused, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket, code := w.recoveryTicket(t)
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.SignInWithRecoveryCode(ctx, w.client, ticket, code)
+				return err
+			}, want: none}
+		}},
+		{name: "PendingTOTPBegin", class: classPublic, transport: plainRefused, readOnly: true, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket := w.recoveredTicket(t)
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.PendingTOTPBegin(ctx, w.client, ticket)
+				return err
+			}, want: none}
+		}},
+		{name: "PendingTOTPFinish", class: classPublic, transport: plainRefused, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket := w.recoveredTicket(t)
+			e, err := w.svc.PendingTOTPBegin(t.Context(), localClient, ticket)
+			if err != nil {
+				t.Fatalf("PendingTOTPBegin = %v", err)
+			}
+			code := codeNow(secretOf(t, account.TOTPEnrolment{Text: e.Text}))
+			var in account.SignedIn
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					in, err = w.svc.PendingTOTPFinish(ctx, w.client, ticket, code)
+					return err
+				},
+				want: func() []account.Event {
+					actor := account.EventActor{UserID: w.alice.ID, SessionID: in.Session.ID}
+					return append(recoveryEvents(w.alice.ID, in),
+						account.Event{Kind: account.EventTOTPAdded, UserID: w.alice.ID, Actor: actor},
+						account.Event{Kind: account.EventRecoveryCodeIssued, UserID: w.alice.ID, Actor: actor},
+						signedIn(in, access.MethodPassword))
+				},
+			}
+		}},
+		{name: "PendingPasskeyBegin", class: classPublic, transport: plainRefused, readOnly: true, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket := w.recoveredTicket(t)
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.PendingPasskeyBegin(ctx, w.client, ticket, w.origin)
+				return err
+			}, want: none}
+		}},
+		{name: "PendingPasskeyFinish", class: classPublic, transport: plainRefused, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			pc, err := w.svc.PendingPasskeyBegin(t.Context(), localClient, w.recoveredTicket(t), w.origin)
+			if err != nil {
+				t.Fatalf("PendingPasskeyBegin = %v", err)
+			}
+			body := accesstest.NewPasskeyDevice(t).Register(browserJSON(t, pc.Creation))
+			var in account.SignedIn
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					in, err = w.svc.PendingPasskeyFinish(ctx, w.client, pc.ID, bytes.NewReader(body))
+					return err
+				},
+				want: func() []account.Event {
+					pks, _ := w.mem.PasskeysByUserID(t.Context(), w.alice.ID)
+					var added int64
+					for _, pk := range pks {
+						added = max(added, pk.ID)
+					}
+					actor := account.EventActor{UserID: w.alice.ID, SessionID: in.Session.ID}
+					return append(recoveryEvents(w.alice.ID, in),
+						account.Event{Kind: account.EventPasskeyAdded, UserID: w.alice.ID, PasskeyID: added, Actor: actor},
+						signedIn(in, access.MethodPassword))
+				},
 			}
 		}},
 		{name: "PasskeyLoginBegin", class: classPublic, transport: plainRefused, readOnly: true, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {

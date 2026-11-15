@@ -28,6 +28,7 @@ var plainRefusedRoutes = map[string]bool{
 	"authOIDCPending": true, "authOIDCCreatePending": true, "authOIDCLinkPending": true, "authAdminSSOReadiness": true, "authAdminSSOApply": true,
 	"authStepUpPassword": true, "authStepUpPasskeyBegin": true, "authStepUpPasskeyFinish": true, "authStepUpCode": true,
 	"authLoginSecondPasskeyBegin": true, "authLoginSecondPasskeyFinish": true, "authTOTPBegin": true, "authTOTPFinish": true, "authRecoveryCodeRegenerate": true,
+	"authLoginRecoveryCode": true, "authPendingTOTPBegin": true, "authPendingTOTPFinish": true, "authPendingPasskeyBegin": true, "authPendingPasskeyFinish": true,
 	"authPasswordRemove": true, "authPasskeyRegisterBegin": true, "authPasskeyRegisterFinish": true,
 	"authInviteAcceptPassword": true, "authInviteAcceptOIDC": true,
 	"authKeyCreate": true, "authKeyRotate": true, "authAdminInvite": true,

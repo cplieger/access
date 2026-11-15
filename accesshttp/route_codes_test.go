@@ -38,6 +38,7 @@ func operationScenarios() map[scenarioKey]scenario {
 	maps.Copy(out, adminScenarios())
 	maps.Copy(out, ssoScenarios())
 	maps.Copy(out, totpScenarios())
+	maps.Copy(out, enrolScenarios())
 	maps.Copy(out, plainScenarios())
 	return out
 }

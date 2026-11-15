@@ -1,1 +1,1 @@
-{"pending":{"ticket":"fixture-ticket","next":"second_factor","methods":["totp","passkey","recovery_code","password"]}}
+{"pending":{"ticket":"fixture-ticket","next":"enrol","methods":["totp","passkey","recovery_code","password"],"recovered":true}}

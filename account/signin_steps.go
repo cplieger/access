@@ -143,7 +143,7 @@ func (s *Service) stepAnswered(ctx context.Context, c Client, ticket access.Secr
 // does not match, or a passkey step's ceremony or assertion, never an
 // answer of the store, the limiter or the request's shape.
 func refusedProof(err error, m access.Method) bool {
-	if m == access.MethodTOTP {
+	if m != access.MethodPasskey {
 		return errors.Is(err, ErrCodeInvalid)
 	}
 	if _, limited := errors.AsType[*ratelimit.RefusedError](err); limited {

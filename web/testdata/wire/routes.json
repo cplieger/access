@@ -72,6 +72,51 @@
     "array": false
   },
   {
+    "request": "CodeRequest",
+    "response": "SignInOutcome",
+    "name": "authLoginRecoveryCode",
+    "method": "POST",
+    "path": "{prefix}/login/recovery-code",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "TicketRequest",
+    "response": "PendingTOTPBeginResponse",
+    "name": "authPendingTOTPBegin",
+    "method": "POST",
+    "path": "{prefix}/pending/totp/begin",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "CodeRequest",
+    "response": "EnrolmentOutcome",
+    "name": "authPendingTOTPFinish",
+    "method": "POST",
+    "path": "{prefix}/pending/totp/finish",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "TicketRequest",
+    "response": "CeremonyResponse",
+    "name": "authPendingPasskeyBegin",
+    "method": "POST",
+    "path": "{prefix}/pending/passkey/begin",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": "EnrolmentOutcome",
+    "name": "authPendingPasskeyFinish",
+    "method": "POST",
+    "path": "{prefix}/pending/passkey/finish",
+    "kind": "json",
+    "array": false
+  },
+  {
     "request": null,
     "response": "CeremonyResponse",
     "name": "authLoginPasskeyBegin",

@@ -471,11 +471,14 @@ export const parseUserView: Validator<UserView> = object({
 export interface SignedInResponse {
   readonly user: UserView;
   readonly session_id: string;
+  /** The recovery code this sign-in's binding issued: show it once. */
+  readonly recovery_code?: string;
   readonly clone_warning?: boolean;
 }
 export const parseSignedInResponse: Validator<SignedInResponse> = object({
   user: req(parseUserView),
   session_id: req(str),
+  recovery_code: opt(str),
   clone_warning: opt(bool),
 });
 
@@ -496,11 +499,14 @@ export interface Pending {
   readonly ticket: string;
   readonly next: Next;
   readonly methods: readonly PendingMethod[];
+  /** Set after a recovery code: the enrolment that follows completes the recovery. */
+  readonly recovered?: boolean;
 }
 export const parsePending: Validator<Pending> = object({
   ticket: req(str),
   next: req(oneOf(...NEXT_STEPS)),
   methods: req(list(oneOf(...PENDING_METHODS))),
+  recovered: opt(bool),
 });
 
 /** A sign-in step's answer. Always continue with the newest ticket. */
@@ -510,6 +516,14 @@ export const parseSignInOutcome: Validator<SignInOutcome> = anyOf<SignInOutcome>
   object<{ readonly signed_in: SignedInResponse }>({ signed_in: req(parseSignedInResponse) }),
   object<{ readonly pending: Pending }>({ pending: req(parsePending) }),
 );
+
+/** A pending enrolment finish's answer: pendingTOTPFinish and pendingPasskey. */
+export interface EnrolmentOutcome {
+  readonly signed_in: SignedInResponse;
+}
+export const parseEnrolmentOutcome: Validator<EnrolmentOutcome> = object({
+  signed_in: req(parseSignedInResponse),
+});
 
 /** The WebAuthn options of a begin route, in the browser's JSON shape. */
 export type CeremonyOptions =
@@ -633,6 +647,18 @@ export const parseTOTPBeginResponse: Validator<TOTPBeginResponse> = object({
   uri: req(str),
   text: req(str),
   ticket: req(str),
+});
+
+/** A TOTP enrolment begun inside a pending sign-in, shown once; the ticket keeps the secret. */
+export interface PendingTOTPBeginResponse {
+  /** The otpauth URI, for a QR code. */
+  readonly uri: string;
+  /** The secret in base32, for typing in: group it in fours. */
+  readonly text: string;
+}
+export const parsePendingTOTPBeginResponse: Validator<PendingTOTPBeginResponse> = object({
+  uri: req(str),
+  text: req(str),
 });
 
 /** finishTOTP's and setPassword's answer. */

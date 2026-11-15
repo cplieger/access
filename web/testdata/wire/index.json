@@ -1,6 +1,7 @@
 [
   "CeremonyResponse",
   "CodeRequest",
+  "EnrolmentOutcome",
   "InviteAcceptRequest",
   "InviteRequest",
   "KeyCreatedResponse",
@@ -19,6 +20,7 @@
   "PasswordRequest",
   "PendingCreateRequest",
   "PendingLinkResponse",
+  "PendingTOTPBeginResponse",
   "ProfileRequest",
   "Readiness",
   "RecoveryCodeIssuedResponse",

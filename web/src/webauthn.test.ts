@@ -9,6 +9,7 @@ import {
   setupWithPasskey,
   signInWithPasskey,
   loginSecondPasskey,
+  pendingPasskey,
   passkeyProof,
   stepUpWithPasskey,
   toCreationOptions,
@@ -346,6 +347,35 @@ describe("loginSecondPasskey", () => {
       "POST /api/auth/login/second-passkey/finish": refusal(401, "auth_assertion_failed"),
     });
     expect(await loginSecondPasskey(s.client, "t-1")).toEqual({ kind: "verification-failed" });
+  });
+});
+
+// Design 4.4 and 4.8: a passkey as a pending sign-in's enrolment.
+describe("pendingPasskey", () => {
+  it("sends the ticket, then the registration, and answers the completed sign-in", async () => {
+    bareplatform();
+    credentialsCreate(attests);
+    const s = fakeServer({
+      "POST /api/auth/pending/passkey/begin": creation,
+      "POST /api/auth/pending/passkey/finish": ok("EnrolmentOutcome"),
+    });
+    expect(await pendingPasskey(s.client, "t-1")).toEqual({
+      kind: "answered",
+      result: fixture("EnrolmentOutcome"),
+    });
+    expect(s.sent[0]?.body).toEqual({ ticket: "t-1" });
+    expect(s.sent[1]?.body).toEqual(attestationJSON);
+    expect(s.sent[1]?.headers.get("X-Auth-Ceremony")).toBe("c-create");
+  });
+
+  it("maps a refused registration as registerPasskey does", async () => {
+    bareplatform();
+    credentialsCreate(attests);
+    const s = fakeServer({
+      "POST /api/auth/pending/passkey/begin": creation,
+      "POST /api/auth/pending/passkey/finish": refusal(409, "auth_duplicate_credential"),
+    });
+    expect(await pendingPasskey(s.client, "t-1")).toEqual({ kind: "duplicate" });
   });
 });
 

@@ -589,7 +589,7 @@ func mustPrincipal(t *testing.T, f *fixture, token access.Secret) access.Princip
 var clientOperations = []string{
 	"SetupWithPassword", "SetupPasskeyFinish", "PasswordLogin", "PasskeyLoginFinish", "OIDCComplete",
 	"AcceptInvitePassword", "CreatePendingOIDC", "StepUpPassword", "StepUpPasskeyFinish", "SetPassword", "RemovePassword",
-	"SignInWithCode", "SecondFactorPasskeyFinish", "StepUpCode",
+	"SignInWithCode", "SecondFactorPasskeyFinish", "StepUpCode", "SignInWithRecoveryCode", "PendingTOTPFinish", "PendingPasskeyFinish",
 }
 
 func TestLogIP(t *testing.T) {

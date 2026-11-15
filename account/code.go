@@ -96,19 +96,25 @@ func (s *Service) countIn(ctx context.Context, tx Tx, ch *codeCheck) (counted, e
 	if got.step, got.result = totp.Match(secret, ch.raw, s.now(), rec.LastStep); got.result == totp.Malformed {
 		return counted{}, refuse(&MalformedError{Field: ch.field})
 	}
-	f, _, err := tx.AuthFailure(ctx, ch.ref)
+	return got, s.addFailure(ctx, tx, ch.ref)
+}
+
+// addFailure counts one attempt on ref's record inside tx, locking it at
+// FailureCap; a record already locked is method_locked, writing nothing.
+func (s *Service) addFailure(ctx context.Context, tx Tx, ref FailureRef) error {
+	f, _, err := tx.AuthFailure(ctx, ref)
 	switch {
 	case err != nil:
-		return counted{}, err
+		return err
 	case f.Locked:
-		return counted{}, refuse(&CodeError{Reason: ReasonMethodLocked})
+		return refuse(&CodeError{Reason: ReasonMethodLocked})
 	}
-	f.FailureRef = ch.ref
+	f.FailureRef = ref
 	f.Count++
 	if f.Count >= FailureCap {
 		f.Locked, f.LockedAt, f.Unreported = true, s.stamp(), true
 	}
-	return got, tx.PutAuthFailure(ctx, f)
+	return tx.PutAuthFailure(ctx, f)
 }
 
 // settleRefused settles res for a refused check: a counted code fails it,

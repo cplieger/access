@@ -97,6 +97,24 @@ const bindings: Readonly<Record<string, Binding>> = {
     call: (c) => c.loginSecondPasskeyFinish(CEREMONY, credential),
     credential: true,
   },
+  authLoginRecoveryCode: {
+    method: "loginRecoveryCode",
+    call: (c, b: CodeRequest) => c.loginRecoveryCode(b.ticket, b.code),
+  },
+  authPendingTOTPBegin: { method: "pendingTOTPBegin", call: (c, b) => c.pendingTOTPBegin(b) },
+  authPendingTOTPFinish: {
+    method: "pendingTOTPFinish",
+    call: (c, b: CodeRequest) => c.pendingTOTPFinish(b.ticket, b.code),
+  },
+  authPendingPasskeyBegin: {
+    method: "pendingPasskeyBegin",
+    call: (c, b) => c.pendingPasskeyBegin(b),
+  },
+  authPendingPasskeyFinish: {
+    method: "pendingPasskeyFinish",
+    call: (c) => c.pendingPasskeyFinish(CEREMONY, credential),
+    credential: true,
+  },
   authLoginPasskeyBegin: { method: "loginPasskeyBegin", call: (c) => c.loginPasskeyBegin() },
   authLoginPasskeyFinish: {
     method: "loginPasskeyFinish",
@@ -279,8 +297,8 @@ describe("the route table", () => {
     const methods = Object.keys(client).filter(
       (k) => typeof client[k as keyof AuthClient] === "function",
     );
-    expect(methods).toHaveLength(60);
-    expect(jsonRoutes).toHaveLength(60);
+    expect(methods).toHaveLength(65);
+    expect(jsonRoutes).toHaveLength(65);
     expect(Object.keys(bindings).sort()).toEqual(jsonRoutes.map((r) => r.name).sort());
     expect(
       Object.values(bindings)

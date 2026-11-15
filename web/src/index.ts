@@ -18,6 +18,7 @@ export { withStepUp } from "./stepup.js";
 export type { StepUpMethod, StepUpOptions, StepUpPrompt, StepUpResult } from "./stepup.js";
 export {
   loginSecondPasskey,
+  pendingPasskey,
   passkeyProof,
   passkeySupport,
   registerPasskey,
@@ -32,6 +33,7 @@ export type {
   PasskeySignInOutcome,
   RegisterOutcome,
   SecondPasskeyOutcome,
+  PendingPasskeyOutcome,
   StepUpOutcome,
 } from "./webauthn.js";
 export {
@@ -73,6 +75,8 @@ export {
   parseStateResponse,
   parseStepUpCodeRequest,
   parseTOTPBeginResponse,
+  parsePendingTOTPBeginResponse,
+  parseEnrolmentOutcome,
   parseTOTPFinishRequest,
   parseRecoveryCodeIssuedResponse,
   parseRecoveryCodeResponse,
@@ -138,6 +142,8 @@ export type {
   StateResponse,
   StepUpCodeRequest,
   TOTPBeginResponse,
+  PendingTOTPBeginResponse,
+  EnrolmentOutcome,
   TOTPFinishRequest,
   RecoveryCodeIssuedResponse,
   RecoveryCodeResponse,

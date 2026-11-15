@@ -78,6 +78,7 @@ var storeRefusals = map[string]map[string]error{
 	"RenameSession":         {"UpdateSessionLabel": account.ErrNotFound},
 	"RevokeSession":         {"DeleteSession": account.ErrNotFound},
 	"PasskeyRegisterFinish": {"CreatePasskey": account.ErrDuplicateCredential},
+	"PendingPasskeyFinish":  {"CreatePasskey": account.ErrDuplicateCredential},
 }
 
 var storeSentinels = []error{account.ErrNotFound, account.ErrUsernameTaken, account.ErrOIDCIdentityTaken, account.ErrDuplicateCredential, account.ErrSetupComplete}

@@ -54,10 +54,12 @@ const (
 	EventTOTPAdded       EventKind = "totp_added"
 	EventTOTPReplaced    EventKind = "totp_replaced"
 	EventTOTPRemoved     EventKind = "totp_removed"
-	// EventRecoveryCodeIssued is a recovery code a binding issued, and
+	// EventRecoveryCodeIssued is a recovery code a binding issued,
+	// EventRecoveryCodeUsed one a pending enrolment's finish spent, and
 	// EventRecoveryCodeReplaced one RegenerateRecoveryCode drew in place of
 	// the user's last.
 	EventRecoveryCodeIssued   EventKind = "recovery_code_issued"
+	EventRecoveryCodeUsed     EventKind = "recovery_code_used"
 	EventRecoveryCodeReplaced EventKind = "recovery_code_replaced"
 	// EventSecondFactorFailed is a pending sign-in's first refused second
 	// step; later refusals on the same ticket add nothing, since the
@@ -108,6 +110,7 @@ var eventKinds = [...]struct {
 	{EventTOTPReplaced, LogClassChange},
 	{EventTOTPRemoved, LogClassChange},
 	{EventRecoveryCodeIssued, LogClassChange},
+	{EventRecoveryCodeUsed, LogClassChange},
 	{EventRecoveryCodeReplaced, LogClassChange},
 	{EventSecondFactorFailed, LogClassSession},
 }

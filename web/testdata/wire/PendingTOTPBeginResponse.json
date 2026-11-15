@@ -1,0 +1,1 @@
+{"uri":"otpauth://totp/Example:alice?secret=GEZDGNBVGY3TQOJQ\u0026issuer=Example\u0026algorithm=SHA1\u0026digits=6\u0026period=30","text":"GEZDGNBVGY3TQOJQ"}

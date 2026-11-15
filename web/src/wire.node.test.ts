@@ -213,6 +213,7 @@ describe("wire fixtures", () => {
       "SetupPasskeyBeginRequest.noToken",
       "SetupPasswordRequest.noToken",
       "SignInOutcome.pending",
+      "SignedInResponse.noCode",
       "TOTPFinishRequest.noCurrent",
     ]);
   });

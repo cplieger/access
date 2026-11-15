@@ -123,8 +123,9 @@ func inventoryAllow(t *testing.T) printcheck.Allow {
 			// The app's name in an authenticator, shown in every otpauth URI.
 			"account.TOTPConfig.Issuer",
 			// A pending sign-in's step and methods are its public answer;
-			// the digest is a HashKey, which shows no more than the Hash.
-			"account.ticket.next", "account.ticket.methods", "account.ticket.digest",
+			// the digest and the matched recovery code's key are HashKeys,
+			// which show no more than the Hash.
+			"account.ticket.next", "account.ticket.methods", "account.ticket.digest", "account.ticket.recovered",
 			// A session ID names a session; only its token signs in.
 			"account.enrolment.sessionID",
 			"account.Pending.Next", "account.Pending.Methods",

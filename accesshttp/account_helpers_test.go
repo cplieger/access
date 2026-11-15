@@ -172,6 +172,32 @@ func (s stubAccount) SecondFactorPasskeyBegin(ctx context.Context, c account.Cli
 	})
 }
 
+func (s stubAccount) SignInWithRecoveryCode(ctx context.Context, c account.Client, ticket access.Secret, code string) (account.LoginResult, error) {
+	return stubbed(s, "SignInWithRecoveryCode", func() (account.LoginResult, error) {
+		return s.accountAPI.SignInWithRecoveryCode(ctx, c, ticket, code)
+	})
+}
+
+func (s stubAccount) PendingTOTPBegin(ctx context.Context, c account.Client, ticket access.Secret) (account.PendingTOTP, error) {
+	return stubbed(s, "PendingTOTPBegin", func() (account.PendingTOTP, error) { return s.accountAPI.PendingTOTPBegin(ctx, c, ticket) })
+}
+
+func (s stubAccount) PendingTOTPFinish(ctx context.Context, c account.Client, ticket access.Secret, code string) (account.SignedIn, error) {
+	return stubbed(s, "PendingTOTPFinish", func() (account.SignedIn, error) { return s.accountAPI.PendingTOTPFinish(ctx, c, ticket, code) })
+}
+
+func (s stubAccount) PendingPasskeyBegin(ctx context.Context, c account.Client, ticket access.Secret, origin webauthn.Origin) (account.PendingCeremony, error) {
+	return stubbed(s, "PendingPasskeyBegin", func() (account.PendingCeremony, error) {
+		return s.accountAPI.PendingPasskeyBegin(ctx, c, ticket, origin)
+	})
+}
+
+func (s stubAccount) PendingPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.SignedIn, error) {
+	return stubbed(s, "PendingPasskeyFinish", func() (account.SignedIn, error) {
+		return s.accountAPI.PendingPasskeyFinish(ctx, c, ceremonyID, body)
+	})
+}
+
 func (s stubAccount) SecondFactorPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.LoginResult, error) {
 	return stubbed(s, "SecondFactorPasskeyFinish", func() (account.LoginResult, error) {
 		return s.accountAPI.SecondFactorPasskeyFinish(ctx, c, ceremonyID, body)

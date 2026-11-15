@@ -3,6 +3,7 @@ import type { AuthClient, PublicKeyCredentialJSON } from "./client.js";
 import { authCode } from "./wire.js";
 import type {
   CeremonyResponse,
+  EnrolmentOutcome,
   PasskeyView,
   SecondFactorProof,
   SignInOutcome,
@@ -42,6 +43,11 @@ export type StepUpOutcome =
 export type SecondPasskeyOutcome =
   | { readonly kind: "answered"; readonly result: SignInOutcome }
   | Exclude<PasskeySignInOutcome, { kind: "signed-in" }>;
+
+/** A pending enrolment's passkey answer: the sign-in it completed, or why no passkey was bound. */
+export type PendingPasskeyOutcome =
+  | { readonly kind: "answered"; readonly result: EnrolmentOutcome }
+  | Exclude<RegisterOutcome, { kind: "registered" }>;
 
 /** A passkey proof for a change that needs a current second factor, or why none was made. */
 export type PasskeyProofOutcome =
@@ -412,6 +418,19 @@ export async function loginSecondPasskey(
   }
   const res = await c.loginSecondPasskeyFinish(got.ceremony, got.json);
   return res.ok ? { kind: "answered", result: res.data } : assertionRefused(res, got);
+}
+
+/** Registers a passkey as a pending sign-in's enrolment for ticket, completing the sign-in. */
+export async function pendingPasskey(
+  c: AuthClient,
+  ticket: string,
+): Promise<PendingPasskeyOutcome> {
+  const made = await create(await c.pendingPasskeyBegin({ ticket }));
+  if (made.kind !== "credential") {
+    return made;
+  }
+  const res = await c.pendingPasskeyFinish(made.ceremony, made.json);
+  return res.ok ? { kind: "answered", result: res.data } : registrationRefused(res);
 }
 
 /**

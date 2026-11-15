@@ -26,11 +26,13 @@ const (
 // a body only; a restart, the user's next password sign-in, SetPassword,
 // RemovePassword, disabling, deleting and AdminUnlinkOIDC drop it. Methods
 // are what Next accepts on this request's transport, the only one it
-// finishes on.
+// finishes on. Recovered marks the NextEnrol a recovery code answered,
+// whose finish completes the recovery.
 type Pending struct {
-	Ticket  access.Secret
-	Next    Next
-	Methods []access.Method
+	Ticket    access.Secret
+	Next      Next
+	Methods   []access.Method
+	Recovered bool
 }
 
 // LoginResult is a password sign-in's answer: Pending when the sign-in
@@ -47,8 +49,11 @@ type ticket struct {
 	// digest is the PasswordHash step 1 left stored; the next step goes on
 	// only while the stored hash still matches it.
 	digest access.HashKey
-	secure bool // the minting request's transport
-	failed bool // a second step on it was refused and journalled
+	// recovered is the key of the recovery code hash that matched; the
+	// enrolment finish spends that code. Zero when none matched.
+	recovered access.HashKey
+	secure    bool // the minting request's transport
+	failed    bool // a second step on it was refused and journalled
 }
 
 // secondFactorHeld is the one predicate of whether u, read through tx under
@@ -228,5 +233,5 @@ func (s *Service) pendAt(ctx context.Context, tx Tx, r Rules, c Client, u *acces
 // mintTicket puts entry, a pending sign-in, in the cache and answers it.
 func (s *Service) mintTicket(entry *pending) *Pending {
 	id := s.pending.put(purposeSignIn, *entry, s.now())
-	return &Pending{Ticket: access.NewSecret(id), Next: entry.ticket.next, Methods: slices.Clone(entry.ticket.methods)}
+	return &Pending{Ticket: access.NewSecret(id), Next: entry.ticket.next, Methods: slices.Clone(entry.ticket.methods), Recovered: entry.ticket.recovered != access.HashKey{}}
 }

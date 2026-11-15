@@ -36,14 +36,14 @@ type PendingCreateRequest struct {
 	Username string `json:"username"`
 }
 
-// CodeRequest is authLoginCode's body: the pending sign-in's ticket and a
-// code, six digits once spaces are removed.
+// CodeRequest is a pending sign-in step's body: its ticket and a code, six
+// digits once spaces are removed, or authLoginRecoveryCode's 16 symbols.
 type CodeRequest struct {
 	Ticket string `json:"ticket"`
 	Code   string `json:"code"`
 }
 
-// TicketRequest is authLoginSecondPasskeyBegin's body.
+// TicketRequest is the body of a pending sign-in's begin route.
 type TicketRequest struct {
 	Ticket string `json:"ticket"`
 }
@@ -229,9 +229,10 @@ type SignInOutcome struct {
 // Pending is account.Pending: the client continues with the newest
 // ticket, which this body alone carries.
 type Pending struct {
-	Ticket  string          `json:"ticket"`
-	Next    account.Next    `json:"next"`
-	Methods []PendingMethod `json:"methods"` // what Next accepts on this transport
+	Ticket    string          `json:"ticket"`
+	Next      account.Next    `json:"next"`
+	Methods   []PendingMethod `json:"methods"`             // what Next accepts on this transport
+	Recovered bool            `json:"recovered,omitempty"` // the enrolment's finish completes a recovery
 }
 
 // PendingMethod is an access.Method a pending sign-in's step accepts; no
@@ -248,9 +249,17 @@ const (
 
 // SignedInResponse is the answer of every route that signs a user in.
 type SignedInResponse struct {
-	SessionID    string   `json:"session_id"`
+	SessionID string `json:"session_id"`
+	// RecoveryCode is the recovery code this sign-in's binding issued,
+	// shown once; absent when it issued none.
+	RecoveryCode string   `json:"recovery_code,omitempty"`
 	User         UserView `json:"user"`
 	CloneWarning bool     `json:"clone_warning,omitempty"`
+}
+
+// EnrolmentOutcome is a pending enrolment finish's answer.
+type EnrolmentOutcome struct {
+	SignedIn SignedInResponse `json:"signed_in"`
 }
 
 // CeremonyResponse is a begun WebAuthn ceremony.
@@ -267,6 +276,14 @@ type TOTPBeginResponse struct {
 	URI    string `json:"uri"`
 	Text   string `json:"text"`
 	Ticket string `json:"ticket"`
+}
+
+// PendingTOTPBeginResponse is a TOTP enrolment begun inside a pending
+// sign-in, shown once: the otpauth URI and the secret as text. The ticket
+// keeps the secret for authPendingTOTPFinish.
+type PendingTOTPBeginResponse struct {
+	URI  string `json:"uri"`
+	Text string `json:"text"`
 }
 
 // RecoveryCodeIssuedResponse is the answer of an Account change that may
@@ -703,11 +720,11 @@ func pendingView(p *account.Pending) *Pending {
 	for _, m := range p.Methods {
 		methods = append(methods, PendingMethod(m))
 	}
-	return &Pending{Ticket: p.Ticket.Reveal(), Next: p.Next, Methods: methods}
+	return &Pending{Ticket: p.Ticket.Reveal(), Next: p.Next, Methods: methods, Recovered: p.Recovered}
 }
 
 func signedInResponse(s account.SignedIn) SignedInResponse { //nolint:gocritic // hugeParam: account's own result, read once
-	return SignedInResponse{User: userView(s.User), SessionID: s.Session.ID, CloneWarning: s.CloneWarning}
+	return SignedInResponse{User: userView(s.User), SessionID: s.Session.ID, RecoveryCode: s.RecoveryCode.Reveal(), CloneWarning: s.CloneWarning}
 }
 
 // ceremonyResponse encodes a begun ceremony's options in the browser's shape.

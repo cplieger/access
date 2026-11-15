@@ -176,7 +176,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 		User: wantUser, Methods: wantMethods, CanLinkOIDC: true, SSOOnly: true, Owner: true, SingleUser: true,
 		Session: CurrentSessionView{ID: "sess", Method: access.MethodPasskey, AuthTime: at(1), IdleDeadline: at(2), AbsoluteDeadline: at(3), Secure: true},
 	}
-	wantSignedIn := SignedInResponse{User: wantUser, SessionID: "sess", CloneWarning: true}
+	wantSignedIn := SignedInResponse{User: wantUser, SessionID: "sess", RecoveryCode: "ABCD-EFGH-JKMN-PQRS", CloneWarning: true}
 	listed := account.ListedUser{User: *user, KeyLineage: []int64{3, 5}, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true}
 	listed.User.PasswordHash = access.NewHash("$argon2id$stored")
 	wantListed := wantUser
@@ -257,11 +257,11 @@ func TestViewsCarryEveryField(t *testing.T) {
 		name      string
 	}{
 		{name: "StateResponse", got: stateResponse(&state), want: wantState},
-		{name: "Pending", got: *pendingView(&account.Pending{Ticket: access.NewSecret("ticket"), Next: account.NextEnrol, Methods: []access.Method{access.MethodTOTP}}), want: Pending{Ticket: "ticket", Next: account.NextEnrol, Methods: []PendingMethod{PendingTOTP}}},
+		{name: "Pending", got: *pendingView(&account.Pending{Ticket: access.NewSecret("ticket"), Next: account.NextEnrol, Methods: []access.Method{access.MethodTOTP}, Recovered: true}), want: Pending{Ticket: "ticket", Next: account.NextEnrol, Methods: []PendingMethod{PendingTOTP}, Recovered: true}},
 		{name: "UserView", got: userView(user), want: wantUser},
 		{name: "MethodsView", got: methodsView(methods), want: wantMethods},
 		{name: "MeResponse", got: meResponse(&me), want: wantMe},
-		{name: "SignedInResponse", got: signedInResponse(account.SignedIn{User: user, Session: access.Session{ID: "sess"}, CloneWarning: true}), want: wantSignedIn},
+		{name: "SignedInResponse", got: signedInResponse(account.SignedIn{User: user, Session: access.Session{ID: "sess"}, RecoveryCode: access.NewSecret("ABCD-EFGH-JKMN-PQRS"), CloneWarning: true}), want: wantSignedIn},
 		{name: "ListedUserView", got: listedUserView(&listed), want: wantListed},
 		{name: "PasskeyView", got: passkeyView(&passkey), want: wantPasskey},
 		{name: "SessionView", got: sessionView(&session, timeouts, "sess"), want: wantSession},

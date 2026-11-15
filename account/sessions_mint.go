@@ -156,6 +156,10 @@ type sessionOp struct {
 	// refusal to answer, commits the Update with no session, so a correct
 	// first factor's failure reset stands.
 	pend func(tx Tx, u *access.User) (entry *pending, refused, err error)
+	// bind, when set, runs after pend lets the sign-in complete and writes
+	// what the sign-in binds to its user, sess being the session the Update
+	// then writes.
+	bind func(tx Tx, j *journal, u *access.User, sess *access.Session) error
 	// fill sets the session fields op.in decided, after each run of it.
 	fill func(sess *access.Session)
 	// announce adds the operation's own entries for the written session,
@@ -172,7 +176,7 @@ func (s *Service) createSession(ctx context.Context, r Rules, c Client, op *sess
 }
 
 // signIn runs op in order: the admission, prepare, Rules.SessionCaps once
-// with c, then one change holding op.in, op.pend, op.fill and the session
+// with c, then one change holding op.in, op.pend, op.bind, op.fill and the session
 // write (draft.store) with its entries. A completed sign-in succeeds the
 // reservation and gets deviceCookie's cookie; one pend held back cancels it
 // and answers pend's refusal or the minted Pending. A prepare error cancels
@@ -230,8 +234,8 @@ func (op *sessionOp) admitAndPrepare() (*ratelimit.Reservation, error) {
 	return res, nil
 }
 
-// writeSession is signIn's change, from c's address: op.in, op.pend and
-// op.fill, then d's session for the user op.in returned, with the
+// writeSession is signIn's change, from c's address: op.in, op.pend,
+// op.bind and op.fill, then d's session for the user op.in returned, with the
 // replacement, the evictions and the entries; or, when op.pend holds the
 // sign-in back, its answer and op.announce's entries with no session.
 func (s *Service) writeSession(ctx context.Context, r Rules, c Client, op *sessionOp, d *draft) (user *access.User, entry *pending, refused, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
@@ -244,6 +248,11 @@ func (s *Service) writeSession(ctx context.Context, r Rules, c Client, op *sessi
 		var holdErr error
 		if entry, refused, holdErr = op.hold(tx, j, u); holdErr != nil || entry != nil || refused != nil {
 			return holdErr
+		}
+		if op.bind != nil {
+			if bindErr := op.bind(tx, j, u, &d.session); bindErr != nil {
+				return bindErr
+			}
 		}
 		if writeErr := s.storeSession(ctx, tx, j, r, op, d, u); writeErr != nil {
 			return writeErr

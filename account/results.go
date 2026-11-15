@@ -12,6 +12,9 @@ type SignedIn struct {
 	User         *access.User
 	Token        access.Secret // the session cookie value
 	DeviceCookie access.Secret // set when non-zero
+	// RecoveryCode is the recovery code the sign-in's binding issued, shown
+	// only here; zero when it issued none.
+	RecoveryCode access.Secret
 	Session      access.Session
 	CloneWarning bool
 }

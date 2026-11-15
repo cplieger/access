@@ -56,6 +56,97 @@ func serveLoginSecondPasskeyFinish(h *Handler, c *call) error {
 	return nil
 }
 
+func serveLoginRecoveryCode(h *Handler, c *call) error {
+	req, err := decodeJSON[CodeRequest](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	ticket, err := requireSecret("ticket", req.Ticket)
+	if err != nil {
+		return err
+	}
+	out, err := h.acct.SignInWithRecoveryCode(c.r.Context(), c.client, ticket, req.Code)
+	if err != nil {
+		return err
+	}
+	h.loginOutcome(c, out)
+	return nil
+}
+
+func servePendingTOTPBegin(h *Handler, c *call) error {
+	req, err := decodeJSON[TicketRequest](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	ticket, err := requireSecret("ticket", req.Ticket)
+	if err != nil {
+		return err
+	}
+	e, err := h.acct.PendingTOTPBegin(c.r.Context(), c.client, ticket)
+	if err != nil {
+		return err
+	}
+	writeJSON(c.w, http.StatusOK, PendingTOTPBeginResponse{URI: e.URI.Reveal(), Text: e.Text.Reveal()})
+	return nil
+}
+
+func servePendingTOTPFinish(h *Handler, c *call) error {
+	req, err := decodeJSON[CodeRequest](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	ticket, err := requireSecret("ticket", req.Ticket)
+	if err != nil {
+		return err
+	}
+	in, err := h.acct.PendingTOTPFinish(c.r.Context(), c.client, ticket, req.Code)
+	if err != nil {
+		return err
+	}
+	h.enrolled(c, in)
+	return nil
+}
+
+func servePendingPasskeyBegin(h *Handler, c *call) error {
+	req, err := decodeJSON[TicketRequest](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	ticket, err := requireSecret("ticket", req.Ticket)
+	if err != nil {
+		return err
+	}
+	origin, err := requestOrigin(c.r)
+	if err != nil {
+		return err
+	}
+	pc, err := h.acct.PendingPasskeyBegin(c.r.Context(), c.client, ticket, origin)
+	if err != nil {
+		return err
+	}
+	return writeCeremony(c, pc)
+}
+
+func servePendingPasskeyFinish(h *Handler, c *call) error {
+	body, err := readCredential(c.w, c.r)
+	if err != nil {
+		return err
+	}
+	in, err := h.acct.PendingPasskeyFinish(c.r.Context(), c.client, c.r.Header.Get(ceremonyHeader), body)
+	if err != nil {
+		return err
+	}
+	h.enrolled(c, in)
+	return nil
+}
+
+// enrolled answers a pending enrolment finish's sign-in.
+func (h *Handler) enrolled(c *call, s account.SignedIn) { //nolint:gocritic // hugeParam: account's own result, read once
+	h.setSignedIn(c.w, c.client.Secure, s)
+	h.auditSuccess(c, s.User, s.Session)
+	writeJSON(c.w, http.StatusOK, EnrolmentOutcome{SignedIn: signedInResponse(s)})
+}
+
 func serveTOTPBegin(h *Handler, c *call) error {
 	e, err := h.acct.BeginTOTP(c.r.Context(), c.p)
 	if err != nil {

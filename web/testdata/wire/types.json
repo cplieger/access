@@ -15,6 +15,81 @@
       "name": "code"
     }
   ],
+  "EnrolmentOutcome": [
+    {
+      "name": "signed_in",
+      "fields": [
+        {
+          "name": "session_id"
+        },
+        {
+          "name": "recovery_code",
+          "optional": true
+        },
+        {
+          "name": "user",
+          "fields": [
+            {
+              "name": "created_at"
+            },
+            {
+              "name": "methods",
+              "fields": [
+                {
+                  "name": "passkey_count"
+                },
+                {
+                  "name": "password"
+                },
+                {
+                  "name": "local_methods_dormant"
+                },
+                {
+                  "name": "role_from_provider"
+                }
+              ],
+              "optional": true
+            },
+            {
+              "name": "username"
+            },
+            {
+              "name": "display_name",
+              "optional": true
+            },
+            {
+              "name": "role",
+              "values": [
+                "admin",
+                "user"
+              ],
+              "open": true
+            },
+            {
+              "name": "key_lineage",
+              "optional": true
+            },
+            {
+              "name": "id"
+            },
+            {
+              "name": "enabled"
+            },
+            {
+              "name": "oidc_linked"
+            },
+            {
+              "name": "owner"
+            }
+          ]
+        },
+        {
+          "name": "clone_warning",
+          "optional": true
+        }
+      ]
+    }
+  ],
   "InviteAcceptRequest": [
     {
       "name": "token"
@@ -479,6 +554,14 @@
       "name": "can_create"
     }
   ],
+  "PendingTOTPBeginResponse": [
+    {
+      "name": "uri"
+    },
+    {
+      "name": "text"
+    }
+  ],
   "ProfileRequest": [
     {
       "name": "display_name"
@@ -836,6 +919,10 @@
           "name": "session_id"
         },
         {
+          "name": "recovery_code",
+          "optional": true
+        },
+        {
           "name": "user",
           "fields": [
             {
@@ -922,6 +1009,10 @@
             "recovery_code",
             "password"
           ]
+        },
+        {
+          "name": "recovered",
+          "optional": true
         }
       ],
       "optional": true,
@@ -964,6 +1055,10 @@
   "SignedInResponse": [
     {
       "name": "session_id"
+    },
+    {
+      "name": "recovery_code",
+      "optional": true
     },
     {
       "name": "user",

@@ -35,6 +35,7 @@ const (
 	purposeSignIn       // a pending sign-in of an existing user
 	purposeSecondFactor // a passkey assertion as a pending sign-in's second step
 	purposeEnrolTOTP    // a TOTP enrolment a session began
+	purposeEnrolPasskey // a passkey registration as a pending sign-in's enrolment
 )
 
 // pendingList is one of the cache's lists. Each has one lifetime, so its
@@ -72,7 +73,8 @@ type pending struct {
 	ticket   ticket
 }
 
-// enrolment is a TOTP enrolment's state between BeginTOTP and FinishTOTP.
+// enrolment is a TOTP enrolment's state between its begin and its finish,
+// from a session or inside a pending sign-in.
 type enrolment struct {
 	issued    time.Time
 	secret    access.Secret
@@ -177,6 +179,19 @@ func (c *pendingCache) peek(id string, purpose pendingPurpose, now time.Time) (p
 	v := e.value
 	v.ticket.methods = slices.Clone(v.ticket.methods)
 	return v, true
+}
+
+// setEnrolment sets e on id's live pending sign-in, replacing an enrolment
+// begun before, and reports whether one was live.
+func (c *pendingCache) setEnrolment(id string, e enrolment, now time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.byID[id]
+	if !ok || entry.purpose != purposeSignIn || !now.Before(entry.expires) {
+		return false
+	}
+	entry.value.enrol = e
+	return true
 }
 
 // drop removes id's entry, if any.

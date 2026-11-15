@@ -20,6 +20,8 @@ import {
   parseSignedInResponse,
   parseStateResponse,
   parseTOTPBeginResponse,
+  parsePendingTOTPBeginResponse,
+  parseEnrolmentOutcome,
   parseRecoveryCodeIssuedResponse,
   parseRecoveryCodeResponse,
   parsePasskeyRegisteredResponse,
@@ -59,6 +61,8 @@ import type {
   SignedInResponse,
   StateResponse,
   TOTPBeginResponse,
+  PendingTOTPBeginResponse,
+  EnrolmentOutcome,
   TOTPFinishRequest,
   RecoveryCodeIssuedResponse,
   RecoveryCodeResponse,
@@ -138,6 +142,18 @@ export interface AuthClient {
     ceremony: string,
     credential: PublicKeyCredentialJSON,
   ): Promise<ApiResult<SignInOutcome>>;
+  /** A pending sign-in's recovery-code step: a pending enrolment marked recovered, never a session. */
+  loginRecoveryCode(ticket: string, code: string): Promise<ApiResult<SignInOutcome>>;
+  /** A pending enrolment's TOTP begin; the ticket keeps the secret for pendingTOTPFinish. */
+  pendingTOTPBegin(r: TicketRequest): Promise<ApiResult<PendingTOTPBeginResponse>>;
+  /** Binds the authenticator pendingTOTPBegin showed and completes the sign-in. */
+  pendingTOTPFinish(ticket: string, code: string): Promise<ApiResult<EnrolmentOutcome>>;
+  /** pendingPasskey's begin: a registration for the ticket's user. */
+  pendingPasskeyBegin(r: TicketRequest): Promise<ApiResult<CeremonyResponse>>;
+  pendingPasskeyFinish(
+    ceremony: string,
+    credential: PublicKeyCredentialJSON,
+  ): Promise<ApiResult<EnrolmentOutcome>>;
   loginPasskeyBegin(o?: {
     readonly mediation?: "conditional";
   }): Promise<ApiResult<CeremonyResponse>>;
@@ -319,6 +335,16 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
       json("POST", p("/login/second-passkey/begin"), parseCeremonyResponse, { body: r }),
     loginSecondPasskeyFinish: (c, cred) =>
       json("POST", p("/login/second-passkey/finish"), parseSignInOutcome, finish(c, cred)),
+    loginRecoveryCode: (ticket, code) =>
+      json("POST", p("/login/recovery-code"), parseSignInOutcome, { body: { ticket, code } }),
+    pendingTOTPBegin: (r) =>
+      json("POST", p("/pending/totp/begin"), parsePendingTOTPBeginResponse, { body: r }),
+    pendingTOTPFinish: (ticket, code) =>
+      json("POST", p("/pending/totp/finish"), parseEnrolmentOutcome, { body: { ticket, code } }),
+    pendingPasskeyBegin: (r) =>
+      json("POST", p("/pending/passkey/begin"), parseCeremonyResponse, { body: r }),
+    pendingPasskeyFinish: (c, cred) =>
+      json("POST", p("/pending/passkey/finish"), parseEnrolmentOutcome, finish(c, cred)),
     loginPasskeyBegin: (q) =>
       json(
         "POST",

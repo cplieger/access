@@ -159,11 +159,12 @@ func MintSession(ctx context.Context, s *Service, c Client, userID int64) (acces
 
 // Ticket is a live pending sign-in's entry, as the cache holds it.
 type Ticket struct {
-	Next    Next
-	Methods []access.Method
-	Digest  access.HashKey
-	UserID  int64
-	Secure  bool
+	Next      Next
+	Methods   []access.Method
+	Digest    access.HashKey
+	UserID    int64
+	Secure    bool
+	Recovered bool
 }
 
 // TicketOf returns the live entry ticket names in s's cache, removing
@@ -176,7 +177,7 @@ func TicketOf(s *Service, ticket access.Secret) (Ticket, bool) {
 		return Ticket{}, false
 	}
 	v := e.value
-	return Ticket{Next: v.ticket.next, Methods: v.ticket.methods, Digest: v.ticket.digest, UserID: v.user.ID, Secure: v.ticket.secure}, true
+	return Ticket{Next: v.ticket.next, Methods: v.ticket.methods, Digest: v.ticket.digest, UserID: v.user.ID, Secure: v.ticket.secure, Recovered: v.ticket.recovered != access.HashKey{}}, true
 }
 
 // CountedMethods is the methods with failure records.
