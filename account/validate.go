@@ -11,8 +11,9 @@ import (
 )
 
 // countedMethods are the methods with failure records: a creating Update
-// deletes the new name's records of each.
-var countedMethods = []access.Method{access.MethodPassword}
+// deletes the new name's records of each, and Me reports their locks. A
+// temporary password counts as the password, typed on its form.
+var countedMethods = []access.Method{access.MethodPassword, access.MethodTOTP, access.MethodRecoveryCode}
 
 // canonicalUsername is the shared username rule of every creation path,
 // run before any limiter call or hash: access.NormalizeUsername, then

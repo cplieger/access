@@ -118,7 +118,7 @@ func TestPasskeySetupRefusals(t *testing.T) {
 				} else if !errors.Is(err, tc.want) {
 					t.Errorf("SetupPasskeyBegin = %v, want %v", err, tc.want)
 				}
-				if n := account.Pending(p.svc).Len(); n != 0 {
+				if n := account.PendingOf(p.svc).Len(); n != 0 {
 					t.Errorf("pending ceremonies = %d, want none after a refused begin", n)
 				}
 			})

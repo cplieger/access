@@ -30,7 +30,7 @@ var designOwnReasons = []string{
 	"flow_invalid", "discovery_failed", "exchange_failed", "token_invalid", "nonce_mismatch",
 	"no_username", "provisioning_disabled", "not_admitted", "username_invalid",
 	"reenable_needs_other_method", "trailing_data", "malformed_json", "content_type", "body",
-	"unknown_field", "token_in_query",
+	"unknown_field", "token_in_query", "enrol_needs_known_device", "no_usable_method",
 }
 
 // wireReasons is every Reason classify gives for the fixed-reason

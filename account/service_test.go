@@ -18,6 +18,7 @@ import (
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/internal/printcheck"
 	"github.com/cplieger/access/oidc"
+	"github.com/cplieger/access/webauthn"
 )
 
 func TestNewRefuses(t *testing.T) {
@@ -64,6 +65,22 @@ func TestNewRefuses(t *testing.T) {
 		{name: "breach_fail_closed_without_client", field: "Breach", edit: func(c *account.Config) {
 			c.Rules = func() account.Rules { return account.Rules{Breach: account.BreachFailClosed} }
 		}},
+		// Design 4.3: Config.TOTP is optional, and a half-set value is refused.
+		{name: "totp_sealer_without_issuer", field: "TOTP.Issuer", edit: func(c *account.Config) {
+			c.TOTP = account.TOTPConfig{Sealer: access.NewEphemeralSealer()}
+		}},
+		{name: "totp_issuer_without_sealer", field: "TOTP.Sealer", edit: func(c *account.Config) { c.TOTP = account.TOTPConfig{Issuer: "Example"} }},
+		{name: "totp_zero_sealer", field: "TOTP.Sealer", edit: func(c *account.Config) {
+			c.TOTP = account.TOTPConfig{Sealer: &access.Sealer{}, Issuer: "Example"}
+		}},
+		// Key Uri Format: the issuer prefixes the label, where a colon is the separator.
+		{name: "totp_issuer_colon", field: "TOTP.Issuer", edit: func(c *account.Config) {
+			c.TOTP = account.TOTPConfig{Sealer: access.NewEphemeralSealer(), Issuer: "Ex:ample"}
+		}},
+		// Design 4.46: RequireSecondFactor with no wired second factor.
+		{name: "require_second_factor_unwired", field: "RequireSecondFactor", edit: func(c *account.Config) {
+			c.Rules = func() account.Rules { return account.Rules{RequireSecondFactor: true} }
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -97,6 +114,35 @@ func TestNewRefuses(t *testing.T) {
 			t.Fatalf("New(BreachFailOpen with a client) error = %v, want nil", err)
 		}
 		_ = svc.Shutdown(t.Context())
+	})
+	t.Run("second_factor_wired", func(t *testing.T) {
+		t.Parallel()
+		for name, edit := range map[string]func(*account.Config){
+			"totp": func(c *account.Config) {
+				c.TOTP = account.TOTPConfig{Sealer: access.NewEphemeralSealer(), Issuer: "Example"}
+			},
+			"passkeys": func(c *account.Config) { c.RP = func() *webauthn.RelyingParty { return nil } },
+		} {
+			cfg := ownAuthenticator(t, base)
+			cfg.Rules = func() account.Rules { return account.Rules{RequireSecondFactor: true} }
+			edit(&cfg)
+			svc, err := account.New(t.Context(), cfg)
+			if err != nil {
+				t.Errorf("%s: New(RequireSecondFactor) = %v, want nil", name, err)
+				continue
+			}
+			_ = svc.Shutdown(t.Context())
+		}
+	})
+	t.Run("require_second_factor_error_matches", func(t *testing.T) {
+		t.Parallel()
+		cfg := base
+		cfg.Rules = func() account.Rules { return account.Rules{RequireSecondFactor: true} }
+		_, err := account.New(t.Context(), cfg)
+		var re *account.RulesError
+		if !errors.Is(err, account.ErrRulesInvalid) || !errors.As(err, &re) || re.Field != "RequireSecondFactor" {
+			t.Errorf("New(RequireSecondFactor, nothing wired) = %v, want a *RulesError for RequireSecondFactor", err)
+		}
 	})
 	t.Run("rules_error_matches", func(t *testing.T) {
 		t.Parallel()
@@ -177,6 +223,7 @@ func TestServicePrinting(t *testing.T) {
 			Types: []string{
 				"access.Authenticator", "ratelimit.Limiter", "http.Client",
 				"slog.Logger", "webauthn.Ceremony", "access.User", "time.Time",
+				"access.Sealer",
 			},
 			Fields: []string{
 				"account.Service.store", "account.Service.policy",
@@ -188,6 +235,11 @@ func TestServicePrinting(t *testing.T) {
 				// and on the entry; finishing a ceremony still needs the
 				// authenticator's signature.
 				"account.pendingEntry.id", "account.pendingCache.byID",
+				// The app's name in an authenticator, shown in every otpauth URI.
+				"account.TOTPConfig.Issuer",
+				// A pending sign-in's step and methods are its public answer;
+				// the digest is a HashKey, which shows no more than the Hash.
+				"account.ticket.next", "account.ticket.methods", "account.ticket.digest",
 			},
 		}
 		for _, line := range printcheck.Unmasked(allow, reflect.TypeFor[*account.Service]()) {

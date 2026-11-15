@@ -120,6 +120,12 @@ func inventoryAllow(t *testing.T) printcheck.Allow {
 			"account.Credentials.Username", "account.SetupPassword.Username", "account.SetupPasskey.Username",
 			"account.AcceptInvite.Username", "account.NewUser.Username", "account.NewUser.Role",
 			"account.ListedToken.IssuerLineage",
+			// The app's name in an authenticator, shown in every otpauth URI.
+			"account.TOTPConfig.Issuer",
+			// A pending sign-in's step and methods are its public answer;
+			// the digest is a HashKey, which shows no more than the Hash.
+			"account.ticket.next", "account.ticket.methods", "account.ticket.digest",
+			"account.Pending.Next", "account.Pending.Methods",
 			// The app's store, policy and Argon2 hasher behind their interfaces,
 			// and the configured scope names.
 			"account.Service.store", "account.Service.policy", "account.Service.hasher",
@@ -165,10 +171,10 @@ func inventory(t *testing.T) []inventoryRow {
 	e.createUser(t, "root", access.RoleAdmin)
 	e.createUser(t, "alice", access.RoleUser)
 	alice := e.user(t, "alice")
-	if _, err := e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: "alice", Password: access.NewSecret(printingPassword)}); err == nil {
+	if _, err := completed(e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: "alice", Password: access.NewSecret(printingPassword)})); err == nil {
 		t.Fatal("PasswordLogin with a wrong password succeeded")
 	}
-	signed, err := e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: "alice", Password: access.NewSecret(testPassword)})
+	signed, err := completed(e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: "alice", Password: access.NewSecret(testPassword)}))
 	if err != nil {
 		t.Fatalf("PasswordLogin: %v", err)
 	}
@@ -214,12 +220,8 @@ func inventory(t *testing.T) []inventoryRow {
 	}
 	pw, tok := access.NewSecret(printingPassword), access.NewSecret(printingToken)
 	attempt := ratelimit.Attempt{IP: ratelimit.IPKey(netip.MustParseAddr("192.0.2.1")), Device: signed.DeviceCookie, Account: ratelimit.AccountKey("alice")}
-	res, err := e.limiter.Attempt(ratelimit.Attempt{IP: ratelimit.IPKey(netip.MustParseAddr("192.0.2.2")), Account: ratelimit.AccountKey("carol")})
-	if err != nil {
-		t.Fatalf("limiter.Attempt: %v", err)
-	}
-	succeeded := res.Succeed()
-	deviceCookie := e.limiter.DeviceCookie(ratelimit.AccountKey("carol"), access.Secret{})
+	deviceCookie := e.limiter.DeviceCookie(ratelimit.AccountKey("carol"), access.Secret{}, true)
+	pendingLogin := account.LoginResult{Pending: &account.Pending{Ticket: access.NewSecret(printingToken), Next: account.NextSecondFactor, Methods: []access.Method{access.MethodTOTP}}}
 
 	return []inventoryRow{
 		row("access.User", alice, alice.PasswordHash.Reveal(), testPassword),
@@ -256,8 +258,8 @@ func inventory(t *testing.T) []inventoryRow {
 		row("CreateInvite", &invite, invite.Plaintext.Reveal()),
 		row("NewOneTimeToken plaintext", &otPlain, otPlain.Reveal()),
 		row("ratelimit.Attempt", &attempt, signed.DeviceCookie.Reveal()),
-		row("Reservation.Succeed", &succeeded, succeeded.Reveal()),
 		row("Limiter.DeviceCookie", &deviceCookie, deviceCookie.Reveal()),
+		row("account.LoginResult", &pendingLogin, pendingLogin.Pending.Ticket.Reveal()),
 		row("account.ListedToken", &listed[0], listed[0].Token.Hash.Reveal(), invite.Plaintext.Reveal()),
 		row("TokenView", &view, listed[0].Token.Hash.Reveal(), invite.Plaintext.Reveal()),
 	}

@@ -188,7 +188,24 @@ func clientAt(i int) account.Client {
 }
 
 func (p *pwFixture) login(ctx context.Context, c account.Client, name, pw string) (account.SignedIn, error) {
+	return completed(p.step1(ctx, c, name, pw))
+}
+
+// step1 is a password sign-in's whole answer.
+func (p *pwFixture) step1(ctx context.Context, c account.Client, name, pw string) (account.LoginResult, error) {
 	return p.svc.PasswordLogin(ctx, c, account.Credentials{Username: name, Password: access.NewSecret(pw)})
+}
+
+// errPendingAnswer is completed's refusal of a pending answer.
+var errPendingAnswer = errors.New("test: the sign-in answered a pending sign-in")
+
+// completed is a password sign-in's SignedIn, and errPendingAnswer for a
+// pending one, so a test that meets no second factor reads one shape.
+func completed(out account.LoginResult, err error) (account.SignedIn, error) {
+	if err == nil && out.Pending != nil {
+		return account.SignedIn{}, errPendingAnswer
+	}
+	return out.SignedIn, err
 }
 
 // failN makes n wrong-password attempts for name from c, eight at a time,

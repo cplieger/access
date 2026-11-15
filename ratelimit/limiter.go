@@ -225,7 +225,7 @@ func (l *Limiter) Attempt(a Attempt) (*Reservation, error) {
 	r := &Reservation{l: l, ip: a.IP.bucket(l.ipv6Prefix), account: a.Account, ipOmitted: a.OmitIP}
 	if !a.Account.isZero() {
 		r.device.acct = a.Account
-		r.device.id, r.trusted = l.openDevice(a.Account, a.Device, l.now())
+		r.device.id, r.known, r.trusted = l.openDevice(a.Account, a.Device, l.now())
 	}
 	if err := l.reserve(r); err != nil {
 		return nil, err

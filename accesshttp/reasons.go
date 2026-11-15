@@ -28,12 +28,14 @@ const (
 	ReasonNotAdmitted              = "not_admitted"
 	ReasonUsernameInvalid          = "username_invalid"
 	ReasonReenableNeedsOtherMethod = failreason.ReenableNeedsOtherMethod
-	ReasonTrailingData             = "trailing_data"  // auth_bad_request: data after the JSON value
-	ReasonMalformedJSON            = "malformed_json" // auth_bad_request: the body is not one JSON value
-	ReasonContentType              = "content_type"   // auth_bad_request: the body is not application/json
-	ReasonBody                     = "body"           // auth_bad_request: the body is unreadable or not an object
-	ReasonUnknownField             = "unknown_field"  // auth_bad_request: a key the request type lacks
-	ReasonTokenInQuery             = "token_in_query" // auth_bad_request: a token route got a token in its URL
+	ReasonTrailingData             = "trailing_data"            // auth_bad_request: data after the JSON value
+	ReasonMalformedJSON            = "malformed_json"           // auth_bad_request: the body is not one JSON value
+	ReasonContentType              = "content_type"             // auth_bad_request: the body is not application/json
+	ReasonBody                     = "body"                     // auth_bad_request: the body is unreadable or not an object
+	ReasonUnknownField             = "unknown_field"            // auth_bad_request: a key the request type lacks
+	ReasonTokenInQuery             = "token_in_query"           // auth_bad_request: a token route got a token in its URL
+	ReasonEnrolNeedsKnownDevice    = "enrol_needs_known_device" // auth_second_factor_required at a password sign-in
+	ReasonNoUsableMethod           = "no_usable_method"         // auth_forbidden: the app allows no next step
 )
 
 // ownReasons is accesshttp's part of Reasons.
@@ -43,7 +45,7 @@ var ownReasons = []string{
 	ReasonFlowInvalid, ReasonDiscoveryFailed, ReasonExchangeFailed, ReasonTokenInvalid, ReasonNonceMismatch,
 	ReasonNoUsername, ReasonProvisioningDisabled, ReasonNotAdmitted, ReasonUsernameInvalid,
 	ReasonReenableNeedsOtherMethod, ReasonTrailingData, ReasonMalformedJSON, ReasonContentType, ReasonBody,
-	ReasonUnknownField, ReasonTokenInQuery,
+	ReasonUnknownField, ReasonTokenInQuery, ReasonEnrolNeedsKnownDevice, ReasonNoUsableMethod,
 }
 
 // providerErrorPrefix starts the Reason of an IdP's own error answer, which

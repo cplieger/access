@@ -106,7 +106,7 @@ type countingAccount struct {
 	calls atomic.Int32
 }
 
-func (c *countingAccount) PasswordLogin(ctx context.Context, cl account.Client, in account.Credentials) (account.SignedIn, error) {
+func (c *countingAccount) PasswordLogin(ctx context.Context, cl account.Client, in account.Credentials) (account.LoginResult, error) {
 	c.calls.Add(1)
 	return c.accountAPI.PasswordLogin(ctx, cl, in)
 }

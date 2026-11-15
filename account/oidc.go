@@ -449,7 +449,7 @@ func (s *Service) oidcStepUp(ctx context.Context, c Client, flow oidc.Flow, id a
 	case !admitted:
 		return OIDCOutcome{}, ErrNotAdmitted
 	}
-	device := s.limiter.DeviceCookie(ratelimit.AccountKey(user.Username), c.Device)
+	device := s.deviceCookie(user.Username, c)
 	return OIDCOutcome{Kind: OutcomeSteppedUp, Issued: Issued{Token: rot.token, DeviceCookie: device, Session: rot.session}}, nil
 }
 
@@ -643,7 +643,7 @@ func (s *Service) AdminUnlinkOIDC(ctx context.Context, a Actor, userID int64) er
 	if admitErr := s.admitUserAdmin(r, a); admitErr != nil {
 		return admitErr
 	}
-	return s.change(ctx, by(a), func(tx Tx, j *journal) error {
+	err = s.change(ctx, by(a), func(tx Tx, j *journal) error {
 		target, targetErr := s.unlinkTargetIn(ctx, tx, j, a, userID)
 		if targetErr != nil {
 			return targetErr
@@ -662,6 +662,10 @@ func (s *Service) AdminUnlinkOIDC(ctx context.Context, a Actor, userID int64) er
 		s.addRevoked(j, userID, sessions, actor)
 		return nil
 	})
+	if err == nil {
+		s.pending.dropUser(userID)
+	}
+	return err
 }
 
 // unlinkTargetIn is AdminUnlinkOIDC's authority inside tx: the Policy and

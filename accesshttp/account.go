@@ -26,7 +26,7 @@ type accountAPI interface {
 	SetupWithPassword(ctx context.Context, c account.Client, in account.SetupPassword) (account.SignedIn, error)
 	SetupPasskeyBegin(ctx context.Context, c account.Client, in account.SetupPasskey) (account.PendingCeremony, error)
 	SetupPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.SignedIn, error)
-	PasswordLogin(ctx context.Context, c account.Client, in account.Credentials) (account.SignedIn, error)
+	PasswordLogin(ctx context.Context, c account.Client, in account.Credentials) (account.LoginResult, error)
 	PasskeyLoginBegin(ctx context.Context, c account.Client, origin webauthn.Origin, mode account.LoginMode) (account.PendingCeremony, error)
 	PasskeyLoginFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.SignedIn, error)
 	AdmitOIDC(c account.Client) (*oidc.Provider, error)

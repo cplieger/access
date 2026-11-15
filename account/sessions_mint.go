@@ -151,42 +151,67 @@ type sessionOp struct {
 	// to commit with no session. A store may re-run it, so it resets
 	// whatever it sets outside.
 	in func(tx Tx) (*access.User, error)
+	// pend, when set, runs after in for its user and decides whether the
+	// sign-in completes now: nil and nil do; a pending entry to mint, or a
+	// refusal to answer, commits the Update with no session, so a correct
+	// first factor's failure reset stands.
+	pend func(tx Tx, u *access.User) (entry *pending, refused, err error)
 	// fill sets the session fields op.in decided, after each run of it.
 	fill func(sess *access.Session)
 	// announce adds the operation's own entries for the written session,
-	// between EventSessionRevoked and EventSignedIn, in the same run.
+	// between EventSessionRevoked and EventSignedIn, in the same run; sess
+	// is nil when pend held the sign-in back.
 	announce func(j *journal, u *access.User, sess *access.Session)
 	method   access.Method
 }
 
-// createSession runs op in order: the admission, prepare, Rules.SessionCaps
-// once with c, then one change holding op.in, op.fill and the session write
-// (draft.store), with an EventSessionRevoked per replaced or evicted batch,
-// op.announce's entries and EventSignedIn. The device cookie is Succeed's,
-// else Limiter.DeviceCookie for c.Device. A prepare error cancels the
-// reservation and an Update error fails it, as does a commit whose op.in gave
-// no user, which returns the zero SignedIn and a nil error.
+// createSession is signIn for an operation with no pend.
 func (s *Service) createSession(ctx context.Context, r Rules, c Client, op *sessionOp) (SignedIn, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
+	out, err := s.signIn(ctx, r, c, op)
+	return out.SignedIn, err
+}
+
+// signIn runs op in order: the admission, prepare, Rules.SessionCaps once
+// with c, then one change holding op.in, op.pend, op.fill and the session
+// write (draft.store) with its entries. A completed sign-in succeeds the
+// reservation and gets deviceCookie's cookie; one pend held back cancels it
+// and answers pend's refusal or the minted Pending. A prepare error cancels
+// the reservation and an Update error fails it, as does a commit whose op.in
+// gave no user, which returns the zero LoginResult and nil.
+func (s *Service) signIn(ctx context.Context, r Rules, c Client, op *sessionOp) (LoginResult, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
 	res, err := op.admitAndPrepare()
 	if err != nil {
-		return SignedIn{}, err
+		return LoginResult{}, err
 	}
 	d := s.newDraft(ctx, r, c, op)
-	user, err := s.writeSession(ctx, r, c, op, &d)
-	if err != nil || user == nil {
+	user, entry, refused, err := s.writeSession(ctx, r, c, op, &d)
+	switch {
+	case err != nil || user == nil && entry == nil && refused == nil:
 		if res != nil {
 			res.Fail()
 		}
-		return SignedIn{}, err
+		return LoginResult{}, err
+	case refused != nil:
+		if res != nil {
+			res.Cancel()
+		}
+		return LoginResult{}, refused
+	case entry != nil:
+		if res != nil {
+			res.Cancel()
+		}
+		return LoginResult{Pending: s.mintTicket(entry)}, nil
 	}
-	var device access.Secret
 	if res != nil {
-		device = res.Succeed()
+		res.Succeed()
 	}
-	if device.IsZero() {
-		device = s.limiter.DeviceCookie(ratelimit.AccountKey(user.Username), c.Device)
-	}
-	return SignedIn{User: user.Clone(), Session: d.session, Token: d.token, DeviceCookie: device}, nil
+	return LoginResult{SignedIn: SignedIn{User: user.Clone(), Session: d.session, Token: d.token, DeviceCookie: s.deviceCookie(user.Username, c)}}, nil
+}
+
+// deviceCookie is the device cookie a completed sign-in or step-up of
+// username from c answers, sealed with c's transport.
+func (s *Service) deviceCookie(username string, c Client) access.Secret { //nolint:gocritic // hugeParam: the request's Client
+	return s.limiter.DeviceCookie(ratelimit.AccountKey(username), c.Device, c.Secure)
 }
 
 // admitAndPrepare runs op's admission, then its prepare, cancelling the
@@ -205,38 +230,67 @@ func (op *sessionOp) admitAndPrepare() (*ratelimit.Reservation, error) {
 	return res, nil
 }
 
-// writeSession is createSession's change, from c's address: op.in and
+// writeSession is signIn's change, from c's address: op.in, op.pend and
 // op.fill, then d's session for the user op.in returned, with the
-// replacement, the evictions and the entries.
-func (s *Service) writeSession(ctx context.Context, r Rules, c Client, op *sessionOp, d *draft) (user *access.User, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
+// replacement, the evictions and the entries; or, when op.pend holds the
+// sign-in back, its answer and op.announce's entries with no session.
+func (s *Service) writeSession(ctx context.Context, r Rules, c Client, op *sessionOp, d *draft) (user *access.User, entry *pending, refused, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
 	err = s.change(ctx, byClient(Actor{}, c), func(tx Tx, j *journal) error {
-		user = nil
+		user, entry, refused = nil, nil, nil
 		u, inErr := op.in(tx)
 		if inErr != nil || u == nil {
 			return inErr
 		}
-		if op.fill != nil {
-			op.fill(&d.session)
+		var holdErr error
+		if entry, refused, holdErr = op.hold(tx, j, u); holdErr != nil || entry != nil || refused != nil {
+			return holdErr
 		}
-		replaced, evicted, writeErr := d.store(ctx, tx, r, u.ID)
-		if writeErr != nil {
+		if writeErr := s.storeSession(ctx, tx, j, r, op, d, u); writeErr != nil {
 			return writeErr
 		}
-		j.created(&d.session)
-		if replaced != "" {
-			j.addDetail(Event{Kind: EventSessionRevoked, At: s.now(), UserID: u.ID, SessionIDs: []string{replaced}}, LogDetailSignedInAgain)
-		}
-		if len(evicted) > 0 {
-			j.add(Event{Kind: EventSessionRevoked, At: s.now(), UserID: u.ID, SessionIDs: evicted})
-		}
-		if op.announce != nil {
-			op.announce(j, u, &d.session)
-		}
-		j.add(Event{Kind: EventSignedIn, At: d.session.CreatedAt, UserID: u.ID, Method: op.method, SessionIDs: []string{d.session.ID}})
 		user = u
 		return nil
 	})
-	return user, err
+	return user, entry, refused, err
+}
+
+// hold runs op.pend for u, when set, and journals op.announce's entries for
+// a sign-in it holds back.
+func (op *sessionOp) hold(tx Tx, j *journal, u *access.User) (entry *pending, refused, err error) {
+	if op.pend == nil {
+		return nil, nil, nil
+	}
+	if entry, refused, err = op.pend(tx, u); err != nil || entry == nil && refused == nil {
+		return nil, nil, err
+	}
+	if op.announce != nil {
+		op.announce(j, u, nil)
+	}
+	return entry, refused, nil
+}
+
+// storeSession is writeSession's session write for u: op.fill, d's session
+// with the replacement and the evictions, and the entries.
+func (s *Service) storeSession(ctx context.Context, tx Tx, j *journal, r Rules, op *sessionOp, d *draft, u *access.User) error { //nolint:gocritic // hugeParam: the operation's one Rules value
+	if op.fill != nil {
+		op.fill(&d.session)
+	}
+	replaced, evicted, err := d.store(ctx, tx, r, u.ID)
+	if err != nil {
+		return err
+	}
+	j.created(&d.session)
+	if replaced != "" {
+		j.addDetail(Event{Kind: EventSessionRevoked, At: s.now(), UserID: u.ID, SessionIDs: []string{replaced}}, LogDetailSignedInAgain)
+	}
+	if len(evicted) > 0 {
+		j.add(Event{Kind: EventSessionRevoked, At: s.now(), UserID: u.ID, SessionIDs: evicted})
+	}
+	if op.announce != nil {
+		op.announce(j, u, &d.session)
+	}
+	j.add(Event{Kind: EventSignedIn, At: d.session.CreatedAt, UserID: u.ID, Method: op.method, SessionIDs: []string{d.session.ID}})
+	return nil
 }
 
 // createUser creates user through create, which assigns its ID, and deletes

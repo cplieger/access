@@ -77,10 +77,7 @@ func (s *Service) UsableMethods(ctx context.Context, tx Tx, userID int64, st Met
 // party and provider. No method left is a refused ErrLastMethod; a store
 // error is returned as it is.
 func (s *Service) guardLastMethod(ctx context.Context, tx Tx, r Rules, u *access.User, gone credential) error { //nolint:gocritic // hugeParam: the operation's one Rules value
-	st := MethodState{Rules: r}
-	if rp := s.relyingParty(); rp != nil {
-		st.RPID = rp.ID()
-	}
+	st := MethodState{Rules: r, RPID: s.rpID()}
 	if p := s.provider(); p != nil {
 		st.OIDCIssuer = p.Issuer()
 	}
@@ -121,9 +118,7 @@ func (s *Service) signInAvailability(ctx context.Context, tx Tx, st MethodState,
 // leaving out gone, with the SSO mode ignored, as an owner counts its
 // methods. A store error is returned as it is.
 func (s *Service) availability(ctx context.Context, tx Tx, st MethodState, u *access.User, gone credential) (access.MethodAvailability, error) { //nolint:gocritic // hugeParam: the operation's one MethodState value
-	usable := func(m access.Method) bool {
-		return st.Rules.MethodUsable == nil || st.Rules.MethodUsable(ctx, tx, u, m)
-	}
+	usable := func(m access.Method) bool { return methodUsable(ctx, tx, st.Rules, u, m) }
 	var (
 		avail access.MethodAvailability
 		err   error
@@ -133,10 +128,8 @@ func (s *Service) availability(ctx context.Context, tx Tx, st MethodState, u *ac
 			return access.MethodAvailability{}, err
 		}
 	}
-	if st.RPID != "" && usable(access.MethodPasskey) {
-		if avail.PasskeyCount, err = passkeysLeft(ctx, tx, u.ID, st.RPID, gone); err != nil {
-			return access.MethodAvailability{}, err
-		}
+	if avail.PasskeyCount, err = usablePasskeys(ctx, tx, st.Rules, st.RPID, u, gone); err != nil {
+		return access.MethodAvailability{}, err
 	}
 	if gone.method != access.MethodOIDC && !u.OIDC.IsZero() && usable(access.MethodOIDC) {
 		avail.OIDCLinked = true

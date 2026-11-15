@@ -77,6 +77,13 @@ var (
 	// ErrSecondFactorRequired is a password sign-in or a setting that needs
 	// a second factor the user cannot bind or does not hold.
 	ErrSecondFactorRequired = errors.New("account: a second factor is required")
+	// ErrNoUsableMethod is a sign-in whose next step the app's rules allow
+	// no method for, so the account can take no step this app allows.
+	ErrNoUsableMethod = errors.New("account: this app allows no method this sign-in's next step needs")
+	// ErrEnrolNeedsKnownDevice is a password sign-in that would bind the
+	// account's first second factor from a device no secure sign-in of it
+	// has used; it matches ErrSecondFactorRequired.
+	ErrEnrolNeedsKnownDevice = fmt.Errorf("account: a first second factor is bound only from a known device: %w", ErrSecondFactorRequired)
 	// ErrSecondFactorUnavailable is a TOTP record no Sealer key opens; it
 	// counts as no wrong code.
 	ErrSecondFactorUnavailable = errors.New("account: the second factor cannot be opened")

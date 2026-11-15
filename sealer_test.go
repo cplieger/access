@@ -473,3 +473,21 @@ func TestSealerOpensFixture(t *testing.T) {
 		t.Errorf("Open(fixture) = %q, %v, want %q (%s)", got, err, sealedFixturePayload, regen)
 	}
 }
+
+// TestSealerIsZero checks the one Sealer that cannot seal: nil, or the zero
+// value with no key, whose Seal panics (zero_sealer_seal_panics above).
+func TestSealerIsZero(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		s    *Sealer
+		want bool
+	}{
+		"nil":       {nil, true},
+		"zero":      {&Sealer{}, true},
+		"ephemeral": {NewEphemeralSealer(), false},
+	} {
+		if got := tc.s.IsZero(); got != tc.want {
+			t.Errorf("%s: IsZero() = %t, want %t", name, got, tc.want)
+		}
+	}
+}

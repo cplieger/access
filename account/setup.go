@@ -59,7 +59,7 @@ func (s *Service) State(ctx context.Context, c Client) (State, error) { //nolint
 	if err != nil {
 		return State{}, storeErr(err)
 	}
-	st := State{SetupRequired: n == 0, Secure: c.Secure, SSO: mode}
+	st := State{SetupRequired: n == 0, Secure: c.Secure, SSO: mode, TOTP: s.totpOn(r)}
 	// Each feature answers its sign-in operations' own plainRule, so the
 	// screen and the operations read one table.
 	admit := func(offered bool, f HTTPSFeature, rule plainRule) bool {

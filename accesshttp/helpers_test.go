@@ -3,6 +3,7 @@ package accesshttp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -282,11 +283,23 @@ func (e *env) createUser(t testing.TB, name string, role access.Role) {
 	}
 }
 
+// errPendingAnswer is completed's refusal of a pending answer.
+var errPendingAnswer = errors.New("test: the sign-in answered a pending sign-in")
+
+// completed is a password sign-in's SignedIn, and errPendingAnswer for a
+// pending one.
+func completed(out account.LoginResult, err error) (account.SignedIn, error) {
+	if err == nil && out.Pending != nil {
+		return account.SignedIn{}, errPendingAnswer
+	}
+	return out.SignedIn, err
+}
+
 // sessionCookie signs name in directly through the Service and returns its
 // session cookie.
 func (e *env) sessionCookie(t testing.TB, name string) *http.Cookie {
 	t.Helper()
-	out, err := e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: name, Password: access.NewSecret(testPassword)})
+	out, err := completed(e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: name, Password: access.NewSecret(testPassword)}))
 	if err != nil {
 		t.Fatalf("PasswordLogin: %v", err)
 	}

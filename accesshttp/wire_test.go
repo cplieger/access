@@ -155,6 +155,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 			{Method: access.MethodPasskey, Trusted: true},
 		},
 		PasskeyCount: 2, HasPassword: true, OIDCLinked: true, OIDCAvailable: true, PasskeysAvailable: true, PasswordLogin: true,
+		SecondFactorHeld: true, PasswordStepUp: true,
 	}
 	wantMethods := MethodsView{
 		Locks: []MethodLockView{
@@ -162,6 +163,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 			{Method: access.MethodPasskey, Trusted: true},
 		},
 		PasskeyCount: 2, Password: true, OIDCLinked: true, OIDCAvailable: true, PasskeysAvailable: true, PasswordLogin: true,
+		SecondFactorHeld: true, PasswordStepUp: true,
 	}
 	at := func(h int) time.Time { return created.Add(time.Duration(h) * time.Hour) }
 	me := account.Me{
@@ -198,12 +200,12 @@ func TestViewsCarryEveryField(t *testing.T) {
 	state := account.State{
 		SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSOrigin: "https://app.example.com",
 		PlainSession:  &access.SessionTimeouts{Idle: 15*time.Minute + 999*time.Millisecond, Absolute: 12 * time.Hour},
-		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC}, SSO: account.SSOOnly,
+		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC}, SSO: account.SSOOnly, TOTP: true,
 	}
 	wantState := StateResponse{
 		SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSOrigin: "https://app.example.com",
 		PlainSession:  &PlainSessionView{IdleSeconds: 900, AbsoluteSeconds: 43200},
-		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC}, SSO: account.SSONameOnly,
+		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC}, SSO: account.SSONameOnly, TOTP: true,
 	}
 	key := access.Key{
 		ID: 5, UserID: 7, Label: "ci", KeyPrefix: "ak_7", KeySuffix: "wxyz", Scopes: []string{"read"},
@@ -253,6 +255,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 		name      string
 	}{
 		{name: "StateResponse", got: stateResponse(&state), want: wantState},
+		{name: "Pending", got: *pendingView(&account.Pending{Ticket: access.NewSecret("ticket"), Next: account.NextEnrol, Methods: []access.Method{access.MethodTOTP}}), want: Pending{Ticket: "ticket", Next: account.NextEnrol, Methods: []PendingMethod{PendingTOTP}}},
 		{name: "UserView", got: userView(user), want: wantUser},
 		{name: "MethodsView", got: methodsView(methods), want: wantMethods},
 		{name: "MeResponse", got: meResponse(&me), want: wantMe},
@@ -286,6 +289,8 @@ func TestViewsCarryEveryField(t *testing.T) {
 			{account.Methods{PasskeysAvailable: true}, MethodsView{PasskeysAvailable: true}, "passkeys_available"},
 			{account.Methods{PasswordLogin: true}, MethodsView{PasswordLogin: true}, "password_login"},
 			{account.Methods{PasskeyCount: 3}, MethodsView{PasskeyCount: 3}, "passkey_count"},
+			{account.Methods{SecondFactorHeld: true}, MethodsView{SecondFactorHeld: true}, "second_factor_held"},
+			{account.Methods{PasswordStepUp: true}, MethodsView{PasswordStepUp: true}, "password_step_up"},
 		} {
 			tc.want.Locks = []MethodLockView{}
 			if got := methodsView(tc.in); !reflect.DeepEqual(got, tc.want) {
@@ -398,5 +403,22 @@ func TestSecurityLogViewJSON(t *testing.T) {
 	const want = `{"entries":[],"classes":[{"class":"change","count":0,"evicted":0},{"class":"session","count":0,"evicted":0}]}`
 	if string(b) != want {
 		t.Errorf("empty page encodes %s, want %s", b, want)
+	}
+}
+
+// TestPendingMethodsAreMethods checks that pendingView's conversion keeps a
+// value: every PendingMethod is an access.Method constant (design 4.4's
+// four ticket methods).
+func TestPendingMethodsAreMethods(t *testing.T) {
+	pending, _ := enumValues(t, reflect.TypeFor[PendingMethod]())
+	methods, _ := enumValues(t, reflect.TypeFor[access.Method]())
+	want := []string{"totp", "passkey", "recovery_code", "password"}
+	if !slices.Equal(pending, want) {
+		t.Errorf("PendingMethod values = %v, want %v", pending, want)
+	}
+	for _, m := range pending {
+		if !slices.Contains(methods, m) {
+			t.Errorf("PendingMethod %q is no access.Method", m)
+		}
 	}
 }

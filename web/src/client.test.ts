@@ -231,7 +231,11 @@ describe("app-defined methods, roles and purposes", () => {
     ["adminUsers()", [user], (c) => c.adminUsers()],
     ["sessions()", [session], (c) => c.sessions()],
     ["adminTokens()", [token], (c) => c.adminTokens()],
-    ["loginPassword()", signedIn, (c) => c.loginPassword({ username: "u", password: "p" })],
+    [
+      "loginPassword()",
+      { signed_in: signedIn },
+      (c) => c.loginPassword({ username: "u", password: "p" }),
+    ],
   ])("%s decodes them", async (_, body, call) => {
     const result = await call(stub(200, body).client);
     expect(result).toMatchObject({ ok: true, data: body });
@@ -456,5 +460,30 @@ describe("path parameters", () => {
   it("exposes the prefixes it was built with", () => {
     const { client } = stub(204);
     expect([client.prefix, client.oidcPrefix]).toEqual([PREFIX, OIDC_PREFIX]);
+  });
+});
+
+// Design 4.4, contract part 4 (a): a password sign-in answers signed_in or pending, never both.
+describe("loginPassword()", () => {
+  const signedIn = fixture("SignInOutcome");
+  const pending = fixture("SignInOutcome.pending");
+
+  it.each([
+    ["signed_in", signedIn],
+    ["pending", pending],
+  ])("decodes its %s arm", async (_, body) => {
+    const result = await stub(200, body).client.loginPassword({ username: "u", password: "p" });
+    expect(result).toMatchObject({ ok: true, data: body });
+  });
+
+  it("refuses both arms at once, and a bare SignedInResponse", async () => {
+    for (const body of [
+      { ...(signedIn as object), ...(pending as object) },
+      fixture("SignedInResponse"),
+    ]) {
+      expect(
+        (await stub(200, body).client.loginPassword({ username: "u", password: "p" })).ok,
+      ).toBe(false);
+    }
   });
 });

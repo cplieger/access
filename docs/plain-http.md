@@ -40,7 +40,9 @@ Each OIDC route is admitted by `account` before it touches a cookie or the ident
 
 A session signed in over plain HTTP is plain: its `Session.Secure` is false, and only a plain request may present it ([What the binding protects](#what-the-binding-protects-and-what-it-does-not)). It lives at most `access.PlainSessionIdle` (30 minutes) idle and `access.PlainSessionAbsolute` (12 hours) in all, below the Authenticator's timeouts and the session's own caps ([Sessions](primitives.md#sessions)). Its cookie carries no `Max-Age` and no `Expires`, like every cookie set over plain HTTP, so it ends with the browser ([Session cookie](configuration.md#session-cookie)).
 
-The limiter's device cookie is the one long-lived secret a plain sign-in issues, and it only relaxes the sign-in limiter for the device that holds it. Over plain HTTP it ends with the browser too.
+The limiter's device cookie is the one long-lived secret a plain sign-in issues, and it only relaxes the sign-in limiter for the device that holds it. Over plain HTTP it ends with the browser too. A cookie sealed by a plain sign-in never makes a known device, the one a first second factor may be bound from ([Pending sign-ins](configuration.md#pending-sign-ins)), and a plain sign-in re-seals a known device's cookie as plain until its next secure one.
+
+A pending sign-in is bound to its transport as a session is: a ticket a plain step 1 answered finishes only over plain HTTP, and lists only the steps plain HTTP allows, the authenticator-app code for a second factor. A plain step 1 whose next step allows none, an enrolment or a passkey as the only second factor, answers 403 `auth_https_required` and makes no ticket.
 
 ## What the screens learn
 

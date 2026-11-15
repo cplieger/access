@@ -51,9 +51,9 @@ func (a *recordingAccount) SetupPasskeyBegin(_ context.Context, _ account.Client
 	return account.PendingCeremony{ID: "c"}, nil
 }
 
-func (a *recordingAccount) PasswordLogin(_ context.Context, _ account.Client, in account.Credentials) (account.SignedIn, error) {
+func (a *recordingAccount) PasswordLogin(_ context.Context, _ account.Client, in account.Credentials) (account.LoginResult, error) {
 	a.record("authLoginPassword", in.Password)
-	return signedIn, nil
+	return account.LoginResult{SignedIn: signedIn}, nil
 }
 
 func (a *recordingAccount) AcceptInvitePassword(_ context.Context, _ account.Client, in account.AcceptInvite) (account.SignedIn, error) {
@@ -142,10 +142,11 @@ func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler,
 		t.Fatal(err)
 	}
 	cfg := authn.Cookie()
-	in, err := svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: "alice", Password: access.NewSecret(secretsPassword)})
-	if err != nil {
-		t.Fatal(err)
+	out, err := svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: "alice", Password: access.NewSecret(secretsPassword)})
+	if err != nil || out.Pending != nil {
+		t.Fatalf("PasswordLogin = %+v, %v, want a session", out.Pending, err)
 	}
+	in := out.SignedIn
 	session := &http.Cookie{Name: cfg.CookieName(true), Value: in.Token.Reveal()}
 
 	idp := accesstest.NewIdP(t, accesstest.IdPOptions{})

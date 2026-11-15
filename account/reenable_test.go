@@ -196,7 +196,7 @@ func TestReenableMethod(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = next.Shutdown(context.Background()) })
 		in := account.Credentials{Username: "alice", Password: access.NewSecret(goodPassword)}
-		if _, err := next.PasswordLogin(t.Context(), clientAt(1), in); err != nil {
+		if _, err := completed(next.PasswordLogin(t.Context(), clientAt(1), in)); err != nil {
 			t.Errorf("untrusted sign-in through a new Service = %v, want a sign-in", err)
 		}
 		if _, err := p.login(t.Context(), trusted, "alice", goodPassword); err != nil {

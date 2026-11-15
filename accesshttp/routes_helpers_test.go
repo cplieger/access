@@ -360,6 +360,26 @@ func (e *env) requireSignedIn(t testing.TB, w *httptest.ResponseRecorder, name s
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode %q: %v", w.Body.String(), err)
 	}
+	return e.checkSignedIn(t, w, &resp, name)
+}
+
+// requireLoggedIn is requireSignedIn for a sign-in step's SignInOutcome,
+// which must be its signed_in arm.
+func (e *env) requireLoggedIn(t testing.TB, w *httptest.ResponseRecorder, name string) *http.Cookie {
+	t.Helper()
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d, errors %+v, want 200", w.Code, e.errs.all())
+	}
+	var out SignInOutcome
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || out.SignedIn == nil || out.Pending != nil {
+		t.Fatalf("decode %q = %v, want the signed_in arm alone", w.Body.String(), err)
+	}
+	return e.checkSignedIn(t, w, out.SignedIn, name)
+}
+
+// checkSignedIn is the check of requireSignedIn and requireLoggedIn.
+func (e *env) checkSignedIn(t testing.TB, w *httptest.ResponseRecorder, resp *SignedInResponse, name string) *http.Cookie {
+	t.Helper()
 	u := e.user(t, name)
 	want := UserView{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Role: u.Role, Enabled: u.Enabled, OIDCLinked: !u.OIDC.IsZero(), Owner: u.Owner}
 	got := resp.User

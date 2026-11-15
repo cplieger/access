@@ -177,6 +177,9 @@ func (s *Service) UpdateUser(ctx context.Context, p access.Principal, userID int
 	if err != nil {
 		return nil, err
 	}
+	if !res.user.Enabled {
+		s.pending.dropUser(userID)
+	}
 	return res.user, nil
 }
 
@@ -340,7 +343,7 @@ func (s *Service) DeleteUser(ctx context.Context, p access.Principal, userID int
 	if admitErr := s.admitUserAdmin(r, As(p)); admitErr != nil {
 		return admitErr
 	}
-	return s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
+	err = s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
 		ua, uaErr := s.userAdminIn(ctx, tx, j, OpDeleteUser, As(p))
 		if uaErr != nil {
 			return uaErr
@@ -367,6 +370,10 @@ func (s *Service) DeleteUser(ctx context.Context, p access.Principal, userID int
 		s.addKeysRevoked(j, userID, keys, actor)
 		return nil
 	})
+	if err == nil {
+		s.pending.dropUser(userID)
+	}
+	return err
 }
 
 // deleteUserCascade reads userID's session and key IDs for the events,

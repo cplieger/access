@@ -212,6 +212,12 @@
         },
         {
           "name": "password_login"
+        },
+        {
+          "name": "second_factor_held"
+        },
+        {
+          "name": "password_step_up"
         }
       ]
     },
@@ -722,6 +728,106 @@
       "name": "password"
     }
   ],
+  "SignInOutcome": [
+    {
+      "name": "signed_in",
+      "fields": [
+        {
+          "name": "session_id"
+        },
+        {
+          "name": "user",
+          "fields": [
+            {
+              "name": "created_at"
+            },
+            {
+              "name": "methods",
+              "fields": [
+                {
+                  "name": "passkey_count"
+                },
+                {
+                  "name": "password"
+                },
+                {
+                  "name": "local_methods_dormant"
+                },
+                {
+                  "name": "role_from_provider"
+                }
+              ],
+              "optional": true
+            },
+            {
+              "name": "username"
+            },
+            {
+              "name": "display_name",
+              "optional": true
+            },
+            {
+              "name": "role",
+              "values": [
+                "admin",
+                "user"
+              ],
+              "open": true
+            },
+            {
+              "name": "key_lineage",
+              "optional": true
+            },
+            {
+              "name": "id"
+            },
+            {
+              "name": "enabled"
+            },
+            {
+              "name": "oidc_linked"
+            },
+            {
+              "name": "owner"
+            }
+          ]
+        },
+        {
+          "name": "clone_warning",
+          "optional": true
+        }
+      ],
+      "optional": true,
+      "arm": true
+    },
+    {
+      "name": "pending",
+      "fields": [
+        {
+          "name": "ticket"
+        },
+        {
+          "name": "next",
+          "values": [
+            "second_factor",
+            "set_credential",
+            "enrol"
+          ]
+        },
+        {
+          "name": "methods",
+          "values": [
+            "totp",
+            "passkey",
+            "recovery_code",
+            "password"
+          ]
+        }
+      ],
+      "optional": true,
+      "arm": true
+    }
+  ],
   "Signals": [
     {
       "name": "currentUserDetails",
@@ -869,6 +975,9 @@
     },
     {
       "name": "secure"
+    },
+    {
+      "name": "totp"
     }
   ],
   "TokenRequest": [

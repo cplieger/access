@@ -98,6 +98,8 @@ func TestErrorCodeTable(t *testing.T) {
 		{name: "method_not_allowed", err: errMethodNotAllowed, code: "auth_method_not_allowed"},
 		{name: "code_invalid", err: account.ErrCodeInvalid, code: "auth_code_invalid"},
 		{name: "second_factor_required", err: account.ErrSecondFactorRequired, code: "auth_second_factor_required"},
+		{name: "enrol_needs_known_device", err: account.ErrEnrolNeedsKnownDevice, code: "auth_second_factor_required", reason: "enrol_needs_known_device"},
+		{name: "no_usable_method", err: account.ErrNoUsableMethod, code: "auth_forbidden", reason: "no_usable_method"},
 		{name: "second_factor_unavailable", err: account.ErrSecondFactorUnavailable, code: "auth_second_factor_unavailable"},
 		{name: "totp_disabled", err: account.ErrTOTPDisabled, code: "auth_totp_disabled"},
 		{name: "registration_closed", err: account.ErrRegistrationClosed, code: "auth_registration_closed"},

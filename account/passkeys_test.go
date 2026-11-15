@@ -113,7 +113,7 @@ func TestPasskeyCeremonies(t *testing.T) {
 		if _, err := p.svc.PasskeyLoginBegin(t.Context(), localClient, p.origin, account.LoginMode(7)); err == nil {
 			t.Error("PasskeyLoginBegin(mode 7) = nil, want an error")
 		}
-		if n := account.Pending(p.svc).Len(); n != 0 {
+		if n := account.PendingOf(p.svc).Len(); n != 0 {
 			t.Errorf("pending ceremonies = %d, want none", n)
 		}
 	})
@@ -246,7 +246,7 @@ func TestBeginRequestLimit(t *testing.T) {
 			if err := begin(t.Context(), p, localClient); !errors.Is(err, ratelimit.ErrRefused) {
 				t.Errorf("third begin from one IP = %v, want *ratelimit.RefusedError", err)
 			}
-			if n := account.Pending(p.svc).Len(); n != 2 {
+			if n := account.PendingOf(p.svc).Len(); n != 2 {
 				t.Errorf("pending ceremonies = %d, want 2: the refused begin grew the cache", n)
 			}
 			if err := begin(t.Context(), p, clientAt(1)); err != nil {
@@ -345,7 +345,7 @@ func TestCeremonyBeginRecordsItsUser(t *testing.T) {
 			if err != nil {
 				t.Fatalf("begin = %v", err)
 			}
-			u, ok := account.Pending(w.svc).Take(pc.ID, tc.purpose, time.Now())
+			u, ok := account.PendingOf(w.svc).Take(pc.ID, tc.purpose, time.Now())
 			if !ok || u.ID != alice.ID || u.Username != "alice" {
 				t.Errorf("pending entry = user %d %q (found %t), want alice, user %d", u.ID, u.Username, ok, alice.ID)
 			}
@@ -694,11 +694,11 @@ func TestStepUpPasskeyRefusals(t *testing.T) {
 		carol := passwordUser(t, p.mem, p.hasher, "carol", goodPassword)
 		addPasskey(t, p.mem, carol, foreignRP)
 		pr, _ := p.signedInVia(t, carol, access.MethodPassword)
-		before := account.Pending(p.svc).Len()
+		before := account.PendingOf(p.svc).Len()
 		if _, err := p.svc.StepUpPasskeyBegin(t.Context(), pr, p.origin); !errors.Is(err, account.ErrNotFound) {
 			t.Errorf("a step-up for a user holding only a passkey of another RP ID = %v, want ErrNotFound", err)
 		}
-		if n := account.Pending(p.svc).Len(); n != before {
+		if n := account.PendingOf(p.svc).Len(); n != before {
 			t.Errorf("pending ceremonies = %d, want %d: the refused begin grew the cache", n, before)
 		}
 	})

@@ -14,7 +14,7 @@ export type RegisterOutcome =
   | { readonly kind: "not-discoverable" }
   | { readonly kind: "failed"; readonly error: ApiErr | DOMExceptionName };
 
-export type SignInOutcome =
+export type PasskeySignInOutcome =
   | { readonly kind: "signed-in"; readonly result: SignedInResponse }
   | { readonly kind: "cancelled" }
   | { readonly kind: "timeout" }
@@ -25,7 +25,7 @@ export type SignInOutcome =
 
 /** A step-up signs nobody in: /stepup/passkey/finish answers 204, so success carries no SignedInResponse. */
 export type StepUpOutcome =
-  { readonly kind: "stepped-up" } | Exclude<SignInOutcome, { kind: "signed-in" }>;
+  { readonly kind: "stepped-up" } | Exclude<PasskeySignInOutcome, { kind: "signed-in" }>;
 
 interface Platform {
   readonly isConditionalMediationAvailable?: () => Promise<boolean>;
@@ -287,7 +287,7 @@ type Got =
       readonly id: string;
       readonly rpId: string;
     }
-  | Extract<SignInOutcome, { kind: "cancelled" | "timeout" | "failed" }>;
+  | Extract<PasskeySignInOutcome, { kind: "cancelled" | "timeout" | "failed" }>;
 
 async function get(
   begin: ApiResult<CeremonyResponse>,
@@ -334,7 +334,7 @@ async function get(
 async function assertionRefused(
   res: ApiErr,
   got: { readonly id: string; readonly rpId: string },
-): Promise<Exclude<SignInOutcome, { kind: "signed-in" }>> {
+): Promise<Exclude<PasskeySignInOutcome, { kind: "signed-in" }>> {
   switch (authCode(res)) {
     case "auth_unknown_credential": {
       const pk = platform();
@@ -368,7 +368,7 @@ function registrationRefused(res: ApiErr): Exclude<RegisterOutcome, { kind: "reg
 export async function signInWithPasskey(
   c: AuthClient,
   o?: { readonly mediation?: "conditional"; readonly signal?: AbortSignal },
-): Promise<SignInOutcome> {
+): Promise<PasskeySignInOutcome> {
   const got = await get(
     await c.loginPasskeyBegin(o?.mediation === undefined ? undefined : { mediation: o.mediation }),
     o,
@@ -398,7 +398,7 @@ export async function registerPasskey(c: AuthClient): Promise<RegisterOutcome> {
 export async function setupWithPasskey(
   c: AuthClient,
   r: { readonly token?: string; readonly username: string },
-): Promise<SignInOutcome> {
+): Promise<PasskeySignInOutcome> {
   const made = await create(await c.setupPasskeyBegin(r));
   if (made.kind === "duplicate") {
     return { kind: "failed", error: "InvalidStateError" };

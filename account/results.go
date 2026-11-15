@@ -34,13 +34,15 @@ type State struct {
 	// HTTPSRequired is each offered feature the request's transport
 	// withholds, in the HTTPSFeature constants' order; empty when secure.
 	HTTPSRequired []HTTPSFeature
+	// SSO is the stored SSO mode.
+	SSO SSOMode
 	// PasswordLogin, Passkeys and OIDC are each offered and admitted over
 	// the request's transport.
 	SetupRequired, PasswordLogin, Passkeys, OIDC bool
 	// Secure is the request's Client.Secure.
 	Secure bool
-	// SSO is the stored SSO mode.
-	SSO SSOMode
+	// TOTP is whether the app offers TOTP: wired, and Rules.DisableTOTP off.
+	TOTP bool
 }
 
 // HTTPSFeature is a sign-in feature a plain request is refused.
@@ -149,6 +151,13 @@ type Methods struct {
 	OIDCAvailable     bool
 	PasskeysAvailable bool
 	PasswordLogin     bool // !Rules.DisablePasswordLogin
+	// SecondFactorHeld is secondFactorHeld: adding or removing a passkey
+	// needs a current second factor while it is true.
+	SecondFactorHeld bool
+	// PasswordStepUp is whether step-up may offer the password: the user
+	// holds one, no second factor is held, and neither DisablePasswordLogin
+	// nor the stored SSO mode refuses it.
+	PasswordStepUp bool
 }
 
 // CurrentSession is the caller's own session.

@@ -660,7 +660,7 @@ func TestAdminSecurityLog(t *testing.T) {
 		if err := e.svc.RenameSession(t.Context(), rootP, account.SessionLabel{ID: rootP.SessionID, Label: "laptop"}); err != nil {
 			t.Fatalf("RenameSession: %v", err)
 		}
-		if _, err := e.svc.PasswordLogin(t.Context(), account.Client{Secure: true, UserAgent: "Firefox"}, account.Credentials{Username: "alice", Password: access.NewSecret(testPassword)}); err != nil {
+		if _, err := completed(e.svc.PasswordLogin(t.Context(), account.Client{Secure: true, UserAgent: "Firefox"}, account.Credentials{Username: "alice", Password: access.NewSecret(testPassword)})); err != nil {
 			t.Fatalf("PasswordLogin: %v", err)
 		}
 		if _, err := e.svc.CreateInvite(t.Context(), rootP, access.RoleAdmin, 0); err != nil {

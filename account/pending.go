@@ -10,10 +10,18 @@ import (
 	"github.com/cplieger/access/webauthn"
 )
 
-const defaultMaxPending = 10000
+const (
+	defaultMaxPending = 10000
+	// maxPendingSignIns bounds the pending sign-ins of existing users,
+	// which only a correct first factor creates.
+	maxPendingSignIns = 10000
+	// ticketLifetime is a pending sign-in's life; it covers installing an
+	// authenticator app.
+	ticketLifetime = 10 * time.Minute
+)
 
-// pendingPurpose is the begin call an entry came from; a finish call takes
-// only an entry of its own purpose.
+// pendingPurpose is the begin call or step an entry came from; a later
+// call takes only an entry of its own purpose.
 type pendingPurpose int
 
 const (
@@ -21,13 +29,33 @@ const (
 	purposeSetup
 	purposeRegister
 	purposeStepUp
+	purposeSignIn // a pending sign-in of an existing user
 )
 
-// pending is what a begin call leaves for its finish call.
+// pendingList is one of the cache's lists. Each has one lifetime, so its
+// oldest entry is at its head, and its own cap, so a put evicts only its own
+// purposes' entries: anonymous ceremonies never evict a pending sign-in.
+type pendingList int
+
+const (
+	listCeremony pendingList = iota
+	listSignIn
+	numLists
+)
+
+func (p pendingPurpose) list() pendingList {
+	if p == purposeSignIn {
+		return listSignIn
+	}
+	return listCeremony
+}
+
+// pending is what a begin call or a step leaves for the next.
 type pending struct {
 	setupToken access.Hash // the setup token a setup finish spends; zero when setup asked for none
 	ceremony   webauthn.Ceremony
-	user       access.User // the ceremony's user, setup's provisional user, or zero for a sign-in
+	user       access.User // the ceremony's user, setup's provisional user, the ticket's user, or zero for a sign-in ceremony
+	ticket     ticket
 }
 
 type pendingEntry struct {
@@ -38,46 +66,68 @@ type pendingEntry struct {
 	purpose    pendingPurpose
 }
 
-// pendingCache holds at most max begun ceremonies, oldest first in a list
-// threaded through the entries, so eviction and expiry walk from the head.
-type pendingCache struct {
-	byID       map[string]*pendingEntry
+// entryList is one list, oldest first, threaded through its entries.
+type entryList struct {
 	head, tail *pendingEntry
-	mu         sync.Mutex
-	max        int
+	lifetime   time.Duration
+	n, max     int
 }
 
-func newPendingCache(maxEntries int) *pendingCache {
-	return &pendingCache{max: maxEntries, byID: make(map[string]*pendingEntry)}
+// pendingCache holds the begun ceremonies and the pending sign-ins, one
+// list per pendingList, with the sign-ins indexed by user so a credential
+// change drops them without a scan.
+type pendingCache struct {
+	byID   map[string]*pendingEntry
+	byUser map[int64]*pendingEntry // the user's one live pending sign-in
+	lists  [numLists]entryList
+	mu     sync.Mutex
 }
 
-// put stores v under a new 256-bit random ID for webauthn.CeremonyTimeout
-// from now. Expired entries go first; when the cache is still full, the
-// oldest entry is evicted.
+// newPendingCache bounds the ceremony list at maxCeremonies.
+func newPendingCache(maxCeremonies int) *pendingCache {
+	c := &pendingCache{byID: make(map[string]*pendingEntry), byUser: make(map[int64]*pendingEntry)}
+	c.lists[listCeremony] = entryList{lifetime: webauthn.CeremonyTimeout, max: maxCeremonies}
+	c.lists[listSignIn] = entryList{lifetime: ticketLifetime, max: maxPendingSignIns}
+	return c
+}
+
+// put stores v under a new 256-bit random ID for its list's lifetime from
+// now. Expired entries of that list go first; when it is still full, its
+// oldest entry is evicted. A pending sign-in replaces its user's earlier
+// one, so a step 1 posted again leaves only the ticket it answers.
 func (c *pendingCache) put(purpose pendingPurpose, v pending, now time.Time) string { //nolint:gocritic // hugeParam: the entry keeps its own copy
 	b := make([]byte, 32)
 	_, _ = rand.Read(b) // crypto/rand.Read never fails (Go 1.24+); it crashes the program instead
-	e := &pendingEntry{id: hex.EncodeToString(b), purpose: purpose, value: v, expires: now.Add(webauthn.CeremonyTimeout)}
+	l := purpose.list()
+	e := &pendingEntry{id: hex.EncodeToString(b), purpose: purpose, value: v, expires: now.Add(c.lists[l].lifetime)}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.pruneLocked(now)
-	for len(c.byID) >= c.max {
-		c.unlinkLocked(c.head)
+	c.pruneListLocked(l, now)
+	if l == listSignIn {
+		if old, ok := c.byUser[v.user.ID]; ok {
+			c.unlinkLocked(old)
+		}
+		c.byUser[v.user.ID] = e
+	}
+	for c.lists[l].n >= c.lists[l].max {
+		c.unlinkLocked(c.lists[l].head)
 	}
 	c.byID[e.id] = e
-	e.prev = c.tail
-	if c.tail != nil {
-		c.tail.next = e
+	list := &c.lists[l]
+	e.prev = list.tail
+	if list.tail != nil {
+		list.tail.next = e
 	} else {
-		c.head = e
+		list.head = e
 	}
-	c.tail = e
+	list.tail = e
+	list.n++
 	return e.id
 }
 
 // take removes id's entry and returns it when it is of purpose and not
 // expired at now. A take of the wrong purpose still removes the entry, so
-// every ID is used once.
+// every ceremony ID is used once.
 func (c *pendingCache) take(id string, purpose pendingPurpose, now time.Time) (pending, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -92,33 +142,49 @@ func (c *pendingCache) take(id string, purpose pendingPurpose, now time.Time) (p
 	return e.value, true
 }
 
+// dropUser removes userID's pending sign-in, if any.
+func (c *pendingCache) dropUser(userID int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.byUser[userID]; ok {
+		c.unlinkLocked(e)
+	}
+}
+
 // prune drops every entry expired at now.
 func (c *pendingCache) prune(now time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.pruneLocked(now)
+	for l := range numLists {
+		c.pruneListLocked(l, now)
+	}
 }
 
-// pruneLocked walks from the head, where the oldest entry is: every entry
-// expires one CeremonyTimeout after its put, so the first live one ends the
-// walk while Config.Now does not run backwards.
-func (c *pendingCache) pruneLocked(now time.Time) {
-	for c.head != nil && !now.Before(c.head.expires) {
-		c.unlinkLocked(c.head)
+// pruneListLocked walks l from its head, where the oldest entry is: every
+// entry of l expires one lifetime after its put, so the first live one ends
+// the walk while Config.Now does not run backwards.
+func (c *pendingCache) pruneListLocked(l pendingList, now time.Time) {
+	for h := c.lists[l].head; h != nil && !now.Before(h.expires); h = c.lists[l].head {
+		c.unlinkLocked(h)
 	}
 }
 
 func (c *pendingCache) unlinkLocked(e *pendingEntry) {
+	list := &c.lists[e.purpose.list()]
 	if e.prev != nil {
 		e.prev.next = e.next
 	} else {
-		c.head = e.next
+		list.head = e.next
 	}
 	if e.next != nil {
 		e.next.prev = e.prev
 	} else {
-		c.tail = e.prev
+		list.tail = e.prev
 	}
 	e.prev, e.next = nil, nil
+	list.n--
 	delete(c.byID, e.id)
+	if e.purpose == purposeSignIn && c.byUser[e.value.user.ID] == e {
+		delete(c.byUser, e.value.user.ID)
+	}
 }

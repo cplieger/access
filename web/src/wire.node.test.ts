@@ -17,6 +17,8 @@ import {
   HTTPS_FEATURES,
   LOG_CLASSES,
   METHODS,
+  NEXT_STEPS,
+  PENDING_METHODS,
   REASONS,
   SSO_MODES,
   ROLES,
@@ -130,6 +132,9 @@ function err(status: number, code?: string, body?: unknown): ApiErr {
   };
 }
 
+// The union types: types.json marks their fields as arms.
+const unions = index.filter((t) => fieldsOf(t).some((x) => x.arm));
+
 describe("wire fixtures", () => {
   it("has one validator per Go wire type, and a type for every fixture", () => {
     expect(Object.keys(validators).sort()).toEqual([...index].sort());
@@ -152,11 +157,11 @@ describe("wire fixtures", () => {
   it.each([...index])("%s: the fixture sets exactly the fields Go declares", (type) => {
     const f = fixture(type);
     expect(isObject(f)).toBe(true);
-    expect(Object.keys(f as object).sort()).toEqual(
-      fieldsOf(type)
-        .map((x) => x.name)
-        .sort(),
-    );
+    const rows = fieldsOf(type);
+    const arms = rows.filter((x) => x.arm).map((x) => x.name);
+    // A union's fixture sets its first arm alone; each other arm has a variant.
+    const want = arms.length > 0 ? [arms[0]] : rows.map((x) => x.name);
+    expect(Object.keys(f as object).sort()).toEqual(want.sort());
   });
 
   it.each([...index])("%s: an unknown field is refused at every level", (type) => {
@@ -174,9 +179,19 @@ describe("wire fixtures", () => {
       const f = fixture(type);
       const sites = fieldSites(fieldsOf(type), f);
       expect(sites.length).toBeGreaterThanOrEqual(fieldsOf(type).length);
+      const arms = new Set(
+        fieldsOf(type)
+          .filter((x) => x.arm)
+          .map((x) => x.name),
+      );
       for (const { path, optional } of sites) {
         const out = validatorFor(type)(withoutAt(f, path));
-        if (optional) {
+        // A union without the one arm it carries is no answer.
+        const lastArm =
+          path.length === 1 &&
+          arms.has(path[0] as string) &&
+          Object.hasOwn(f as object, path[0] as string);
+        if (optional && !lastArm) {
           expect(out, path.join(".")).toEqual(withoutAt(f, path));
         } else {
           expect(out, path.join(".")).toBeUndefined();
@@ -187,14 +202,33 @@ describe("wire fixtures", () => {
 
   const variants = [...fixtures.keys()].filter((n) => !META.has(n) && n.includes("."));
 
-  it("has the five absent-optional variants", () => {
+  it("has the five absent-optional variants and one variant per further union arm", () => {
     expect(variants.sort()).toEqual([
       "NewUserRequest.noPassword",
       "PasswordChangeRequest.noCurrent",
       "PendingLinkResponse.noCreate",
       "SetupPasskeyBeginRequest.noToken",
       "SetupPasswordRequest.noToken",
+      "SignInOutcome.pending",
     ]);
+  });
+
+  it("SignInOutcome is the one union", () => {
+    expect(unions).toEqual(["SignInOutcome"]);
+  });
+
+  it.each(unions)("%s: every arm has a fixture, and two arms or none are refused", (type) => {
+    const arms = fieldsOf(type).map((x) => x.name);
+    const named = [...fixtures.keys()].filter((n) => typeOf(n) === type);
+    const bodies = named.map((n) => fixture(n) as Record<string, unknown>);
+    expect(
+      bodies
+        .map((b) => Object.keys(b))
+        .flat()
+        .sort(),
+    ).toEqual([...arms].sort());
+    expect(validatorFor(type)(Object.assign({}, ...bodies))).toBeUndefined();
+    expect(validatorFor(type)({})).toBeUndefined();
   });
 
   it.each(variants)(
@@ -289,7 +323,17 @@ function withValue(v: unknown, path: readonly (string | number)[], value: unknow
 }
 
 describe("value sets", () => {
-  const sites = new Map(index.map((t) => [t, enumSites(fieldsOf(t), fixture(t))]));
+  // A union's arms each live in their own fixture, so a union's sites are its fixtures' together.
+  const fixturesOf = (t: string): string[] =>
+    unions.includes(t) ? [...fixtures.keys()].filter((n) => typeOf(n) === t) : [t];
+  const sites = new Map(
+    index.map((t) => [
+      t,
+      fixturesOf(t).flatMap((n) =>
+        enumSites(fieldsOf(t), fixture(n)).map((site) => ({ ...site, from: n })),
+      ),
+    ]),
+  );
   const known: readonly (readonly string[])[] = [
     ROLES,
     METHODS,
@@ -297,6 +341,8 @@ describe("value sets", () => {
     LOG_CLASSES,
     HTTPS_FEATURES,
     SSO_MODES,
+    NEXT_STEPS,
+    PENDING_METHODS,
     CODES,
   ];
 
@@ -321,8 +367,8 @@ describe("value sets", () => {
   it.each(typed)(
     "%s: each enum field takes Go's values, and an unknown one exactly when open",
     (type) => {
-      const f = fixture(type);
-      for (const { path, values, open } of sites.get(type) ?? []) {
+      for (const { path, values, open, from } of sites.get(type) ?? []) {
+        const f = fixture(from);
         const at = path.join(".");
         for (const value of values) {
           const v = withValue(f, path, value);

@@ -16,6 +16,7 @@ import {
   parseReadiness,
   parseSecurityLogView,
   parseSessionView,
+  parseSignInOutcome,
   parseSignedInResponse,
   parseStateResponse,
   parseTokenResponse,
@@ -49,6 +50,7 @@ import type {
   SessionView,
   SetupPasskeyBeginRequest,
   SetupPasswordRequest,
+  SignInOutcome,
   SignedInResponse,
   StateResponse,
   TokenRequest,
@@ -116,7 +118,7 @@ export interface AuthClient {
     ceremony: string,
     credential: PublicKeyCredentialJSON,
   ): Promise<ApiResult<SignedInResponse>>;
-  loginPassword(r: LoginRequest): Promise<ApiResult<SignedInResponse>>;
+  loginPassword(r: LoginRequest): Promise<ApiResult<SignInOutcome>>;
   loginPasskeyBegin(o?: {
     readonly mediation?: "conditional";
   }): Promise<ApiResult<CeremonyResponse>>;
@@ -275,7 +277,7 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
       json("POST", p("/setup/passkey/begin"), parseCeremonyResponse, { body: r }),
     setupPasskeyFinish: (c, cred) =>
       json("POST", p("/setup/passkey/finish"), parseSignedInResponse, finish(c, cred)),
-    loginPassword: (r) => json("POST", p("/login/password"), parseSignedInResponse, { body: r }),
+    loginPassword: (r) => json("POST", p("/login/password"), parseSignInOutcome, { body: r }),
     loginPasskeyBegin: (q) =>
       json(
         "POST",

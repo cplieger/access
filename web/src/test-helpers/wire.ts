@@ -26,6 +26,7 @@ import {
   parseSessionView,
   parseSetupPasskeyBeginRequest,
   parseSetupPasswordRequest,
+  parseSignInOutcome,
   parseSignedInResponse,
   parseStateResponse,
   parseTokenRequest,
@@ -67,6 +68,7 @@ export const validators: Readonly<Record<string, Validator<unknown>>> = {
   SetupPasskeyBeginRequest: parseSetupPasskeyBeginRequest,
   SetupPasswordRequest: parseSetupPasswordRequest,
   Signals: parseWebAuthnSignals,
+  SignInOutcome: parseSignInOutcome,
   SignedInResponse: parseSignedInResponse,
   StateResponse: parseStateResponse,
   TokenRequest: parseTokenRequest,
@@ -148,6 +150,8 @@ export interface WireField {
   readonly open: boolean;
   /** The fields of a struct-typed field, or of each element of a struct-list field. */
   readonly fields?: readonly WireField[];
+  /** One arm of a union type: exactly one of its arms is present. */
+  readonly arm: boolean;
 }
 
 function wireFields(at: string, fields: unknown): WireField[] {
@@ -171,10 +175,16 @@ function wireFields(at: string, fields: unknown): WireField[] {
     if (f["open"] === true && values === undefined) {
       throw new Error(`types.json ${at}.${f["name"]} has an open marker without values`);
     }
+    if (f["arm"] !== undefined && (f["arm"] !== true || f["optional"] !== true)) {
+      throw new Error(
+        `types.json ${at}.${f["name"]} has an arm marker that is not true on an optional field`,
+      );
+    }
     return {
       name: f["name"],
       optional: f["optional"] === true,
       open: f["open"] === true,
+      arm: f["arm"] === true,
       ...(values === undefined ? {} : { values }),
       ...(f["fields"] === undefined
         ? {}

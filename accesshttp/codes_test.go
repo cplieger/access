@@ -81,6 +81,8 @@ var accountSentinels = []struct {
 	{name: "not_found", err: account.ErrNotFound, code: access.CodeNotFound},
 	{name: "code_invalid", err: account.ErrCodeInvalid, code: access.CodeCodeInvalid},
 	{name: "second_factor_required", err: account.ErrSecondFactorRequired, code: access.CodeSecondFactorRequired},
+	{name: "enrol_needs_known_device", err: account.ErrEnrolNeedsKnownDevice, code: access.CodeSecondFactorRequired},
+	{name: "no_usable_method", err: account.ErrNoUsableMethod, code: access.CodeForbidden},
 	{name: "second_factor_unavailable", err: account.ErrSecondFactorUnavailable, code: access.CodeSecondFactorUnavailable},
 	{name: "totp_disabled", err: account.ErrTOTPDisabled, code: access.CodeTOTPDisabled},
 	{name: "registration_closed", err: account.ErrRegistrationClosed, code: access.CodeRegistrationClosed},

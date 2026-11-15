@@ -53,7 +53,8 @@ func (s *Service) StepUpPassword(ctx context.Context, c Client, p access.Princip
 		a.res.Fail()
 		return Issued{}, err
 	}
-	device := a.res.Succeed()
+	a.res.Succeed()
+	device := s.deviceCookie(p.User.Username, c)
 	return Issued{Token: rot.token, DeviceCookie: device, Session: rot.session}, nil
 }
 

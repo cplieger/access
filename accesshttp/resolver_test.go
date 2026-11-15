@@ -69,7 +69,7 @@ func TestOneResolver(t *testing.T) {
 		if ips := e.lastIPs(t, "alice"); len(ips) != 1 || ips[0] != "203.0.113.9" {
 			t.Errorf("sign-in session LastIP %v, want the resolved 203.0.113.9", ips)
 		}
-		e.requireSignedIn(t, w, "alice")
+		e.requireLoggedIn(t, w, "alice")
 	})
 	t.Run("limiter_ip_key", func(t *testing.T) {
 		for _, tc := range []struct {

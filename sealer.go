@@ -88,6 +88,10 @@ func NewEphemeralSealer() *Sealer {
 	return &Sealer{ring: []*masked{mask(string(GenerateSealerKey()))}}
 }
 
+// IsZero reports a Sealer that holds no key, nil or the zero value, whose
+// Seal and SealAtRest panic; a caller holding an optional Sealer refuses it.
+func (s *Sealer) IsZero() bool { return s == nil || len(s.ring) == 0 }
+
 // GenerateSealerKey returns SealerKeySize random bytes, which the caller
 // persists and passes to NewSealer.
 func GenerateSealerKey() []byte {

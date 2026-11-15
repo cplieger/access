@@ -279,7 +279,7 @@ func (s *Service) StepUpPasskeyFinish(ctx context.Context, c Client, p access.Pr
 	if err != nil {
 		return Issued{}, err
 	}
-	device := s.limiter.DeviceCookie(ratelimit.AccountKey(u.Username), c.Device)
+	device := s.deviceCookie(u.Username, c)
 	return Issued{Token: rot.token, DeviceCookie: device, Session: rot.session}, nil
 }
 

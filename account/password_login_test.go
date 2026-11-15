@@ -141,11 +141,11 @@ func TestEqualWorkArms(t *testing.T) {
 			for _, c := range calls {
 				shape = append(shape, fmt.Sprintf("%s@%d", c.name, c.update))
 			}
-			want := []string{"Update" + count, "UserByUsername" + count, "AuthFailure" + count, "PutAuthFailure" + count}
+			want := []string{"Update" + count, "UserByUsername" + count, "SSOMode" + count, "AuthFailure" + count, "PutAuthFailure" + count}
 			if !slices.Equal(shape, want) {
 				t.Fatalf("store calls = %v, want %v and nothing after", shape, want)
 			}
-			if name := calls[2].arg; !isHexName(name) || calls[3].arg != name {
+			if name := calls[3].arg; !isHexName(name) || calls[4].arg != name {
 				t.Errorf("record names = %q read, %q written; want one 64-hex name", name, calls[3].arg)
 			}
 			if got := p.events.all(); len(got) != 0 {
@@ -525,7 +525,7 @@ func TestKillBetweenCountAndVerify(t *testing.T) {
 	if rec, _ := record(t, p.mem, next, "alice", false); rec.Count != account.FailureCap || !rec.Locked {
 		t.Errorf("a new Service reads %+v, want the held attempt counted: count %d and locked", rec, account.FailureCap)
 	}
-	if _, err := next.PasswordLogin(t.Context(), clientAt(3), account.Credentials{Username: "alice", Password: access.NewSecret(goodPassword)}); !errors.Is(err, account.ErrInvalidCredentials) {
+	if _, err := completed(next.PasswordLogin(t.Context(), clientAt(3), account.Credentials{Username: "alice", Password: access.NewSecret(goodPassword)})); !errors.Is(err, account.ErrInvalidCredentials) {
 		t.Errorf("right password on the new Service = %v, want ErrInvalidCredentials under the lock", err)
 	}
 }

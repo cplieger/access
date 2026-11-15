@@ -399,7 +399,7 @@ func TestSessionCapsByMethod(t *testing.T) {
 	f := newOIDCFixture(t, newOIDCRig(t, accesstest.IdPOptions{}), pwOptions{rules: rules})
 	alice := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
 	linkIdentity(t, f.mem, alice, f.rig.identity())
-	in, err := f.svc.PasswordLogin(t.Context(), localClient, account.Credentials{Username: "alice", Password: access.NewSecret(goodPassword)})
+	in, err := completed(f.svc.PasswordLogin(t.Context(), localClient, account.Credentials{Username: "alice", Password: access.NewSecret(goodPassword)}))
 	if err != nil {
 		t.Fatalf("PasswordLogin = %v", err)
 	}

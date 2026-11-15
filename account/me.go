@@ -59,10 +59,19 @@ func (s *Service) meIn(ctx context.Context, tx Tx, r Rules, u *access.User, p ac
 }
 
 // methods is what u can sign in with under r, read from tx (the store
-// itself for single calls): its passkey count and the locks of its failure
-// records. A read error is returned as it is.
+// itself for single calls): its passkey count, whether it holds a second
+// factor and may step up by password, and the locks of its failure records.
+// A read error is returned as it is.
 func (s *Service) methods(ctx context.Context, tx Tx, r Rules, u *access.User) (Methods, error) { //nolint:gocritic // hugeParam: the operation's one Rules value
 	passkeys, err := tx.PasskeysByUserID(ctx, u.ID)
+	if err != nil {
+		return Methods{}, err
+	}
+	held, err := s.secondFactorHeld(ctx, tx, r, u)
+	if err != nil {
+		return Methods{}, err
+	}
+	mode, err := storedMode(ctx, tx)
 	if err != nil {
 		return Methods{}, err
 	}
@@ -73,6 +82,8 @@ func (s *Service) methods(ctx context.Context, tx Tx, r Rules, u *access.User) (
 		OIDCAvailable:     s.provider() != nil,
 		PasskeysAvailable: s.passkeysAvailable(),
 		PasswordLogin:     !r.DisablePasswordLogin,
+		SecondFactorHeld:  held,
+		PasswordStepUp:    !held && !r.DisablePasswordLogin && !u.PasswordHash.IsZero() && !mode.dormantFor(u),
 	}
 	name := failureName(s.failureMAC(), u.Username)
 	for _, method := range countedMethods {

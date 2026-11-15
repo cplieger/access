@@ -37,7 +37,7 @@
   },
   {
     "request": "LoginRequest",
-    "response": "SignedInResponse",
+    "response": "SignInOutcome",
     "name": "authLoginPassword",
     "method": "POST",
     "path": "{prefix}/login/password",

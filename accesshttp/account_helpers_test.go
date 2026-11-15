@@ -53,8 +53,8 @@ func (s stubAccount) SetupPasskeyFinish(ctx context.Context, c account.Client, c
 	})
 }
 
-func (s stubAccount) PasswordLogin(ctx context.Context, c account.Client, in account.Credentials) (account.SignedIn, error) {
-	return stubbed(s, "PasswordLogin", func() (account.SignedIn, error) { return s.accountAPI.PasswordLogin(ctx, c, in) })
+func (s stubAccount) PasswordLogin(ctx context.Context, c account.Client, in account.Credentials) (account.LoginResult, error) {
+	return stubbed(s, "PasswordLogin", func() (account.LoginResult, error) { return s.accountAPI.PasswordLogin(ctx, c, in) })
 }
 
 func (s stubAccount) PasskeyLoginBegin(ctx context.Context, c account.Client, origin webauthn.Origin, mode account.LoginMode) (account.PendingCeremony, error) {

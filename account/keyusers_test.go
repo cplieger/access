@@ -276,7 +276,7 @@ func TestKeyChainStaysUser(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateUser from the key = %v", err)
 		}
-		in, err := w.f.svc.PasswordLogin(t.Context(), localClient, account.Credentials{Username: "uma", Password: access.NewSecret(goodPassword)})
+		in, err := completed(w.f.svc.PasswordLogin(t.Context(), localClient, account.Credentials{Username: "uma", Password: access.NewSecret(goodPassword)}))
 		if err != nil {
 			t.Fatalf("PasswordLogin(uma) = %v", err)
 		}

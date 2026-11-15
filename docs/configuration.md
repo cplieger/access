@@ -184,13 +184,13 @@ A stored hash outside the same bounds, or not in canonical PHC form, never match
 
 The reservation counts as a failure until it is settled, so an abandoned one still counts:
 
-- `Succeed` removes its own entries, clears the account's device bucket for a trusted browser, else its untrusted bucket, and returns a fresh device cookie. It leaves other accounts' failures in the IP window.
+- `Succeed` is for the step that completes a sign-in. It removes its own entries and clears the account's device bucket for a trusted browser, else its untrusted bucket. It leaves other accounts' failures in the IP window.
 - `Fail` settles it as the failure it already counts.
-- `Cancel` removes it without crediting a success, for a refusal before the password was checked.
+- `Cancel` removes it without crediting a success, so the attempt neither counts nor forgives and earlier failures stay. It is for a refusal before the password was checked, and for a correct password that signed nobody in: a pending sign-in, or a refusal after it. A sign-in the SSO mode refuses settles with `Fail`, as a wrong password.
 
 Only the first of the three acts. `Request` counts one request on an anonymous passkey begin route or OIDC route against the IP key's request window.
 
-Set the device cookie `Succeed` returns for 180 days, and pass the browser's cookie back in `Attempt.Device`. The device protocol follows OWASP's [device cookies](https://owasp.org/www-community/Slow_Down_Online_Guessing_Attacks_with_Device_Cookies): locking an account for untrusted clients leaves the owner's trusted browsers working. With a `Devices` sealer over persisted keys, that trust survives a restart. With `access.NewEphemeralSealer()`, a restart makes every browser untrusted until it signs in again. After a sign-in that ran no `Attempt`, such as a passkey or OIDC sign-in, `DeviceCookie` returns the cookie to set, and it keeps the device of a valid cookie the browser presented.
+`DeviceCookie(acct, presented, secure)` is the only place a device cookie is sealed: call it after every completed sign-in, set the cookie it returns for 180 days, and pass the browser's cookie back in `Attempt.Device`. It keeps the device of a valid cookie the browser presented, and seals `secure`, the transport of the request that completed the sign-in. `Reservation.KnownDevice` reports a valid cookie that a sign-in on a secure request sealed; a cookie a plain response carried still serves the limiter and is never a known device. A cookie sealed before this field existed no longer opens, so each browser is new to the limiter at its next sign-in. The device protocol follows OWASP's [device cookies](https://owasp.org/www-community/Slow_Down_Online_Guessing_Attacks_with_Device_Cookies): locking an account for untrusted clients leaves the owner's trusted browsers working. With a `Devices` sealer over persisted keys, that trust survives a restart. With `access.NewEphemeralSealer()`, a restart makes every browser untrusted until it signs in again.
 
 Each dimension keeps at most `MaxEntries` keys, which bounds the limiter's memory. Keys are ordered by when each was last used. An admitted attempt or request counts one entry under every key it checks, and marks each as used. A refused one counts nothing, starts tracking no new key and evicts none. It only marks as used the keys it checks that the limiter already tracks. A key's limit is exact while it is among its dimension's `MaxEntries` most recently used keys. A new key past that is never refused for capacity. It evicts the least recently used key whatever its count, and that key starts over. A key that keeps trying is evicted last: it is forgotten only when a new key arrives after `MaxEntries - 1` other keys have been used since its last attempt.
 
@@ -198,7 +198,7 @@ Past those keys, the limiter bounds no spray of new keys. What bounds one depend
 
 - Password attempts on an account (`PasswordLogin`, `StepUpPassword`, and the current-password check of `SetPassword` and `RemovePassword`). The durable failure cap, `account.FailureCap`, locks the password for a name and trust context after 100 consecutive failures, so a spray gets at most 100 consecutive guesses at each account in each context. Every password hash draws on the `access.HashBudget`, which bounds how many hashes run at once.
 - Attempts with no account (`SetupWithPassword` and `AcceptInvitePassword`). Nothing beyond the IP limit bounds their rate. Those that hash a password draw on the `access.HashBudget`.
-- Begin routes that hold a passkey ceremony (`SetupPasskeyBegin` and `PasskeyLoginBegin`). The pending-ceremony cache holds at most `account.Config.MaxPending` entries and evicts the oldest first. That bounds memory, not the request rate.
+- Begin routes that hold a passkey ceremony (`SetupPasskeyBegin` and `PasskeyLoginBegin`). The pending-ceremony cache holds at most `account.Config.MaxPending` ceremonies and evicts the oldest first. That bounds memory, not the request rate. Pending sign-ins, which only a correct password creates, have their own list of at most 10,000, so a flood of ceremonies never evicts one.
 - The OIDC sign-in start, the callback and the pending-link read. `account.Service.AdmitOIDC` charges the IP request limit on each, before `oidc.Provider.Begin` or `Finish` runs and before the pending-link cookie is read, and nothing beyond that limit bounds their rate. A callback without a flow cookie that `Begin` sealed fails when the cookie is opened, before any call to the identity provider.
 
 Once per `Prune` interval, each dimension that evicted keys at their limit logs one warning with their count, after the limiter's locks are released. The prune goroutine stops when the context given to `New` ends, after logging the warnings its last interval had not yet logged. `Shutdown` stops it and blocks until it has exited, or until the context given to `Shutdown` ends.
@@ -222,7 +222,7 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 
 ## Account service
 
-`account.New(ctx, cfg)` takes an `account.Config`. It refuses a nil `Store`, `Policy`, `Authenticator`, `Hasher`, `Limiter` or `Rules`, a `FailureKey` that is not 32 bytes, a non-empty `AdminScope`, `ManageUsersScope` or `CreateKeysScope` that is not one [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3) scope-token (printable ASCII other than space, `"` and `\`), two equal non-empty scopes, a negative `CleanupInterval`, `MaxPending`, `LogMaxAge`, `LogMaxChanges` or `LogMaxSessions`, and a `Rules()` value that `Rules.Validate` refuses or whose breach mode has no `Breach` client. Before it returns, it trims the [security log](security-log.md) to its caps and `LogMaxAge` and sweeps the failure records, and it returns a store error from either. It then registers the Service as its `Authenticator`'s session revoker, which ends a session presented on the other transport ([Sessions](primitives.md#sessions)). An Authenticator takes one revoker, so `New` fails for a second Service over the same Authenticator: give each Service its own.
+`account.New(ctx, cfg)` takes an `account.Config`. It refuses a nil `Store`, `Policy`, `Authenticator`, `Hasher`, `Limiter` or `Rules`, a `FailureKey` that is not 32 bytes, a half-set `TOTP`, a non-empty `AdminScope`, `ManageUsersScope` or `CreateKeysScope` that is not one [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3) scope-token (printable ASCII other than space, `"` and `\`), two equal non-empty scopes, a negative `CleanupInterval`, `MaxPending`, `LogMaxAge`, `LogMaxChanges` or `LogMaxSessions`, and a `Rules()` value that `Rules.Validate` refuses or whose breach mode has no `Breach` client. Before it returns, it trims the [security log](security-log.md) to its caps and `LogMaxAge` and sweeps the failure records, and it returns a store error from either. It then registers the Service as its `Authenticator`'s session revoker, which ends a session presented on the other transport ([Sessions](primitives.md#sessions)). An Authenticator takes one revoker, so `New` fails for a second Service over the same Authenticator: give each Service its own.
 
 | Field | What it sets | Default |
 | --- | --- | --- |
@@ -234,6 +234,7 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 | `Rules` | A function returning the app's `Rules`, read once per operation | required |
 | `FailureKey` | The 32-byte HMAC key that names failure records. Persist it beside the device-cookie key ring: a new key resets every count and clears every lock, with no event | required |
 | `RP` | A function returning the passkey relying party | nil: passkeys off |
+| `TOTP` | `TOTPConfig{Sealer, Issuer}`: the sealer that keeps each TOTP secret at rest, and the app's name in an authenticator. `New` refuses a half-set value, a sealer with no key, and an issuer holding a colon | zero: TOTP off |
 | `OIDC` | A function returning the OIDC provider | nil: OIDC off |
 | `OnEvent` | Receives every event after its commit, in the committing goroutine, with the `Seq` of its security-log entry, or 0 for `EventSessionsExpired`, which the log does not hold. It must not block. It is called at most once per event: a crash after the commit loses the call, never the log entry | nil: none |
 | `Breach` | The HTTP client for the breached-password check | nil: required only when `Rules.Breach` is not `BreachOff` |
@@ -241,12 +242,20 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 | `ManageUsersScope` | The key scope that lets a key manage `RoleUser` accounts, described below | empty: session only, under recent sign-in |
 | `CreateKeysScope` | The key scope that lets a key mint keys for its own user, described below | empty: session only, under recent sign-in |
 | `CleanupInterval` | How often expired sessions, tokens, pending ceremonies, stale failure records and security-log entries past `LogMaxAge` are swept, and locks reported | 5m |
-| `MaxPending` | The most pending WebAuthn ceremonies held, oldest evicted first | 10000 |
+| `MaxPending` | The most pending WebAuthn ceremonies held, oldest evicted first; pending sign-ins have a cap of their own | 10000 |
 | `LogMaxAge` | How long a security-log entry is kept; the sweep removes older ones | `account.DefaultLogMaxAge`, 365 days |
 | `LogMaxChanges` | The most entries of the security log's change class; each append removes the oldest beyond it | `account.DefaultLogMaxChanges`, 10000 |
 | `LogMaxSessions` | The most entries of the security log's session class, with the same rule | `account.DefaultLogMaxSessions`, 10000 |
 | `Logger` | The `*slog.Logger` | `slog.Default()` at each call |
 | `Now` | The clock | `time.Now` |
+
+### Pending sign-ins
+
+Each sign-in method is optional: wire TOTP with `Config.TOTP`, passkeys with `Config.RP` and OIDC with `Config.OIDC`, or leave the field unset. A usable TOTP is one `Config.TOTP` wires while `Rules.DisableTOTP` is off; a usable passkey is one registered under the published relying party's ID while `Rules.MethodUsable` allows passkeys.
+
+After a correct password, `PasswordLogin` answers either a session or an `account.Pending`: a ticket, the next step and the methods that step accepts. It answers `Pending` when the user holds a usable TOTP, or, under `RequireSecondFactor`, when the user holds a usable passkey (`NextSecondFactor`) or neither (`NextEnrol`). Passkey and OIDC sign-ins never pend. The ticket lives ten minutes in memory, rides the response body only, and finishes only on the transport that minted it, so a restart drops it and the person signs in again. A new password sign-in of the same user replaces its earlier ticket, and `SetPassword`, `RemovePassword`, disabling, deleting and `AdminUnlinkOIDC` drop it.
+
+A correct password resets the password's failure count, whatever step 1 answers next, and `Cancel`s the limiter's reservation until the step that completes the sign-in. Under `RequireSecondFactor`, a user with no second factor reaches `NextEnrol` only from a known device (`Reservation.KnownDevice`); from any other device step 1 answers `ErrEnrolNeedsKnownDevice`, which matches `ErrSecondFactorRequired`. A step the app's rules leave no method for answers `ErrNoUsableMethod`, and a plain request whose next step needs HTTPS answers `access.ErrHTTPSRequired`, logging a WARN that names `RequireSecondFactor` when the rule caused it.
 
 `Service.SecurityLog` returns `account.DefaultLogPage` (50) entries when `LogFilter.Limit` is zero, and at most `account.MaxLogPage` (500). [The security log](security-log.md) explains the classes, the caps and reading the log.
 
@@ -305,6 +314,8 @@ A dormant method is kept, never deleted, and a looser mode brings it back. A loc
 | `Breach` | The breached-password check: `BreachOff`, `BreachFailOpen` or `BreachFailClosed` | `BreachOff` |
 | `MaxSessionsPerUser` | The most sessions per user; a new one past it ends the user's least recently active | 0: unlimited |
 | `DisablePasswordLogin` | Refuses password sign-in and step-up | false: allowed |
+| `DisableTOTP` | Turns TOTP enrolment and the code step off. A stored TOTP record is kept, counts as absent, and works again once this is off | false: TOTP offered where `Config.TOTP` wires it |
+| `RequireSecondFactor` | Every password sign-in proves a second factor, or binds one first ([Pending sign-ins](#pending-sign-ins)); passkey and OIDC sign-ins meet it already. It needs `Config.TOTP` or `Config.RP` set: `New`, every operation and `CheckRules` refuse it otherwise, as a `*RulesError` for `RequireSecondFactor` | false |
 | `RevokeKeysOnCredentialChange` | Deletes the user's API keys, and the tokens they issued, when `SetPassword` sets or changes the password. Disabling and deleting a user always delete the keys | false |
 | `HTTPSOrigin` | The app's HTTPS origin, `https://host` or `https://host:port`, which `Service.State` answers a plain request as `https_origin` so the sign-in screen can link there ([Plain HTTP](plain-http.md#what-the-screens-learn)). A link only; nothing trusts it. `Validate` refuses any other scheme, user info, a host that is not a hostname or an IP address in its browser form, an invalid port, the default port `:443`, an uppercase host, a path (`/` included), a query and a fragment | empty: none |
 

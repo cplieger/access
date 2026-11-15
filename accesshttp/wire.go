@@ -151,6 +151,7 @@ type StateResponse struct {
 	Passkeys      bool                   `json:"passkeys"`
 	OIDC          bool                   `json:"oidc"`
 	Secure        bool                   `json:"secure"`
+	TOTP          bool                   `json:"totp"` // the app offers TOTP
 }
 
 // PlainSessionView is account.State.PlainSession in whole seconds.
@@ -183,6 +184,32 @@ type UserMethodsView struct {
 	LocalMethodsDormant bool `json:"local_methods_dormant"`
 	RoleFromProvider    bool `json:"role_from_provider"`
 }
+
+// SignInOutcome is a sign-in step's answer, in which exactly one field is set.
+type SignInOutcome struct {
+	SignedIn *SignedInResponse `json:"signed_in,omitempty"`
+	Pending  *Pending          `json:"pending,omitempty"`
+}
+
+// Pending is account.Pending: the client continues with the newest
+// ticket, which this body alone carries.
+type Pending struct {
+	Ticket  string          `json:"ticket"`
+	Next    account.Next    `json:"next"`
+	Methods []PendingMethod `json:"methods"` // what Next accepts on this transport
+}
+
+// PendingMethod is an access.Method a pending sign-in's step accepts; no
+// other method, app-defined ones included, is ever one.
+type PendingMethod string
+
+// The pending methods, each the access.Method of its name.
+const (
+	PendingTOTP         PendingMethod = "totp"
+	PendingPasskey      PendingMethod = "passkey"
+	PendingRecoveryCode PendingMethod = "recovery_code"
+	PendingPassword     PendingMethod = "password"
+)
 
 // SignedInResponse is the answer of every route that signs a user in.
 type SignedInResponse struct {
@@ -230,6 +257,10 @@ type MethodsView struct {
 	OIDCAvailable     bool             `json:"oidc_available"`
 	PasskeysAvailable bool             `json:"passkeys_available"`
 	PasswordLogin     bool             `json:"password_login"`
+	// SecondFactorHeld is account.Methods.SecondFactorHeld: adding or
+	// removing a passkey needs a current second factor.
+	SecondFactorHeld bool `json:"second_factor_held"`
+	PasswordStepUp   bool `json:"password_step_up"` // step-up may offer the password
 }
 
 // CurrentSessionView is the caller's own session.
@@ -481,6 +512,7 @@ func stateResponse(st *account.State) StateResponse {
 	v := StateResponse{
 		SetupRequired: st.SetupRequired, PasswordLogin: st.PasswordLogin, Passkeys: st.Passkeys, OIDC: st.OIDC, Secure: st.Secure,
 		HTTPSRequired: append([]account.HTTPSFeature{}, st.HTTPSRequired...), HTTPSOrigin: st.HTTPSOrigin, SSO: st.SSO.Name(),
+		TOTP: st.TOTP,
 	}
 	if p := st.PlainSession; p != nil {
 		v.PlainSession = &PlainSessionView{IdleSeconds: int64(p.Idle / time.Second), AbsoluteSeconds: int64(p.Absolute / time.Second)}
@@ -565,6 +597,8 @@ func methodsView(m account.Methods) MethodsView {
 		OIDCAvailable:     m.OIDCAvailable,
 		PasskeysAvailable: m.PasskeysAvailable,
 		PasswordLogin:     m.PasswordLogin,
+		SecondFactorHeld:  m.SecondFactorHeld,
+		PasswordStepUp:    m.PasswordStepUp,
 		Locks:             locks,
 	}
 }
@@ -582,6 +616,15 @@ func meResponse(m *account.Me) MeResponse {
 		Owner:       m.User.Owner,
 		SingleUser:  m.SingleUser,
 	}
+}
+
+// pendingView is p on the wire.
+func pendingView(p *account.Pending) *Pending {
+	methods := make([]PendingMethod, 0, len(p.Methods))
+	for _, m := range p.Methods {
+		methods = append(methods, PendingMethod(m))
+	}
+	return &Pending{Ticket: p.Ticket.Reveal(), Next: p.Next, Methods: methods}
 }
 
 func signedInResponse(s account.SignedIn) SignedInResponse { //nolint:gocritic // hugeParam: account's own result, read once

@@ -100,6 +100,20 @@ export function list<V>(check: Validator<V>): Validator<readonly V[]> {
   };
 }
 
+// anyOf is the first arm that accepts v; with strict arms, a union whose
+// body carries two arms, or none, is refused.
+function anyOf<T>(...arms: readonly Validator<T>[]): Validator<T> {
+  return (v) => {
+    for (const arm of arms) {
+      const out = arm(v);
+      if (out !== undefined) {
+        return out;
+      }
+    }
+    return undefined;
+  };
+}
+
 function oneOf<const L extends readonly string[]>(...values: L): Validator<L[number]> {
   const set: ReadonlySet<string> = new Set(values);
   return (v) => (typeof v === "string" && set.has(v) ? v : undefined);
@@ -313,6 +327,8 @@ export interface StateResponse {
   readonly https_origin?: string;
   /** The stored SSO mode. */
   readonly sso: SSOMode;
+  /** The app offers TOTP (an authenticator app). */
+  readonly totp: boolean;
 }
 export const parseStateResponse: Validator<StateResponse> = object({
   setup_required: req(bool),
@@ -326,6 +342,7 @@ export const parseStateResponse: Validator<StateResponse> = object({
   https_required: req(list(oneOf(...HTTPS_FEATURES))),
   https_origin: opt(str),
   sso: req(ssoMode),
+  totp: req(bool),
 });
 
 export interface UserMethodsView {
@@ -379,6 +396,38 @@ export const parseSignedInResponse: Validator<SignedInResponse> = object({
   session_id: req(str),
   clone_warning: opt(bool),
 });
+
+/** @internal Go's account.Next constants. */
+export const NEXT_STEPS = ["second_factor", "set_credential", "enrol"] as const;
+/** What a pending sign-in needs before it completes. */
+export type Next = (typeof NEXT_STEPS)[number];
+/** @internal accesshttp.PendingMethod's constants. */
+export const PENDING_METHODS = ["totp", "passkey", "recovery_code", "password"] as const;
+/** A method a pending sign-in's step accepts. */
+export type PendingMethod = (typeof PENDING_METHODS)[number];
+
+/**
+ * A sign-in that needs another step. Hold the ticket in memory only; methods are what next
+ * accepts, already filtered by this request's transport.
+ */
+export interface Pending {
+  readonly ticket: string;
+  readonly next: Next;
+  readonly methods: readonly PendingMethod[];
+}
+export const parsePending: Validator<Pending> = object({
+  ticket: req(str),
+  next: req(oneOf(...NEXT_STEPS)),
+  methods: req(list(oneOf(...PENDING_METHODS))),
+});
+
+/** A sign-in step's answer. Always continue with the newest ticket. */
+export type SignInOutcome =
+  { readonly signed_in: SignedInResponse } | { readonly pending: Pending };
+export const parseSignInOutcome: Validator<SignInOutcome> = anyOf<SignInOutcome>(
+  object<{ readonly signed_in: SignedInResponse }>({ signed_in: req(parseSignedInResponse) }),
+  object<{ readonly pending: Pending }>({ pending: req(parsePending) }),
+);
 
 /** The WebAuthn options of a begin route, in the browser's JSON shape. */
 export type CeremonyOptions =
@@ -524,6 +573,10 @@ export interface MethodsView {
   readonly oidc_available: boolean;
   readonly passkeys_available: boolean;
   readonly password_login: boolean;
+  /** Adding or removing a passkey needs a current second factor. */
+  readonly second_factor_held: boolean;
+  /** Step-up may offer the password. */
+  readonly password_step_up: boolean;
   readonly locks: readonly MethodLockView[];
 }
 export const parseMethodsView: Validator<MethodsView> = object({
@@ -533,6 +586,8 @@ export const parseMethodsView: Validator<MethodsView> = object({
   oidc_available: req(bool),
   passkeys_available: req(bool),
   password_login: req(bool),
+  second_factor_held: req(bool),
+  password_step_up: req(bool),
   locks: req(list(parseMethodLockView)),
 });
 
@@ -899,6 +954,8 @@ export const REASONS = [
   "body",
   "unknown_field",
   "token_in_query",
+  "enrol_needs_known_device",
+  "no_usable_method",
   "transport_changed",
   "sign_in_again",
   "too_short",

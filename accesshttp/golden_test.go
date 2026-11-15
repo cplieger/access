@@ -63,6 +63,7 @@ func goldenMethods() MethodsView {
 	return MethodsView{
 		Locks:    []MethodLockView{{Method: access.MethodPassword, Untrusted: true, Trusted: true}},
 		Password: true, PasskeyCount: 1, OIDCLinked: true, OIDCAvailable: true, PasskeysAvailable: true, PasswordLogin: true,
+		SecondFactorHeld: true, PasswordStepUp: true,
 	}
 }
 
@@ -108,13 +109,17 @@ func fixtures() []fixture {
 		{name: "StateResponse", value: StateResponse{
 			SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, PlainSession: &PlainSessionView{IdleSeconds: 1800, AbsoluteSeconds: 43200},
 			HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys, account.HTTPSOIDC}, HTTPSOrigin: "https://app.example.com",
-			SSO: account.SSONameForLinked,
+			SSO: account.SSONameForLinked, TOTP: true,
 		}},
 		{name: "Readiness", value: Readiness{
 			Refusal:   &ReadinessRefusal{Code: access.CodeForbidden, Reason: account.ReasonOwnerNeedsLocalMethod},
 			LockedOut: 3, MethodsMadeDormant: 5, MethodsRestored: 4, TemporaryPasswordsWithdrawn: 2,
 		}},
 		{name: "SignedInResponse", value: SignedInResponse{SessionID: "s1", User: goldenUser(), CloneWarning: true}},
+		{name: "SignInOutcome", value: SignInOutcome{SignedIn: &SignedInResponse{SessionID: "s1", User: goldenUser(), CloneWarning: true}}},
+		{name: "SignInOutcome.pending", value: SignInOutcome{Pending: &Pending{
+			Ticket: "fixture-ticket", Next: account.NextSecondFactor, Methods: []PendingMethod{PendingTOTP, PendingPasskey, PendingRecoveryCode, PendingPassword},
+		}}},
 		{name: "CeremonyResponse", value: CeremonyResponse{Ceremony: "c1", PublicKey: json.RawMessage(`{"publicKey":{"challenge":"Y2hhbGxlbmdl"},"mediation":"conditional"}`)}},
 		{name: "OIDCStartResponse", value: OIDCStartResponse{URL: "https://idp.example.com/authorize?state=x"}},
 		{name: "PendingLinkResponse", value: PendingLinkResponse{Issuer: "https://idp.example.com", UsernameHint: "alice", Email: "alice@example.com", CanCreate: true, SuggestedUsername: "alice_2"}},
@@ -223,6 +228,9 @@ type wireField struct {
 	Fields   []wireField `json:"fields,omitempty"`
 	Optional bool        `json:"optional,omitempty"`
 	Open     bool        `json:"open,omitempty"`
+	// Arm marks one arm of a union type, whose doc comment carries
+	// unionDoc: exactly one of its arms is present.
+	Arm bool `json:"arm,omitempty"`
 }
 
 func wireTypeName(typ reflect.Type) *string {
@@ -255,6 +263,7 @@ func wireRoutes(t *testing.T, routes []Route) []wireRoute {
 
 func wireFields(t *testing.T, typ reflect.Type) []wireField {
 	t.Helper()
+	union := isUnion(t, typ)
 	var out []wireField
 	for f := range typ.Fields() {
 		if !f.IsExported() {
@@ -271,7 +280,10 @@ func wireFields(t *testing.T, typ reflect.Type) []wireField {
 			name = f.Name
 		}
 		optional := f.Type.Kind() == reflect.Pointer || slices.Contains(strings.Split(opts, ","), "omitempty") || slices.Contains(strings.Split(opts, ","), "omitzero")
-		row := wireField{Name: name, Optional: optional}
+		if union && f.Type.Kind() != reflect.Pointer {
+			t.Fatalf("%s.%s is an arm of a union and no pointer", typ.Name(), f.Name)
+		}
+		row := wireField{Name: name, Optional: optional, Arm: union}
 		elem := f.Type
 		for elem.Kind() == reflect.Pointer || elem.Kind() == reflect.Slice {
 			elem = elem.Elem()
@@ -291,11 +303,23 @@ func wireFields(t *testing.T, typ reflect.Type) []wireField {
 // values outside its constants (types.go's Method, Role, TokenPurpose).
 const openDoc = "are app-defined"
 
-// enumValues is the values of typ's constants, read from the non-test files
-// of the package that declares it, in declaration order, and whether typ's
-// doc comment says values outside them are app-defined; nil for a named
-// string type with no constants (any string, such as webauthn.Base64URL).
-func enumValues(t *testing.T, typ reflect.Type) (values []string, open bool) {
+// unionDoc is the phrase a struct's doc comment carries when it is a union
+// of its pointer fields, as SignInOutcome is.
+const unionDoc = "exactly one field is set"
+
+// isUnion reports whether typ's doc comment carries unionDoc.
+func isUnion(t *testing.T, typ reflect.Type) bool {
+	t.Helper()
+	if typ.Kind() != reflect.Struct || typ.PkgPath() == "" || !strings.HasPrefix(typ.PkgPath(), "github.com/cplieger/access") {
+		return false
+	}
+	_, _, docText := typeDoc(t, typ)
+	return strings.Contains(docText, unionDoc)
+}
+
+// typeDoc parses the non-test files of the package declaring typ and
+// returns its declarations and typ's doc comment, one line.
+func typeDoc(t *testing.T, typ reflect.Type) (*token.FileSet, []*ast.GenDecl, string) {
 	t.Helper()
 	const module = "github.com/cplieger/access"
 	rel, ok := strings.CutPrefix(typ.PkgPath(), module)
@@ -308,6 +332,7 @@ func enumValues(t *testing.T, typ reflect.Type) (values []string, open bool) {
 	}
 	fset := token.NewFileSet()
 	var files []*ast.File
+	var decls []*ast.GenDecl
 	for _, name := range names {
 		if strings.HasSuffix(name, "_test.go") {
 			continue
@@ -318,13 +343,10 @@ func enumValues(t *testing.T, typ reflect.Type) (values []string, open bool) {
 		}
 		files = append(files, f)
 		for _, d := range f.Decls {
-			if g, ok := d.(*ast.GenDecl); ok && g.Tok == token.CONST {
-				values = append(values, typedConsts(t, fset, g, typ.Name())...)
+			if g, ok := d.(*ast.GenDecl); ok {
+				decls = append(decls, g)
 			}
 		}
-	}
-	if len(values) == 0 {
-		return nil, false
 	}
 	pkg, err := doc.NewFromFiles(fset, files, typ.PkgPath(), doc.PreserveAST)
 	if err != nil {
@@ -332,11 +354,29 @@ func enumValues(t *testing.T, typ reflect.Type) (values []string, open bool) {
 	}
 	for _, dt := range pkg.Types {
 		if dt.Name == typ.Name() {
-			return values, strings.Contains(strings.Join(strings.Fields(dt.Doc), " "), openDoc)
+			return fset, decls, strings.Join(strings.Fields(dt.Doc), " ")
 		}
 	}
 	t.Fatalf("%v has no type declaration in %s", typ, rel)
-	return nil, false
+	return nil, nil, ""
+}
+
+// enumValues is the values of typ's constants, read from the non-test files
+// of the package that declares it, in declaration order, and whether typ's
+// doc comment says values outside them are app-defined; nil for a named
+// string type with no constants (any string, such as webauthn.Base64URL).
+func enumValues(t *testing.T, typ reflect.Type) (values []string, open bool) {
+	t.Helper()
+	fset, decls, docText := typeDoc(t, typ)
+	for _, g := range decls {
+		if g.Tok == token.CONST {
+			values = append(values, typedConsts(t, fset, g, typ.Name())...)
+		}
+	}
+	if len(values) == 0 {
+		return nil, false
+	}
+	return values, strings.Contains(docText, openDoc)
 }
 
 // typedConsts is the values of g's constants of type typeName. A spec with
@@ -495,8 +535,33 @@ func TestGoldenWire(t *testing.T) {
 					t.Errorf("types.json lacks %s.%s", typ.Name(), key)
 				}
 			}
+			if isUnion(t, typ) {
+				continue
+			}
 			if len(rows) != len(full) {
 				t.Errorf("types.json lists %d keys of %s, its fixture sends %d", len(rows), typ.Name(), len(full))
+			}
+		}
+	})
+	t.Run("a_fixture_per_arm", func(t *testing.T) {
+		arms := map[string]map[string]bool{}
+		for _, f := range fixtures() {
+			typ := reflect.TypeOf(f.value)
+			if !isUnion(t, typ) {
+				continue
+			}
+			if arms[typ.Name()] == nil {
+				arms[typ.Name()] = map[string]bool{}
+			}
+			for key := range jsonKeys(t, fixtureBytes(t, &f)) {
+				arms[typ.Name()][key] = true
+			}
+		}
+		for name, seen := range arms {
+			for _, f := range wireFields(t, fieldsType(t, name)) {
+				if !seen[f.Name] {
+					t.Errorf("no fixture of union %s sets its arm %s", name, f.Name)
+				}
 			}
 		}
 	})
@@ -604,8 +669,42 @@ func checkFixture(t *testing.T, f *fixture) {
 		}
 		return
 	}
+	if isUnion(t, typ) {
+		checkArm(t, got.Elem())
+		return
+	}
 	for _, path := range zeroFields(got.Elem(), typ.Name()) {
 		t.Errorf("%s is zero in the fixture", path)
+	}
+}
+
+// fieldsType is the fixture type named name.
+func fieldsType(t *testing.T, name string) reflect.Type {
+	t.Helper()
+	for _, f := range fixtures() {
+		if typ := reflect.TypeOf(f.value); typ.Name() == name {
+			return typ
+		}
+	}
+	t.Fatalf("no fixture of %s", name)
+	return nil
+}
+
+// checkArm requires union value v to set exactly one arm, and that arm
+// every field.
+func checkArm(t *testing.T, v reflect.Value) {
+	t.Helper()
+	var set []string
+	for i := range v.NumField() {
+		if f := v.Field(i); !f.IsNil() {
+			set = append(set, v.Type().Field(i).Name)
+			for _, path := range zeroFields(f.Elem(), v.Type().Name()+"."+v.Type().Field(i).Name) {
+				t.Errorf("%s is zero in the fixture", path)
+			}
+		}
+	}
+	if len(set) != 1 {
+		t.Errorf("%s sets arms %v, want exactly one", v.Type().Name(), set)
 	}
 }
 

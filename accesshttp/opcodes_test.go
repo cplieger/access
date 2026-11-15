@@ -150,6 +150,8 @@ var producerErrors = map[string]error{
 	modulePath + "/account.ErrScopeRequired":           account.ErrScopeRequired,
 	modulePath + "/account.ErrSSOOnly":                 account.ErrSSOOnly,
 	modulePath + "/account.ErrNotAdmitted":             account.ErrNotAdmitted,
+	modulePath + "/account.ErrNoUsableMethod":          account.ErrNoUsableMethod,
+	modulePath + "/account.ErrEnrolNeedsKnownDevice":   account.ErrEnrolNeedsKnownDevice,
 	modulePath + "/account.ErrProvisioningDisabled":    account.ErrProvisioningDisabled,
 	modulePath + "/account.ErrUnknownSSOMode":          account.ErrUnknownSSOMode,
 	modulePath + "/account.ErrBreachCheckUnavailable":  account.ErrBreachCheckUnavailable,
@@ -214,7 +216,7 @@ const (
 	termLeaf      termKind = iota // a module error: obj is its var or type name
 	termOpaque                    // an error no module producer names
 	termParam                     // the error parameter obj holds, bound at the call
-	termParamCall                 // what calling parameter obj, or its field at path, returns
+	termParamCall                 // what calling parameter obj, or its field at path, returns in result res
 	termWrapper                   // an unregistered wrapper type obj, for errors.AsType
 	termDeclared                  // refused when it matches a sentinel bound to the slice parameter obj
 )
@@ -224,10 +226,11 @@ type term struct {
 	guards *guardList // the filters a parameter's value passes, applied at its binding
 	path   string
 	kind   termKind
+	res    int
 }
 
 func (t term) key() string {
-	k := fmt.Sprintf("%d:%p:%s", t.kind, t.obj, t.path)
+	k := fmt.Sprintf("%d:%p:%s:%d", t.kind, t.obj, t.path, t.res)
 	if t.guards != nil {
 		k += ":" + t.guards.key
 	}
@@ -306,11 +309,19 @@ const (
 type summaryKey struct {
 	n  ast.Node
 	ch channel
+	// res is the result a chReturned summary follows; lastErr is the last
+	// error result, so a function returning (refused, err error) is
+	// followed in each.
+	res int
 }
+
+// lastErr names a function's last error result.
+const lastErr = -1
 
 type funcPath struct {
 	x    ast.Expr
 	path string
+	res  int
 }
 
 // varDef is one assignment to a local variable.
@@ -598,7 +609,7 @@ func (p *producers) routeErrors(fn *ast.FuncDecl) errValue {
 	for {
 		p.iter++
 		p.changed = false
-		v := errValue{}.add(p.summary(fn, chReturned)).add(p.summary(fn, chAnswered))
+		v := errValue{}.add(p.summary(fn, chReturned, lastErr)).add(p.summary(fn, chAnswered, lastErr))
 		if !p.changed {
 			return v
 		}
@@ -615,17 +626,17 @@ func (p *producers) signature(n ast.Node) (*ast.BlockStmt, *types.Signature) {
 	panic(fmt.Sprintf("no function: %T", n))
 }
 
-// summary is what n returns in its last error result, or hands refusal,
-// with its parameters left as terms.
-func (p *producers) summary(n ast.Node, ch channel) errValue {
-	k := summaryKey{n: n, ch: ch}
+// summary is what n returns in error result res (lastErr for its last), or
+// hands refusal, with its parameters left as terms.
+func (p *producers) summary(n ast.Node, ch channel, res int) errValue {
+	k := summaryKey{n: n, ch: ch, res: res}
 	if p.round[k] == p.iter || p.stack[k] {
 		return p.sums[k]
 	}
 	p.stack[k] = true
 	var out errValue
 	if ch == chReturned {
-		out = p.returned(n)
+		out = p.returned(n, res)
 	} else {
 		out = p.answered(n)
 	}
@@ -638,15 +649,17 @@ func (p *producers) summary(n ast.Node, ch channel) errValue {
 	return out
 }
 
-func (p *producers) returned(n ast.Node) errValue {
+func (p *producers) returned(n ast.Node, res int) errValue {
 	body, sig := p.signature(n)
-	idx := -1
-	for i := range sig.Results().Len() {
-		if types.Identical(sig.Results().At(i).Type(), errorType) {
-			idx = i
+	idx := res
+	if res == lastErr {
+		for i := range sig.Results().Len() {
+			if types.Identical(sig.Results().At(i).Type(), errorType) {
+				idx = i
+			}
 		}
 	}
-	if idx < 0 {
+	if idx < 0 || !types.Identical(sig.Results().At(idx).Type(), errorType) {
 		return nil
 	}
 	var out errValue
@@ -686,7 +699,7 @@ func (p *producers) answered(n ast.Node) errValue {
 		if fn == p.refusal {
 			out = out.add(p.eval(call.Args[1]))
 		} else if decl := p.decls[fn.Origin()]; decl != nil {
-			out = out.add(p.bind(p.summary(decl, chAnswered), decl, call))
+			out = out.add(p.bind(p.summary(decl, chAnswered, lastErr), decl, call))
 		}
 		return true
 	})
@@ -955,7 +968,7 @@ func (p *producers) evalCall(e ast.Expr, index int) errValue {
 	}
 	fn, ok := p.callee(call.Fun).(*types.Func)
 	if !ok {
-		return p.callValue(call.Fun, "")
+		return p.callValue(call.Fun, "", index)
 	}
 	switch qualified(fn.Origin()) {
 	case "errors.New":
@@ -971,7 +984,7 @@ func (p *producers) evalCall(e ast.Expr, index int) errValue {
 	case p.module + "/account.refusedBy":
 		return p.declare(p.eval(call.Args[0]), call.Args[1:], call.Ellipsis.IsValid())
 	}
-	return p.callFunc(fn, call)
+	return p.callFunc(fn, call, index)
 }
 
 // declare is account.refusedBy(val, sentinels...): each chain of val that
@@ -1030,17 +1043,18 @@ func (p *producers) wrap(args []ast.Expr) errValue {
 	return out
 }
 
-// callFunc is what calling fn returns: its summary bound to call's
-// arguments, over every module implementation of an interface method.
-func (p *producers) callFunc(fn *types.Func, call *ast.CallExpr) errValue {
+// callFunc is what calling fn returns in result res: its summary bound to
+// call's arguments, over every module implementation of an interface
+// method.
+func (p *producers) callFunc(fn *types.Func, call *ast.CallExpr, res int) errValue {
 	fn = fn.Origin()
 	if decl := p.decls[fn]; decl != nil {
-		return p.bind(p.summary(decl, chReturned), decl, call)
+		return p.bind(p.summary(decl, chReturned, res), decl, call)
 	}
 	var out errValue
 	for _, m := range p.implementations(fn) {
 		decl := p.decls[m]
-		out = out.add(p.bind(p.summary(decl, chReturned), decl, call))
+		out = out.add(p.bind(p.summary(decl, chReturned, res), decl, call))
 	}
 	if out == nil {
 		return opaqueValue
@@ -1072,10 +1086,10 @@ func (p *producers) implementations(fn *types.Func) []*types.Func {
 }
 
 // callValue is what calling the function value x, or its field at path,
-// returns, the function's own parameters unbound.
-func (p *producers) callValue(x ast.Expr, path string) errValue {
+// returns in result res, the function's own parameters unbound.
+func (p *producers) callValue(x ast.Expr, path string, res int) errValue {
 	x = ast.Unparen(x)
-	k := funcPath{x: x, path: path}
+	k := funcPath{x: x, path: path, res: res}
 	if p.resolving[k] {
 		return nil
 	}
@@ -1084,24 +1098,24 @@ func (p *producers) callValue(x ast.Expr, path string) errValue {
 	switch x := x.(type) {
 	case *ast.FuncLit:
 		if path == "" {
-			return p.bind(p.summary(x, chReturned), x, nil)
+			return p.bind(p.summary(x, chReturned, res), x, nil)
 		}
 	case *ast.UnaryExpr:
-		return p.callValue(x.X, path)
+		return p.callValue(x.X, path, res)
 	case *ast.CompositeLit:
 		field, rest, _ := strings.Cut(path, ".")
 		for _, elt := range x.Elts {
 			if kv, ok := elt.(*ast.KeyValueExpr); ok && isIdentNamed(kv.Key, field) {
-				return p.callValue(kv.Value, rest)
+				return p.callValue(kv.Value, rest, res)
 			}
 		}
 		return nil
 	case *ast.SelectorExpr:
 		if sel, ok := p.info.Selections[x]; ok && sel.Kind() == types.FieldVal {
-			return p.callValue(x.X, strings.TrimSuffix(x.Sel.Name+"."+path, "."))
+			return p.callValue(x.X, strings.TrimSuffix(x.Sel.Name+"."+path, "."), res)
 		}
 	case *ast.CallExpr:
-		return p.returnedFuncs(x, path)
+		return p.returnedFuncs(x, path, res)
 	}
 	switch obj := p.callee(x).(type) {
 	case *types.Func:
@@ -1109,11 +1123,11 @@ func (p *producers) callValue(x ast.Expr, path string) errValue {
 			break
 		}
 		if decl := p.decls[obj.Origin()]; decl != nil {
-			return p.bind(p.summary(decl, chReturned), decl, nil)
+			return p.bind(p.summary(decl, chReturned, res), decl, nil)
 		}
 		var out errValue
 		for _, m := range p.implementations(obj.Origin()) {
-			out = out.add(p.bind(p.summary(p.decls[m], chReturned), p.decls[m], nil))
+			out = out.add(p.bind(p.summary(p.decls[m], chReturned, res), p.decls[m], nil))
 		}
 		if out != nil {
 			return out
@@ -1121,16 +1135,16 @@ func (p *producers) callValue(x ast.Expr, path string) errValue {
 	case *types.Var:
 		switch obj.Kind() {
 		case types.ParamVar, types.RecvVar:
-			return valueOf(chain{{kind: termParamCall, obj: obj, path: path}})
+			return valueOf(chain{{kind: termParamCall, obj: obj, path: path, res: res}})
 		case types.PackageVar:
 			if init := p.inits[obj]; init != nil {
-				return p.callValue(init, path)
+				return p.callValue(init, path, res)
 			}
 		default:
 			var out errValue
 			for _, d := range p.defs[obj] {
 				if d.index < 0 && !d.rng {
-					out = out.add(p.callValue(d.rhs, path))
+					out = out.add(p.callValue(d.rhs, path, res))
 				}
 			}
 			return out
@@ -1139,9 +1153,9 @@ func (p *producers) callValue(x ast.Expr, path string) errValue {
 	return opaqueValue
 }
 
-// returnedFuncs is what calling the function value call returns, or its
-// field at path: the values its callee's return statements give.
-func (p *producers) returnedFuncs(call *ast.CallExpr, path string) errValue {
+// returnedFuncs is what calling the function value call returns in result
+// res, or its field at path: the values its callee's return statements give.
+func (p *producers) returnedFuncs(call *ast.CallExpr, path string, res int) errValue {
 	fn, ok := p.callee(call.Fun).(*types.Func)
 	if !ok || p.decls[fn.Origin()] == nil {
 		return opaqueValue
@@ -1153,7 +1167,7 @@ func (p *producers) returnedFuncs(call *ast.CallExpr, path string) errValue {
 			return false
 		case *ast.ReturnStmt:
 			if len(x.Results) == 1 {
-				out = out.add(p.callValue(x.Results[0], path))
+				out = out.add(p.callValue(x.Results[0], path, res))
 			}
 		}
 		return true
@@ -1205,7 +1219,7 @@ func (p *producers) bind(sum errValue, fn ast.Node, call *ast.CallExpr) errValue
 				if tm.kind == termParam {
 					part.add(p.eval(a))
 				} else {
-					part.add(p.callValue(a, tm.path))
+					part.add(p.callValue(a, tm.path, tm.res))
 				}
 			}
 			if tm.guards != nil {

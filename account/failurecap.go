@@ -57,6 +57,9 @@ type passwordAttempt struct {
 	// replaces is set when the success Update replaces or removes the hash,
 	// so a rehash of the verified password would be derived for nothing.
 	replaces bool
+	// dormant is the stored SSO mode keeping user's local methods dormant
+	// at the count, which refuses the success Update and so its rehash.
+	dormant bool
 }
 
 // newAttempt names res's record for canonical: the password's record in
@@ -111,7 +114,7 @@ func (s *Service) verifyCounted(ctx context.Context, a *passwordAttempt, canonic
 	if s.hooks.afterVerify != nil {
 		s.hooks.afterVerify(ctx)
 	}
-	if needsRehash {
+	if needsRehash && !a.dormant {
 		s.rehash(ctx, a, text)
 	}
 	return nil
@@ -162,14 +165,18 @@ func (s *Service) admitCount(ctx context.Context, res *ratelimit.Reservation, sl
 	return permit, nil
 }
 
-// count is one Update reading the name's user and a's record,
-// adding one, locking at FailureCap, and writing the record, the same
-// calls whether or not a user has the name. It reports whether the record
-// was already locked.
+// count is one Update reading the name's user, the stored SSO mode and a's
+// record, adding one, locking at FailureCap, and writing the record, the
+// same calls whether or not a user has the name. It reports whether the
+// record was already locked.
 func (s *Service) count(ctx context.Context, a *passwordAttempt, canonical string) (lockedBefore bool, err error) {
 	err = s.update(ctx, func(tx Tx) error {
-		a.user, a.lockedAt, lockedBefore = nil, time.Time{}, false
+		a.user, a.lockedAt, a.dormant, lockedBefore = nil, time.Time{}, false, false
 		u, found, readErr := tx.UserByUsername(ctx, canonical)
+		if readErr != nil {
+			return readErr
+		}
+		mode, readErr := storedMode(ctx, tx)
 		if readErr != nil {
 			return readErr
 		}
@@ -185,7 +192,7 @@ func (s *Service) count(ctx context.Context, a *passwordAttempt, canonical strin
 			a.lockedAt = rec.LockedAt
 		}
 		if found {
-			a.user = u
+			a.user, a.dormant = u, mode.dormantFor(u)
 		}
 		return tx.PutAuthFailure(ctx, rec)
 	})

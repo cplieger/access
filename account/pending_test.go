@@ -100,14 +100,14 @@ func TestPendingCache(t *testing.T) {
 	t.Run("service_bound", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, options{edit: func(c *account.Config) { c.MaxPending = 2 }})
-		c := account.Pending(f.svc)
+		c := account.PendingOf(f.svc)
 		for i := range 4 {
 			c.Put(account.PurposeSetup, user(int64(i)), time.Now())
 		}
 		if n := c.Len(); n != 2 {
 			t.Errorf("a Service with MaxPending 2 holds %d entries", n)
 		}
-		d := account.Pending(newFixture(t, options{}).svc)
+		d := account.PendingOf(newFixture(t, options{}).svc)
 		for i := range 10001 {
 			d.Put(account.PurposeSetup, user(int64(i)), t0)
 		}
@@ -166,6 +166,77 @@ func TestPendingCacheConcurrent(t *testing.T) {
 		wg.Wait()
 		if over.Load() || c.Len() > 100 {
 			t.Errorf("the cache exceeded its bound of 100 under a flood (now %d)", c.Len())
+		}
+	})
+}
+
+// TestPendingCacheLists is design 4.4's per-purpose cache: each list has
+// its own lifetime and cap, a pending sign-in replaces its user's earlier
+// one, and a user's sign-in drops through the index.
+func TestPendingCacheLists(t *testing.T) {
+	t.Parallel()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	user := func(id int64) access.User { return access.User{ID: id} }
+	t.Run("ceremonies_never_evict_a_sign_in", func(t *testing.T) {
+		t.Parallel()
+		c := account.NewPendingCache(2)
+		signIn := c.Put(account.PurposeSignIn, user(1), t0)
+		for i := range 5 {
+			c.Put(account.PurposeLogin, user(0), t0.Add(time.Duration(i)*time.Second))
+		}
+		if _, ok := c.Take(signIn, account.PurposeSignIn, t0.Add(time.Minute)); !ok {
+			t.Error("a flood of ceremonies evicted a pending sign-in")
+		}
+	})
+	t.Run("lifetimes", func(t *testing.T) {
+		t.Parallel()
+		c := account.NewPendingCache(10)
+		ceremony := c.Put(account.PurposeLogin, user(0), t0)
+		late := c.Put(account.PurposeSignIn, user(1), t0)
+		early := c.Put(account.PurposeSignIn, user(2), t0)
+		if _, ok := c.Take(ceremony, account.PurposeLogin, t0.Add(webauthn.CeremonyTimeout)); ok {
+			t.Error("a ceremony outlived CeremonyTimeout")
+		}
+		if _, ok := c.Take(early, account.PurposeSignIn, t0.Add(10*time.Minute-time.Nanosecond)); !ok {
+			t.Error("a pending sign-in died before its ten minutes")
+		}
+		if _, ok := c.Take(late, account.PurposeSignIn, t0.Add(10*time.Minute)); ok {
+			t.Error("a pending sign-in outlived its ten minutes")
+		}
+	})
+	t.Run("one_sign_in_per_user", func(t *testing.T) {
+		t.Parallel()
+		c := account.NewPendingCache(10)
+		old := c.Put(account.PurposeSignIn, user(1), t0)
+		other := c.Put(account.PurposeSignIn, user(2), t0)
+		fresh := c.Put(account.PurposeSignIn, user(1), t0)
+		if _, ok := c.Take(old, account.PurposeSignIn, t0); ok {
+			t.Error("a user's earlier pending sign-in survived a new one")
+		}
+		for name, id := range map[string]string{"fresh": fresh, "other user's": other} {
+			if _, ok := c.Take(id, account.PurposeSignIn, t0); !ok {
+				t.Errorf("the %s pending sign-in is gone", name)
+			}
+		}
+	})
+	t.Run("drop_user", func(t *testing.T) {
+		t.Parallel()
+		c := account.NewPendingCache(10)
+		mine := c.Put(account.PurposeSignIn, user(1), t0)
+		ceremony := c.Put(account.PurposeStepUp, user(1), t0)
+		theirs := c.Put(account.PurposeSignIn, user(2), t0)
+		c.DropUser(1)
+		if _, ok := c.Take(mine, account.PurposeSignIn, t0); ok {
+			t.Error("DropUser left the user's pending sign-in")
+		}
+		if _, ok := c.Take(theirs, account.PurposeSignIn, t0); !ok {
+			t.Error("DropUser dropped another user's pending sign-in")
+		}
+		if _, ok := c.Take(ceremony, account.PurposeStepUp, t0); !ok {
+			t.Error("DropUser dropped a ceremony")
+		}
+		if n := c.Len(); n != 0 {
+			t.Errorf("entries after the takes = %d, want 0", n)
 		}
 	})
 }

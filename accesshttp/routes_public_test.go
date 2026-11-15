@@ -102,7 +102,7 @@ func TestRouteAuthLoginPassword(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		e.createUser(t, "alice", access.RoleUser)
-		e.requireSignedIn(t, do(e.route(t, "authLoginPassword"), e.post(t, "authLoginPassword", signInBody(t, "alice"))), "alice")
+		e.requireLoggedIn(t, do(e.route(t, "authLoginPassword"), e.post(t, "authLoginPassword", signInBody(t, "alice"))), "alice")
 	})
 }
 
@@ -360,7 +360,7 @@ func TestPasswordSignInSetsDeviceCookie(t *testing.T) {
 	e.createUser(t, "alice", access.RoleUser)
 	rt := e.route(t, "authLoginPassword")
 	w := do(rt, e.post(t, "authLoginPassword", signInBody(t, "alice")))
-	e.requireSignedIn(t, w, "alice")
+	e.requireLoggedIn(t, w, "alice")
 	_, deviceName := e.names()
 	device := cookieNamed(w, deviceName)
 	if days180 := 180 * 24 * 60 * 60; device.MaxAge != days180 || !device.HttpOnly || device.SameSite != http.SameSiteLaxMode {
@@ -419,7 +419,7 @@ func TestGoClientBodyRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal: %v", err)
 	}
-	e.requireSignedIn(t, do(e.route(t, "authLoginPassword"), e.post(t, "authLoginPassword", string(body))), "alice")
+	e.requireLoggedIn(t, do(e.route(t, "authLoginPassword"), e.post(t, "authLoginPassword", string(body))), "alice")
 }
 
 // TestCredentialBodyContentType refuses a finish body that is not JSON

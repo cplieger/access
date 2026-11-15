@@ -48,8 +48,9 @@ type Rules struct {
 	// published. Nil means every held method is usable.
 	MethodUsable func(ctx context.Context, tx Tx, u *access.User, m access.Method) bool
 	// SessionCaps returns per-session limits for a session about to be
-	// created for c by sign-in method m, read once at creation; a step-up
-	// never calls it again. A positive value caps that limit for the
+	// created for c by sign-in method m, read once before the change that
+	// creates it, so a password sign-in that then pends wastes one call; a
+	// step-up never calls it. A positive value caps that limit for the
 	// session's whole life (Session.IdleCap, Session.AbsoluteCap; kept on
 	// rotation); zero or less, or a nil func, means no cap.
 	SessionCaps func(ctx context.Context, c Client, m access.Method) (idle, absolute time.Duration)
@@ -87,6 +88,14 @@ type Rules struct {
 	// DisablePasswordLogin refuses password sign-in and step-up with
 	// ErrPasswordLoginDisabled. The zero value allows them.
 	DisablePasswordLogin bool
+	// DisableTOTP turns TOTP enrolment and the code step off; a stored
+	// record is kept, reads as absent, and works again once this is off.
+	// The zero value offers TOTP where Config.TOTP wires it.
+	DisableTOTP bool
+	// RequireSecondFactor makes every password sign-in prove a second
+	// factor, or bind one first; passkey and OIDC sign-ins meet it already.
+	// It needs Config.TOTP or Config.RP set. The zero value is off.
+	RequireSecondFactor bool
 	// RevokeKeysOnCredentialChange deletes the user's API keys and their
 	// tokens when SetPassword sets or changes the password. Disable and
 	// delete always delete keys, whatever this says.

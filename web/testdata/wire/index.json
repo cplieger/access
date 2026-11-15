@@ -25,6 +25,7 @@
   "SessionView",
   "SetupPasskeyBeginRequest",
   "SetupPasswordRequest",
+  "SignInOutcome",
   "Signals",
   "SignedInResponse",
   "StateResponse",

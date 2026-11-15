@@ -45,6 +45,7 @@ type Service struct {
 	adminScope  string
 	usersScope  string
 	keysScope   string
+	totp        TOTPConfig
 	interval    time.Duration
 	logMaxAge   time.Duration
 	logChanges  int
@@ -75,12 +76,12 @@ type testHooks struct {
 
 // New refuses a nil Store, Policy, Authenticator, Hasher, Limiter or Rules, a
 // FailureKey that is not 32 bytes (naming the field, never the bytes), a
-// non-empty key scope that is not one RFC 6750 scope-token or equals another,
-// a negative CleanupInterval, MaxPending or Log* field, and a Rules() value
-// Rules.Validate refuses or whose breach mode lacks Config.Breach. It drains
-// the security log and sweeps the failure records, returning either's store
-// error, then registers the Service as the Authenticator's one session revoker
-// (an error if one is). It sweeps on ctx's values, not its cancellation, until Shutdown.
+// half-set TOTP, a set key scope that is not one RFC 6750 scope-token or
+// equals another, a negative CleanupInterval, MaxPending or Log* field, and
+// a Rules() value checkRules refuses. It drains the security log and sweeps
+// the failure records, returning either's store error, then registers the
+// Service as the Authenticator's one session revoker (an error if one is).
+// It sweeps on ctx's values, not its cancellation, until Shutdown.
 func New(ctx context.Context, cfg Config) (*Service, error) { //nolint:gocritic // hugeParam: a construction input, read once
 	return newService(ctx, cfg, testHooks{})
 }
@@ -114,6 +115,7 @@ func newService(ctx context.Context, cfg Config, hooks testHooks) (*Service, err
 		done:        make(chan struct{}),
 		allowance:   newAllowance(),
 		singleUser:  cfg.Policy.SingleUser(),
+		totp:        cfg.TOTP,
 	}
 	if hooks.wrapHasher != nil {
 		s.hasher = hooks.wrapHasher(s.hasher)
@@ -193,6 +195,9 @@ func validateConfig(cfg Config) error { //nolint:gocritic // hugeParam: as New
 		return fmt.Errorf("account: Config.FailureKey is %d bytes, want %d", len(cfg.FailureKey), failureKeySize)
 	}
 	if err := validateScopes(cfg.AdminScope, cfg.ManageUsersScope, cfg.CreateKeysScope); err != nil {
+		return err
+	}
+	if err := cfg.TOTP.validate(); err != nil {
 		return err
 	}
 	if cfg.CleanupInterval < 0 {
@@ -361,8 +366,9 @@ func (s *Service) begin() (Rules, error) {
 }
 
 // checkRules is Rules.Validate plus the rules Validate cannot see: a
-// breach mode needs Config.Breach, and the kept single-user declaration
-// refuses provisioning.
+// breach mode needs Config.Breach, RequireSecondFactor a wired second
+// factor (Config.TOTP or Config.RP set), and the kept single-user
+// declaration refuses provisioning.
 func (s *Service) checkRules(r Rules) error { //nolint:gocritic // hugeParam: as Rules.Validate
 	if err := r.Validate(); err != nil {
 		return err
@@ -370,11 +376,18 @@ func (s *Service) checkRules(r Rules) error { //nolint:gocritic // hugeParam: as
 	switch {
 	case r.Breach != BreachOff && s.breach == nil:
 		return &RulesError{Field: "Breach", Reason: "a breach mode needs Config.Breach"}
+	case r.RequireSecondFactor && s.totp.Sealer == nil && s.rp == nil:
+		return &RulesError{Field: "RequireSecondFactor", Reason: "no second factor is wired: set Config.TOTP or Config.RP"}
 	case r.Provisioning.Enabled && s.singleUser:
 		return &RulesError{Field: "Provisioning", Reason: "a single-user Policy admits no provisioned account"}
 	}
 	return nil
 }
+
+// totpOn reports whether TOTP is usable under r: wired by Config.TOTP and
+// not turned off by Rules.DisableTOTP. Every reader of a TOTP record asks
+// it, so a record reads as absent while it is false.
+func (s *Service) totpOn(r Rules) bool { return s.totp.Sealer != nil && !r.DisableTOTP } //nolint:gocritic // hugeParam: the operation's one Rules value
 
 func (s *Service) now() time.Time {
 	if s.clock != nil {

@@ -26,8 +26,8 @@ export {
 } from "./webauthn.js";
 export type {
   DOMExceptionName,
+  PasskeySignInOutcome,
   RegisterOutcome,
-  SignInOutcome,
   StepUpOutcome,
 } from "./webauthn.js";
 export {
@@ -52,6 +52,7 @@ export {
   parsePasswordChangeRequest,
   parsePasswordRemoveRequest,
   parsePasswordRequest,
+  parsePending,
   parsePendingCreateRequest,
   parsePendingLinkResponse,
   parseProfileRequest,
@@ -61,6 +62,7 @@ export {
   parseSetupPasskeyBeginRequest,
   parseSetupPasswordRequest,
   parseSSORequest,
+  parseSignInOutcome,
   parseSignedInResponse,
   parseStateResponse,
   parseTokenRequest,
@@ -90,6 +92,7 @@ export type {
   MethodLockView,
   MethodsView,
   NameRequest,
+  Next,
   NewKeyRequest,
   NewUserRequest,
   OIDCStartResponse,
@@ -98,8 +101,10 @@ export type {
   PasswordChangeRequest,
   PasswordRemoveRequest,
   PasswordRequest,
+  Pending,
   PendingCreateRequest,
   PendingLinkResponse,
+  PendingMethod,
   PlainSessionView,
   ProfileRequest,
   Readiness,
@@ -109,6 +114,7 @@ export type {
   SessionView,
   SetupPasskeyBeginRequest,
   SetupPasswordRequest,
+  SignInOutcome,
   SignedInResponse,
   SSOMode,
   SSORequest,

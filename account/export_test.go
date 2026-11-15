@@ -110,7 +110,11 @@ const (
 	PurposeSetup    = purposeSetup
 	PurposeRegister = purposeRegister
 	PurposeStepUp   = purposeStepUp
+	PurposeSignIn   = purposeSignIn
 )
+
+// DropUser drops userID's pending sign-in.
+func (p PendingCache) DropUser(userID int64) { p.c.dropUser(userID) }
 
 func NewPendingCache(maxEntries int) PendingCache { return PendingCache{newPendingCache(maxEntries)} }
 
@@ -133,8 +137,8 @@ func (p PendingCache) Len() int {
 	return len(p.c.byID)
 }
 
-// Pending is s's own cache.
-func Pending(s *Service) PendingCache { return PendingCache{s.pending} }
+// PendingOf is s's own cache.
+func PendingOf(s *Service) PendingCache { return PendingCache{s.pending} }
 
 // MintSession creates the session a sign-in would for c and userID,
 // through createSession with no admission.
@@ -152,3 +156,28 @@ func MintSession(ctx context.Context, s *Service, c Client, userID int64) (acces
 	}})
 	return in.Session, err
 }
+
+// Ticket is a live pending sign-in's entry, as the cache holds it.
+type Ticket struct {
+	Next    Next
+	Methods []access.Method
+	Digest  access.HashKey
+	UserID  int64
+	Secure  bool
+}
+
+// TicketOf returns the live entry ticket names in s's cache, removing
+// nothing.
+func TicketOf(s *Service, ticket access.Secret) (Ticket, bool) {
+	s.pending.mu.Lock()
+	defer s.pending.mu.Unlock()
+	e, ok := s.pending.byID[ticket.Reveal()]
+	if !ok || !s.now().Before(e.expires) {
+		return Ticket{}, false
+	}
+	v := e.value
+	return Ticket{Next: v.ticket.next, Methods: v.ticket.methods, Digest: v.ticket.digest, UserID: v.user.ID, Secure: v.ticket.secure}, true
+}
+
+// CountedMethods is the methods with failure records.
+func CountedMethods() []access.Method { return countedMethods }

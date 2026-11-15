@@ -97,8 +97,23 @@ func serveLoginPassword(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	h.signedIn(c, out)
+	h.loginOutcome(c, out)
 	return nil
+}
+
+// loginOutcome answers a sign-in step: SignInOutcome's signed_in with the
+// session's cookies, or its pending with no cookie, since the ticket rides
+// the body only.
+func (h *Handler) loginOutcome(c *call, out account.LoginResult) { //nolint:gocritic // hugeParam: account's own result, read once
+	if p := out.Pending; p != nil {
+		h.emit(c, access.AuditEvent{Kind: "pending", Username: c.username, Method: access.MethodPassword})
+		writeJSON(c.w, http.StatusOK, SignInOutcome{Pending: pendingView(p)})
+		return
+	}
+	h.setSignedIn(c.w, c.client.Secure, out.SignedIn)
+	h.auditSuccess(c, out.SignedIn.User, out.SignedIn.Session)
+	signed := signedInResponse(out.SignedIn)
+	writeJSON(c.w, http.StatusOK, SignInOutcome{SignedIn: &signed})
 }
 
 func serveLoginPasskeyBegin(h *Handler, c *call) error {

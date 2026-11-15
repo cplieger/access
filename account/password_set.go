@@ -69,6 +69,7 @@ func (s *Service) firstPassword(ctx context.Context, r Rules, c Client, p access
 	if err != nil {
 		return Issued{}, err
 	}
+	s.pending.dropUser(p.User.ID)
 	return Issued{Token: ch.rot.token, Session: ch.rot.session}, nil
 }
 
@@ -103,8 +104,9 @@ func (s *Service) changePassword(ctx context.Context, r Rules, c Client, p acces
 		a.res.Fail()
 		return Issued{}, err
 	}
-	device := a.res.Succeed()
-	return Issued{Token: ch.rot.token, DeviceCookie: device, Session: ch.rot.session}, nil
+	a.res.Succeed()
+	s.pending.dropUser(p.User.ID)
+	return Issued{Token: ch.rot.token, DeviceCookie: s.deviceCookie(p.User.Username, c), Session: ch.rot.session}, nil
 }
 
 // RemovePassword removes p's own password, for a full session within RecentAuth
@@ -151,8 +153,9 @@ func (s *Service) RemovePassword(ctx context.Context, c Client, p access.Princip
 		a.res.Fail()
 		return Issued{}, err
 	}
-	device := a.res.Succeed()
-	return Issued{Token: rot.token, DeviceCookie: device, Session: rot.session}, nil
+	a.res.Succeed()
+	s.pending.dropUser(p.User.ID)
+	return Issued{Token: rot.token, DeviceCookie: s.deviceCookie(p.User.Username, c), Session: rot.session}, nil
 }
 
 // removePasswordIn is RemovePassword's change: the verified hash still

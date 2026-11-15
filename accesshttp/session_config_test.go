@@ -128,10 +128,11 @@ func TestOneSessionConfiguration(t *testing.T) {
 			b := newBrowserAt(t, tc.origin)
 			login := e.route(t, "authLoginPassword")
 			w := b.send(login, b.request(login, signInBody(t, "alice")))
-			var in SignedInResponse
-			if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &in) != nil {
+			var out SignInOutcome
+			if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &out) != nil || out.SignedIn == nil {
 				t.Fatalf("sign-in: status %d, errors %+v", w.Code, e.errs.all())
 			}
+			in := out.SignedIn
 			if me := e.meOf(t, b); me.Session.ID != in.SessionID || me.User.Username != "alice" {
 				t.Errorf("the next request's session %+v of %s, want %s of alice", me.Session, me.User.Username, in.SessionID)
 			}

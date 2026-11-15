@@ -22,7 +22,7 @@ func TestMeLocks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Me = %v", err)
 	}
-	want := account.Methods{HasPassword: true, PasswordLogin: true}
+	want := account.Methods{HasPassword: true, PasswordLogin: true, PasswordStepUp: true}
 	if !methodsEqual(me.Methods, want) || me.CanLinkOIDC || me.User == nil || me.User.ID != u.ID {
 		t.Errorf("Me with no lock = %+v, want alice with a password, no passkey, no lock", me)
 	}

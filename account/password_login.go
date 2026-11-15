@@ -13,25 +13,25 @@ type Credentials struct {
 	Username string
 }
 
-// PasswordLogin signs a user in with a password. Before any store call it answers
-// access.ErrHTTPSRequired (plain c, PostureSecure), ErrPasswordLoginDisabled, a
-// *UsernameError, a *ratelimit.RefusedError (the limiter's, or Dimension "untrusted" past
-// its allowance) or access.ErrHashBusy. Each later attempt is counted before the compare,
-// and FailureCap failures lock the password in their trust context. An unknown, disabled,
-// passwordless, locked, dormant or wrong-password arm is one ErrInvalidCredentials after
-// the same work; a stored hash costlier than the hasher's can be access.ErrHashBusy after
-// the count. A success resets the failure records and rehashes an old hash.
-func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
+// PasswordLogin is a password sign-in's step 1. It refuses before any store
+// call a plain c under PostureSecure, ErrPasswordLoginDisabled, a bad name,
+// a *ratelimit.RefusedError and access.ErrHashBusy; every later attempt is
+// counted before the compare, locking at FailureCap, and a stored hash
+// costlier than the hasher's may still be access.ErrHashBusy. A wrong,
+// unknown, disabled, locked or dormant arm is one ErrInvalidCredentials after
+// the same work. A correct password resets the failure records and rehashes
+// an old hash, then signs in or answers pendAt's Pending or refusal.
+func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
 	r, err := s.beginOver(plainPerRequest, c.Secure)
 	if err != nil {
-		return SignedIn{}, err
+		return LoginResult{}, err
 	}
 	var (
 		canonical string
 		a         *passwordAttempt
 		reenabled bool
 	)
-	return s.createSession(ctx, r, c, &sessionOp{
+	return s.signIn(ctx, r, c, &sessionOp{
 		method: access.MethodPassword,
 		gate: admission{
 			refusals: func() error {
@@ -58,13 +58,18 @@ func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (
 			reenabled = cleared
 			return u, requireLocal(ctx, tx, u, ErrInvalidCredentials)
 		},
+		pend: func(tx Tx, u *access.User) (*pending, error, error) {
+			return s.pendAt(ctx, tx, r, c, u, a.res.KnownDevice())
+		},
 		announce: func(j *journal, u *access.User, sess *access.Session) {
-			if reenabled {
-				j.add(Event{
-					Kind: EventMethodReenabled, At: sess.CreatedAt, UserID: u.ID, Method: access.MethodPassword, Trusted: a.ref.Trusted,
-					Actor: EventActor{SessionID: sess.ID, UserID: u.ID},
-				})
+			if !reenabled {
+				return
 			}
+			ev := Event{Kind: EventMethodReenabled, At: s.now(), UserID: u.ID, Method: access.MethodPassword, Trusted: a.ref.Trusted, Actor: EventActor{UserID: u.ID}}
+			if sess != nil {
+				ev.At, ev.Actor.SessionID = sess.CreatedAt, sess.ID
+			}
+			j.add(ev)
 		},
 	})
 }

@@ -1,1 +1,1 @@
-{"plain_session":{"idle_seconds":1800,"absolute_seconds":43200},"https_origin":"https://app.example.com","sso":"for_linked","https_required":["passkeys","oidc"],"setup_required":true,"password_login":true,"passkeys":true,"oidc":true,"secure":true}
+{"plain_session":{"idle_seconds":1800,"absolute_seconds":43200},"https_origin":"https://app.example.com","sso":"for_linked","https_required":["passkeys","oidc"],"setup_required":true,"password_login":true,"passkeys":true,"oidc":true,"secure":true,"totp":true}

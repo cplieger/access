@@ -227,7 +227,7 @@ func TestRouteAuthStepUpPasskeyFinish(t *testing.T) {
 // signsIn reports whether name signs in with password.
 func (e *env) signsIn(t testing.TB, name, password string) bool {
 	t.Helper()
-	_, err := e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: name, Password: access.NewSecret(password)})
+	_, err := completed(e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: name, Password: access.NewSecret(password)}))
 	return err == nil
 }
 
