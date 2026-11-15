@@ -61,10 +61,9 @@ func TestParseOrigin_accepts(t *testing.T) {
 }
 
 // TestParseOrigin_refuses pins every parse-stage reason. The trailing-dot row
-// is the anchor against repairing the value: measured on go-webauthn v0.18.1,
-// IsOriginInHaystack("https://sub.example.com.", ["https://sub.example.com"])
-// is false, so a stripped dot would bind an origin the browser's re-presented
-// value never matches.
+// is the anchor against repairing the value: clientDataJSON's origin is
+// compared byte for byte with the bound one (verifyClientData), so a stripped
+// dot would bind an origin the browser's re-presented value never matches.
 func TestParseOrigin_refuses(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

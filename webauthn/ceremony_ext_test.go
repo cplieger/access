@@ -13,7 +13,6 @@ import (
 	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/webauthn"
-	"github.com/go-webauthn/webauthn/protocol"
 )
 
 const rpID = "example.com"
@@ -191,9 +190,6 @@ func assertUnknown(t *testing.T, h *harness, dev *accesstest.PasskeyDevice) {
 	res, err := h.login(memCustody{h.store}, dev)
 	if !errors.Is(err, webauthn.ErrUnknownCredential) {
 		t.Fatalf("CompleteLogin error = %v, want ErrUnknownCredential", err)
-	}
-	if _, ok := errors.AsType[*protocol.Error](err); ok {
-		t.Errorf("CompleteLogin error %v reaches a go-webauthn error, want it untranslated away", err)
 	}
 	if res.User != nil {
 		t.Errorf("CompleteLogin user = %+v on failure, want nil", res.User)

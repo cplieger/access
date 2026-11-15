@@ -2,42 +2,51 @@ package accesstest_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/cplieger/access"
 	"github.com/cplieger/access/accesstest"
-	"github.com/go-webauthn/webauthn/protocol"
-	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
+	"github.com/cplieger/access/account"
+	"github.com/cplieger/access/webauthn"
 )
 
-const (
-	passkeyRPID   = "example.com"
-	passkeyOrigin = "https://example.com"
-)
+const passkeyRPID = "example.com"
 
-type passkeyUser struct {
-	id    []byte
-	creds []gowebauthn.Credential
+// relyingParty is access's relying party at https://example.com over a
+// MemStore holding one user, the device's counterpart in every round trip.
+type relyingParty struct {
+	t      *testing.T
+	rp     *webauthn.RelyingParty
+	store  *accesstest.MemStore
+	user   *access.User
+	origin webauthn.Origin
 }
 
-func (u *passkeyUser) WebAuthnID() []byte                           { return u.id }
-func (*passkeyUser) WebAuthnName() string                           { return "alice" }
-func (*passkeyUser) WebAuthnDisplayName() string                    { return "Alice" }
-func (u *passkeyUser) WebAuthnCredentials() []gowebauthn.Credential { return u.creds }
-
-func newRelyingParty(t *testing.T) *gowebauthn.WebAuthn {
+func newRelyingParty(t *testing.T) *relyingParty {
 	t.Helper()
-	wa, err := gowebauthn.New(&gowebauthn.Config{RPID: passkeyRPID, RPDisplayName: "Example", RPOrigins: []string{passkeyOrigin}})
+	rp, err := webauthn.New(webauthn.RPConfig{ID: passkeyRPID, DisplayName: "Example"})
 	if err != nil {
-		t.Fatalf("gowebauthn.New: %v", err)
+		t.Fatalf("webauthn.New: %v", err)
 	}
-	return wa
+	origin, err := webauthn.ParseOrigin("https://" + passkeyRPID)
+	if err != nil {
+		t.Fatalf("ParseOrigin: %v", err)
+	}
+	r := &relyingParty{t: t, rp: rp, store: accesstest.NewMemStore(), origin: origin}
+	r.user = &access.User{Username: "alice", Enabled: true, Role: access.RoleUser, WebAuthnHandle: access.GenerateWebAuthnHandle()}
+	if err := r.store.CreateUser(t.Context(), r.user); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	return r
 }
 
 func mustJSON(t *testing.T, v any) []byte {
@@ -49,137 +58,259 @@ func mustJSON(t *testing.T, v any) []byte {
 	return out
 }
 
-// register runs a resident-key registration with credProps through go-webauthn
-// and stores the credential on user.
-func register(t *testing.T, wa *gowebauthn.WebAuthn, dev *accesstest.PasskeyDevice, user *passkeyUser) (*protocol.ParsedCredentialCreationData, *gowebauthn.Credential, error) {
-	t.Helper()
-	creation, session, err := wa.BeginRegistration(user,
-		gowebauthn.WithResidentKeyRequirement(protocol.ResidentKeyRequirementRequired),
-		gowebauthn.WithExtensions(gowebauthn.WithExtensionCredProps()))
+func (r *relyingParty) webauthnUser() *webauthn.User {
+	r.t.Helper()
+	creds, err := r.store.PasskeysByUserID(r.t.Context(), r.user.ID)
 	if err != nil {
-		t.Fatalf("BeginRegistration: %v", err)
+		r.t.Fatalf("PasskeysByUserID: %v", err)
 	}
-	parsed, err := protocol.ParseCredentialCreationResponseBytes(dev.Register(mustJSON(t, creation)))
+	wu, err := webauthn.NewUser(r.user, creds)
 	if err != nil {
-		t.Fatalf("ParseCredentialCreationResponseBytes: %v", err)
+		r.t.Fatalf("NewUser: %v", err)
 	}
-	cred, err := wa.CreateCredential(user, *session, parsed)
-	if err == nil {
-		user.creds = append(user.creds, *cred)
-	}
-	return parsed, cred, err
+	return wu
 }
 
-// passkeyLogin runs a discoverable login through go-webauthn and returns the
-// parsed assertion and the credential go-webauthn validated.
-func passkeyLogin(t *testing.T, wa *gowebauthn.WebAuthn, dev *accesstest.PasskeyDevice, user *passkeyUser) (*protocol.ParsedCredentialAssertionData, *gowebauthn.Credential, error) {
-	t.Helper()
-	assertion, session, err := wa.BeginDiscoverableLogin()
+// register runs a registration ceremony on dev and stores the record
+// FinishRegistration builds.
+func (r *relyingParty) register(dev *accesstest.PasskeyDevice) (*access.PasskeyCredential, registrationBody, error) {
+	r.t.Helper()
+	wu := r.webauthnUser()
+	creation, ceremony, err := webauthn.BeginRegistration(r.rp, wu, r.origin)
 	if err != nil {
-		t.Fatalf("BeginDiscoverableLogin: %v", err)
+		r.t.Fatalf("BeginRegistration: %v", err)
 	}
-	parsed, err := protocol.ParseCredentialRequestResponseBytes(dev.Assert(mustJSON(t, assertion)))
+	raw := dev.Register(mustJSON(r.t, creation))
+	var body registrationBody
+	if err := json.Unmarshal(raw, &body); err != nil {
+		r.t.Fatalf("registration body: %v", err)
+	}
+	cred, err := webauthn.FinishRegistration(r.rp, wu, ceremony, bytes.NewReader(raw))
 	if err != nil {
-		t.Fatalf("ParseCredentialRequestResponseBytes: %v", err)
+		return nil, body, err
 	}
-	handler := func(rawID, userHandle []byte) (gowebauthn.User, error) {
-		if !bytes.Equal(userHandle, user.id) {
-			return nil, protocol.ErrBadRequest.WithDetails("unknown user handle")
+	if err := r.store.CreatePasskey(r.t.Context(), cred); err != nil {
+		r.t.Fatalf("CreatePasskey: %v", err)
+	}
+	return cred, body, nil
+}
+
+func (r *relyingParty) mustRegister(dev *accesstest.PasskeyDevice) (*access.PasskeyCredential, registrationBody) {
+	r.t.Helper()
+	cred, body, err := r.register(dev)
+	if err != nil {
+		r.t.Fatalf("FinishRegistration: %v", err)
+	}
+	return cred, body
+}
+
+// login runs a discoverable login on dev.
+func (r *relyingParty) login(dev *accesstest.PasskeyDevice) (webauthn.LoginResult, assertionBody, error) {
+	r.t.Helper()
+	assertion, ceremony, err := webauthn.BeginLogin(r.rp, r.origin)
+	if err != nil {
+		r.t.Fatalf("BeginLogin: %v", err)
+	}
+	raw := dev.Assert(mustJSON(r.t, assertion))
+	res, err := webauthn.CompleteLogin(r.t.Context(), r.rp, passkeyCustody{r.store}, ceremony, bytes.NewReader(raw))
+	return res, r.assertionBody(raw), err
+}
+
+// reauthenticate runs an assertion bound to the user's credentials on dev.
+func (r *relyingParty) reauthenticate(dev *accesstest.PasskeyDevice) (webauthn.LoginResult, error) {
+	r.t.Helper()
+	wu := r.webauthnUser()
+	assertion, ceremony, err := webauthn.BeginReauthentication(r.rp, wu, r.origin)
+	if err != nil {
+		r.t.Fatalf("BeginReauthentication: %v", err)
+	}
+	raw := dev.Assert(mustJSON(r.t, assertion))
+	return webauthn.CompleteReauthentication(r.t.Context(), r.rp, passkeyCustody{r.store}, r.webauthnUser(), ceremony, bytes.NewReader(raw))
+}
+
+func (r *relyingParty) passkey(credID []byte) access.PasskeyCredential {
+	r.t.Helper()
+	creds, err := r.store.PasskeysByUserID(r.t.Context(), r.user.ID)
+	if err != nil {
+		r.t.Fatalf("PasskeysByUserID: %v", err)
+	}
+	i := slices.IndexFunc(creds, func(c access.PasskeyCredential) bool { return bytes.Equal(c.CredentialID, credID) })
+	if i < 0 {
+		r.t.Fatalf("the user holds no passkey %x", credID)
+	}
+	return creds[i]
+}
+
+// passkeyCustody is a webauthn.Store over a MemStore whose RecordAssertion
+// merges in one Update, under the contract webauthn.Store states.
+type passkeyCustody struct{ *accesstest.MemStore }
+
+func (m passkeyCustody) RecordAssertion(ctx context.Context, userID int64, credID []byte, upd access.PasskeyLoginUpdate) error {
+	return m.Update(ctx, func(tx account.Tx) error {
+		held, err := tx.PasskeysByUserID(ctx, userID)
+		if err != nil {
+			return err
 		}
-		return user, nil
+		i := slices.IndexFunc(held, func(pk access.PasskeyCredential) bool { return bytes.Equal(pk.CredentialID, credID) })
+		if i < 0 {
+			return account.ErrNotFound
+		}
+		merged := upd
+		merged.SignCount = max(held[i].SignCount, upd.SignCount)
+		merged.CloneWarning = held[i].CloneWarning || upd.CloneWarning
+		return tx.UpdatePasskeyAfterLogin(ctx, userID, credID, merged)
+	})
+}
+
+// registrationBody is the part of the device's registration body the tests
+// read back.
+type registrationBody struct {
+	Response struct {
+		AuthenticatorData  string `json:"authenticatorData"`
+		PublicKey          string `json:"publicKey"`
+		AttestationObject  string `json:"attestationObject"`
+		PublicKeyAlgorithm int    `json:"publicKeyAlgorithm"`
+	} `json:"response"`
+}
+
+// assertionBody is the device's assertion body, its members decoded.
+type assertionBody struct {
+	rawID, clientDataJSON, authData, signature, userHandle []byte
+}
+
+func (r *relyingParty) assertionBody(raw []byte) assertionBody {
+	r.t.Helper()
+	var body struct {
+		RawID    string `json:"rawId"`
+		Response struct {
+			ClientDataJSON    string `json:"clientDataJSON"`
+			AuthenticatorData string `json:"authenticatorData"`
+			Signature         string `json:"signature"`
+			UserHandle        string `json:"userHandle"`
+		} `json:"response"`
 	}
-	_, cred, err := wa.ValidatePasskeyLogin(handler, *session, parsed)
-	return parsed, cred, err
+	if err := json.Unmarshal(raw, &body); err != nil {
+		r.t.Fatalf("assertion body: %v", err)
+	}
+	return assertionBody{
+		rawID:          unb64(r.t, body.RawID),
+		clientDataJSON: unb64(r.t, body.Response.ClientDataJSON),
+		authData:       authDataHead(r.t, unb64(r.t, body.Response.AuthenticatorData)),
+		signature:      unb64(r.t, body.Response.Signature),
+		userHandle:     unb64(r.t, body.Response.UserHandle),
+	}
 }
 
-type registeredPasskey struct {
-	wa   *gowebauthn.WebAuthn
-	dev  *accesstest.PasskeyDevice
-	user *passkeyUser
-	reg  *protocol.ParsedCredentialCreationData
-	cred *gowebauthn.Credential
-}
-
-func registeredDevice(t *testing.T) registeredPasskey {
+func unb64(t *testing.T, s string) []byte {
 	t.Helper()
-	r := registeredPasskey{wa: newRelyingParty(t), dev: accesstest.NewPasskeyDevice(t), user: &passkeyUser{id: []byte("user-handle-1")}}
-	var err error
-	if r.reg, r.cred, err = register(t, r.wa, r.dev, r.user); err != nil {
-		t.Fatalf("CreateCredential: %v", err)
+	out, err := base64.RawURLEncoding.DecodeString(s)
+	if err != nil {
+		t.Fatalf("base64url %q: %v", s, err)
 	}
-	return r
+	return out
+}
+
+// authDataHead checks that authData holds its fixed head: the rpIdHash, the
+// flags octet and the signature counter (WebAuthn L3 §6.1).
+func authDataHead(t *testing.T, authData []byte) []byte {
+	t.Helper()
+	if len(authData) < 37 {
+		t.Fatalf("authenticator data is %d bytes, shorter than its 37-byte head", len(authData))
+	}
+	return authData
+}
+
+// The authenticator-data fields at their WebAuthn L3 §6.1 offsets.
+func rpIDHash(authData []byte) []byte  { return authData[:32] }
+func flags(authData []byte) byte       { return authData[32] }
+func signCount(authData []byte) uint32 { return binary.BigEndian.Uint32(authData[33:37]) }
+
+func (b assertionBody) origin(t *testing.T) string {
+	t.Helper()
+	var c struct {
+		Origin string `json:"origin"`
+	}
+	if err := json.Unmarshal(b.clientDataJSON, &c); err != nil {
+		t.Fatalf("clientDataJSON: %v", err)
+	}
+	return c.Origin
 }
 
 func TestPasskeyDeviceRoundTrip(t *testing.T) {
 	t.Run("registration", func(t *testing.T) {
-		r := registeredDevice(t)
-		if !bytes.Equal(r.cred.ID, r.dev.CredentialID) {
-			t.Errorf("credential ID = %x, want the device's %x", r.cred.ID, r.dev.CredentialID)
+		r := newRelyingParty(t)
+		dev := accesstest.NewPasskeyDevice(t)
+		cred, body := r.mustRegister(dev)
+		if !bytes.Equal(cred.CredentialID, dev.CredentialID) {
+			t.Errorf("credential ID = %x, want the device's %x", cred.CredentialID, dev.CredentialID)
 		}
-		if alg := r.reg.Raw.AttestationResponse.PublicKeyAlgorithm; r.cred.AttestationFormat != "none" || alg != -7 {
-			t.Errorf("attestation %q alg %d, want none and -7", r.cred.AttestationFormat, alg)
+		attObj := unb64(t, body.Response.AttestationObject)
+		if alg := body.Response.PublicKeyAlgorithm; !bytes.HasPrefix(attObj, []byte("\xa3\x63fmt\x64none")) || alg != -7 {
+			t.Errorf("attestation object %x..., alg %d; want fmt none and -7", attObj[:min(len(attObj), 12)], alg)
 		}
-		if r.cred.Extensions.RK == nil || !*r.cred.Extensions.RK {
-			t.Errorf("credProps rk = %v, want true", r.cred.Extensions.RK)
+		if cred.Discoverable == nil || !*cred.Discoverable {
+			t.Errorf("credProps rk = %v, want true", cred.Discoverable)
 		}
-		if got := r.reg.Response.AttestationObject.AuthData.Flags; got != 0x5D {
-			t.Errorf("registration flags = %#x, want 0x5d", got)
+		if cred.RawFlags != 0x5D {
+			t.Errorf("registration flags = %#x, want 0x5d", cred.RawFlags)
 		}
-		if r.cred.Authenticator.SignCount != 0 {
-			t.Errorf("registration sign count = %d, want 0", r.cred.Authenticator.SignCount)
+		if cred.SignCount != 0 {
+			t.Errorf("registration sign count = %d, want 0", cred.SignCount)
 		}
 	})
 
 	t.Run("discoverable_login", func(t *testing.T) {
-		r := registeredDevice(t)
-		parsed, got, err := passkeyLogin(t, r.wa, r.dev, r.user)
+		r := newRelyingParty(t)
+		dev := accesstest.NewPasskeyDevice(t)
+		_, reg := r.mustRegister(dev)
+		res, got, err := r.login(dev)
 		if err != nil {
-			t.Fatalf("ValidatePasskeyLogin: %v", err)
+			t.Fatalf("CompleteLogin: %v", err)
 		}
-		if got.Authenticator.SignCount != 1 || got.Authenticator.CloneWarning {
-			t.Errorf("sign count %d, clone warning %v; want 1 and false", got.Authenticator.SignCount, got.Authenticator.CloneWarning)
+		if stored := r.passkey(dev.CredentialID); stored.SignCount != 1 || res.CloneWarning || stored.CloneWarning {
+			t.Errorf("sign count %d, clone warning %v (stored %v); want 1 and false", stored.SignCount, res.CloneWarning, stored.CloneWarning)
 		}
-		if !bytes.Equal(parsed.Response.UserHandle, r.user.id) {
-			t.Errorf("userHandle = %q, want the registered %q", parsed.Response.UserHandle, r.user.id)
+		if !bytes.Equal(got.userHandle, r.user.WebAuthnHandle) || res.User == nil || res.User.ID != r.user.ID {
+			t.Errorf("userHandle = %x signing in %+v, want the registered %x", got.userHandle, res.User, r.user.WebAuthnHandle)
 		}
-		if parsed.Response.AuthenticatorData.Flags != 0x1D {
-			t.Errorf("assertion flags = %#x, want 0x1d", parsed.Response.AuthenticatorData.Flags)
+		if flags(got.authData) != 0x1D {
+			t.Errorf("assertion flags = %#x, want 0x1d", flags(got.authData))
 		}
-		// go-webauthn checked the signature against the COSE key; this checks
-		// it against the registration's SPKI publicKey with the stdlib.
-		pub, err := x509.ParsePKIXPublicKey(r.reg.Raw.AttestationResponse.PublicKey)
+		// access checked the signature against the COSE key; this checks it
+		// against the registration's SPKI publicKey with the stdlib.
+		pub, err := x509.ParsePKIXPublicKey(unb64(t, reg.Response.PublicKey))
 		key, ok := pub.(*ecdsa.PublicKey)
 		if err != nil || !ok {
 			t.Fatalf("registration publicKey = %T, %v; want an ECDSA key", pub, err)
 		}
-		clientHash := sha256.Sum256(parsed.Raw.AssertionResponse.ClientDataJSON)
-		digest := sha256.Sum256(append(bytes.Clone(parsed.Raw.AssertionResponse.AuthenticatorData), clientHash[:]...))
-		if !ecdsa.VerifyASN1(key, digest[:], parsed.Response.Signature) {
+		clientHash := sha256.Sum256(got.clientDataJSON)
+		digest := sha256.Sum256(append(bytes.Clone(got.authData), clientHash[:]...))
+		if !ecdsa.VerifyASN1(key, digest[:], got.signature) {
 			t.Error("the assertion signature does not verify under the registered key")
 		}
 	})
 
 	t.Run("user_bound_login", func(t *testing.T) {
-		r := registeredDevice(t)
-		assertion, session, err := r.wa.BeginLogin(r.user)
+		r := newRelyingParty(t)
+		dev := accesstest.NewPasskeyDevice(t)
+		r.mustRegister(dev)
+		res, err := r.reauthenticate(dev)
 		if err != nil {
-			t.Fatalf("BeginLogin: %v", err)
+			t.Fatalf("CompleteReauthentication: %v", err)
 		}
-		parsed, err := protocol.ParseCredentialRequestResponseBytes(r.dev.Assert(mustJSON(t, assertion)))
-		if err != nil {
-			t.Fatalf("ParseCredentialRequestResponseBytes: %v", err)
-		}
-		if _, err := r.wa.ValidateLogin(r.user, *session, parsed); err != nil {
-			t.Errorf("ValidateLogin: %v", err)
+		if res.User == nil || res.User.ID != r.user.ID || !bytes.Equal(res.CredentialID, dev.CredentialID) {
+			t.Errorf("LoginResult = %+v, want the user's credential %x", res, dev.CredentialID)
 		}
 	})
 
 	t.Run("another_key_is_refused", func(t *testing.T) {
-		r := registeredDevice(t)
+		r := newRelyingParty(t)
+		dev := accesstest.NewPasskeyDevice(t)
+		r.mustRegister(dev)
 		impostor := accesstest.NewPasskeyDevice(t)
-		impostor.CredentialID = r.dev.CredentialID
-		impostor.UserHandle = r.user.id
-		if _, _, err := passkeyLogin(t, r.wa, impostor, r.user); err == nil {
+		impostor.CredentialID = dev.CredentialID
+		impostor.UserHandle = r.user.WebAuthnHandle
+		if _, _, err := r.login(impostor); err == nil {
 			t.Error("an assertion signed by another key validated")
 		}
 	})
@@ -187,65 +318,53 @@ func TestPasskeyDeviceRoundTrip(t *testing.T) {
 
 func TestPasskeyDeviceKnobs(t *testing.T) {
 	t.Run("credential_id", func(t *testing.T) {
-		wa := newRelyingParty(t)
+		r := newRelyingParty(t)
 		dev := accesstest.NewPasskeyDevice(t)
 		dev.CredentialID = bytes.Repeat([]byte{0xA5}, 300)
-		user := &passkeyUser{id: []byte("u1")}
-		_, cred, err := register(t, wa, dev, user)
-		if err != nil {
-			t.Fatalf("CreateCredential: %v", err)
+		cred, _ := r.mustRegister(dev)
+		if !bytes.Equal(cred.CredentialID, dev.CredentialID) {
+			t.Errorf("credential ID = %x, want %x", cred.CredentialID, dev.CredentialID)
 		}
-		if !bytes.Equal(cred.ID, dev.CredentialID) {
-			t.Errorf("credential ID = %x, want %x", cred.ID, dev.CredentialID)
-		}
-		parsed, _, err := passkeyLogin(t, wa, dev, user)
-		if err != nil || !bytes.Equal(parsed.RawID, dev.CredentialID) {
-			t.Errorf("login rawId = %x, %v; want %x", parsed.RawID, err, dev.CredentialID)
+		res, got, err := r.login(dev)
+		if err != nil || !bytes.Equal(got.rawID, dev.CredentialID) || !bytes.Equal(res.CredentialID, dev.CredentialID) {
+			t.Errorf("login rawId = %x, signed in with %x, %v; want %x", got.rawID, res.CredentialID, err, dev.CredentialID)
 		}
 	})
 
 	t.Run("sign_count_regression", func(t *testing.T) {
-		wa := newRelyingParty(t)
+		r := newRelyingParty(t)
 		dev := accesstest.NewPasskeyDevice(t)
-		user := &passkeyUser{id: []byte("u1")}
-		if _, _, err := register(t, wa, dev, user); err != nil {
-			t.Fatalf("CreateCredential: %v", err)
-		}
+		r.mustRegister(dev)
 		dev.SignCount = 4
-		_, cred, err := passkeyLogin(t, wa, dev, user)
+		res, _, err := r.login(dev)
 		if err != nil {
 			t.Fatalf("first login: %v", err)
 		}
-		if cred.Authenticator.SignCount != 5 || cred.Authenticator.CloneWarning {
-			t.Fatalf("first login: count %d, warning %v; want 5 and false", cred.Authenticator.SignCount, cred.Authenticator.CloneWarning)
+		if stored := r.passkey(dev.CredentialID); stored.SignCount != 5 || res.CloneWarning {
+			t.Fatalf("first login: count %d, warning %v; want 5 and false", stored.SignCount, res.CloneWarning)
 		}
-		user.creds[0] = *cred
 		dev.SignCount = 2
-		parsed, cred, err := passkeyLogin(t, wa, dev, user)
+		res, got, err := r.login(dev)
 		if err != nil {
 			t.Fatalf("regressed login: %v", err)
 		}
-		if parsed.Response.AuthenticatorData.Counter != 3 || !cred.Authenticator.CloneWarning {
-			t.Errorf("regressed login: counter %d, warning %v; want 3 and true", parsed.Response.AuthenticatorData.Counter, cred.Authenticator.CloneWarning)
+		if signCount(got.authData) != 3 || !res.CloneWarning {
+			t.Errorf("regressed login: counter %d, warning %v; want 3 and true", signCount(got.authData), res.CloneWarning)
 		}
 	})
 
 	t.Run("flags", func(t *testing.T) {
-		wa := newRelyingParty(t)
+		r := newRelyingParty(t)
 		dev := accesstest.NewPasskeyDevice(t)
-		user := &passkeyUser{id: []byte("u1")}
 		dev.Flags = 0x45 // UP, UV and AT: a device-bound credential
-		parsedReg, _, err := register(t, wa, dev, user)
-		if err != nil {
-			t.Fatalf("CreateCredential: %v", err)
-		}
-		if got := parsedReg.Response.AttestationObject.AuthData.Flags; got != 0x45 {
-			t.Errorf("registration flags = %#x, want 0x45", got)
+		cred, _ := r.mustRegister(dev)
+		if cred.RawFlags != 0x45 {
+			t.Errorf("registration flags = %#x, want 0x45", cred.RawFlags)
 		}
 		dev.Flags = 0x0D // UP, UV and BE: inconsistent with the registered BE=0
-		parsed, _, err := passkeyLogin(t, wa, dev, user)
-		if got := parsed.Response.AuthenticatorData.Flags; got != 0x0D {
-			t.Errorf("assertion flags = %#x, want 0x0d", got)
+		_, got, err := r.login(dev)
+		if flags(got.authData) != 0x0D {
+			t.Errorf("assertion flags = %#x, want 0x0d", flags(got.authData))
 		}
 		if err == nil {
 			t.Error("a backup-eligibility flip validated")
@@ -253,16 +372,13 @@ func TestPasskeyDeviceKnobs(t *testing.T) {
 	})
 
 	t.Run("origin", func(t *testing.T) {
-		wa := newRelyingParty(t)
+		r := newRelyingParty(t)
 		dev := accesstest.NewPasskeyDevice(t)
-		user := &passkeyUser{id: []byte("u1")}
-		if _, _, err := register(t, wa, dev, user); err != nil {
-			t.Fatalf("CreateCredential: %v", err)
-		}
+		r.mustRegister(dev)
 		dev.Origin = "https://evil.example.com:8443"
-		parsed, _, err := passkeyLogin(t, wa, dev, user)
-		if got := parsed.Response.CollectedClientData.Origin; got != dev.Origin {
-			t.Errorf("clientData origin = %q, want %q", got, dev.Origin)
+		_, got, err := r.login(dev)
+		if o := got.origin(t); o != dev.Origin {
+			t.Errorf("clientData origin = %q, want %q", o, dev.Origin)
 		}
 		if err == nil {
 			t.Error("an assertion from a foreign origin validated")
@@ -270,40 +386,34 @@ func TestPasskeyDeviceKnobs(t *testing.T) {
 	})
 
 	t.Run("user_handle", func(t *testing.T) {
-		wa := newRelyingParty(t)
+		r := newRelyingParty(t)
 		dev := accesstest.NewPasskeyDevice(t)
-		user := &passkeyUser{id: []byte("u1")}
-		if _, _, err := register(t, wa, dev, user); err != nil {
-			t.Fatalf("CreateCredential: %v", err)
-		}
+		r.mustRegister(dev)
 		dev.UserHandle = []byte("someone-else")
-		parsed, _, err := passkeyLogin(t, wa, dev, user)
-		if !bytes.Equal(parsed.Response.UserHandle, dev.UserHandle) || err == nil {
-			t.Errorf("userHandle %q, err %v; want %q and a refusal", parsed.Response.UserHandle, err, dev.UserHandle)
+		_, got, err := r.login(dev)
+		if !bytes.Equal(got.userHandle, dev.UserHandle) || err == nil {
+			t.Errorf("userHandle %q, err %v; want %q and a refusal", got.userHandle, err, dev.UserHandle)
 		}
 		dev.UserHandle = []byte{}
-		parsed, _, err = passkeyLogin(t, wa, dev, user)
-		if len(parsed.Response.UserHandle) != 0 || err == nil {
-			t.Errorf("userHandle %q, err %v; want none and a refusal", parsed.Response.UserHandle, err)
+		_, got, err = r.login(dev)
+		if len(got.userHandle) != 0 || err == nil {
+			t.Errorf("userHandle %q, err %v; want none and a refusal", got.userHandle, err)
 		}
 	})
 
 	t.Run("rp_id_fallbacks", func(t *testing.T) {
-		wa := newRelyingParty(t)
+		r := newRelyingParty(t)
 		dev := accesstest.NewPasskeyDevice(t)
-		user := &passkeyUser{id: []byte("u1")}
-		if _, _, err := register(t, wa, dev, user); err != nil {
-			t.Fatalf("CreateCredential: %v", err)
-		}
+		r.mustRegister(dev)
 		noRPID := []byte(`{"publicKey":{"challenge":"Y2hhbGxlbmdl"}}`)
 		want := sha256.Sum256([]byte(passkeyRPID))
-		if got := assertedRPIDHash(t, dev.Assert(noRPID)); !bytes.Equal(got, want[:]) {
+		if got := rpIDHash(r.assertionBody(dev.Assert(noRPID)).authData); !bytes.Equal(got, want[:]) {
 			t.Errorf("after registration, rpIdHash = %x, want SHA-256(%q)", got, passkeyRPID)
 		}
 		fresh := accesstest.NewPasskeyDevice(t)
 		fresh.Origin = "https://login.example.org:8443"
 		want = sha256.Sum256([]byte("login.example.org"))
-		if got := assertedRPIDHash(t, fresh.Assert(noRPID)); !bytes.Equal(got, want[:]) {
+		if got := rpIDHash(r.assertionBody(fresh.Assert(noRPID)).authData); !bytes.Equal(got, want[:]) {
 			t.Errorf("from Origin, rpIdHash = %x, want SHA-256(login.example.org)", got)
 		}
 	})
@@ -318,15 +428,6 @@ func TestPasskeyDeviceKnobs(t *testing.T) {
 			t.Errorf("clientExtensionResults = %v, %v; want empty", got.ClientExtensionResults, err)
 		}
 	})
-}
-
-func assertedRPIDHash(t *testing.T, body []byte) []byte {
-	t.Helper()
-	parsed, err := protocol.ParseCredentialRequestResponseBytes(body)
-	if err != nil {
-		t.Fatalf("ParseCredentialRequestResponseBytes: %v", err)
-	}
-	return parsed.Response.AuthenticatorData.RPIDHash
 }
 
 func TestPasskeyDeviceCBORLengths(t *testing.T) {

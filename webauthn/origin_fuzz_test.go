@@ -1,18 +1,17 @@
 package webauthn
 
 import (
+	"net/url"
+	"strings"
 	"testing"
-
-	"github.com/go-webauthn/webauthn/protocol"
 )
 
-// FuzzParseOrigin_roundtrip pins the properties the origin design rests on:
+// FuzzParseOrigin_roundtrip pins the properties the origin binding rests on:
 // the parser never panics on an attacker-controlled header, a parsed origin
-// re-parses to itself, and the INPUT matches the parsed value under the
-// upstream comparator the response is verified with. The last is what a
-// repairing parser breaks, and it is the durable guard against re-introducing
-// one: with a trailing-dot strip, "https://example.com." parses to a value the
-// comparator no longer relates to the input.
+// re-parses to itself, and its String is the input origin's RFC 6454 §6.2
+// serialization. clientDataJSON's origin is compared byte for byte with that
+// String (verifyClientData), so a parser that repairs its input, stripping a
+// trailing dot, binds an origin the browser never sends.
 func FuzzParseOrigin_roundtrip(f *testing.F) {
 	for _, seed := range []string{
 		"https://example.com",
@@ -48,11 +47,30 @@ func FuzzParseOrigin_roundtrip(f *testing.F) {
 		if again != o {
 			t.Fatalf("ParseOrigin(%q) = %+v, re-parsed as %+v, want a stable round trip", raw, o, again)
 		}
-		if !protocol.IsOriginInHaystack(o.String(), []string{o.String()}) {
-			t.Fatalf("ParseOrigin(%q).String() = %q is not equal to itself under the upstream comparator", raw, o.String())
-		}
-		if !protocol.IsOriginInHaystack(raw, []string{o.String()}) {
-			t.Fatalf("ParseOrigin(%q) = %q, which the upstream comparator does not match against the input; the parser repaired something", raw, o.String())
+		if want := rfc6454Serialization(t, raw); o.String() != want {
+			t.Fatalf("ParseOrigin(%q).String() = %q, want the input's serialization %q; the parser repaired something", raw, o.String(), want)
 		}
 	})
+}
+
+// rfc6454Serialization is the ASCII serialization of raw's origin (RFC 6454
+// §4 and §6.2): the scheme and host lowercased, the scheme's default port
+// omitted.
+func rfc6454Serialization(t *testing.T, raw string) string {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("url.Parse(%q) = %v for an accepted origin", raw, err)
+	}
+	scheme, host, port := strings.ToLower(u.Scheme), strings.ToLower(u.Hostname()), u.Port()
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if scheme == "https" && port == "443" || scheme == "http" && port == "80" {
+		port = ""
+	}
+	if port == "" {
+		return scheme + "://" + host
+	}
+	return scheme + "://" + host + ":" + port
 }

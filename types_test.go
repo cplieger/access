@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/cplieger/access/internal/printcheck"
-	"github.com/go-webauthn/webauthn/protocol"
 )
 
 // fillReferences sets every slice and pointer field of *p to a fresh
@@ -167,17 +166,17 @@ func TestKeyLineage(t *testing.T) {
 }
 
 // TestDecodePasskeyFlags checks every octet, so all 16 combinations of the
-// four decoded bits and every setting of the others, against go-webauthn's
-// own decoder.
+// four decoded bits and every setting of the others, against the flag bits
+// of WebAuthn L3 §6.1: UP bit 0, UV bit 2, BE bit 3, BS bit 4.
 func TestDecodePasskeyFlags(t *testing.T) {
 	t.Parallel()
 	for o := range 256 {
 		octet := uint8(o)
-		f := protocol.AuthenticatorFlags(octet)
+		wantUP, wantUV, wantBE, wantBS := octet&(1<<0) != 0, octet&(1<<2) != 0, octet&(1<<3) != 0, octet&(1<<4) != 0
 		up, uv, be, bs := DecodePasskeyFlags(octet)
-		if up != f.UserPresent() || uv != f.UserVerified() || be != f.HasBackupEligible() || bs != f.HasBackupState() {
+		if up != wantUP || uv != wantUV || be != wantBE || bs != wantBS {
 			t.Errorf("DecodePasskeyFlags(%#02x) = (%t, %t, %t, %t), want (%t, %t, %t, %t)", octet, up, uv, be, bs,
-				f.UserPresent(), f.UserVerified(), f.HasBackupEligible(), f.HasBackupState())
+				wantUP, wantUV, wantBE, wantBS)
 		}
 	}
 	if up, uv, be, bs := DecodePasskeyFlags(0x1D); !up || !uv || !be || !bs {
