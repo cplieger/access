@@ -70,7 +70,7 @@ Discovery and the key-set fetch follow no redirect, and they never call your `Ch
 A token's header names one algorithm, and the key that verifies it must be of that algorithm's key type and curve.
 
 | `alg` | Key | Hash | Signature |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `RS256`, `RS384`, `RS512` | RSA | SHA-256, SHA-384, SHA-512 | RSASSA-PKCS1-v1_5, as long as the modulus |
 | `PS256`, `PS384`, `PS512` | RSA | SHA-256, SHA-384, SHA-512 | RSASSA-PSS with a salt the size of the hash, as long as the modulus |
 | `ES256`, `ES384`, `ES512` | EC on P-256, P-384, P-521 | SHA-256, SHA-384, SHA-512 | `R` and `S` side by side, exactly 64, 96 or 132 bytes, never DER |
@@ -83,7 +83,7 @@ A token's header names one algorithm, and the key that verifies it must be of th
 `NewProvider` fetches the provider's JSON Web Key Set from `jwks_uri` and judges each key once. The rows apply in order, and the first that matches decides.
 
 | The key | Result |
-|---|---|
+| --- | --- |
 | an `RSA`, `EC` or `OKP` key that carries a private member: `d`, `p`, `q`, `dp`, `dq`, `qi`, `oth`, `k` or `priv` | the whole set is refused |
 | more than 100 keys, or an entry of `keys` that is not an object | the whole set is refused |
 | a key type or curve outside the table above, such as `oct`, Ed448, X25519 or secp256k1 | skipped |
@@ -117,7 +117,7 @@ Every JSON document the package reads, the header, the payload, the key set and 
 A required claim that is missing, or a claim of the wrong type, refuses the token before any claim is compared.
 
 | Claim | Required | Rule |
-|---|---|---|
+| --- | --- | --- |
 | `iss` | yes | a string equal to `Config.IssuerURL`, with the Google exception below |
 | `sub` | yes | 1 to 255 ASCII characters with no control character |
 | `aud` | yes | a string, or a non-empty array of strings, each equal to your client ID |
@@ -166,8 +166,10 @@ Earlier versions verified tokens with `coreos/go-oidc`, and these behaviours cha
 - A token with no `nonce`, or a `null` one, now fails with `ErrTokenInvalid` where it failed with `ErrNonceMismatch`. Both are refused on every intent.
 - Discovery and key-set redirects are refused, and a status other than 200 is a failed fetch.
 - PS256, PS384 and PS512 accept only a salt the size of the hash, where any salt length passed before.
-- A key set that holds an `oct` key now verifies, and the `oct` key is skipped.
+- A key set that holds a key access cannot use, such as an `oct` key or a malformed RSA, EC or Ed25519 key, now verifies with that key skipped, where it failed the whole set before.
+- An RSA key with a modulus under 2048 bits is now skipped (RFC 7518 §3.3). A provider that signs only with one fails `NewProvider` with `ErrDiscovery`, so rotate it to a key of 2048 bits or more.
 - An RSA key with the CVE-2017-15361 fingerprint, and an Ed25519 key of small order, are now skipped.
+- A header `kid` of `""` is a key ID and matches only a key whose `kid` is `""`, where every key was tried before.
 - A Google user's two `iss` forms are one identity. An identity stored with `Issuer` set to `accounts.google.com` no longer matches. That user signs in as new, unless you rewrite the stored issuer to `https://accounts.google.com`.
 - A header `kid` or `typ` of `null`, a `typ` other than `JWT` or `application/jwt`, and a `crit` header in any form are refused.
 - A header or payload with a duplicate member name or invalid UTF-8 at any depth is refused, a custom claim included.

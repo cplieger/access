@@ -64,12 +64,7 @@ func ParseAlg(name string) (Alg, bool) {
 	return 0, false
 }
 
-func (a Alg) row() row {
-	if int(a) >= len(rows) {
-		return row{}
-	}
-	return rows[a]
-}
+func (a Alg) row() row { return rows[a] }
 
 // String is the row's registered name; EdDSA's is "EdDSA".
 func (a Alg) String() string { return a.row().name }
