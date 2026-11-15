@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -207,7 +208,7 @@ var producerErrors = map[string]error{
 type termKind int
 
 const (
-	termLeaf      termKind = iota // a registered error: obj is its var or type name
+	termLeaf      termKind = iota // a module error: obj is its var or type name
 	termOpaque                    // an error no module producer names
 	termParam                     // the error parameter obj holds, bound at the call
 	termParamCall                 // what calling parameter obj, or its field at path, returns
@@ -555,7 +556,8 @@ func (p *producers) inModule(pkg *types.Package) bool {
 
 // nameable reports whether accesshttp can name obj, an object of the
 // module: exported, and outside any internal directory accesshttp is not
-// under (go help internal). An error it cannot name reads as opaque.
+// under (go help internal). An error it cannot name needs no
+// producerErrors row: it stands in by a value of its own (errorValue).
 func nameable(obj types.Object) bool {
 	if !obj.Exported() {
 		return false
@@ -727,13 +729,31 @@ func registered(obj types.Object) bool {
 	return ok
 }
 
-// leaf is obj as a chain's leaf; an exported one with no producerErrors
+// leaf is obj as a chain's leaf; a nameable one with no producerErrors
 // row is recorded, for the test to name.
 func (p *producers) leaf(obj types.Object) errValue {
-	if !registered(obj) {
+	if !registered(obj) && nameable(obj) {
 		p.unregistered[qualified(obj)] = true
 	}
 	return valueOf(chain{{kind: termLeaf, obj: obj}})
+}
+
+// standIns holds the value of each error accesshttp cannot name, by
+// qualified name, so one error is one value in every chain and classify
+// names it only through a wrap that accesshttp can name.
+var standIns sync.Map
+
+// errorValue is obj's value in a chain: its producerErrors row, or the
+// stand-in of an error accesshttp cannot name.
+func errorValue(obj types.Object) (error, bool) {
+	if v, ok := producerErrors[qualified(obj)]; ok {
+		return v, true
+	}
+	if nameable(obj) {
+		return nil, false
+	}
+	v, _ := standIns.LoadOrStore(qualified(obj), errors.New(qualified(obj)))
+	return v.(error), true
 }
 
 func (p *producers) evalObj(obj types.Object) errValue {
@@ -746,7 +766,7 @@ func (p *producers) evalObj(obj types.Object) errValue {
 		switch {
 		case !p.inModule(v.Pkg()):
 			return opaqueValue
-		case registered(v) || nameable(v):
+		case registered(v) || v.Exported():
 			return p.leaf(v)
 		case p.inits[v] != nil:
 			return p.eval(p.inits[v])
@@ -857,7 +877,7 @@ func (p *producers) evalLit(lit *ast.CompositeLit) errValue {
 	switch {
 	case !ok || !p.inModule(named.Obj().Pkg()):
 		return opaqueValue
-	case registered(named.Obj()) || nameable(named.Obj()):
+	case registered(named.Obj()) || named.Obj().Exported():
 		return cross(p.leaf(named.Obj()), children)
 	}
 	if c, ok := children[""]; ok && len(c) == 0 {
@@ -877,7 +897,7 @@ func (p *producers) evalAddr(x ast.Expr) errValue {
 	switch {
 	case !ok || !p.inModule(named.Obj().Pkg()):
 		return opaqueValue
-	case registered(named.Obj()) || nameable(named.Obj()):
+	case registered(named.Obj()) || named.Obj().Exported():
 		return p.leaf(named.Obj())
 	}
 	id, ok := x.(*ast.Ident)
@@ -1213,14 +1233,14 @@ func (p *producers) bind(sum errValue, fn ast.Node, call *ast.CallExpr) errValue
 	return out
 }
 
-// values is c's registered errors, false when c holds an unregistered one.
+// values is c's leaves' errors, false when c holds an unregistered one.
 func values(c chain) ([]error, bool) {
 	var vals []error
 	for _, tm := range c {
 		if tm.kind != termLeaf {
 			continue
 		}
-		v, ok := producerErrors[qualified(tm.obj)]
+		v, ok := errorValue(tm.obj)
 		if !ok {
 			return nil, false
 		}
@@ -1296,7 +1316,7 @@ func matchValues(vals []error, test errTest) (match, known bool) {
 	joined := errors.Join(vals...)
 	switch {
 	case test.sentinel != nil:
-		target, ok := producerErrors[qualified(test.sentinel)]
+		target, ok := errorValue(test.sentinel)
 		return ok && errors.Is(joined, target), ok
 	case test.typ != nil:
 		target, ok := producerErrors[qualified(test.typ)]
