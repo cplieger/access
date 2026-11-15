@@ -205,7 +205,7 @@ Once per `Prune` interval, each dimension that evicted keys at their limit logs 
 
 ## OIDC provider
 
-`oidc.NewProvider(ctx, cfg)` takes an `oidc.Config`, runs discovery and refuses a discovery document whose authorization, token or JWKS endpoint is not an absolute `https` URL. Plain `http` is accepted only on a loopback host while the issuer is itself a loopback `http` URL.
+`oidc.NewProvider(ctx, cfg)` takes an `oidc.Config`, runs discovery and fetches the provider's key set. It refuses a discovery document whose authorization, token or JWKS endpoint is not an absolute `https` URL. Plain `http` is accepted only on a loopback host while the issuer is itself a loopback `http` URL.
 
 | Field | What it sets | Default |
 | --- | --- | --- |
@@ -213,9 +213,10 @@ Once per `Prune` interval, each dimension that evicted keys at their limit logs 
 | `ClientID`, `ClientSecret` | The client registration; the secret is an `access.Secret` | required |
 | `RedirectURL` | The callback URL registered with the provider | required |
 | `Scopes` | The requested scopes, which must include `openid` | `openid`, `profile` and `email` |
-| `HTTPClient` | The client for discovery, JWKS and token calls. The provider uses a copy, wraps its transport to refuse a body over 1 MiB, and refuses a negative timeout | a client with a 10 s timeout |
+| `HTTPClient` | The client for discovery, JWKS and token calls. The provider uses a copy, wraps its transport to refuse a body over 1 MiB, and refuses a negative timeout. `CheckRedirect` applies to the token call only, since discovery and JWKS calls follow no redirect | a client with a 10 s timeout |
 | `FlowSealer` | The `*access.Sealer` for the flow cookie | a new ephemeral sealer per provider |
-| `Now` | The clock for the flow cookie and the ID token's expiry | `time.Now` |
+| `Now` | The clock for the flow cookie, the ID token's time claims and the key set's refresh timing | `time.Now` |
+| `Logger` | The `*slog.Logger` for the key set's warnings | `slog.Default()` at each call |
 
 An ephemeral `FlowSealer` means a flow begun under one provider cannot finish under a rebuilt one. An app that rebuilds its provider when its settings change passes one sealer that outlives them. The flow cookie lives 10 minutes, the return path is at most 512 bytes, and a step-up accepts 60 s of `auth_time` skew. [OIDC sign-in](oidc.md) explains the flow.
 
