@@ -9,7 +9,7 @@
   "excluded": [
    {
     "name": "ValidRPIDUppercase",
-    "reason": "access refuses an ID that is not spelled in lowercase (design 7.4)"
+    "reason": "access refuses an ID that is not spelled in lowercase (docs/webauthn.md, The relying party)"
    },
    {
     "name": "ValidRPIDUnderscoreIsNotForbidden",

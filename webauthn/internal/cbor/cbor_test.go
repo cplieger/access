@@ -136,27 +136,16 @@ func render(v Value) string {
 			parts = append(parts, render(k)+": "+render(e))
 		}
 		return "{" + strings.Join(parts, ", ") + "}"
-	case kindBool:
-		if v.i != 0 {
-			return "true"
-		}
-		return "false"
-	case kindNull:
-		return "null"
-	case kindUndefined:
-		return "undefined"
-	case kindSimple:
-		return "simple"
-	case kindFloat:
-		return "float"
+	case kindOther:
+		return "other"
 	default:
 		return "invalid"
 	}
 }
 
-// RFC 8949 Appendix A's array and map rows, and the major-type-7 rows: the
-// simple values other than false, true, null and undefined, and the floats,
-// are read past and kept as their kind.
+// RFC 8949 Appendix A's array and map rows, and the major-type-7 rows
+// (booleans, null, undefined, simple values, floats), which access never
+// reads: each decodes to a value no accessor answers for.
 func TestDecode_RFC8949AppendixA_containersAndSimple(t *testing.T) {
 	t.Parallel()
 	tests := []struct{ in, want string }{
@@ -175,23 +164,23 @@ func TestDecode_RFC8949AppendixA_containersAndSimple(t *testing.T) {
 			"a56161614161626142616361436164614461656145",
 			`{"a": "A", "b": "B", "c": "C", "d": "D", "e": "E"}`,
 		},
-		{"f4", "false"},
-		{"f5", "true"},
-		{"f6", "null"},
-		{"f7", "undefined"},
-		{"f0", "simple"},
-		{"f8ff", "simple"},
-		{"f90000", "float"},
-		{"f98000", "float"},
-		{"f93c00", "float"},
-		{"f97bff", "float"},
-		{"f97c00", "float"},
-		{"f97e00", "float"},
-		{"fa47c35000", "float"},
-		{"fa7f7fffff", "float"},
-		{"fb3ff199999999999a", "float"},
-		{"fb7e37e43c8800759c", "float"},
-		{"fbfff0000000000000", "float"},
+		{"f4", "other"},
+		{"f5", "other"},
+		{"f6", "other"},
+		{"f7", "other"},
+		{"f0", "other"},
+		{"f8ff", "other"},
+		{"f90000", "other"},
+		{"f98000", "other"},
+		{"f93c00", "other"},
+		{"f97bff", "other"},
+		{"f97c00", "other"},
+		{"f97e00", "other"},
+		{"fa47c35000", "other"},
+		{"fa7f7fffff", "other"},
+		{"fb3ff199999999999a", "other"},
+		{"fb7e37e43c8800759c", "other"},
+		{"fbfff0000000000000", "other"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
@@ -399,8 +388,8 @@ func TestDecode_duplicateKey(t *testing.T) {
 	}
 	t.Run("int and text are different keys", func(t *testing.T) {
 		t.Parallel()
-		if got := render(decodeAll(t, "a201006131f5")); got != `{1: 0, "1": true}` {
-			t.Errorf("Decode = %s, want {1: 0, \"1\": true}", got)
+		if got := render(decodeAll(t, "a201006131f5")); got != `{1: 0, "1": other}` {
+			t.Errorf("Decode = %s, want {1: 0, \"1\": other}", got)
 		}
 	})
 }

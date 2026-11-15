@@ -42,11 +42,9 @@ const (
 	kindText
 	kindArray
 	kindMap
-	kindBool
-	kindNull
-	kindUndefined
-	kindSimple
-	kindFloat
+	// kindOther is a major type 7 item (RFC 8949 §3.3): access reads none, so
+	// it keeps no value.
+	kindOther
 )
 
 // RFC 8949 §3.1 major types.
@@ -187,7 +185,7 @@ func (d *decoder) scanContainer(depth int, major byte, arg uint64) error {
 
 // item decodes an item scan has accepted, so its lengths fit the input.
 func (d *decoder) item() (Value, error) {
-	major, info, arg, err := d.head()
+	major, _, arg, err := d.head()
 	if err != nil {
 		return Value{}, err
 	}
@@ -213,7 +211,7 @@ func (d *decoder) item() (Value, error) {
 			return d.str(major, n)
 		}
 	default:
-		return simple(info, arg), nil
+		return Value{kind: kindOther}, nil
 	}
 }
 
@@ -267,24 +265,6 @@ func (d *decoder) mapItem(n int) (Value, error) {
 
 func sameKey(a, b *Value) bool {
 	return a.kind == b.kind && a.i == b.i && bytes.Equal(a.b, b.b)
-}
-
-// simple reads major type 7 (RFC 8949 §3.3) after scan has refused a
-// two-byte simple value below 32. Only the booleans, null and undefined carry
-// meaning for WebAuthn; the rest keep their kind alone.
-func simple(info byte, arg uint64) Value {
-	switch {
-	case info > 24:
-		return Value{kind: kindFloat}
-	case arg == 20, arg == 21:
-		return Value{kind: kindBool, i: int64(arg - 20)}
-	case arg == 22:
-		return Value{kind: kindNull}
-	case arg == 23:
-		return Value{kind: kindUndefined}
-	default:
-		return Value{kind: kindSimple}
-	}
 }
 
 // Int returns an unsigned or negative integer.

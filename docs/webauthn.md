@@ -104,7 +104,7 @@ Each response is read so that it has one meaning:
 
 - JSON member names match exactly, case included, a duplicate member at any level is refused, and so is invalid UTF-8. Members access does not read are ignored, because the response forms grow. The client data is at most 4 KiB, and a leading byte order mark is dropped before it is parsed.
 - The challenge must be the unpadded base64url of the ceremony's challenge, compared in constant time, so a padded or standard-alphabet copy is refused. `rawId`, `id` and `userHandle` must be unpadded too. The other binary members, the client data, the attestation object, the authenticator data and the signature, are accepted with trailing `=` padding, which some clients send.
-- CBOR is read by a bounded decoder: a declared length past the input is refused before anything is allocated, and so are indefinite lengths, tags, integers outside 64 bits, map keys other than integers and text, duplicate map keys, invalid UTF-8, more than 4 levels of nesting, more than 256 items, and more than 64 KiB. Anything left over after the attestation object, the authenticator data or the credential key is refused.
+- CBOR is read by a bounded decoder: a declared length past the input is refused before anything is allocated, and so are indefinite lengths, tags, integers outside the signed 64-bit range (`int64`), map keys other than integers and text, duplicate map keys, invalid UTF-8, more than 4 levels of nesting, more than 256 items, and more than 64 KiB. Anything left over after the attestation object, the authenticator data or the credential key is refused.
 
 ## Where access departs from the specification
 

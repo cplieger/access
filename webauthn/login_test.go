@@ -133,9 +133,9 @@ func assertCase(t testing.TB, kind ceremonyKind, half vectorHalf, cred access.Pa
 	}
 }
 
-// resigned is section's authentication half against the record CP6's
-// finish stores for its registration, its authData with UV set, signed
-// anew with the vector's private key.
+// resigned is section's authentication half against the record
+// finishRegistration returns for its registration half, its authData with UV
+// set, signed anew with the vector's private key.
 func resigned(t testing.TB, kind ceremonyKind, section string) *loginCase {
 	t.Helper()
 	c := assertCase(t, kind, s16Section(t, section).Authentication, registered(t, section))
