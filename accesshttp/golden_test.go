@@ -242,6 +242,7 @@ type wireRoute struct {
 	Path     string  `json:"path"`
 	Kind     Kind    `json:"kind"`
 	Array    bool    `json:"array"`
+	Doc      string  `json:"doc"`
 }
 
 // wireField is one JSON key of a wire type in types.json; Optional is a
@@ -283,7 +284,7 @@ func wireRoutes(t *testing.T, routes []Route) []wireRoute {
 		}
 		out = append(out, wireRoute{
 			Name: rt.Name, Method: rt.Method, Path: path, Kind: rt.Kind,
-			Request: wireTypeName(rt.Request), Response: wireTypeName(rt.Response), Array: rt.Array,
+			Request: wireTypeName(rt.Request), Response: wireTypeName(rt.Response), Array: rt.Array, Doc: rt.Doc,
 		})
 	}
 	return out
@@ -547,7 +548,7 @@ func TestGoldenWire(t *testing.T) {
 			}
 			row := rows[i]
 			path := strings.NewReplacer("{oidcPrefix}", goldenOIDCPrefix, "{prefix}", goldenPrefix).Replace(row.Path)
-			if row.Name != rt.Name || row.Method != rt.Method || path != rt.Path || row.Kind != rt.Kind || row.Array != rt.Array ||
+			if row.Name != rt.Name || row.Method != rt.Method || path != rt.Path || row.Kind != rt.Kind || row.Array != rt.Array || row.Doc != rt.Doc ||
 				!sameTypeName(row.Request, rt.Request) || !sameTypeName(row.Response, rt.Response) {
 				t.Errorf("routes.json row %d = %+v, want route %s %s %s", i, row, rt.Name, rt.Method, rt.Path)
 			}

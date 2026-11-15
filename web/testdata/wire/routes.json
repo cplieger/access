@@ -6,7 +6,8 @@
     "method": "GET",
     "path": "{prefix}/state",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Answers what the sign-in screen offers: setup, the sign-in methods and what needs HTTPS."
   },
   {
     "request": "SetupPasswordRequest",
@@ -15,7 +16,8 @@
     "method": "POST",
     "path": "{prefix}/setup/password",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Creates the first account with a password and answers a session or a pending sign-in."
   },
   {
     "request": "SetupPasskeyBeginRequest",
@@ -24,7 +26,8 @@
     "method": "POST",
     "path": "{prefix}/setup/passkey/begin",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Starts the passkey registration that creates the first account."
   },
   {
     "request": null,
@@ -33,7 +36,8 @@
     "method": "POST",
     "path": "{prefix}/setup/passkey/finish",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Finishes the first account's passkey registration and signs it in."
   },
   {
     "request": "LoginRequest",
@@ -42,7 +46,8 @@
     "method": "POST",
     "path": "{prefix}/login/password",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Signs in with a password and answers a session or a pending sign-in."
   },
   {
     "request": "CodeRequest",
@@ -51,7 +56,8 @@
     "method": "POST",
     "path": "{prefix}/login/code",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Completes a pending sign-in with an authenticator app code."
   },
   {
     "request": "TicketRequest",
@@ -60,7 +66,8 @@
     "method": "POST",
     "path": "{prefix}/login/second-passkey/begin",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Starts the passkey assertion that completes a pending sign-in."
   },
   {
     "request": null,
@@ -69,7 +76,8 @@
     "method": "POST",
     "path": "{prefix}/login/second-passkey/finish",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Finishes the passkey assertion that completes a pending sign-in."
   },
   {
     "request": "CodeRequest",
@@ -78,7 +86,8 @@
     "method": "POST",
     "path": "{prefix}/login/recovery-code",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Checks a recovery code on a pending sign-in and answers the step that enrols a new second factor."
   },
   {
     "request": "TicketRequest",
@@ -87,7 +96,8 @@
     "method": "POST",
     "path": "{prefix}/pending/totp/begin",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Draws an authenticator app secret for a pending sign-in to enrol."
   },
   {
     "request": "CodeRequest",
@@ -96,7 +106,8 @@
     "method": "POST",
     "path": "{prefix}/pending/totp/finish",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Enrols a pending sign-in's authenticator app with its first code and signs in."
   },
   {
     "request": "TicketRequest",
@@ -105,7 +116,8 @@
     "method": "POST",
     "path": "{prefix}/pending/passkey/begin",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Starts the passkey registration a pending sign-in enrols."
   },
   {
     "request": null,
@@ -114,7 +126,8 @@
     "method": "POST",
     "path": "{prefix}/pending/passkey/finish",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Finishes a pending sign-in's passkey registration and signs in."
   },
   {
     "request": null,
@@ -123,7 +136,8 @@
     "method": "POST",
     "path": "{prefix}/login/passkey/begin",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Starts a passkey sign-in."
   },
   {
     "request": null,
@@ -132,7 +146,8 @@
     "method": "POST",
     "path": "{prefix}/login/passkey/finish",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Finishes a passkey sign-in and answers the session."
   },
   {
     "request": null,
@@ -141,7 +156,8 @@
     "method": "POST",
     "path": "{prefix}/logout",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Ends the presented session and clears its cookie."
   },
   {
     "request": null,
@@ -150,7 +166,8 @@
     "method": "GET",
     "path": "{oidcPrefix}/start/signin",
     "kind": "redirect",
-    "array": false
+    "array": false,
+    "doc": "Redirects to the identity provider to sign in."
   },
   {
     "request": "RedirectRequest",
@@ -159,7 +176,8 @@
     "method": "POST",
     "path": "{oidcPrefix}/start/link",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Answers the identity provider URL that links an identity to the signed-in account."
   },
   {
     "request": "RedirectRequest",
@@ -168,7 +186,8 @@
     "method": "POST",
     "path": "{oidcPrefix}/start/stepup",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Answers the identity provider URL that steps up the current session."
   },
   {
     "request": "TokenRequest",
@@ -177,7 +196,8 @@
     "method": "POST",
     "path": "{oidcPrefix}/start/invite",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Answers the identity provider URL that accepts an invite by single sign-on."
   },
   {
     "request": null,
@@ -186,7 +206,8 @@
     "method": "GET",
     "path": "{oidcPrefix}/callback",
     "kind": "redirect",
-    "array": false
+    "array": false,
+    "doc": "Completes a flow the identity provider sent back and redirects into the app."
   },
   {
     "request": null,
@@ -195,7 +216,8 @@
     "method": "GET",
     "path": "{prefix}/oidc/pending",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Answers the identity waiting to be linked or turned into an account."
   },
   {
     "request": "PendingCreateRequest",
@@ -204,7 +226,8 @@
     "method": "POST",
     "path": "{prefix}/oidc/pending/create",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Creates an account for the waiting identity under a chosen username and signs it in."
   },
   {
     "request": null,
@@ -213,7 +236,8 @@
     "method": "POST",
     "path": "{prefix}/oidc/link",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Links the waiting identity to the signed-in account."
   },
   {
     "request": null,
@@ -222,7 +246,8 @@
     "method": "DELETE",
     "path": "{prefix}/oidc/link",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Unlinks the signed-in account's single sign-on identity."
   },
   {
     "request": "InviteAcceptRequest",
@@ -231,7 +256,8 @@
     "method": "POST",
     "path": "{prefix}/invite/password",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Accepts an invite with a password and answers a session or a pending sign-in."
   },
   {
     "request": null,
@@ -240,7 +266,8 @@
     "method": "GET",
     "path": "{prefix}/me",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Answers the signed-in account, its session and its sign-in methods."
   },
   {
     "request": "ProfileRequest",
@@ -249,7 +276,8 @@
     "method": "PUT",
     "path": "{prefix}/profile",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Updates the signed-in account's profile."
   },
   {
     "request": null,
@@ -258,7 +286,8 @@
     "method": "POST",
     "path": "{prefix}/methods/{method}/reenable",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Unlocks a sign-in method locked after repeated failures."
   },
   {
     "request": "PasswordRequest",
@@ -267,7 +296,8 @@
     "method": "POST",
     "path": "{prefix}/stepup/password",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Steps up the current session with the account's password."
   },
   {
     "request": null,
@@ -276,7 +306,8 @@
     "method": "POST",
     "path": "{prefix}/stepup/passkey/begin",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Starts the passkey assertion that steps up the current session."
   },
   {
     "request": null,
@@ -285,7 +316,8 @@
     "method": "POST",
     "path": "{prefix}/stepup/passkey/finish",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Finishes the passkey assertion that steps up the current session."
   },
   {
     "request": "StepUpCodeRequest",
@@ -294,7 +326,8 @@
     "method": "POST",
     "path": "{prefix}/stepup/code",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Steps up the current session with an authenticator app code."
   },
   {
     "request": "PasswordChangeRequest",
@@ -303,7 +336,8 @@
     "method": "PUT",
     "path": "{prefix}/password",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Sets or changes the account's password and answers any new recovery code."
   },
   {
     "request": "PasswordRemoveRequest",
@@ -312,7 +346,8 @@
     "method": "DELETE",
     "path": "{prefix}/password",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Removes the account's password."
   },
   {
     "request": null,
@@ -321,7 +356,8 @@
     "method": "POST",
     "path": "{prefix}/totp/begin",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Draws a new authenticator app secret for the account to enrol."
   },
   {
     "request": "TOTPFinishRequest",
@@ -330,7 +366,8 @@
     "method": "POST",
     "path": "{prefix}/totp/finish",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Enrols or replaces the account's authenticator app and answers any new recovery code."
   },
   {
     "request": "SecondFactorProof",
@@ -339,7 +376,8 @@
     "method": "POST",
     "path": "{prefix}/recovery-code",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Replaces the account's recovery code after a second-factor proof."
   },
   {
     "request": "SecondFactorProof",
@@ -348,7 +386,8 @@
     "method": "DELETE",
     "path": "{prefix}/totp",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Removes the account's authenticator app."
   },
   {
     "request": null,
@@ -357,7 +396,8 @@
     "method": "GET",
     "path": "{prefix}/passkeys",
     "kind": "json",
-    "array": true
+    "array": true,
+    "doc": "Lists the account's passkeys."
   },
   {
     "request": "SecondFactorProof",
@@ -366,7 +406,8 @@
     "method": "POST",
     "path": "{prefix}/passkeys/begin",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Starts registering a new passkey on the account."
   },
   {
     "request": null,
@@ -375,7 +416,8 @@
     "method": "POST",
     "path": "{prefix}/passkeys/finish",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Finishes registering a passkey and answers it with any new recovery code."
   },
   {
     "request": "NameRequest",
@@ -384,7 +426,8 @@
     "method": "PUT",
     "path": "{prefix}/passkeys/{id}",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Renames one of the account's passkeys."
   },
   {
     "request": "SecondFactorProof",
@@ -393,7 +436,8 @@
     "method": "DELETE",
     "path": "{prefix}/passkeys/{id}",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Removes one of the account's passkeys."
   },
   {
     "request": null,
@@ -402,7 +446,8 @@
     "method": "GET",
     "path": "{prefix}/webauthn/signals",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Answers the passkeys and user details the browser's WebAuthn signal calls report."
   },
   {
     "request": null,
@@ -411,7 +456,8 @@
     "method": "GET",
     "path": "{prefix}/sessions",
     "kind": "json",
-    "array": true
+    "array": true,
+    "doc": "Lists the account's sessions."
   },
   {
     "request": "NameRequest",
@@ -420,7 +466,8 @@
     "method": "PUT",
     "path": "{prefix}/sessions/{id}",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Renames one of the account's sessions."
   },
   {
     "request": null,
@@ -429,7 +476,8 @@
     "method": "DELETE",
     "path": "{prefix}/sessions/{id}",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Ends one of the account's sessions."
   },
   {
     "request": null,
@@ -438,7 +486,8 @@
     "method": "POST",
     "path": "{prefix}/sessions/revoke-others",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Ends every session of the account but the current one."
   },
   {
     "request": null,
@@ -447,7 +496,8 @@
     "method": "GET",
     "path": "{prefix}/apikeys",
     "kind": "json",
-    "array": true
+    "array": true,
+    "doc": "Lists the account's API keys."
   },
   {
     "request": "NewKeyRequest",
@@ -456,7 +506,8 @@
     "method": "POST",
     "path": "{prefix}/apikeys",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Creates an API key and answers its secret once."
   },
   {
     "request": "NameRequest",
@@ -465,7 +516,8 @@
     "method": "PUT",
     "path": "{prefix}/apikeys/{id}",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Renames one of the account's API keys."
   },
   {
     "request": null,
@@ -474,7 +526,8 @@
     "method": "POST",
     "path": "{prefix}/apikeys/{id}/rotate",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Replaces an API key's secret and answers the new one once."
   },
   {
     "request": null,
@@ -483,7 +536,8 @@
     "method": "DELETE",
     "path": "{prefix}/apikeys/{id}",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Revokes one of the account's API keys."
   },
   {
     "request": null,
@@ -492,7 +546,8 @@
     "method": "GET",
     "path": "{prefix}/users",
     "kind": "json",
-    "array": true
+    "array": true,
+    "doc": "Lists the app's accounts with their sign-in methods."
   },
   {
     "request": "NewUserRequest",
@@ -501,7 +556,8 @@
     "method": "POST",
     "path": "{prefix}/users",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Creates an account."
   },
   {
     "request": "UserUpdateRequest",
@@ -510,7 +566,8 @@
     "method": "PUT",
     "path": "{prefix}/users/{id}",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Changes an account's role or whether it is enabled."
   },
   {
     "request": "OwnerRequest",
@@ -519,7 +576,8 @@
     "method": "PUT",
     "path": "{prefix}/users/{id}/owner",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Makes an account an owner or removes its owner flag."
   },
   {
     "request": null,
@@ -528,7 +586,8 @@
     "method": "GET",
     "path": "{prefix}/sso/readiness",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Answers what applying a single sign-on mode would change, or why it is refused."
   },
   {
     "request": "SSORequest",
@@ -537,7 +596,8 @@
     "method": "PUT",
     "path": "{prefix}/sso",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Applies a single sign-on mode to the app."
   },
   {
     "request": null,
@@ -546,7 +606,8 @@
     "method": "DELETE",
     "path": "{prefix}/users/{id}",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Deletes an account."
   },
   {
     "request": null,
@@ -555,7 +616,8 @@
     "method": "DELETE",
     "path": "{prefix}/users/{id}/oidc",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Unlinks an account's single sign-on identity."
   },
   {
     "request": "InviteRequest",
@@ -564,7 +626,8 @@
     "method": "POST",
     "path": "{prefix}/invites",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Creates an invite and answers its token once."
   },
   {
     "request": null,
@@ -573,7 +636,8 @@
     "method": "GET",
     "path": "{prefix}/admin/apikeys",
     "kind": "json",
-    "array": true
+    "array": true,
+    "doc": "Lists every account's API keys."
   },
   {
     "request": null,
@@ -582,7 +646,8 @@
     "method": "DELETE",
     "path": "{prefix}/admin/apikeys/{id}",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Revokes any account's API key."
   },
   {
     "request": null,
@@ -591,7 +656,8 @@
     "method": "GET",
     "path": "{prefix}/tokens",
     "kind": "json",
-    "array": true
+    "array": true,
+    "doc": "Lists the unspent one-time tokens, such as invites."
   },
   {
     "request": null,
@@ -600,6 +666,7 @@
     "method": "GET",
     "path": "{prefix}/security-log",
     "kind": "json",
-    "array": false
+    "array": false,
+    "doc": "Answers a page of the security log."
   }
 ]

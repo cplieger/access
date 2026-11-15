@@ -233,6 +233,7 @@ export interface WireRoute {
   readonly request: string | null;
   readonly response: string | null;
   readonly array: boolean;
+  readonly doc: string;
 }
 
 /** routes.json: accesshttp's route table, paths under {prefix} or {oidcPrefix}. */
@@ -251,7 +252,9 @@ export const routes: readonly WireRoute[] = (() => {
       (r["kind"] !== "json" && r["kind"] !== "redirect") ||
       !nullableString(r["request"]) ||
       !nullableString(r["response"]) ||
-      typeof r["array"] !== "boolean"
+      typeof r["array"] !== "boolean" ||
+      typeof r["doc"] !== "string" ||
+      r["doc"] === ""
     ) {
       throw new Error(`routes.json has a malformed row: ${JSON.stringify(r)}`);
     }
@@ -263,6 +266,7 @@ export const routes: readonly WireRoute[] = (() => {
       request: r["request"],
       response: r["response"],
       array: r["array"],
+      doc: r["doc"],
     };
   });
 })();

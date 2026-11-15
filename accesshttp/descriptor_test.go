@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/cplieger/access"
@@ -236,5 +237,34 @@ func TestDescriptorsEqualsNewRoutes(t *testing.T) {
 				t.Errorf("Descriptors lists %d of the %d routes the case names", seen, len(tc.want))
 			}
 		})
+	}
+}
+
+// TestDescriptorDocs holds every route to one present-tense sentence of its
+// own, since Descriptors ships Doc to an app's generated client and API
+// reference.
+func TestDescriptorDocs(t *testing.T) {
+	seen := map[string]string{}
+	for _, d := range Descriptors(DescriptorConfig{}) {
+		doc := d.Doc
+		switch {
+		case doc == "":
+			t.Errorf("%s has no Doc", d.Name)
+			continue
+		case !strings.HasSuffix(doc, "."), strings.Contains(strings.TrimSuffix(doc, "."), ". "):
+			t.Errorf("%s Doc %q is not one sentence ending in a period", d.Name, doc)
+		case doc[0] < 'A' || doc[0] > 'Z':
+			t.Errorf("%s Doc %q does not start with a capital", d.Name, doc)
+		case strings.TrimSpace(doc) != doc, strings.Contains(doc, "\n"):
+			t.Errorf("%s Doc %q has surrounding space or a line break", d.Name, doc)
+		}
+		verb, _, _ := strings.Cut(doc, " ")
+		if !strings.HasSuffix(verb, "s") {
+			t.Errorf("%s Doc %q does not open with a present-tense verb", d.Name, doc)
+		}
+		if other, dup := seen[doc]; dup {
+			t.Errorf("%s and %s share the Doc %q", other, d.Name, doc)
+		}
+		seen[doc] = d.Name
 	}
 }
