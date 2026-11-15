@@ -79,7 +79,7 @@ func fastHasher(t testing.TB) *access.Hasher {
 // accept redeems an invite for name with goodPassword.
 func (f *fixture) accept(t testing.TB, token access.Secret, name string) (account.SignedIn, error) {
 	t.Helper()
-	return f.svc.AcceptInvitePassword(t.Context(), localClient, account.AcceptInvite{Token: token, Username: name, Password: access.NewSecret(goodPassword)})
+	return completed(f.svc.AcceptInvitePassword(t.Context(), localClient, account.AcceptInvite{Token: token, Username: name, Password: access.NewSecret(goodPassword)}))
 }
 
 func TestUpdateUser(t *testing.T) {

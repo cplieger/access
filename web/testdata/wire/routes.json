@@ -10,7 +10,7 @@
   },
   {
     "request": "SetupPasswordRequest",
-    "response": "SignedInResponse",
+    "response": "SignInOutcome",
     "name": "authSetupPassword",
     "method": "POST",
     "path": "{prefix}/setup/password",
@@ -226,7 +226,7 @@
   },
   {
     "request": "InviteAcceptRequest",
-    "response": "SignedInResponse",
+    "response": "SignInOutcome",
     "name": "authInviteAcceptPassword",
     "method": "POST",
     "path": "{prefix}/invite/password",

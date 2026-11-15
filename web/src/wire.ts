@@ -1136,6 +1136,7 @@ export const REASONS = [
   "last_second_factor",
   "second_factor_held",
   "totp_needs_password",
+  "enable_without_second_factor",
   "transport_changed",
   "sign_in_again",
   "too_short",

@@ -126,6 +126,8 @@ func inventoryAllow(t *testing.T) printcheck.Allow {
 			// the digest and the matched recovery code's key are HashKeys,
 			// which show no more than the Hash.
 			"account.ticket.next", "account.ticket.methods", "account.ticket.digest", "account.ticket.recovered",
+			// A draft's creation path is a public route's name for it.
+			"account.draftOf.via",
 			// A session ID names a session; only its token signs in.
 			"account.enrolment.sessionID",
 			"account.Pending.Next", "account.Pending.Methods",

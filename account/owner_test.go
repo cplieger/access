@@ -172,7 +172,7 @@ func TestSetupMarksOwner(t *testing.T) {
 	t.Run("password", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, options{rules: noSetupToken})
-		in, err := f.svc.SetupWithPassword(t.Context(), localClient, account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)})
+		in, err := completed(f.svc.SetupWithPassword(t.Context(), localClient, account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)}))
 		if err != nil {
 			t.Fatalf("SetupWithPassword = %v", err)
 		}

@@ -111,6 +111,7 @@ const (
 	PurposeRegister = purposeRegister
 	PurposeStepUp   = purposeStepUp
 	PurposeSignIn   = purposeSignIn
+	PurposeDraft    = purposeDraft
 )
 
 // DropUser drops userID's pending sign-in.
@@ -165,6 +166,10 @@ type Ticket struct {
 	UserID    int64
 	Secure    bool
 	Recovered bool
+	// Draft is the creation a draft's finish runs, with Username its
+	// account's name; "" for an existing user's ticket.
+	Draft    CreateVia
+	Username string
 }
 
 // TicketOf returns the live entry ticket names in s's cache, removing
@@ -177,7 +182,11 @@ func TicketOf(s *Service, ticket access.Secret) (Ticket, bool) {
 		return Ticket{}, false
 	}
 	v := e.value
-	return Ticket{Next: v.ticket.next, Methods: v.ticket.methods, Digest: v.ticket.digest, UserID: v.user.ID, Secure: v.ticket.secure, Recovered: v.ticket.recovered != access.HashKey{}}, true
+	out := Ticket{Next: v.ticket.next, Methods: v.ticket.methods, Digest: v.ticket.digest, UserID: v.user.ID, Secure: v.ticket.secure, Recovered: v.ticket.recovered != access.HashKey{}, Username: v.user.Username}
+	if d := v.ticket.draft; d != nil {
+		out.Draft = d.via
+	}
+	return out, true
 }
 
 // CountedMethods is the methods with failure records.

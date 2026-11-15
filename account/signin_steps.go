@@ -21,7 +21,7 @@ func (s *Service) stepTicket(ticket access.Secret, c Client, rule plainRule) (r 
 	if r, err = s.begin(); err != nil {
 		return Rules{}, pending{}, false, err
 	}
-	entry, found = s.pending.peek(ticket.Reveal(), purposeSignIn, s.now())
+	entry, found = s.pending.peekTicket(ticket.Reveal(), s.now())
 	if found && entry.ticket.secure != c.Secure {
 		s.pending.drop(ticket.Reveal())
 		if c.Secure {

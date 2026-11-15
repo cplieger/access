@@ -364,7 +364,7 @@ func publicOperations() []operation {
 			var in account.SignedIn
 			return opCall{
 				run: func(ctx context.Context) (err error) {
-					in, err = w.svc.SetupWithPassword(ctx, w.client, account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)})
+					in, err = completed(w.svc.SetupWithPassword(ctx, w.client, account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)}))
 					return err
 				},
 				want: func() []account.Event { return setupEvents(in, access.MethodPassword) },
@@ -539,7 +539,7 @@ func publicOperations() []operation {
 			var in account.SignedIn
 			return opCall{
 				run: func(ctx context.Context) (err error) {
-					in, err = w.svc.AcceptInvitePassword(ctx, w.client, account.AcceptInvite{Token: inv.Plaintext, Username: "invitee", Password: access.NewSecret(goodPassword)})
+					in, err = completed(w.svc.AcceptInvitePassword(ctx, w.client, account.AcceptInvite{Token: inv.Plaintext, Username: "invitee", Password: access.NewSecret(goodPassword)}))
 					return err
 				},
 				want: func() []account.Event {

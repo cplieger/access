@@ -23,12 +23,13 @@ type stateConfig struct {
 	passkeys   bool
 	oidc       bool
 	setupDone  bool // a user exists
+	rule       bool // Rules.RequireSecondFactor
 }
 
 func stateFixture(t *testing.T, sc stateConfig) *fixture {
 	t.Helper()
 	o := options{posture: sc.posture, rules: func() account.Rules {
-		return account.Rules{DisablePasswordLogin: sc.noPassword, HTTPSOrigin: stateOrigin}
+		return account.Rules{DisablePasswordLogin: sc.noPassword, HTTPSOrigin: stateOrigin, RequireSecondFactor: sc.rule}
 	}}
 	if sc.timeouts != nil {
 		o.timeouts = func() access.SessionTimeouts { return *sc.timeouts }
@@ -88,6 +89,15 @@ func TestStateTransport(t *testing.T) {
 			want: account.State{
 				SetupRequired: true, PasswordLogin: true, PlainSession: defaultPlain,
 				HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys, account.HTTPSOIDC}, HTTPSOrigin: stateOrigin,
+			},
+		},
+		// Design 4.8: under the rule setup enrols a second factor, which
+		// plain HTTP refuses, so the plain screen offers no setup.
+		"per_request_plain_rule_setup_needs_https": {
+			config: stateConfig{posture: access.PosturePerRequest, passkeys: true, rule: true}, client: plain,
+			want: account.State{
+				SetupRequired: true, PasswordLogin: true, PlainSession: defaultPlain,
+				HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSPasskeys}, HTTPSOrigin: stateOrigin,
 			},
 		},
 		"per_request_plain_oidc_unconfigured": {

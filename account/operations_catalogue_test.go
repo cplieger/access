@@ -27,6 +27,7 @@ var notOperations = map[string]string{
 	"Owner":                   "a single-user read of the store's owner, asking no Policy (TestServiceOwner)",
 	"CheckRules":              "validates a Rules value; reads no store and asks no Policy (TestCheckRules)",
 	"ResealTOTP":              "a key-rotation walk taking no Actor and asking no Policy (TestResealTOTP)",
+	"CheckSecondFactorReady":  "a read of the principal's own factors asking no Policy, whose every refusal, a plain request's included, is ErrEnableWithoutSecondFactor (TestCheckSecondFactorReady)",
 	"UsableMethods":           "reads through the caller's Tx inside the app's own transaction, whose store errors are the app's (TestUsableMethodsRefusals)",
 }
 

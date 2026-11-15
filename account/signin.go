@@ -44,6 +44,9 @@ type LoginResult struct {
 
 // ticket is what a pending sign-in carries to its next step.
 type ticket struct {
+	// draft is the creation a draft's enrolment finish runs; nil for an
+	// existing user's ticket.
+	draft   *draftOf
 	next    Next
 	methods []access.Method
 	// digest is the PasswordHash step 1 left stored; the next step goes on
@@ -232,6 +235,10 @@ func (s *Service) pendAt(ctx context.Context, tx Tx, r Rules, c Client, u *acces
 
 // mintTicket puts entry, a pending sign-in, in the cache and answers it.
 func (s *Service) mintTicket(entry *pending) *Pending {
-	id := s.pending.put(purposeSignIn, *entry, s.now())
+	purpose := purposeSignIn
+	if entry.ticket.draft != nil {
+		purpose = purposeDraft
+	}
+	id := s.pending.put(purpose, *entry, s.now())
 	return &Pending{Ticket: access.NewSecret(id), Next: entry.ticket.next, Methods: slices.Clone(entry.ticket.methods), Recovered: entry.ticket.recovered != access.HashKey{}}
 }

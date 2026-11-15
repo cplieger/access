@@ -165,9 +165,13 @@ func enrolling(entry *pending, found bool, m access.Method) bool {
 	return found && entry.ticket.next == NextEnrol && slices.Contains(entry.ticket.methods, m)
 }
 
-// enrolUser is a pending enrolment begin's re-check of the ticket's user,
-// dropping a ticket it ends.
+// enrolUser is a pending enrolment begin's user: a draft's would-be
+// account, or the ticket's user re-checked, dropping a ticket that ends.
 func (s *Service) enrolUser(ctx context.Context, ticket access.Secret, entry *pending) (*access.User, error) {
+	if entry.ticket.draft != nil {
+		u := entry.user
+		return &u, nil
+	}
 	u, err := ticketUserIn(ctx, s.store, entry)
 	if err = answer(err); errors.Is(err, access.ErrTokenInvalid) {
 		s.pending.drop(ticket.Reveal())
@@ -204,8 +208,8 @@ func (s *Service) PendingTOTPBegin(ctx context.Context, c Client, ticket access.
 // (issueRecoveryIn). Its refusals: totpEnrolTicket's; no secret drawn,
 // access.ErrTokenInvalid; a malformed code, a *MalformedError, and one that
 // does not match, code_invalid keeping the ticket, both before the limiter,
-// since the secret was just shown; the limiter's; the hasher's; and the
-// ticket's re-check, ending it. A Recovered ticket's finish spends
+// since the secret was just shown; the limiter's; the hasher's; and
+// enrolAccountIn's, ending the ticket. A Recovered ticket's finish spends
 // the matched recovery code and deletes the lost TOTP in the same Update.
 func (s *Service) PendingTOTPFinish(ctx context.Context, c Client, ticket access.Secret, code string) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	r, entry, err := s.totpEnrolTicket(ticket, c)
@@ -227,6 +231,7 @@ func (s *Service) PendingTOTPFinish(ctx context.Context, c Client, ticket access
 	var (
 		drawn issuable
 		shown access.Secret
+		acc   accepted
 	)
 	out, err := s.signIn(ctx, r, c, &sessionOp{
 		method: access.MethodPassword,
@@ -236,7 +241,7 @@ func (s *Service) PendingTOTPFinish(ctx context.Context, c Client, ticket access
 			drawn, drawErr = s.prepareRecoveryCode(ctx)
 			return drawErr
 		},
-		in: func(tx Tx) (*access.User, error) { return ticketUserIn(ctx, tx, &entry) },
+		in: func(tx Tx) (*access.User, error) { return s.enrolAccountIn(ctx, tx, &entry, &acc) },
 		bind: func(tx Tx, j *journal, u *access.User, sess *access.Session) error {
 			actor := EventActor{UserID: u.ID, SessionID: sess.ID}
 			if spendErr := s.spendRecoveryIn(ctx, tx, j, &entry, u, actor); spendErr != nil {
@@ -249,8 +254,9 @@ func (s *Service) PendingTOTPFinish(ctx context.Context, c Client, ticket access
 			shown, issueErr = s.issueRecoveryIn(ctx, tx, j, r, u, &drawn, actor)
 			return issueErr
 		},
+		announce: entry.announcer(&acc),
 	})
-	return s.enrolAnswered(ticket, &entry, out, shown, err)
+	return s.enrolAnswered(ticket, out, shown, acc.spent, err)
 }
 
 // bindTOTPIn stores secret as u's TOTP record inside tx with step spent,
@@ -312,16 +318,31 @@ func (s *Service) spendRecoveryIn(ctx context.Context, tx Tx, j *journal, entry 
 	return nil
 }
 
-// enrolAnswered settles a pending enrolment finish's answer in the cache:
-// a sign-in drops the user's tickets and carries shown, and
-// access.ErrTokenInvalid drops the ticket.
-func (s *Service) enrolAnswered(ticket access.Secret, entry *pending, out LoginResult, shown access.Secret, err error) (SignedIn, error) { //nolint:gocritic // hugeParam: the step's own result
+// announcer is entry's enrolment finish's sessionOp.announce: a draft's
+// journals the account its creation made (acc), and nil otherwise.
+func (entry *pending) announcer(acc *accepted) func(j *journal, u *access.User, sess *access.Session) {
+	if entry.ticket.draft == nil {
+		return nil
+	}
+	return acc.announce
+}
+
+// enrolAnswered settles a pending enrolment finish's answer in the cache: a
+// sign-in drops the ticket and the user's others and carries shown; a draft
+// whose invite was spent is access.ErrTokenInvalid; and a refusal no retry
+// of the ticket can pass (access.ErrTokenInvalid, ErrSetupComplete,
+// ErrUsernameTaken) drops it.
+func (s *Service) enrolAnswered(ticket access.Secret, out LoginResult, shown access.Secret, spent bool, err error) (SignedIn, error) { //nolint:gocritic // hugeParam: the step's own result
+	if err == nil && spent {
+		err = access.ErrTokenInvalid
+	}
 	switch {
 	case err == nil:
-		s.pending.dropUser(entry.user.ID)
+		s.pending.drop(ticket.Reveal())
+		s.pending.dropUser(out.SignedIn.User.ID)
 		out.SignedIn.RecoveryCode = shown
 		return out.SignedIn, nil
-	case errors.Is(err, access.ErrTokenInvalid):
+	case errors.Is(err, access.ErrTokenInvalid), errors.Is(err, ErrSetupComplete), errors.Is(err, ErrUsernameTaken):
 		s.pending.drop(ticket.Reveal())
 	}
 	return SignedIn{}, err
@@ -365,7 +386,7 @@ func (s *Service) PendingPasskeyBegin(ctx context.Context, c Client, ticket acce
 // MethodPassword with the recovery code it issued (issueRecoveryIn). An
 // unknown, spent or expired ceremony is ErrCeremonyInvalid; then
 // enrolTicket's refusals, the limiter's, the registration's, the hasher's,
-// ErrDuplicateCredential, and the ticket's re-check, ending it. A
+// ErrDuplicateCredential, and enrolAccountIn's, ending the ticket. A
 // Recovered ticket's finish spends the recovery as PendingTOTPFinish does.
 func (s *Service) PendingPasskeyFinish(ctx context.Context, c Client, ceremonyID string, body io.Reader) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	cer, ok := s.pending.take(ceremonyID, purposeEnrolPasskey, s.now())
@@ -391,6 +412,7 @@ func (s *Service) PendingPasskeyFinish(ctx context.Context, c Client, ceremonyID
 		cred  *access.PasskeyCredential
 		drawn issuable
 		shown access.Secret
+		acc   accepted
 	)
 	out, err := s.signIn(ctx, r, c, &sessionOp{
 		method: access.MethodPassword,
@@ -403,7 +425,7 @@ func (s *Service) PendingPasskeyFinish(ctx context.Context, c Client, ceremonyID
 			drawn, prepErr = s.prepareRecoveryCode(ctx)
 			return prepErr
 		},
-		in: func(tx Tx) (*access.User, error) { return ticketUserIn(ctx, tx, &entry) },
+		in: func(tx Tx) (*access.User, error) { return s.enrolAccountIn(ctx, tx, &entry, &acc) },
 		bind: func(tx Tx, j *journal, u *access.User, sess *access.Session) error {
 			actor := EventActor{UserID: u.ID, SessionID: sess.ID}
 			if spendErr := s.spendRecoveryIn(ctx, tx, j, &entry, u, actor); spendErr != nil {
@@ -418,6 +440,7 @@ func (s *Service) PendingPasskeyFinish(ctx context.Context, c Client, ceremonyID
 			shown, issueErr = s.issueRecoveryIn(ctx, tx, j, r, u, &drawn, actor)
 			return issueErr
 		},
+		announce: entry.announcer(&acc),
 	})
-	return s.enrolAnswered(ticket, &entry, out, shown, err)
+	return s.enrolAnswered(ticket, out, shown, acc.spent, err)
 }

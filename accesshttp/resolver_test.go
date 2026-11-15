@@ -60,7 +60,7 @@ func TestOneResolver(t *testing.T) {
 		if ips := e.lastIPs(t, "owner"); len(ips) != 1 || ips[0] != "203.0.113.9" {
 			t.Errorf("setup session LastIP %v, want the resolved 203.0.113.9", ips)
 		}
-		e.requireSignedIn(t, w, "owner")
+		e.requireLoggedIn(t, w, "owner")
 	})
 	t.Run("sign_in_session", func(t *testing.T) {
 		e := newEnv(t, envOptions{authn: resolver})
@@ -106,7 +106,7 @@ func TestOneResolver(t *testing.T) {
 		if ips := e.lastIPs(t, "owner"); len(ips) != 1 || ips[0] != "10.0.0.5" {
 			t.Errorf("setup session LastIP %v, want the socket peer 10.0.0.5", ips)
 		}
-		e.requireSignedIn(t, w, "owner")
+		e.requireLoggedIn(t, w, "owner")
 	})
 }
 

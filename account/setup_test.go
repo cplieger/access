@@ -180,7 +180,7 @@ func TestSetupOrderNoHashBeforeChecks(t *testing.T) {
 	t.Run("signs_in", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, options{rules: rulesWith(func(r *account.Rules) { r.SetupTokenRequired = tokenless })})
-		got, err := f.svc.SetupWithPassword(t.Context(), localClient, account.SetupPassword{Username: "Owner", Password: access.NewSecret(goodPassword)})
+		got, err := completed(f.svc.SetupWithPassword(t.Context(), localClient, account.SetupPassword{Username: "Owner", Password: access.NewSecret(goodPassword)}))
 		if err != nil {
 			t.Fatalf("SetupWithPassword: %v", err)
 		}
@@ -450,7 +450,7 @@ func TestUsernameRuleEveryCreationPath(t *testing.T) {
 	}
 	paths := []path{
 		{name: "setup", create: func(t *testing.T, f *fixture, _ *oidcRig, name string) (*access.User, error) {
-			got, err := f.svc.SetupWithPassword(t.Context(), localClient, account.SetupPassword{Username: name, Password: access.NewSecret(goodPassword)})
+			got, err := completed(f.svc.SetupWithPassword(t.Context(), localClient, account.SetupPassword{Username: name, Password: access.NewSecret(goodPassword)}))
 			return got.User, err
 		}},
 		{name: "admin_create", create: func(t *testing.T, f *fixture, _ *oidcRig, name string) (*access.User, error) {
@@ -894,7 +894,7 @@ func TestSessionCapsAtCreation(t *testing.T) {
 				}
 			}
 			f := newFixture(t, options{rules: rulesWith(func(r *account.Rules) { r.SetupTokenRequired = tokenless; r.SessionCaps = caps })})
-			got, err := f.svc.SetupWithPassword(t.Context(), localClient, account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)})
+			got, err := completed(f.svc.SetupWithPassword(t.Context(), localClient, account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)}))
 			if err != nil {
 				t.Fatalf("SetupWithPassword: %v", err)
 			}

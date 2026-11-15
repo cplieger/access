@@ -62,14 +62,14 @@ func TestRouteAuthState(t *testing.T) {
 func TestRouteAuthSetupPassword(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
-		e.requireSignedIn(t, do(e.route(t, "authSetupPassword"), e.post(t, "authSetupPassword", setupPasswordBody(t, ""))), "owner")
+		e.requireLoggedIn(t, do(e.route(t, "authSetupPassword"), e.post(t, "authSetupPassword", setupPasswordBody(t, ""))), "owner")
 		if u := e.user(t, "owner"); u.Role != access.RoleAdmin {
 			t.Errorf("role %s, want admin", u.Role)
 		}
 	})
 	t.Run("with_token", func(t *testing.T) {
 		e := newEnv(t, tokenRequired)
-		e.requireSignedIn(t, do(e.route(t, "authSetupPassword"), e.post(t, "authSetupPassword", setupPasswordBody(t, e.setupToken(t)))), "owner")
+		e.requireLoggedIn(t, do(e.route(t, "authSetupPassword"), e.post(t, "authSetupPassword", setupPasswordBody(t, e.setupToken(t)))), "owner")
 	})
 }
 
@@ -183,7 +183,7 @@ func TestRouteAuthLogout(t *testing.T) {
 func TestRouteAuthInviteAcceptPassword(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
-		e.requireSignedIn(t, do(e.route(t, "authInviteAcceptPassword"), e.post(t, "authInviteAcceptPassword", inviteBody(t, e.invite(t), "invitee", testPassword))), "invitee")
+		e.requireLoggedIn(t, do(e.route(t, "authInviteAcceptPassword"), e.post(t, "authInviteAcceptPassword", inviteBody(t, e.invite(t), "invitee", testPassword))), "invitee")
 		if u := e.user(t, "invitee"); u.Role != access.RoleUser {
 			t.Errorf("role %s, want the invite's user", u.Role)
 		}
@@ -260,7 +260,7 @@ type tokenCounting struct {
 	calls atomic.Int32
 }
 
-func (c *tokenCounting) SetupWithPassword(ctx context.Context, cl account.Client, in account.SetupPassword) (account.SignedIn, error) {
+func (c *tokenCounting) SetupWithPassword(ctx context.Context, cl account.Client, in account.SetupPassword) (account.LoginResult, error) {
 	c.calls.Add(1)
 	return c.accountAPI.SetupWithPassword(ctx, cl, in)
 }
@@ -270,7 +270,7 @@ func (c *tokenCounting) SetupPasskeyBegin(ctx context.Context, cl account.Client
 	return c.accountAPI.SetupPasskeyBegin(ctx, cl, in)
 }
 
-func (c *tokenCounting) AcceptInvitePassword(ctx context.Context, cl account.Client, in account.AcceptInvite) (account.SignedIn, error) {
+func (c *tokenCounting) AcceptInvitePassword(ctx context.Context, cl account.Client, in account.AcceptInvite) (account.LoginResult, error) {
 	c.calls.Add(1)
 	return c.accountAPI.AcceptInvitePassword(ctx, cl, in)
 }
@@ -315,7 +315,7 @@ func TestTokenOnlyInBody(t *testing.T) {
 	}
 	t.Run("body_accepted", func(t *testing.T) {
 		rt := e.route(t, "authInviteAcceptPassword")
-		e.requireSignedIn(t, do(rt, request(rt, bodies["authInviteAcceptPassword"])), "invitee")
+		e.requireLoggedIn(t, do(rt, request(rt, bodies["authInviteAcceptPassword"])), "invitee")
 	})
 }
 

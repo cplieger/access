@@ -521,6 +521,26 @@ describe("path parameters", () => {
   });
 });
 
+// Design 4.52: password setup and invite acceptance answer the sign-in union, pending under the rule.
+describe.each([
+  ["setupPassword", (c: AuthClient) => c.setupPassword({ username: "u", password: "p" })],
+  [
+    "inviteAcceptPassword",
+    (c: AuthClient) => c.inviteAcceptPassword({ token: "t", username: "u", password: "p" }),
+  ],
+] as const)("%s()", (_, call) => {
+  it.each([
+    ["signed_in", fixture("SignInOutcome")],
+    ["pending", fixture("SignInOutcome.pending")],
+  ])("decodes its %s arm", async (_arm, body) => {
+    expect(await call(stub(200, body).client)).toMatchObject({ ok: true, data: body });
+  });
+
+  it("refuses a bare SignedInResponse", async () => {
+    expect((await call(stub(200, fixture("SignedInResponse")).client)).ok).toBe(false);
+  });
+});
+
 // Design 4.4, contract part 4 (a): a password sign-in answers signed_in or pending, never both.
 describe("loginPassword()", () => {
   const signedIn = fixture("SignInOutcome");

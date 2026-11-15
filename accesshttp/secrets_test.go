@@ -41,9 +41,9 @@ func (a *recordingAccount) record(op string, secrets ...access.Secret) {
 
 var signedIn = account.SignedIn{User: &access.User{ID: 1, Username: "x"}}
 
-func (a *recordingAccount) SetupWithPassword(_ context.Context, _ account.Client, in account.SetupPassword) (account.SignedIn, error) {
+func (a *recordingAccount) SetupWithPassword(_ context.Context, _ account.Client, in account.SetupPassword) (account.LoginResult, error) {
 	a.record("authSetupPassword", in.Token, in.Password)
-	return signedIn, nil
+	return account.LoginResult{SignedIn: signedIn}, nil
 }
 
 func (a *recordingAccount) SetupPasskeyBegin(_ context.Context, _ account.Client, in account.SetupPasskey) (account.PendingCeremony, error) {
@@ -56,9 +56,9 @@ func (a *recordingAccount) PasswordLogin(_ context.Context, _ account.Client, in
 	return account.LoginResult{SignedIn: signedIn}, nil
 }
 
-func (a *recordingAccount) AcceptInvitePassword(_ context.Context, _ account.Client, in account.AcceptInvite) (account.SignedIn, error) {
+func (a *recordingAccount) AcceptInvitePassword(_ context.Context, _ account.Client, in account.AcceptInvite) (account.LoginResult, error) {
 	a.record("authInviteAcceptPassword", in.Token, in.Password)
-	return signedIn, nil
+	return account.LoginResult{SignedIn: signedIn}, nil
 }
 
 // AdmitOIDC admits every request with the fixture's provider, so the

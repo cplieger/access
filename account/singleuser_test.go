@@ -250,7 +250,7 @@ func TestServiceOwner(t *testing.T) {
 		if u, err := f.svc.Owner(t.Context()); !errors.Is(err, account.ErrNotFound) || u != nil {
 			t.Errorf("Owner before setup = %v, %v; want ErrNotFound and no user", u, err)
 		}
-		in, err := f.svc.SetupWithPassword(t.Context(), localClient, account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)})
+		in, err := completed(f.svc.SetupWithPassword(t.Context(), localClient, account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)}))
 		if err != nil {
 			t.Fatalf("SetupWithPassword = %v", err)
 		}

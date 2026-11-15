@@ -127,7 +127,8 @@ export interface AuthClient {
   readonly prefix: string;
   readonly oidcPrefix: string;
   state(): Promise<ApiResult<StateResponse>>;
-  setupPassword(r: SetupPasswordRequest): Promise<ApiResult<SignedInResponse>>;
+  /** pending enrol under "Require a second factor", with nothing created yet. */
+  setupPassword(r: SetupPasswordRequest): Promise<ApiResult<SignInOutcome>>;
   setupPasskeyBegin(r: SetupPasskeyBeginRequest): Promise<ApiResult<CeremonyResponse>>;
   setupPasskeyFinish(
     ceremony: string,
@@ -171,7 +172,8 @@ export interface AuthClient {
   oidcCreatePending(r: PendingCreateRequest): Promise<ApiResult<SignedInResponse>>;
   oidcLinkPending(): Promise<ApiResult<MeResponse>>;
   oidcUnlink(): Promise<ApiResult<void>>;
-  inviteAcceptPassword(r: InviteAcceptRequest): Promise<ApiResult<SignedInResponse>>;
+  /** pending enrol under "Require a second factor", with the invite not yet spent. */
+  inviteAcceptPassword(r: InviteAcceptRequest): Promise<ApiResult<SignInOutcome>>;
   me(): Promise<ApiResult<MeResponse>>;
   updateProfile(r: ProfileRequest): Promise<ApiResult<MeResponse>>;
   reenableMethod(method: string): Promise<ApiResult<void>>;
@@ -323,7 +325,7 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     prefix,
     oidcPrefix,
     state: () => json("GET", p("/state"), parseStateResponse),
-    setupPassword: (r) => json("POST", p("/setup/password"), parseSignedInResponse, { body: r }),
+    setupPassword: (r) => json("POST", p("/setup/password"), parseSignInOutcome, { body: r }),
     setupPasskeyBegin: (r) =>
       json("POST", p("/setup/passkey/begin"), parseCeremonyResponse, { body: r }),
     setupPasskeyFinish: (c, cred) =>
@@ -363,7 +365,7 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     oidcLinkPending: () => json("POST", p("/oidc/link"), parseMeResponse),
     oidcUnlink: () => empty("DELETE", p("/oidc/link")),
     inviteAcceptPassword: (r) =>
-      json("POST", p("/invite/password"), parseSignedInResponse, { body: r }),
+      json("POST", p("/invite/password"), parseSignInOutcome, { body: r }),
     me: () => json("GET", p("/me"), parseMeResponse),
     updateProfile: (r) => json("PUT", p("/profile"), parseMeResponse, { body: r }),
     reenableMethod: (m) => empty("POST", p(`/methods/${seg(m)}/reenable`)),

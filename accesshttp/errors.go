@@ -95,6 +95,7 @@ var sentinelCodes = []struct {
 	{account.ErrSecondFactorHeld, access.CodeSecondFactorRequired, ReasonSecondFactorHeld},
 	{account.ErrPasswordRequired, access.CodeForbidden, ReasonTOTPNeedsPassword},
 	{account.ErrEnrolNeedsKnownDevice, access.CodeSecondFactorRequired, ReasonEnrolNeedsKnownDevice},
+	{account.ErrEnableWithoutSecondFactor, access.CodeSecondFactorRequired, ReasonEnableWithoutSecondFactor},
 	{account.ErrSecondFactorRequired, access.CodeSecondFactorRequired, ""},
 	{account.ErrNoUsableMethod, access.CodeForbidden, ReasonNoUsableMethod},
 	{account.ErrSecondFactorUnavailable, access.CodeSecondFactorUnavailable, ""},

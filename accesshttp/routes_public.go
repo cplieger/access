@@ -48,7 +48,7 @@ func serveSetupPassword(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	h.signedIn(c, out)
+	h.loginOutcome(c, out)
 	return nil
 }
 
@@ -175,7 +175,7 @@ func serveInviteAcceptPassword(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	h.signedIn(c, out)
+	h.loginOutcome(c, out)
 	return nil
 }
 

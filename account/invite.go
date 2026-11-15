@@ -72,40 +72,47 @@ func (s *Service) CreateInvite(ctx context.Context, p access.Principal, role acc
 }
 
 // AcceptInvitePassword creates the invited account with a password and signs it
-// in; a plain c is access.ErrHTTPSRequired. The username, password and Policy
-// (ViaInvite) checks and the IP limiter run before the hash; a refusal there, a
-// taken name or a backend error leaves the invite usable. One Update consumes
-// the invite and creates the user and session, re-checking a key-issued
-// invite's issuer: a refused issuer deletes the invite and answers
-// access.ErrTokenInvalid, an accepted one appends an invite_accepted
-// attribution.
-func (s *Service) AcceptInvitePassword(ctx context.Context, c Client, in AcceptInvite) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
+// in; a plain c is access.ErrHTTPSRequired. Under Rules.RequireSecondFactor
+// it answers a Pending NextEnrol instead (passwordDraft), whose finish
+// consumes the invite. The username, password and Policy (ViaInvite) checks
+// and the IP limiter run before the hash; a refusal there, a taken name or a
+// backend error leaves the invite usable. One Update consumes the invite and
+// creates the user and session, re-checking a key-issued invite's issuer: a
+// refused issuer deletes the invite and answers access.ErrTokenInvalid, an
+// accepted one appends an invite_accepted attribution.
+func (s *Service) AcceptInvitePassword(ctx context.Context, c Client, in AcceptInvite) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
 	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {
-		return SignedIn{}, err
+		return LoginResult{}, err
+	}
+	if r.RequireSecondFactor {
+		return s.passwordDraft(ctx, r, c, in.Password, func() (access.User, draftOf, error) {
+			username, role, checkErr := s.inviteChecks(ctx, r, in)
+			if checkErr != nil {
+				return access.User{}, draftOf{}, checkErr
+			}
+			return s.newAccount(username, role), draftOf{token: tokenHash(in.Token), via: ViaInvite}, nil
+		})
 	}
 	var (
 		username string
 		base     access.User
 		acc      accepted
 	)
-	out, err := s.createSession(ctx, r, c, &sessionOp{
+	out, err := s.signIn(ctx, r, c, &sessionOp{
 		method: access.MethodPassword,
 		gate: admission{
 			refusals: func() error {
 				var checkErr error
-				username, checkErr = s.inviteChecks(ctx, r, in)
+				username, _, checkErr = s.inviteChecks(ctx, r, in)
 				return checkErr
 			},
 			limit: s.ipAttempt(c),
 		},
 		prepare: func(*ratelimit.Reservation) error {
 			hash, hashErr := s.hasher.Hash(ctx, in.Password.Reveal())
-			now := s.now()
-			base = access.User{
-				Username: username, PasswordHash: hash, Enabled: true,
-				WebAuthnHandle: access.GenerateWebAuthnHandle(), CreatedAt: now, UpdatedAt: now,
-			}
+			base = s.newAccount(username, "")
+			base.PasswordHash = hash
 			return hashErr
 		},
 		in: func(tx Tx) (*access.User, error) {
@@ -121,33 +128,34 @@ func (s *Service) AcceptInvitePassword(ctx context.Context, c Client, in AcceptI
 		announce: acc.announce,
 	})
 	if err == nil && acc.spent {
-		err = access.ErrTokenInvalid
+		return LoginResult{}, access.ErrTokenInvalid
 	}
 	return out, err
 }
 
 // inviteChecks is the acceptance's refusals before the limiter and the
 // hash: the invite peeked, the username and password rules, then the
-// Policy (OpCreateUser, ViaInvite). It returns the canonical username.
-func (s *Service) inviteChecks(ctx context.Context, r Rules, in AcceptInvite) (string, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and its input
+// Policy (OpCreateUser, ViaInvite). It returns the canonical username and
+// the invite's role.
+func (s *Service) inviteChecks(ctx context.Context, r Rules, in AcceptInvite) (string, access.Role, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and its input
 	invite, err := s.peekToken(ctx, in.Token, access.PurposeInvite)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	username, err := canonicalUsername(in.Username)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := s.checkPassword(ctx, r, username, in.Password); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := s.authorize(ctx, Decision{Op: OpCreateUser, Via: ViaInvite, Role: invite.Role}); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := s.localAllowed(ctx, &access.User{Role: invite.Role, Enabled: true}); err != nil {
-		return "", err
+		return "", "", err
 	}
-	return username, nil
+	return username, invite.Role, nil
 }
 
 // accepted is what an acceptance's Update did: the user, the re-read

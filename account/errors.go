@@ -100,6 +100,10 @@ var (
 	// account's first second factor from a device no secure sign-in of it
 	// has used; it matches ErrSecondFactorRequired.
 	ErrEnrolNeedsKnownDevice = fmt.Errorf("account: a first second factor is bound only from a known device: %w", ErrSecondFactorRequired)
+	// ErrEnableWithoutSecondFactor is CheckSecondFactorReady's refusal of an
+	// admin who holds no usable second factor; it matches
+	// ErrSecondFactorRequired.
+	ErrEnableWithoutSecondFactor = fmt.Errorf("account: set up your own second factor before requiring one: %w", ErrSecondFactorRequired)
 	// ErrSecondFactorUnavailable is a TOTP record no Sealer key opens; it
 	// counts as no wrong code.
 	ErrSecondFactorUnavailable = errors.New("account: the second factor cannot be opened")

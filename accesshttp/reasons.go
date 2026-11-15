@@ -42,6 +42,9 @@ const (
 	ReasonLastSecondFactor          = "last_second_factor"  // auth_last_method: the rule needs the factor kept
 	ReasonSecondFactorHeld          = "second_factor_held"  // auth_second_factor_required: step up with the factor
 	ReasonTOTPNeedsPassword         = "totp_needs_password" // auth_forbidden: TOTP protects only a password
+	// ReasonEnableWithoutSecondFactor is auth_second_factor_required: an
+	// admin turning the rule on holds no usable second factor.
+	ReasonEnableWithoutSecondFactor = "enable_without_second_factor"
 )
 
 // ownReasons is accesshttp's part of Reasons.
@@ -53,6 +56,7 @@ var ownReasons = []string{
 	ReasonReenableNeedsOtherMethod, ReasonTrailingData, ReasonMalformedJSON, ReasonContentType, ReasonBody,
 	ReasonUnknownField, ReasonTokenInQuery, ReasonEnrolNeedsKnownDevice, ReasonNoUsableMethod,
 	ReasonSecondFactorProofRequired, ReasonLastSecondFactor, ReasonSecondFactorHeld, ReasonTOTPNeedsPassword,
+	ReasonEnableWithoutSecondFactor,
 }
 
 // providerErrorPrefix starts the Reason of an IdP's own error answer, which

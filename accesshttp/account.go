@@ -23,7 +23,7 @@ type accountAPI interface {
 	RequireKeyPermission(p access.Principal, scope string) error
 
 	State(ctx context.Context, c account.Client) (account.State, error)
-	SetupWithPassword(ctx context.Context, c account.Client, in account.SetupPassword) (account.SignedIn, error)
+	SetupWithPassword(ctx context.Context, c account.Client, in account.SetupPassword) (account.LoginResult, error)
 	SetupPasskeyBegin(ctx context.Context, c account.Client, in account.SetupPasskey) (account.PendingCeremony, error)
 	SetupPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.SignedIn, error)
 	PasswordLogin(ctx context.Context, c account.Client, in account.Credentials) (account.LoginResult, error)
@@ -45,7 +45,7 @@ type accountAPI interface {
 	CreatePendingOIDC(ctx context.Context, c account.Client, pending account.PendingLink, username string) (account.SignedIn, error)
 	AcceptInviteOIDCBegin(ctx context.Context, c account.Client, token access.Secret) (oidc.BeginRequest, error)
 	Logout(ctx context.Context, tokenHash access.Hash) error
-	AcceptInvitePassword(ctx context.Context, c account.Client, in account.AcceptInvite) (account.SignedIn, error)
+	AcceptInvitePassword(ctx context.Context, c account.Client, in account.AcceptInvite) (account.LoginResult, error)
 	StepUpPassword(ctx context.Context, c account.Client, p access.Principal, password access.Secret) (account.Issued, error)
 	StepUpCode(ctx context.Context, c account.Client, p access.Principal, code string) (account.Issued, error)
 	BeginTOTP(ctx context.Context, p access.Principal) (account.TOTPEnrolment, error)

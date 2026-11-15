@@ -39,8 +39,8 @@ func (s stubAccount) State(ctx context.Context, c account.Client) (account.State
 	return stubbed(s, "State", func() (account.State, error) { return s.accountAPI.State(ctx, c) })
 }
 
-func (s stubAccount) SetupWithPassword(ctx context.Context, c account.Client, in account.SetupPassword) (account.SignedIn, error) {
-	return stubbed(s, "SetupWithPassword", func() (account.SignedIn, error) { return s.accountAPI.SetupWithPassword(ctx, c, in) })
+func (s stubAccount) SetupWithPassword(ctx context.Context, c account.Client, in account.SetupPassword) (account.LoginResult, error) {
+	return stubbed(s, "SetupWithPassword", func() (account.LoginResult, error) { return s.accountAPI.SetupWithPassword(ctx, c, in) })
 }
 
 func (s stubAccount) SetupPasskeyBegin(ctx context.Context, c account.Client, in account.SetupPasskey) (account.PendingCeremony, error) {
@@ -108,8 +108,8 @@ func (s stubAccount) Logout(ctx context.Context, tokenHash access.Hash) error {
 	return stubbedErr(s, "Logout", func() error { return s.accountAPI.Logout(ctx, tokenHash) })
 }
 
-func (s stubAccount) AcceptInvitePassword(ctx context.Context, c account.Client, in account.AcceptInvite) (account.SignedIn, error) {
-	return stubbed(s, "AcceptInvitePassword", func() (account.SignedIn, error) { return s.accountAPI.AcceptInvitePassword(ctx, c, in) })
+func (s stubAccount) AcceptInvitePassword(ctx context.Context, c account.Client, in account.AcceptInvite) (account.LoginResult, error) {
+	return stubbed(s, "AcceptInvitePassword", func() (account.LoginResult, error) { return s.accountAPI.AcceptInvitePassword(ctx, c, in) })
 }
 
 func (s stubAccount) StepUpPassword(ctx context.Context, c account.Client, p access.Principal, password access.Secret) (account.Issued, error) {

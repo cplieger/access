@@ -64,7 +64,7 @@ func creationPaths() []creationPath {
 			return out.SignedIn, nil, err
 		}},
 		{name: "setup_password", run: func(t *testing.T, f *oidcFixture, c account.Client) (account.SignedIn, []string, error) {
-			in, err := f.svc.SetupWithPassword(t.Context(), c, account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)})
+			in, err := completed(f.svc.SetupWithPassword(t.Context(), c, account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)}))
 			return in, nil, err
 		}},
 		{name: "setup_passkey", run: func(t *testing.T, f *oidcFixture, c account.Client) (account.SignedIn, []string, error) {
@@ -78,7 +78,7 @@ func creationPaths() []creationPath {
 			if err != nil {
 				t.Fatalf("CreateInvite = %v", err)
 			}
-			in, err := f.svc.AcceptInvitePassword(t.Context(), c, account.AcceptInvite{Token: inv.Plaintext, Username: "invitee", Password: access.NewSecret(goodPassword)})
+			in, err := completed(f.svc.AcceptInvitePassword(t.Context(), c, account.AcceptInvite{Token: inv.Plaintext, Username: "invitee", Password: access.NewSecret(goodPassword)}))
 			return in, nil, err
 		}},
 	}

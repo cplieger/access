@@ -33,6 +33,7 @@ var designOwnReasons = []string{
 	"unknown_field", "token_in_query", "enrol_needs_known_device", "no_usable_method",
 	// Design 4.31, 4.48 and 4.49.
 	"second_factor_proof_required", "last_second_factor", "second_factor_held", "totp_needs_password",
+	"enable_without_second_factor",
 }
 
 // wireReasons is every Reason classify gives for the fixed-reason

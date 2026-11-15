@@ -1,6 +1,7 @@
 package accesshttp
 
 import (
+	"context"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -83,7 +84,77 @@ func enrolScenarios() map[scenarioKey]scenario {
 	addRecoveryStepScenarios(out)
 	addPendingTOTPScenarios(out)
 	addPendingPasskeyScenarios(out)
+	addDraftFinishScenarios(out)
 	return out
+}
+
+// laterPolicy is RolePolicy until refuse is set, then refuses an invite's
+// account creation, so a draft minted before is refused at its finish.
+type laterPolicy struct{ refuse *atomic.Bool }
+
+func (laterPolicy) SingleUser() bool { return false }
+
+func (p laterPolicy) Authorize(ctx context.Context, d account.Decision) error {
+	if p.refuse.Load() && d.Op == account.OpCreateUser && d.Via == account.ViaInvite {
+		return &account.PolicyError{Op: d.Op, Reason: "no_invites"}
+	}
+	return account.RolePolicy{}.Authorize(ctx, d)
+}
+
+// setupDraftTicket is a password setup's draft ticket under the rule.
+func (e *env) setupDraftTicket(t testing.TB) string {
+	t.Helper()
+	out, err := e.svc.SetupWithPassword(t.Context(), account.Client{Secure: true}, account.SetupPassword{Username: "owner", Password: access.NewSecret(testPassword)})
+	if err != nil || out.Pending == nil {
+		t.Fatalf("SetupWithPassword = %v, want a draft", err)
+	}
+	return out.Pending.Ticket.Reveal()
+}
+
+// inviteDraftTicket is bob's password invite acceptance's draft ticket
+// under the rule.
+func (e *env) inviteDraftTicket(t testing.TB) string {
+	t.Helper()
+	out, err := e.svc.AcceptInvitePassword(t.Context(), account.Client{Secure: true}, account.AcceptInvite{Token: e.storedInvite(t), Username: "bob", Password: access.NewSecret(testPassword)})
+	if err != nil || out.Pending == nil {
+		t.Fatalf("AcceptInvitePassword = %v, want a draft", err)
+	}
+	return out.Pending.Ticket.Reveal()
+}
+
+// addDraftFinishScenarios are the pending enrolment finishes' answers that
+// only a draft's creation gives (design 4.4 step 3).
+func addDraftFinishScenarios(out map[scenarioKey]scenario) {
+	draftRule := with(requireRule, totpOn)
+	finishes := map[string]func(t *testing.T, e *env, ticket string, between func()) *http.Request{
+		"authPendingTOTPFinish": func(t *testing.T, e *env, ticket string, between func()) *http.Request {
+			r := e.pendingTOTPFinish(t, ticket)
+			between()
+			return r
+		},
+		"authPendingPasskeyFinish": func(t *testing.T, e *env, ticket string, between func()) *http.Request {
+			return e.pendingPasskeyFinish(t, ticket, nil, nil, between)
+		},
+	}
+	for route, finishOf := range finishes {
+		out[scenarioKey{route, access.CodeSetupComplete}] = scenario{opts: draftRule, arrange: func(t *testing.T, e *env) *http.Request {
+			return finishOf(t, e, e.setupDraftTicket(t), func() { e.createUser(t, "root", access.RoleAdmin) })
+		}}
+		out[scenarioKey{route, access.CodeUsernameTaken}] = scenario{opts: draftRule, arrange: func(t *testing.T, e *env) *http.Request {
+			return finishOf(t, e, e.inviteDraftTicket(t), func() { e.createUser(t, "bob", access.RoleUser) })
+		}}
+		out[scenarioKey{route, access.CodeSSOOnly}] = scenario{opts: draftRule, arrange: func(t *testing.T, e *env) *http.Request {
+			return finishOf(t, e, e.inviteDraftTicket(t), func() {
+				if err := e.mem.SetSSOMode(t.Context(), account.SSOOnly); err != nil {
+					t.Fatalf("SetSSOMode: %v", err)
+				}
+			})
+		}}
+		later := &atomic.Bool{}
+		out[scenarioKey{route, access.CodeForbidden}] = scenario{opts: with(draftRule, envOptions{edit: func(c *account.Config) { c.Policy = laterPolicy{refuse: later} }}), arrange: func(t *testing.T, e *env) *http.Request {
+			return finishOf(t, e, e.inviteDraftTicket(t), func() { later.Store(true) })
+		}}
+	}
 }
 
 func addRecoveryStepScenarios(out map[scenarioKey]scenario) {

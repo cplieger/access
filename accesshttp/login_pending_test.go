@@ -139,3 +139,64 @@ func TestTicketIsNoCredential(t *testing.T) {
 		}
 	}
 }
+
+// storedInvite is invite's token, issued through a session written to the
+// store, since root's password sign-in pends under the rule.
+func (e *env) storedInvite(t testing.TB) access.Secret {
+	t.Helper()
+	e.createUser(t, "root", access.RoleAdmin)
+	issued, err := e.svc.CreateInvite(t.Context(), e.principal(t, e.storedSession(t, "root", 0, 0)), access.RoleUser, 0)
+	if err != nil {
+		t.Fatalf("CreateInvite: %v", err)
+	}
+	return issued.Plaintext
+}
+
+// TestDraftOutcome is design 4.52: authSetupPassword and
+// authInviteAcceptPassword answer SignInOutcome, a pending enrol with no
+// cookie under RequireSecondFactor (design 4.8), and signed_in without it.
+func TestDraftOutcome(t *testing.T) {
+	t.Parallel()
+	routes := map[string]func(t *testing.T, e *env) string{
+		"authSetupPassword":        func(t *testing.T, _ *env) string { return setupPasswordBody(t, "") },
+		"authInviteAcceptPassword": func(t *testing.T, e *env) string { return inviteBody(t, e.storedInvite(t), "bob", testPassword) },
+	}
+	for name, body := range routes {
+		t.Run(name+"/pending", func(t *testing.T) {
+			t.Parallel()
+			e := newEnv(t, with(requireRule, totpOn))
+			w := do(e.route(t, name), e.post(t, name, body(t, e)))
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d %s, want 200", w.Code, w.Body.Bytes())
+			}
+			var out SignInOutcome
+			strictDecode(t, w.Body.Bytes(), &out)
+			if out.SignedIn != nil || out.Pending == nil || out.Pending.Next != account.NextEnrol || !slices.Equal(out.Pending.Methods, []PendingMethod{PendingTOTP, PendingPasskey}) {
+				t.Fatalf("answer = %s, want {pending} enrol [totp passkey]", w.Body.Bytes())
+			}
+			if c := w.Result().Cookies(); len(c) != 0 {
+				t.Errorf("a draft's answer set cookies %v, want none", c)
+			}
+		})
+		// Design 4.17: under the rule the password routes mint a draft, and an
+		// app allowing no enrolment method answers no_usable_method.
+		t.Run(name+"/no_usable_method", func(t *testing.T) {
+			t.Parallel()
+			e := newEnv(t, with(requireRule, envOptions{rules: refusePasskeys}))
+			w := do(e.route(t, name), e.post(t, name, body(t, e)))
+			if got := e.errs.all(); w.Code != http.StatusForbidden || len(got) != 1 || got[0].Code != access.CodeForbidden || got[0].Reason != ReasonNoUsableMethod {
+				t.Errorf("answer = %d %+v, want 403 auth_forbidden with no_usable_method", w.Code, got)
+			}
+		})
+		t.Run(name+"/signed_in", func(t *testing.T) {
+			t.Parallel()
+			e := newEnv(t, envOptions{})
+			w := do(e.route(t, name), e.post(t, name, body(t, e)))
+			var out SignInOutcome
+			strictDecode(t, w.Body.Bytes(), &out)
+			if w.Code != http.StatusOK || out.Pending != nil || out.SignedIn == nil || out.SignedIn.SessionID == "" {
+				t.Fatalf("answer = %d %s, want {signed_in}", w.Code, w.Body.Bytes())
+			}
+		})
+	}
+}
