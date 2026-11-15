@@ -100,7 +100,7 @@ func TestVerifyClientData_WebAuthn5_8_1_refusals(t *testing.T) {
 	}
 }
 
-// TestVerifyClientData_JSON checks the parse (design step 2 on §5.8.1): at
+// TestVerifyClientData_JSON checks the parse of §5.8.1's dictionary: at
 // most 4 KiB, exact member names (§5.8.1's WebIDL names), no duplicate
 // member (RFC 8259 §4), valid UTF-8 (§8.1), and unknown members ignored,
 // tokenBinding among them, which Level 3 reserves.

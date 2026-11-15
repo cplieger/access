@@ -291,6 +291,51 @@ func TestFinishRegistration_WebAuthn7_1_alg(t *testing.T) {
 	}
 }
 
+// relabeled is section's registration authData with UV set and its credential
+// key's alg member (label 3) changed from alg to alg2, every other byte kept.
+func relabeled(t *testing.T, section string, alg, alg2 int) []byte {
+	t.Helper()
+	a := uvSet(t, s16Section(t, section))
+	idLen := int(binary.BigEndian.Uint16(a[53:55]))
+	key := a[55+idLen:]
+	from, to := append([]byte{0x03}, cborEnc(alg)...), append([]byte{0x03}, cborEnc(alg2)...)
+	i := bytes.Index(key, from)
+	if i < 0 || len(from) != len(to) {
+		t.Fatalf("§%s's credential key holds no alg %d member", section, alg)
+	}
+	copy(key[i:], to)
+	return a
+}
+
+// TestFinishRegistration_RFC9864_fullySpecifiedNotOffered checks that RFC
+// 9864's fully specified Ed25519 (-19) and ESP256 (-9) are not offered in
+// pubKeyCredParams (§5.4), so a credential key naming one, in its own key
+// type's label set, is refused at §7.1's alg step.
+func TestFinishRegistration_RFC9864_fullySpecifiedNotOffered(t *testing.T) {
+	t.Parallel()
+	creation, _, err := BeginRegistration(testRelyingParty(t), regUser(), exampleOrigin(t))
+	if err != nil {
+		t.Fatalf("BeginRegistration: %v", err)
+	}
+	for _, p := range creation.Response.Parameters {
+		if p.Algorithm == -19 || p.Algorithm == -9 {
+			t.Errorf("pubKeyCredParams offers %d", p.Algorithm)
+		}
+	}
+	for _, c := range []struct {
+		name, section string
+		alg, alg2     int
+	}{
+		{"Ed25519 -19 for §16.11's OKP key", "16.11", -8, -19},
+		{"ESP256 -9 for §16.2's EC2 key", "16.2", -7, -9},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			wantRefused(t, regCaseWith(t, c.section, attObj(formatNone, cborMap{}, relabeled(t, c.section, c.alg, c.alg2))), cose.ErrUnsupported)
+		})
+	}
+}
+
 // TestFinishRegistration_WebAuthn7_1_statement checks §7.1's attestation
 // steps on statements access accepts the format of: §16.3's self
 // attestation with a flipped signature byte (§8.2), and fmt matched

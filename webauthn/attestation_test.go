@@ -58,7 +58,7 @@ func attObj(format, stmt, authData any) []byte {
 // TestParseAttestationObject_WebAuthn6_5_4 checks the attestation object's
 // shape: one CBOR map of exactly fmt (text), attStmt (map) and authData
 // (bytes), with nothing after it; its key order is not checked (§2.4's
-// canonical form, design 7.2).
+// canonical form, a stated departure in docs/webauthn.md).
 func TestParseAttestationObject_WebAuthn6_5_4(t *testing.T) {
 	t.Parallel()
 	s := s16_3(t)
@@ -146,8 +146,8 @@ func statementResult(t *testing.T, format string, stmt cborMap, authData []byte,
 // TestVerifyStatement_WebAuthn8_2_self checks packed without x5c, §8.2's self
 // attestation: exactly an integer alg equal to the credential key's and a
 // byte string sig verifying under it over authData ‖ clientDataHash. packed
-// with x5c, and every other format, is refused as a format (design 7.5 step
-// 7).
+// with x5c, and every other format, is refused as a format: access accepts
+// only none and self attestation (§5.4.7's default conveyance).
 func TestVerifyStatement_WebAuthn8_2_self(t *testing.T) {
 	t.Parallel()
 	s := s16_3(t)

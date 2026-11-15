@@ -129,7 +129,7 @@ func (r *custodyRun) stored(t *testing.T) access.PasskeyCredential {
 
 // TestRecordAssertion_WebAuthn7_2_signCount checks the custody write of
 // WebAuthn L3 §7.2's signCount step when two finishes of one credential
-// both compared against the count they read (design 7.6 steps 7 and 8).
+// both compared against the count they read at the identification step.
 func TestRecordAssertion_WebAuthn7_2_signCount(t *testing.T) {
 	t.Parallel()
 	for _, order := range [][2]string{{"asserts52", "asserts51"}, {"asserts51", "asserts52"}} {

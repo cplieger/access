@@ -29,7 +29,7 @@ func checkRPID(t *testing.T, id string, valid bool) {
 }
 
 // TestValidateRPID_goWebAuthnCases runs go-webauthn v0.18.2's TestValidateRPID
-// table as data, less the two cases design 7.4 changes on purpose, which
+// table as data, less EXAMPLE.COM and exa_mple.com, which access refuses and
 // TestValidateRPID_WHATWG_URL_3_4 re-asserts as refusals.
 func TestValidateRPID_goWebAuthnCases(t *testing.T) {
 	t.Parallel()
@@ -58,7 +58,7 @@ func TestValidateRPID_goWebAuthnCases(t *testing.T) {
 	}
 }
 
-// TestValidateRPID_WHATWG_URL_3_4 checks the RP ID rule of design 7.4: WebAuthn
+// TestValidateRPID_WHATWG_URL_3_4 checks the RP ID rule: WebAuthn
 // §4 "RP ID" is a valid domain string (WHATWG URL §3.4), which for a lowercase
 // ASCII ID is LDH labels (UTS #46 §4.1 UseSTD3ASCIIRules and CheckHyphens) and a
 // last label that does not end in a number (WHATWG URL §3.5 "ends in a number").
@@ -76,14 +76,14 @@ func TestValidateRPID_WHATWG_URL_3_4(t *testing.T) {
 		{name: "localhost, the one single label", id: "localhost", valid: true},
 		{name: "digits and an inner hyphen", id: "a1-b2.example", valid: true},
 		{name: "an all-digit first label", id: "123.example", valid: true},
-		{name: "an A-label, accepted as LDH (UTS #46 §4.1, design 7.4)", id: "xn--bcher-kva.example", valid: true},
+		{name: "an A-label, accepted as LDH, not decoded (UTS #46 §4.1)", id: "xn--bcher-kva.example", valid: true},
 		{name: "hyphens in places 4 and 5 (UTS #46 §4.1 CheckHyphens)", id: "abc--d.example", valid: true},
 		{name: "a 63-byte label (RFC 1034 §3.1)", id: label63 + ".example", valid: true},
 		{name: "253 bytes (RFC 1034 §3.1)", id: id253, valid: true},
 		{name: "0x then a non-hex digit is no number (WHATWG URL §3.5)", id: "example.0xg", valid: true},
 
 		{name: "empty", id: ""},
-		{name: "upper case (design 7.4, access's own rule)", id: "EXAMPLE.COM"},
+		{name: "upper case (access's own lowercase rule)", id: "EXAMPLE.COM"},
 		{name: "mixed case", id: "Example.com"},
 		{name: "an underscore (WHATWG URL §3.4, UseSTD3ASCIIRules)", id: "exa_mple.com"},
 		{name: "an asterisk", id: "exa*mple.com"},
@@ -121,7 +121,7 @@ func TestValidateRPID_WHATWG_URL_3_4(t *testing.T) {
 }
 
 // TestValidateRPID_lowercaseForm checks that a refusal for case alone names the
-// lowercase form (design 7.4: the lowercase rule keeps its own refusal), and
+// lowercase form (the lowercase rule keeps its own refusal), and
 // that no refusal offers a lowercase form the rule would still refuse.
 func TestValidateRPID_lowercaseForm(t *testing.T) {
 	t.Parallel()

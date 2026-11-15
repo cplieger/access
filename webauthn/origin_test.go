@@ -249,6 +249,9 @@ func TestCheckOrigin_allowlist(t *testing.T) {
 		{name: "two_entries_second_accepted", origins: []string{"https://a.example.com", "https://b.example.com"}, origin: "https://b.example.com"},
 		{name: "two_entries_third_refused", origins: []string{"https://a.example.com", "https://b.example.com"}, origin: "https://c.example.com", want: RejectNotAllowlisted},
 		{name: "listed_with_default_port_matches_implicit", origins: []string{"https://subflux.example.com:443"}, origin: "https://subflux.example.com"},
+		// GHSA-f7pm-6hr8-7ggm: an allowlist reduced to hosts let a second port through.
+		{name: "GHSA-f7pm-6hr8-7ggm_listed_port_differs_refused", origins: []string{"https://login.example.com:8443"}, origin: "https://login.example.com:9443", want: RejectNotAllowlisted},
+		{name: "listed_port_accepted", origins: []string{"https://login.example.com:8443"}, origin: "https://login.example.com:8443"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -439,7 +442,7 @@ func TestNew_refusesIllegalRPID(t *testing.T) {
 
 // TestCeremonyBindsItsOrigin is the CVE-2026-30964 port case asserted at the
 // finish: a ceremony accepts only client data naming the origin it began at
-// (WebAuthn §7.1's origin step; design 7.5 step 2), so a response from
+// (WebAuthn §7.1's origin step), so a response from
 // another port, a sibling subdomain, or a second allowlisted origin is
 // refused, and the bound origin itself passes the origin step.
 func TestCeremonyBindsItsOrigin(t *testing.T) {

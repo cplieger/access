@@ -132,8 +132,8 @@ func TestParseAuthData_WebAuthn6_5_1_fields(t *testing.T) {
 // TestParseAuthData_WebAuthn2_4_keyAsReceived checks that a credential key
 // not in CTAP2 canonical form, its alg in two bytes and its labels out of
 // order, is kept byte for byte and ends where the extensions begin, the
-// boundary a parser that re-encodes the key to measure it misplaces (§2.4,
-// design 7.2's departure).
+// boundary a parser that re-encodes the key to measure it misplaces (§2.4's
+// canonical form, a stated departure in docs/webauthn.md).
 func TestParseAuthData_WebAuthn2_4_keyAsReceived(t *testing.T) {
 	t.Parallel()
 	p := s16_4Parts(t)
@@ -205,9 +205,9 @@ func TestAuthData_WebAuthn6_1_attested(t *testing.T) {
 }
 
 // TestRegistrationAuthData_WebAuthn7_1_credential checks the attested
-// credential against the response and the offer: its ID is rawId (design 7.2
-// rule 2), and its key is one cose.ParseKey accepts, which is also §7.1's
-// check that its alg was offered.
+// credential against the response and the offer: its ID is rawId, so the
+// credential has one ID, and its key is one cose.ParseKey accepts, which is
+// also §7.1's check that its alg was offered.
 func TestRegistrationAuthData_WebAuthn7_1_credential(t *testing.T) {
 	t.Parallel()
 	p := s16_4Parts(t)

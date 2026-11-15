@@ -253,10 +253,10 @@ func begins(rp *RelyingParty, user *User) map[string]beginFunc {
 }
 
 // TestBegin_WebAuthn13_4_3_challenge checks that every Begin sends a fresh
-// 32-byte challenge (design 7.7; §13.4.3 asks for at least 16 random bytes),
+// 32-byte challenge (§13.4.3 asks for at least 16 random bytes),
 // the one its ceremony verifies, expiring CeremonyTimeout after Begin, and
-// that the ceremony shares no byte with the options or the user (7.7: a
-// ceremony is immutable).
+// that the ceremony shares no byte with the options or the user, so neither
+// can change it after Begin.
 func TestBegin_WebAuthn13_4_3_challenge(t *testing.T) {
 	t.Parallel()
 	for name, begin := range begins(testRelyingParty(t), optionsUser()) {
@@ -352,7 +352,7 @@ func TestBegin_WebAuthn5_4_3_userHandle(t *testing.T) {
 }
 
 // TestFinish_WebAuthn7_ceremonyKind checks that each finish takes only the
-// ceremony kind design 7.5 step 0 and 7.6 step 0 name: registration for
+// ceremony kind it answers (§7.1, §7.2 pkOptions): registration for
 // FinishRegistration, a login or conditional login for CompleteLogin, a
 // reauthentication for CompleteReauthentication; and a Ceremony no Begin
 // returned is ErrCeremonyUnbound. A matching kind passes on to the response,
