@@ -13,6 +13,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -113,6 +114,9 @@ type IdPOptions struct {
 	// Subject, when non-nil, is the sub claim, an empty string included; nil
 	// is DefaultIdPSubject.
 	Subject *string
+	// PreferredUsername, when non-nil, is the preferred_username claim, an
+	// empty string included; nil is DefaultIdPUsername.
+	PreferredUsername *string
 	// EmailVerified, when non-nil, is written as the email_verified claim
 	// as given, so a string "true" tests a relying party's tolerance; nil
 	// is the boolean true. NewIdP fails the test when it does not encode as
@@ -122,15 +126,18 @@ type IdPOptions struct {
 	// string or a []string; nil omits the claim. NewIdP fails the test when
 	// it does not encode as JSON.
 	Groups any
-	// URL, when non-empty, is the issuer in place of the listener's URL:
-	// discovery's issuer, the iss claim and the authorization response's
-	// iss, and, less any final "/", the base of every endpoint (OpenID
-	// Connect Discovery 1.0 section 4.1). It is https with a DNS host
-	// httptest's certificate covers (example.com or one label below it), an
-	// optional port and path, and no query, fragment or userinfo; NewIdP
-	// fails the test on any other. The IdP then serves HTTPS, reached only by
-	// a client that dials IdP.Addr for URL's host and port, as IdP.Client does.
+	// URL, when non-empty, is the issuer in place of the listener's URL and,
+	// less any final "/", the base of every endpoint (OpenID Connect
+	// Discovery 1.0 section 4.1). It is https with a DNS host name (RFC 1123
+	// section 2.1), an optional port and path, and no query, fragment or
+	// userinfo; NewIdP fails the test on any other. The IdP then serves HTTPS
+	// for that host, reached only by a client that dials IdP.Addr for URL's
+	// host and port and trusts IdP.RootCAs, as IdP.Client does.
 	URL string
+	// IssuerClaim, when non-empty, is the ID token's iss claim in place of
+	// the issuer; discovery's issuer and the authorization response's iss
+	// stay the issuer.
+	IssuerClaim string
 	// AuthorizedParty, when non-empty, is the azp claim; empty omits it.
 	AuthorizedParty string
 	// Algorithm is the ID token's alg header, one of the Alg constants;
@@ -165,7 +172,7 @@ type IdPOptions struct {
 	// max_age request, whose token OpenID Connect Core 1.0 section 2
 	// requires it in.
 	OmitAuthTime bool
-	// TLS serves the IdP over HTTPS with httptest's certificate, which only
+	// TLS serves the IdP over HTTPS for its listener's address, which only
 	// a client trusting IdP.RootCAs, such as IdP.Client, trusts; false
 	// serves plain HTTP on loopback unless URL is set.
 	TLS bool
@@ -186,6 +193,7 @@ type IdP struct {
 	cfg    *idpConfig
 	codes  map[string]idpGrant
 	client *http.Client
+	ca     *x509.Certificate
 	login  time.Time
 	issuer string
 	addr   netip.AddrPort
@@ -205,6 +213,7 @@ type idpConfig struct {
 	claims                map[string]json.RawMessage
 	url                   string
 	urlHost               string
+	issuerClaim           string
 	dialAddr              string
 	pathPrefix            string
 	algorithm             string
@@ -295,6 +304,12 @@ func NewIdP(t testing.TB, opts IdPOptions) *IdP {
 	p.addr = addr
 	p.issuer = cmp.Or(cfg.url, scheme+"://"+addr.String())
 	if secure {
+		ca, leaf, err := newServerCertificate(cfg.urlHost, addr.Addr())
+		if err != nil {
+			t.Fatalf("accesstest: IdP certificate: %v", err)
+		}
+		p.ca = ca
+		p.srv.TLS = &tls.Config{Certificates: []tls.Certificate{leaf}, MinVersion: tls.VersionTLS12}
 		p.srv.StartTLS()
 	} else {
 		p.srv.Start()
@@ -305,12 +320,57 @@ func NewIdP(t testing.TB, opts IdPOptions) *IdP {
 		p.client.CloseIdleConnections()
 		p.srv.Close()
 	})
-	if cfg.url != "" {
-		if err := p.srv.Certificate().VerifyHostname(cfg.urlHost); err != nil {
-			t.Fatalf("accesstest: IdP URL %q: %v", cfg.url, err)
-		}
-	}
 	return p
+}
+
+// newServerCertificate mints a CA of the IdP's own and a leaf it issues for
+// dnsName, or for ip when dnsName is empty. The validity spans every clock a
+// test may set, ending at RFC 5280 section 4.1.2.5's "no well-defined
+// expiration date", since crypto/tls checks it against the wall clock while
+// IdPOptions.Now may run anywhere.
+func newServerCertificate(dnsName string, ip netip.Addr) (ca *x509.Certificate, leaf tls.Certificate, err error) {
+	notBefore, notAfter := time.Unix(0, 0), time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, tls.Certificate{}, err
+	}
+	caTmpl := &x509.Certificate{
+		Subject:               pkix.Name{CommonName: "accesstest IdP CA"},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		MaxPathLenZero:        true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+	if err != nil {
+		return nil, tls.Certificate{}, err
+	}
+	ca, err = x509.ParseCertificate(caDER)
+	if err != nil {
+		return nil, tls.Certificate{}, err
+	}
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, tls.Certificate{}, err
+	}
+	leafTmpl := &x509.Certificate{
+		NotBefore:   notBefore,
+		NotAfter:    notAfter,
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	if dnsName != "" {
+		leafTmpl.DNSNames = []string{dnsName}
+	} else {
+		leafTmpl.IPAddresses = []net.IP{ip.AsSlice()}
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, ca, &leafKey.PublicKey, caKey)
+	if err != nil {
+		return nil, tls.Certificate{}, err
+	}
+	return ca, tls.Certificate{Certificate: [][]byte{leafDER}, PrivateKey: leafKey}, nil
 }
 
 // newClient builds Client from Addr and RootCAs alone, so a caller's own
@@ -346,7 +406,8 @@ func freezeOptions(o *IdPOptions) (*idpConfig, error) {
 	cfg := &idpConfig{
 		now:                   o.Now,
 		url:                   o.URL,
-		urlHost:               u.Hostname(),
+		urlHost:               strings.ToLower(u.Hostname()),
+		issuerClaim:           o.IssuerClaim,
 		pathPrefix:            strings.TrimSuffix(u.Path, "/"),
 		algorithm:             cmp.Or(o.Algorithm, AlgRS256),
 		clientID:              cmp.Or(o.ClientID, DefaultIdPClientID),
@@ -375,8 +436,7 @@ func freezeOptions(o *IdPOptions) (*idpConfig, error) {
 	return cfg, nil
 }
 
-// parseIssuerURL applies IdPOptions.URL's rule short of the certificate, which
-// NewIdP checks once the server has one. An empty URL is the zero URL.
+// parseIssuerURL applies IdPOptions.URL's rule. An empty URL is the zero URL.
 func parseIssuerURL(raw string) (*url.URL, error) {
 	if raw == "" {
 		return &url.URL{}, nil
@@ -390,10 +450,30 @@ func parseIssuerURL(raw string) (*url.URL, error) {
 	case u.User != nil || u.RawQuery != "" || u.ForceQuery || strings.Contains(raw, "#"):
 		return nil, fmt.Errorf("IdP URL %q carries userinfo, a query or a fragment", raw)
 	}
-	if _, err := netip.ParseAddr(u.Hostname()); err == nil {
-		return nil, fmt.Errorf("IdP URL %q has an IP address for a host, not a DNS name", raw)
+	if !isDNSName(u.Hostname()) {
+		return nil, fmt.Errorf("IdP URL %q has a host that is not a DNS name", raw)
 	}
 	return u, nil
+}
+
+// isDNSName applies RFC 1123 section 2.1's host name syntax: labels of 1 to
+// 63 letters, digits and inner hyphens (RFC 1035 section 2.3.1), at most 253
+// characters (RFC 1035 section 2.3.4), and a top label not all digits (RFC
+// 3696 section 2), which also refuses every IP address.
+func isDNSName(name string) bool {
+	if len(name) > 253 {
+		return false
+	}
+	labels := strings.Split(name, ".")
+	if slices.ContainsFunc(labels, func(l string) bool { return !isLDHLabel(l) }) {
+		return false
+	}
+	return strings.TrimLeft(labels[len(labels)-1], "0123456789") != ""
+}
+
+func isLDHLabel(l string) bool {
+	const ldh = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
+	return l != "" && len(l) <= 63 && l[0] != '-' && l[len(l)-1] != '-' && strings.Trim(l, ldh) == ""
 }
 
 // frozenClaims encodes every claim that is the same in each ID token. The
@@ -412,6 +492,9 @@ func frozenClaims(o *IdPOptions, clientID string) (map[string]json.RawMessage, e
 	}
 	if o.Subject != nil {
 		set["sub"] = *o.Subject
+	}
+	if o.PreferredUsername != nil {
+		set["preferred_username"] = *o.PreferredUsername
 	}
 	if len(o.Audience) == 1 {
 		set["aud"] = o.Audience[0]
@@ -457,16 +540,15 @@ func (p *IdP) Client() *http.Client { return p.client }
 // Addr returns the address the IdP listens on.
 func (p *IdP) Addr() netip.AddrPort { return p.addr }
 
-// RootCAs returns a new pool holding only the IdP's certificate on each
-// call, so a write to it reaches neither the IdP nor Client; it is nil when
-// the IdP serves plain HTTP.
+// RootCAs returns a new pool holding only the CA, the IdP's own, that issued
+// the certificate it serves, on each call, so a write to it reaches neither
+// the IdP nor Client; it is nil when the IdP serves plain HTTP.
 func (p *IdP) RootCAs() *x509.CertPool {
-	cert := p.srv.Certificate()
-	if cert == nil {
+	if p.ca == nil {
 		return nil
 	}
 	roots := x509.NewCertPool()
-	roots.AddCert(cert)
+	roots.AddCert(p.ca)
 	return roots
 }
 
@@ -893,7 +975,7 @@ func (p *IdP) idToken(g *idpGrant) (string, error) {
 	for name, v := range p.cfg.claims {
 		claims[name] = v
 	}
-	claims["iss"] = p.issuer
+	claims["iss"] = cmp.Or(p.cfg.issuerClaim, p.issuer)
 	claims["iat"] = now.Unix()
 	claims["exp"] = now.Add(p.cfg.lifetime).Unix()
 	if _, fixed := p.cfg.claims["nonce"]; !fixed && g.nonce != "" {

@@ -7,14 +7,14 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
 
-	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/oidc/internal/discovery"
+	"github.com/cplieger/access/oidc/internal/jwk"
 	"golang.org/x/oauth2"
 )
 
@@ -25,17 +25,21 @@ type Config struct {
 	// means a default client. The provider uses a copy: a zero Timeout
 	// becomes 10s, and the transport is wrapped so a response body past 1
 	// MiB is refused, whatever length it declares. A negative Timeout is
-	// refused. CheckRedirect, Jar and the transport's dialer and TLS
-	// settings are kept as given.
+	// refused. Jar and the transport's dialer and TLS settings are kept as
+	// given; CheckRedirect applies to the token exchange only, since
+	// discovery and the key set follow no redirect.
 	HTTPClient *http.Client
 	// FlowSealer seals the flow cookie; nil means a new ephemeral sealer
 	// per Provider, so a flow begun under one Provider value cannot finish
 	// under a rebuilt one; an app that rebuilds providers passes one sealer
 	// that outlives them.
 	FlowSealer *access.Sealer
-	// Now is the clock for the flow cookie and the ID token's expiry; nil
-	// means time.Now.
-	Now          func() time.Time
+	// Now is the clock for the flow cookie, the ID token's time claims, and
+	// the key set's age and refetch gate; nil means time.Now.
+	Now func() time.Time
+	// Logger receives the key set's WARNs; nil means slog.Default() at
+	// each call.
+	Logger       *slog.Logger
 	ClientSecret access.Secret
 	IssuerURL    string
 	ClientID     string
@@ -50,7 +54,11 @@ const (
 	schemeHTTPS = "https"
 )
 
-var defaultScopes = []string{gooidc.ScopeOpenID, "profile", "email"}
+// scopeOpenID is the scope every OpenID Connect request carries (OpenID
+// Connect Core 1.0 §3.1.2.1).
+const scopeOpenID = "openid"
+
+var defaultScopes = []string{scopeOpenID, "profile", "email"}
 
 // Validate requires an https issuer and redirect URL, except http on a
 // loopback host, each absolute with a host and no userinfo or fragment,
@@ -67,8 +75,8 @@ func (c Config) Validate() error { //nolint:gocritic // hugeParam: a value recei
 	if err := checkSettingURL("RedirectURL", c.RedirectURL, false); err != nil {
 		return err
 	}
-	if c.Scopes != nil && !slices.Contains(c.Scopes, gooidc.ScopeOpenID) {
-		return fmt.Errorf("%w: Scopes must include %q", ErrConfigInvalid, gooidc.ScopeOpenID)
+	if c.Scopes != nil && !slices.Contains(c.Scopes, scopeOpenID) {
+		return fmt.Errorf("%w: Scopes must include %q", ErrConfigInvalid, scopeOpenID)
 	}
 	if c.HTTPClient != nil && c.HTTPClient.Timeout < 0 {
 		return fmt.Errorf("%w: HTTPClient.Timeout must not be negative", ErrConfigInvalid)
@@ -82,9 +90,9 @@ func checkSettingURL(field, raw string, issuer bool) error {
 	}
 	u, err := url.Parse(raw)
 	switch {
-	case err != nil, u.Host == "", u.Opaque != "", u.User != nil:
+	case err != nil, u.Host == "", u.User != nil:
 		return fmt.Errorf("%w: %s must be an absolute URL with a host and no userinfo", ErrConfigInvalid, field)
-	case u.Scheme != schemeHTTPS && (u.Scheme != schemeHTTP || !loopbackHost(u.Hostname())):
+	case u.Scheme != schemeHTTPS && (u.Scheme != schemeHTTP || !discovery.LoopbackHost(u.Hostname())):
 		return fmt.Errorf("%w: %s must use https, or http on a loopback host", ErrConfigInvalid, field)
 	case strings.Contains(raw, "#"):
 		return fmt.Errorf("%w: %s must not carry a fragment", ErrConfigInvalid, field)
@@ -94,28 +102,22 @@ func checkSettingURL(field, raw string, issuer bool) error {
 	return nil
 }
 
-func loopbackHost(host string) bool {
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	addr, err := netip.ParseAddr(host)
-	return err == nil && addr.IsLoopback()
-}
-
 // Provider is an OpenID Connect provider discovered by NewProvider. It is
 // immutable; an app swaps its pointer when settings change.
 type Provider struct {
-	verifier *gooidc.IDTokenVerifier
+	keys     *discovery.KeySet
 	endpoint oauth2.Endpoint
+	algs     []jwk.Alg
 	cfg      Config
 }
 
 // NewProvider validates cfg, refuses with ErrConfigInvalid one whose
-// largest flow would not seal or fit its cookie, runs discovery through
-// cfg's client and refuses, with ErrDiscovery naming the field, a document whose
-// authorization_endpoint, token_endpoint or jwks_uri is not an absolute
-// https URL with a host and without userinfo; http is accepted only on a
-// loopback host while the issuer itself is a loopback http URL.
+// largest flow would not seal or fit its cookie, and fetches discovery and
+// the JWK Set through cfg's client, following no redirect. It refuses with
+// ErrDiscovery, never naming a URL, a failed fetch or non-200 answer,
+// another issuer, no accepted algorithm, no usable key, or, naming the
+// field, an endpoint outside the https rule (http only under a loopback
+// http issuer).
 func NewProvider(ctx context.Context, cfg Config) (*Provider, error) { //nolint:gocritic // hugeParam: by value, so the caller's config stays its own while NewProvider fills defaults
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -134,48 +136,20 @@ func NewProvider(ctx context.Context, cfg Config) (*Provider, error) { //nolint:
 	if err := checkFlowFits(&cfg); err != nil {
 		return nil, err
 	}
-	discovered, err := gooidc.NewProvider(gooidc.ClientContext(ctx, cfg.HTTPClient), cfg.IssuerURL)
+	doc, err := discovery.Fetch(ctx, cfg.HTTPClient, cfg.IssuerURL)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrDiscovery, err)
 	}
-	var doc struct {
-		JWKSURI string `json:"jwks_uri"`
-	}
-	if err := discovered.Claims(&doc); err != nil {
+	keys, err := discovery.NewKeySet(ctx, cfg.HTTPClient, doc, cfg.Now, cfg.Logger)
+	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrDiscovery, err)
 	}
-	endpoint := discovered.Endpoint()
-	loopbackIssuer := isLoopbackHTTP(cfg.IssuerURL)
-	for _, e := range [...]struct{ field, raw string }{
-		{"authorization_endpoint", endpoint.AuthURL},
-		{"token_endpoint", endpoint.TokenURL},
-		{"jwks_uri", doc.JWKSURI},
-	} {
-		if !endpointAllowed(e.raw, loopbackIssuer) {
-			return nil, fmt.Errorf("%w: %s must be an absolute https URL with a host and no userinfo", ErrDiscovery, e.field)
-		}
-	}
 	return &Provider{
-		verifier: discovered.Verifier(&gooidc.Config{ClientID: cfg.ClientID, Now: cfg.Now}),
-		endpoint: endpoint,
+		keys:     keys,
+		algs:     doc.Algs,
+		endpoint: oauth2.Endpoint{AuthURL: doc.AuthorizationEndpoint, TokenURL: doc.TokenEndpoint},
 		cfg:      cfg,
 	}, nil
-}
-
-// endpointAllowed applies NewProvider's endpoint rule. url.Parse reports
-// "https:///token" and "https:idp.example/token" as absolute https URLs with
-// no host, hence the Host and Opaque checks.
-func endpointAllowed(raw string, loopbackIssuer bool) bool {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" || u.Opaque != "" || u.User != nil {
-		return false
-	}
-	return u.Scheme == schemeHTTPS || u.Scheme == schemeHTTP && loopbackIssuer && loopbackHost(u.Hostname())
-}
-
-func isLoopbackHTTP(raw string) bool {
-	u, err := url.Parse(raw)
-	return err == nil && u.Scheme == schemeHTTP && loopbackHost(u.Hostname())
 }
 
 // Issuer returns cfg.IssuerURL, the issuer every ID token this provider

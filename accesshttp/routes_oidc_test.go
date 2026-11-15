@@ -543,15 +543,15 @@ func TestCallbackPassesDecodedQuery(t *testing.T) {
 	}
 }
 
-// TestPendingTooLarge oversizes the IdP's sub claim, which the pending
-// link carries as Identity.Subject: accesstest's IdP has no option for
-// preferred_username, the other IdP-controlled claim it carries.
+// TestPendingTooLarge oversizes the IdP's preferred_username, which the
+// pending link carries as its username hint with no bound of its own; sub
+// is bounded at 255 characters (OpenID Connect Core 1.0 §2).
 func TestPendingTooLarge(t *testing.T) {
-	// fits is the longest subject whose pending payload Seal accepts.
+	// fits is the longest hint whose pending payload Seal accepts.
 	fits := func() int {
 		n := access.MaxSealPayload
 		for ; n > 0; n-- {
-			p, _ := json.Marshal(pendingPayload{Issuer: testIssuer, Subject: strings.Repeat("s", n), UsernameHint: accesstest.DefaultIdPUsername, Email: accesstest.DefaultIdPEmail})
+			p, _ := json.Marshal(pendingPayload{Issuer: testIssuer, Subject: accesstest.DefaultIdPSubject, UsernameHint: strings.Repeat("u", n), Email: accesstest.DefaultIdPEmail})
 			if len(p) <= access.MaxSealPayload {
 				return n
 			}
@@ -559,21 +559,21 @@ func TestPendingTooLarge(t *testing.T) {
 		return 0
 	}()
 	for _, tc := range []struct {
-		name    string
-		subject string
+		name string
+		hint string
 	}{
-		{"seal_refuses", strings.Repeat("s", 4<<10)},
-		{"cookie_over_4096", strings.Repeat("s", fits)},
+		{"seal_refuses", strings.Repeat("u", 4<<10)},
+		{"cookie_over_4096", strings.Repeat("u", fits)},
 	} {
 		for _, exists := range []bool{true, false} {
-			t.Run(tc.name+"/name_exists_"+map[bool]string{true: "yes", false: "no"}[exists], func(t *testing.T) {
+			t.Run(tc.name+"/local_user_"+map[bool]string{true: "yes", false: "no"}[exists], func(t *testing.T) {
 				e := newEnv(t, envOptions{})
-				idp := e.useIdP(t, accesstest.IdPOptions{Subject: &tc.subject}, nil)
+				idp := e.useIdP(t, accesstest.IdPOptions{PreferredUsername: &tc.hint}, nil)
 				if exists {
 					e.createUser(t, accesstest.DefaultIdPUsername, access.RoleUser)
 				}
 				if tc.name == "cookie_over_4096" {
-					requireOverCookieBound(t, e, tc.subject)
+					requireOverCookieBound(t, e, tc.hint)
 				}
 				w := e.signInFlow(t, newBrowser(t), idp, "")
 				if loc := location(t, w); loc != "/signin?auth_error=auth_oidc_failed" {
@@ -594,12 +594,12 @@ func TestPendingTooLarge(t *testing.T) {
 	}
 }
 
-// requireOverCookieBound fails the fixture unless subject's pending payload
+// requireOverCookieBound fails the fixture unless hint's pending payload
 // seals within MaxSealPayload to a value the derived cookie name pushes past
 // 4096 bytes.
-func requireOverCookieBound(t *testing.T, e *env, subject string) {
+func requireOverCookieBound(t *testing.T, e *env, hint string) {
 	t.Helper()
-	c := e.pendingCookie(t, pendingPayload{Issuer: testIssuer, Subject: subject, UsernameHint: accesstest.DefaultIdPUsername, Email: accesstest.DefaultIdPEmail})
+	c := e.pendingCookie(t, pendingPayload{Issuer: testIssuer, Subject: accesstest.DefaultIdPSubject, UsernameHint: hint, Email: accesstest.DefaultIdPEmail})
 	if n := len(c.Name) + len(c.Value); n <= maxCookieBytes || len(c.Value) > maxCookieBytes {
 		t.Fatalf("fixture: name %d + value %d bytes, want the sum past %d with the value within it", len(c.Name), len(c.Value), maxCookieBytes)
 	}

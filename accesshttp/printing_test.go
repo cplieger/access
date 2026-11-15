@@ -111,9 +111,9 @@ func inventoryAllow(t *testing.T) printcheck.Allow {
 			"access.Principal.KeyLabel",
 			"access.OIDCIdentity.Issuer", "access.OIDCIdentity.Subject",
 			"oidc.Config.IssuerURL", "oidc.Config.ClientID", "oidc.Config.RedirectURL", "oidc.Config.Scopes",
-			// The discovered public endpoints, and go-oidc's verifier: the
-			// issuer, client ID, algorithms and the public keys of jwks_uri.
-			"oidc.Provider.endpoint", "oidc.Provider.verifier",
+			// The discovered public endpoints and algorithm rows, and the key
+			// set: the jwks_uri and the public keys fetched from it.
+			"oidc.Provider.endpoint", "oidc.Provider.algs", "oidc.Provider.keys",
 			"account.Rotation.ID", "account.Recovery.Username", "account.OIDCOutcome.Redirect",
 			"account.PendingLink.Email", "account.PendingLink.UsernameHint", "account.MethodLock.Method",
 			"account.Client.Host", "account.Client.UserAgent",
