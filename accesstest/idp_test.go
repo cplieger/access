@@ -3,7 +3,11 @@ package accesstest_test
 import (
 	"bytes"
 	"context"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/hmac"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -11,7 +15,9 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math/big"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"runtime"
 	"slices"
@@ -20,9 +26,9 @@ import (
 	"testing"
 	"time"
 
-	gooidc "github.com/coreos/go-oidc/v3/oidc"
+	"github.com/cplieger/access"
 	"github.com/cplieger/access/accesstest"
-	"golang.org/x/oauth2"
+	"github.com/cplieger/access/oidc"
 )
 
 const (
@@ -191,7 +197,41 @@ func unix(t *testing.T, v any) int64 {
 	return i
 }
 
-func TestIdPTokenVerifiesWithGoOIDC(t *testing.T) {
+// signInAtProvider runs one sign-in through an oidc.Provider configured
+// for idp: Begin, the IdP's authorize, Finish.
+func signInAtProvider(t *testing.T, idp *accesstest.IdP) (claims oidc.Claims, callback *url.URL, err error) {
+	t.Helper()
+	p, err := oidc.NewProvider(t.Context(), oidc.Config{
+		IssuerURL: idp.Issuer(), ClientID: idp.ClientID(), ClientSecret: access.NewSecret(idp.ClientSecret()),
+		RedirectURL: testRedirectURI, HTTPClient: idp.Client(),
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	session := access.DefaultCookieConfig()
+	began := httptest.NewRecorder()
+	authURL, err := p.Begin(began, httptest.NewRequest(http.MethodPost, "https://app.example/auth/start", nil), session, oidc.BeginRequest{Intent: oidc.IntentSignIn, Redirect: "/"})
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	_, location := getNoRedirect(t, idp, authURL)
+	callback, err = url.Parse(location)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodGet, callback.String(), nil)
+	for _, c := range began.Result().Cookies() {
+		r.AddCookie(c)
+	}
+	q := callback.Query()
+	_, claims, err = p.Finish(httptest.NewRecorder(), r, session, oidc.Callback{State: q.Get("state"), Code: q.Get("code"), Error: q.Get("error")})
+	return claims, callback, err
+}
+
+// TestIdPSignInVerifiesAtProvider: each signing option yields a code flow a
+// relying party completes (OpenID Connect Core 1.0 §3.1.3.7), with the
+// issuer in the callback (RFC 9207 §2) and the IdP's default claims.
+func TestIdPSignInVerifiesAtProvider(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		opts accesstest.IdPOptions
@@ -205,63 +245,29 @@ func TestIdPTokenVerifiesWithGoOIDC(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			idp := accesstest.NewIdP(t, tc.opts)
-			ctx := gooidc.ClientContext(t.Context(), idp.Client())
-			provider, err := gooidc.NewProvider(ctx, idp.Issuer())
+			claims, cb, err := signInAtProvider(t, idp)
 			if err != nil {
-				t.Fatalf("NewProvider: %v", err)
+				t.Fatalf("Finish: %v", err)
 			}
-			cfg := oauth2.Config{
-				ClientID: idp.ClientID(), ClientSecret: idp.ClientSecret(),
-				Endpoint: provider.Endpoint(), RedirectURL: testRedirectURI,
-				Scopes: []string{gooidc.ScopeOpenID, "email"},
-			}
-			verifier := oauth2.GenerateVerifier()
-			authURL := cfg.AuthCodeURL("state-1", gooidc.Nonce("nonce-1"), oauth2.S256ChallengeOption(verifier))
-			_, location := getNoRedirect(t, idp, authURL)
-			loc, err := url.Parse(location)
-			if err != nil {
-				t.Fatal(err)
-			}
-			cb := loc.Query()
-			if got := loc.Scheme + "://" + loc.Host + loc.Path; got != testRedirectURI {
+			if got := cb.Scheme + "://" + cb.Host + cb.Path; got != testRedirectURI {
 				t.Errorf("redirect target = %q, want %q", got, testRedirectURI)
 			}
-			if cb.Get("state") != "state-1" || cb.Get("iss") != idp.Issuer() {
-				t.Errorf("callback state = %q, iss = %q", cb.Get("state"), cb.Get("iss"))
+			if got := cb.Query().Get("iss"); got != idp.Issuer() {
+				t.Errorf("callback iss = %q, want %q", got, idp.Issuer())
 			}
-			tok, err := cfg.Exchange(ctx, cb.Get("code"), oauth2.VerifierOption(verifier))
-			if err != nil {
-				t.Fatalf("Exchange: %v", err)
+			if want := (access.OIDCIdentity{Issuer: idp.Issuer(), Subject: accesstest.DefaultIdPSubject}); claims.Identity != want {
+				t.Errorf("Identity = %+v, want %+v", claims.Identity, want)
 			}
-			raw, ok := tok.Extra("id_token").(string)
-			if !ok {
-				t.Fatal("no id_token")
-			}
-			idt, err := provider.Verifier(&gooidc.Config{ClientID: idp.ClientID()}).Verify(ctx, raw)
-			if err != nil {
-				t.Fatalf("Verify: %v", err)
-			}
-			if idt.Nonce != "nonce-1" || idt.Subject != accesstest.DefaultIdPSubject || idt.Issuer != idp.Issuer() {
-				t.Errorf("token nonce = %q, sub = %q, iss = %q", idt.Nonce, idt.Subject, idt.Issuer)
-			}
-			var claims struct {
-				Email    string `json:"email"`
-				Username string `json:"preferred_username"`
-				Verified bool   `json:"email_verified"`
-				AuthTime int64  `json:"auth_time"`
-			}
-			if err := idt.Claims(&claims); err != nil {
-				t.Fatal(err)
-			}
-			if claims.Email != accesstest.DefaultIdPEmail || claims.Username != accesstest.DefaultIdPUsername || !claims.Verified || claims.AuthTime == 0 {
-				t.Errorf("claims = %+v", claims)
+			if claims.Email != accesstest.DefaultIdPEmail || claims.PreferredUsername != accesstest.DefaultIdPUsername || !claims.EmailVerified || claims.AuthTime.IsZero() {
+				t.Errorf("claims = email %q, username %q, verified %v, auth_time %v", claims.Email, claims.PreferredUsername, claims.EmailVerified, claims.AuthTime)
 			}
 			auths := idp.Authorizations()
-			if len(auths) != 1 || auths[0].Get("nonce") != "nonce-1" || auths[0].Get("code_challenge_method") != "S256" {
-				t.Errorf("Authorizations() = %v", auths)
+			if len(auths) != 1 || auths[0].Get("nonce") == "" || auths[0].Get("code_challenge_method") != "S256" {
+				t.Fatalf("Authorizations() = %v, want one request with a nonce and an S256 challenge", auths)
 			}
+			nonce := auths[0].Get("nonce")
 			auths[0].Set("nonce", "mutated")
-			if idp.Authorizations()[0].Get("nonce") != "nonce-1" {
+			if idp.Authorizations()[0].Get("nonce") != nonce {
 				t.Error("mutating Authorizations' result changed the record")
 			}
 		})
@@ -287,18 +293,19 @@ func TestIdPsShareSigningKeys(t *testing.T) {
 	}
 }
 
-func TestIdPRefusedAlgorithmsFailGoOIDC(t *testing.T) {
+// TestIdPRefusedAlgorithmsFailAtProvider: a token under alg none or HS256
+// fails at a relying party (RFC 8725 §2.1, §3.1), so these options exercise
+// its refusals.
+func TestIdPRefusedAlgorithmsFailAtProvider(t *testing.T) {
 	for _, alg := range []string{accesstest.AlgNone, accesstest.AlgHS256} {
 		t.Run(alg, func(t *testing.T) {
 			idp := accesstest.NewIdP(t, accesstest.IdPOptions{Algorithm: alg})
-			ctx := gooidc.ClientContext(t.Context(), idp.Client())
-			provider, err := gooidc.NewProvider(ctx, idp.Issuer())
-			if err != nil {
-				t.Fatal(err)
+			claims, _, err := signInAtProvider(t, idp)
+			if !errors.Is(err, oidc.ErrTokenInvalid) {
+				t.Errorf("Finish under an %s IdP = %v, want ErrTokenInvalid", alg, err)
 			}
-			raw := issue(t, idp, nil)
-			if _, err := provider.Verifier(&gooidc.Config{ClientID: idp.ClientID()}).Verify(ctx, raw); err == nil {
-				t.Errorf("go-oidc accepted an %s token", alg)
+			if !claims.Identity.IsZero() {
+				t.Errorf("Identity = %+v on a refusal, want zero", claims.Identity)
 			}
 		})
 	}
@@ -691,25 +698,9 @@ func TestNewIdPRefusals(t *testing.T) {
 func TestIdPRotateKey(t *testing.T) {
 	kids := func(t *testing.T, idp *accesstest.IdP) []string {
 		t.Helper()
-		resp, err := idp.Client().Get(idp.Issuer() + "/jwks")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var set struct {
-			Keys []struct {
-				Kid string `json:"kid"`
-			} `json:"keys"`
-		}
-		if err := json.Unmarshal(body, &set); err != nil {
-			t.Fatalf("JWKS: %v", err)
-		}
-		out := make([]string, 0, len(set.Keys))
-		for _, k := range set.Keys {
+		keys := servedKeys(t, idp)
+		out := make([]string, 0, len(keys))
+		for _, k := range keys {
 			out = append(out, k.Kid)
 		}
 		return out
@@ -719,18 +710,6 @@ func TestIdPRotateKey(t *testing.T) {
 		header, _, _, _ := decodeJWS(t, raw)
 		s, _ := header["kid"].(string)
 		return s
-	}
-	// verify checks raw against a relying party that reads the JWKS for
-	// the first time now, so it sees exactly the keys served at this point.
-	verify := func(t *testing.T, idp *accesstest.IdP, raw string) error {
-		t.Helper()
-		ctx := gooidc.ClientContext(t.Context(), idp.Client())
-		provider, err := gooidc.NewProvider(ctx, idp.Issuer())
-		if err != nil {
-			t.Fatalf("NewProvider: %v", err)
-		}
-		_, err = provider.Verifier(&gooidc.Config{ClientID: idp.ClientID()}).Verify(ctx, raw)
-		return err
 	}
 	for _, alg := range []string{accesstest.AlgRS256, accesstest.AlgES256} {
 		t.Run(alg, func(t *testing.T) {
@@ -751,7 +730,7 @@ func TestIdPRotateKey(t *testing.T) {
 				t.Errorf("JWKS after RotateKey = %v, want %v: the old keys stay until RetireOldKeys", got, want)
 			}
 			for name, raw := range map[string]string{"old": old, "rotated": rotated} {
-				if err := verify(t, idp, raw); err != nil {
+				if err := verifyAgainstJWKS(t, idp, raw); err != nil {
 					t.Errorf("after RotateKey the %s token: Verify = %v, want nil", name, err)
 				}
 			}
@@ -759,10 +738,10 @@ func TestIdPRotateKey(t *testing.T) {
 			if got := kids(t, idp); !slices.Equal(got, []string{newKid}) {
 				t.Errorf("JWKS after RetireOldKeys = %v, want only %q", got, newKid)
 			}
-			if err := verify(t, idp, rotated); err != nil {
+			if err := verifyAgainstJWKS(t, idp, rotated); err != nil {
 				t.Errorf("after RetireOldKeys the rotated token: Verify = %v, want nil", err)
 			}
-			if err := verify(t, idp, old); err == nil {
+			if err := verifyAgainstJWKS(t, idp, old); err == nil {
 				t.Error("after RetireOldKeys a token under the retired kid verified")
 			}
 			if got := kid(t, issue(t, idp, nil)); got != newKid {
@@ -795,4 +774,70 @@ func TestIdPRotateKey(t *testing.T) {
 			})
 		}
 	}
+}
+
+// servedKey is one JWK of the set the IdP serves (RFC 7517 §4; RFC 7518
+// §6.2.1, §6.3.1).
+type servedKey struct {
+	Kty string `json:"kty"`
+	Kid string `json:"kid"`
+	Crv string `json:"crv"`
+	N   string `json:"n"`
+	E   string `json:"e"`
+	X   string `json:"x"`
+	Y   string `json:"y"`
+}
+
+func servedKeys(t *testing.T, idp *accesstest.IdP) []servedKey {
+	t.Helper()
+	resp, err := idp.Client().Get(idp.Issuer() + "/jwks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var set struct {
+		Keys []servedKey `json:"keys"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&set); err != nil {
+		t.Fatalf("JWKS: %v", err)
+	}
+	return set.Keys
+}
+
+// verifyAgainstJWKS checks raw's signature (RFC 7515 §5.2) under the key
+// its kid names in the set the IdP serves now, by RFC 7518 §3.3 (RS256)
+// or §3.4 (ES256).
+func verifyAgainstJWKS(t *testing.T, idp *accesstest.IdP, raw string) error {
+	t.Helper()
+	header, _, input, sig := decodeJWS(t, raw)
+	kid, _ := header["kid"].(string)
+	digest := sha256.Sum256([]byte(input))
+	b64 := func(s string) []byte {
+		b, err := base64.RawURLEncoding.DecodeString(s)
+		if err != nil {
+			t.Fatalf("JWK member %q: %v", s, err)
+		}
+		return b
+	}
+	for _, k := range servedKeys(t, idp) {
+		if k.Kid != kid {
+			continue
+		}
+		switch {
+		case header["alg"] == accesstest.AlgRS256 && k.Kty == "RSA":
+			pub := &rsa.PublicKey{N: new(big.Int).SetBytes(b64(k.N)), E: int(new(big.Int).SetBytes(b64(k.E)).Int64())}
+			return rsa.VerifyPKCS1v15(pub, crypto.SHA256, digest[:], sig)
+		case header["alg"] == accesstest.AlgES256 && k.Kty == "EC" && k.Crv == "P-256":
+			pub, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), append(append([]byte{4}, b64(k.X)...), b64(k.Y)...))
+			if err != nil {
+				return err
+			}
+			if len(sig) != 64 || !ecdsa.Verify(pub, digest[:], new(big.Int).SetBytes(sig[:32]), new(big.Int).SetBytes(sig[32:])) {
+				return errors.New("the ES256 signature does not verify")
+			}
+			return nil
+		}
+		return fmt.Errorf("the key of kid %q (kty %q) does not fit alg %v", kid, k.Kty, header["alg"])
+	}
+	return fmt.Errorf("the served JWKS holds no key of kid %q", kid)
 }

@@ -90,4 +90,4 @@ A principal's `IdleDeadline` and `AbsoluteDeadline` are when it lapses. A sessio
 
 ## OIDC sign-in
 
-The `oidc` package signs a user in with an OpenID Connect provider, on [coreos/go-oidc](https://github.com/coreos/go-oidc). `Provider.Begin` seals the flow into a cookie and `Provider.Finish` completes it on the callback, so nothing is stored on the server. The [OIDC sign-in](oidc.md) page explains the flow, the link and step-up checks and the outbound-call bounds.
+The `oidc` package signs a user in with an OpenID Connect provider and verifies its ID tokens with its own code on Go's standard library. `Provider.Begin` seals the flow into a cookie and `Provider.Finish` completes it on the callback, so nothing is stored on the server. The [OIDC sign-in](oidc.md) page explains the flow, the link and step-up checks, the accepted tokens and keys, and the outbound-call bounds.
