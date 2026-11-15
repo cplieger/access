@@ -1232,7 +1232,7 @@ func (p *producers) bind(sum errValue, fn ast.Node, call *ast.CallExpr) errValue
 	return out
 }
 
-// values is c's leaves' errors, false when c holds an unregistered one.
+// values is c's leaves' errors (errorValue), false when a leaf has none.
 func values(c chain) ([]error, bool) {
 	var vals []error
 	for _, tm := range c {
