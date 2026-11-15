@@ -206,9 +206,9 @@ type PasskeyCredential struct {
 	// library reads, and it keeps the AT and ED bits the booleans below drop.
 	// Those booleans are a decoded view nothing here reads back. A store MUST
 	// persist the octet: a real registration sets user presence, so a zero
-	// octet means the store dropped it, and go-webauthn then refuses the next
-	// login whose authenticator asserts backup eligibility (rule 8 of the
-	// account package's store contract).
+	// octet means the store dropped it, and the webauthn package then refuses
+	// the next login whose authenticator asserts backup eligibility (rule 8 of
+	// the account package's store contract).
 	RawFlags uint8 `json:"-"`
 
 	BackupEligible bool `json:"backup_eligible"`

@@ -558,6 +558,24 @@ func (p *producers) inModule(pkg *types.Package) bool {
 	return pkg != nil && (pkg.Path() == p.module || strings.HasPrefix(pkg.Path(), p.module+"/"))
 }
 
+// nameable reports whether accesshttp can name obj, an object of the
+// module: exported, and outside any internal directory accesshttp is not
+// under (go help internal). An error it cannot name reads as opaque.
+func nameable(obj types.Object) bool {
+	if !obj.Exported() {
+		return false
+	}
+	from := modulePath + "/accesshttp"
+	segs := strings.Split(obj.Pkg().Path(), "/")
+	for k, seg := range segs {
+		parent := strings.Join(segs[:k], "/")
+		if seg == "internal" && from != parent && !strings.HasPrefix(from, parent+"/") {
+			return false
+		}
+	}
+	return true
+}
+
 func qualified(obj types.Object) string { return obj.Pkg().Path() + "." + obj.Name() }
 
 // serveFunc is s.serve's declaration in the loaded accesshttp.
@@ -733,7 +751,7 @@ func (p *producers) evalObj(obj types.Object) errValue {
 		switch {
 		case !p.inModule(v.Pkg()):
 			return opaqueValue
-		case registered(v) || v.Exported():
+		case registered(v) || nameable(v):
 			return p.leaf(v)
 		case p.inits[v] != nil:
 			return p.eval(p.inits[v])
@@ -844,7 +862,7 @@ func (p *producers) evalLit(lit *ast.CompositeLit) errValue {
 	switch {
 	case !ok || !p.inModule(named.Obj().Pkg()):
 		return opaqueValue
-	case registered(named.Obj()) || named.Obj().Exported():
+	case registered(named.Obj()) || nameable(named.Obj()):
 		return cross(p.leaf(named.Obj()), children)
 	}
 	if c, ok := children[""]; ok && len(c) == 0 {
@@ -864,7 +882,7 @@ func (p *producers) evalAddr(x ast.Expr) errValue {
 	switch {
 	case !ok || !p.inModule(named.Obj().Pkg()):
 		return opaqueValue
-	case registered(named.Obj()) || named.Obj().Exported():
+	case registered(named.Obj()) || nameable(named.Obj()):
 		return p.leaf(named.Obj())
 	}
 	id, ok := x.(*ast.Ident)
@@ -1288,7 +1306,7 @@ func matchValues(vals []error, test errTest) (match, known bool) {
 	case test.typ != nil:
 		target, ok := producerErrors[qualified(test.typ)]
 		if !ok {
-			return false, !registered(test.typ) && !test.typ.Exported()
+			return false, !registered(test.typ) && !nameable(test.typ)
 		}
 		ptr := reflect.New(reflect.TypeOf(target))
 		return errors.As(joined, ptr.Interface()), true

@@ -6,12 +6,9 @@ import (
 	"fmt"
 )
 
-// These types restate WebAuthn §5.4 PublicKeyCredentialCreationOptions and §5.5
-// PublicKeyCredentialRequestOptions, whose camelCase members the browser's
-// parsers read, so no member may be renamed. Upstream's structs also carry
-// ceremony state that never reaches the wire, hence not copied. Conversion is
-// field by field: a JSON round-trip through upstream would silently drop a
-// member upstream adds, where an assignment fails to compile.
+// These types are WebAuthn §5.4 PublicKeyCredentialCreationOptions and §5.5
+// PublicKeyCredentialRequestOptions in their JSON form (§5.1.8), whose
+// camelCase members the browser's parsers read, so no member may be renamed.
 
 // Base64URL is a byte string that travels as unpadded base64url, the encoding
 // every binary member of the options dictionaries uses.
@@ -129,9 +126,7 @@ type CredentialParameter struct {
 	Algorithm COSEAlgorithm  `json:"alg"`
 }
 
-// CredentialDescriptor refers to an existing credential (WebAuthn §5.8.3). It
-// carries only the three IDL members; upstream's equivalent also holds
-// attestation bookkeeping that is never serialized.
+// CredentialDescriptor refers to an existing credential (WebAuthn §5.8.3).
 type CredentialDescriptor struct {
 	Type       CredentialType           `json:"type"`
 	ID         Base64URL                `json:"id"`

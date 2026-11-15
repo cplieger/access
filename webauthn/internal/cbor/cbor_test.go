@@ -214,113 +214,113 @@ func TestDecode_RFC8949AppendixF_notWellFormed(t *testing.T) {
 		want error
 	}{
 		// End of input in a head.
-		{"18", ErrTruncated},
-		{"19", ErrTruncated},
-		{"1a", ErrTruncated},
-		{"1b", ErrTruncated},
-		{"1901", ErrTruncated},
-		{"1a0102", ErrTruncated},
-		{"1b01020304050607", ErrTruncated},
-		{"38", ErrTruncated},
-		{"58", ErrTruncated},
-		{"78", ErrTruncated},
-		{"98", ErrTruncated},
-		{"9a01ff00", ErrTruncated},
-		{"b8", ErrTruncated},
-		{"d8", ErrTruncated},
-		{"f8", ErrTruncated},
-		{"f900", ErrTruncated},
-		{"fa0000", ErrTruncated},
-		{"fb000000", ErrTruncated},
+		{"18", errTruncated},
+		{"19", errTruncated},
+		{"1a", errTruncated},
+		{"1b", errTruncated},
+		{"1901", errTruncated},
+		{"1a0102", errTruncated},
+		{"1b01020304050607", errTruncated},
+		{"38", errTruncated},
+		{"58", errTruncated},
+		{"78", errTruncated},
+		{"98", errTruncated},
+		{"9a01ff00", errTruncated},
+		{"b8", errTruncated},
+		{"d8", errTruncated},
+		{"f8", errTruncated},
+		{"f900", errTruncated},
+		{"fa0000", errTruncated},
+		{"fb000000", errTruncated},
 		// Definite-length strings with short data.
-		{"41", ErrTruncated},
-		{"61", ErrTruncated},
-		{"5affffffff00", ErrTruncated},
-		{"5bffffffffffffffff010203", ErrTruncated},
-		{"7affffffff00", ErrTruncated},
-		{"7b7fffffffffffffff010203", ErrTruncated},
+		{"41", errTruncated},
+		{"61", errTruncated},
+		{"5affffffff00", errTruncated},
+		{"5bffffffffffffffff010203", errTruncated},
+		{"7affffffff00", errTruncated},
+		{"7b7fffffffffffffff010203", errTruncated},
 		// Definite-length maps and arrays not closed with enough items.
-		{"81", ErrTruncated},
-		{"818181818181818181", ErrLimit},
-		{"81818181", ErrTruncated},
-		{"8200", ErrTruncated},
-		{"a1", ErrTruncated},
-		{"a20102", ErrTruncated},
-		{"a100", ErrTruncated},
-		{"a2000000", ErrTruncated},
+		{"81", errTruncated},
+		{"818181818181818181", errLimit},
+		{"81818181", errTruncated},
+		{"8200", errTruncated},
+		{"a1", errTruncated},
+		{"a20102", errTruncated},
+		{"a100", errTruncated},
+		{"a2000000", errTruncated},
 		// Tag number not followed by tag content.
-		{"c0", ErrTag},
+		{"c0", errTag},
 		// Indefinite-length strings, maps and arrays not closed by a break.
-		{"5f4100", ErrIndefinite},
-		{"7f6100", ErrIndefinite},
-		{"9f", ErrIndefinite},
-		{"9f0102", ErrIndefinite},
-		{"bf", ErrIndefinite},
-		{"bf01020102", ErrIndefinite},
-		{"819f", ErrIndefinite},
-		{"9f8000", ErrIndefinite},
-		{"9f9f9f9f9fffffffff", ErrIndefinite},
-		{"9f819f819f9fffffff", ErrIndefinite},
+		{"5f4100", errIndefinite},
+		{"7f6100", errIndefinite},
+		{"9f", errIndefinite},
+		{"9f0102", errIndefinite},
+		{"bf", errIndefinite},
+		{"bf01020102", errIndefinite},
+		{"819f", errIndefinite},
+		{"9f8000", errIndefinite},
+		{"9f9f9f9f9fffffffff", errIndefinite},
+		{"9f819f819f9fffffff", errIndefinite},
 		// Subkind 1: reserved additional information values.
-		{"1c", ErrNotWellFormed},
-		{"1d", ErrNotWellFormed},
-		{"1e", ErrNotWellFormed},
-		{"3c", ErrNotWellFormed},
-		{"3d", ErrNotWellFormed},
-		{"3e", ErrNotWellFormed},
-		{"5c", ErrNotWellFormed},
-		{"5d", ErrNotWellFormed},
-		{"5e", ErrNotWellFormed},
-		{"7c", ErrNotWellFormed},
-		{"7d", ErrNotWellFormed},
-		{"7e", ErrNotWellFormed},
-		{"9c", ErrNotWellFormed},
-		{"9d", ErrNotWellFormed},
-		{"9e", ErrNotWellFormed},
-		{"bc", ErrNotWellFormed},
-		{"bd", ErrNotWellFormed},
-		{"be", ErrNotWellFormed},
-		{"dc", ErrNotWellFormed},
-		{"dd", ErrNotWellFormed},
-		{"de", ErrNotWellFormed},
-		{"fc", ErrNotWellFormed},
-		{"fd", ErrNotWellFormed},
-		{"fe", ErrNotWellFormed},
+		{"1c", errNotWellFormed},
+		{"1d", errNotWellFormed},
+		{"1e", errNotWellFormed},
+		{"3c", errNotWellFormed},
+		{"3d", errNotWellFormed},
+		{"3e", errNotWellFormed},
+		{"5c", errNotWellFormed},
+		{"5d", errNotWellFormed},
+		{"5e", errNotWellFormed},
+		{"7c", errNotWellFormed},
+		{"7d", errNotWellFormed},
+		{"7e", errNotWellFormed},
+		{"9c", errNotWellFormed},
+		{"9d", errNotWellFormed},
+		{"9e", errNotWellFormed},
+		{"bc", errNotWellFormed},
+		{"bd", errNotWellFormed},
+		{"be", errNotWellFormed},
+		{"dc", errNotWellFormed},
+		{"dd", errNotWellFormed},
+		{"de", errNotWellFormed},
+		{"fc", errNotWellFormed},
+		{"fd", errNotWellFormed},
+		{"fe", errNotWellFormed},
 		// Subkind 2: reserved two-byte encodings of simple values.
-		{"f800", ErrNotWellFormed},
-		{"f801", ErrNotWellFormed},
-		{"f818", ErrNotWellFormed},
-		{"f81f", ErrNotWellFormed},
+		{"f800", errNotWellFormed},
+		{"f801", errNotWellFormed},
+		{"f818", errNotWellFormed},
+		{"f81f", errNotWellFormed},
 		// Subkind 3: indefinite-length string chunks.
-		{"5f00ff", ErrIndefinite},
-		{"5f21ff", ErrIndefinite},
-		{"5f6100ff", ErrIndefinite},
-		{"5f80ff", ErrIndefinite},
-		{"5fa0ff", ErrIndefinite},
-		{"5fc000ff", ErrIndefinite},
-		{"5fe0ff", ErrIndefinite},
-		{"7f4100ff", ErrIndefinite},
-		{"5f5f4100ffff", ErrIndefinite},
-		{"7f7f6100ffff", ErrIndefinite},
+		{"5f00ff", errIndefinite},
+		{"5f21ff", errIndefinite},
+		{"5f6100ff", errIndefinite},
+		{"5f80ff", errIndefinite},
+		{"5fa0ff", errIndefinite},
+		{"5fc000ff", errIndefinite},
+		{"5fe0ff", errIndefinite},
+		{"7f4100ff", errIndefinite},
+		{"5f5f4100ffff", errIndefinite},
+		{"7f7f6100ffff", errIndefinite},
 		// Subkind 4: a break outside an indefinite-length item.
-		{"ff", ErrNotWellFormed},
-		{"81ff", ErrNotWellFormed},
-		{"8200ff", ErrNotWellFormed},
-		{"a1ff", ErrNotWellFormed},
-		{"a1ff00", ErrNotWellFormed},
-		{"a100ff", ErrNotWellFormed},
-		{"a20000ff", ErrNotWellFormed},
-		{"9f81ff", ErrIndefinite},
-		{"9f829f819f9fffffffff", ErrIndefinite},
-		{"bf00ff", ErrIndefinite},
-		{"bf000000ff", ErrIndefinite},
+		{"ff", errNotWellFormed},
+		{"81ff", errNotWellFormed},
+		{"8200ff", errNotWellFormed},
+		{"a1ff", errNotWellFormed},
+		{"a1ff00", errNotWellFormed},
+		{"a100ff", errNotWellFormed},
+		{"a20000ff", errNotWellFormed},
+		{"9f81ff", errIndefinite},
+		{"9f829f819f9fffffffff", errIndefinite},
+		{"bf00ff", errIndefinite},
+		{"bf000000ff", errIndefinite},
 		// Subkind 5: major types 0, 1 and 6 with additional information 31.
-		{"1f", ErrNotWellFormed},
-		{"3f", ErrNotWellFormed},
-		{"df", ErrNotWellFormed},
+		{"1f", errNotWellFormed},
+		{"3f", errNotWellFormed},
+		{"df", errNotWellFormed},
 		// §3.4: every tag.
-		{"c074323031332d30332d32315432303a30343a30305a", ErrTag},
-		{"d82076687474703a2f2f7777772e6578616d706c652e636f6d", ErrTag},
+		{"c074323031332d30332d32315432303a30343a30305a", errTag},
+		{"d82076687474703a2f2f7777772e6578616d706c652e636f6d", errTag},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
@@ -346,8 +346,8 @@ func TestDecode_intRange(t *testing.T) {
 	} {
 		t.Run(in, func(t *testing.T) {
 			t.Parallel()
-			if _, _, err := Decode(unhex(t, in)); !errors.Is(err, ErrIntRange) {
-				t.Errorf("Decode(%s) error = %v, want ErrIntRange", in, err)
+			if _, _, err := Decode(unhex(t, in)); !errors.Is(err, errIntRange) {
+				t.Errorf("Decode(%s) error = %v, want errIntRange", in, err)
 			}
 		})
 	}
@@ -372,8 +372,8 @@ func TestDecode_mapKeyType(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			if _, _, err := Decode(unhex(t, in)); !errors.Is(err, ErrMapKey) {
-				t.Errorf("Decode(%s) error = %v, want ErrMapKey", in, err)
+			if _, _, err := Decode(unhex(t, in)); !errors.Is(err, errMapKey) {
+				t.Errorf("Decode(%s) error = %v, want errMapKey", in, err)
 			}
 		})
 	}
@@ -392,8 +392,8 @@ func TestDecode_duplicateKey(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			if _, _, err := Decode(unhex(t, in)); !errors.Is(err, ErrDuplicateKey) {
-				t.Errorf("Decode(%s) error = %v, want ErrDuplicateKey", in, err)
+			if _, _, err := Decode(unhex(t, in)); !errors.Is(err, errDuplicateKey) {
+				t.Errorf("Decode(%s) error = %v, want errDuplicateKey", in, err)
 			}
 		})
 	}
@@ -411,8 +411,8 @@ func TestDecode_invalidUTF8(t *testing.T) {
 	for _, in := range []string{"62c328", "61ff", "63eda080", "a162c32800"} {
 		t.Run(in, func(t *testing.T) {
 			t.Parallel()
-			if _, _, err := Decode(unhex(t, in)); !errors.Is(err, ErrUTF8) {
-				t.Errorf("Decode(%s) error = %v, want ErrUTF8", in, err)
+			if _, _, err := Decode(unhex(t, in)); !errors.Is(err, errUTF8) {
+				t.Errorf("Decode(%s) error = %v, want errUTF8", in, err)
 			}
 		})
 	}
@@ -424,8 +424,8 @@ func TestDecode_GHSA_g3qj_j598_cxmq(t *testing.T) {
 	for _, in := range []string{"7a10000000", "5a10000000", "9a10000000", "ba10000000"} {
 		t.Run(in, func(t *testing.T) {
 			data := unhex(t, in)
-			if _, _, err := Decode(data); !errors.Is(err, ErrTruncated) {
-				t.Fatalf("Decode(%s) error = %v, want ErrTruncated", in, err)
+			if _, _, err := Decode(data); !errors.Is(err, errTruncated) {
+				t.Fatalf("Decode(%s) error = %v, want errTruncated", in, err)
 			}
 			if n := testing.AllocsPerRun(100, func() { _, _, _ = Decode(data) }); n != 0 {
 				t.Errorf("Decode(%s) allocates %v times, want 0", in, n)
@@ -470,8 +470,8 @@ func TestDecode_limits(t *testing.T) {
 	for name, in := range refuse {
 		t.Run("refuse "+name, func(t *testing.T) {
 			t.Parallel()
-			if _, _, err := Decode(unhex(t, in)); !errors.Is(err, ErrLimit) {
-				t.Errorf("error = %v, want ErrLimit", err)
+			if _, _, err := Decode(unhex(t, in)); !errors.Is(err, errLimit) {
+				t.Errorf("error = %v, want errLimit", err)
 			}
 		})
 	}
@@ -548,8 +548,8 @@ func TestDecode_trailingBytes(t *testing.T) {
 		t.Errorf("rest = %x, want 02", rest)
 	}
 	empty, rest, err := Decode(nil)
-	if !errors.Is(err, ErrTruncated) || empty.kind != kindInvalid || rest != nil {
-		t.Errorf("Decode(nil) = %v, %x, %v; want ErrTruncated", empty.kind, rest, err)
+	if !errors.Is(err, errTruncated) || empty.kind != kindInvalid || rest != nil {
+		t.Errorf("Decode(nil) = %v, %x, %v; want errTruncated", empty.kind, rest, err)
 	}
 }
 

@@ -14,15 +14,15 @@ import (
 
 // The decoder's refusals, matched with errors.Is.
 var (
-	ErrTruncated     = errors.New("cbor: a declared length runs past the input")
-	ErrNotWellFormed = errors.New("cbor: not well-formed (RFC 8949 Appendix F)")
-	ErrIndefinite    = errors.New("cbor: indefinite length")
-	ErrTag           = errors.New("cbor: tag")
-	ErrIntRange      = errors.New("cbor: integer outside int64")
-	ErrMapKey        = errors.New("cbor: map key is not an integer or a text string")
-	ErrDuplicateKey  = errors.New("cbor: duplicate map key")
-	ErrUTF8          = errors.New("cbor: text string is not valid UTF-8")
-	ErrLimit         = errors.New("cbor: input exceeds the size, depth or item bound")
+	errTruncated     = errors.New("cbor: a declared length runs past the input")
+	errNotWellFormed = errors.New("cbor: not well-formed (RFC 8949 Appendix F)")
+	errIndefinite    = errors.New("cbor: indefinite length")
+	errTag           = errors.New("cbor: tag")
+	errIntRange      = errors.New("cbor: integer outside int64")
+	errMapKey        = errors.New("cbor: map key is not an integer or a text string")
+	errDuplicateKey  = errors.New("cbor: duplicate map key")
+	errUTF8          = errors.New("cbor: text string is not valid UTF-8")
+	errLimit         = errors.New("cbor: input exceeds the size, depth or item bound")
 )
 
 // The bounds on one Decode call; WebAuthn §16's largest attestation object
@@ -77,7 +77,7 @@ type Value struct {
 // known to be well-formed and within bounds.
 func Decode(data []byte) (Value, []byte, error) {
 	if len(data) > maxInput {
-		return Value{}, nil, ErrLimit
+		return Value{}, nil, errLimit
 	}
 	// RFC 8949 §5.3 defines validity only for a well-formed item, so the
 	// allocation-free scan runs first and the decode never meets a
@@ -103,7 +103,7 @@ type decoder struct {
 // head reads an initial byte and its argument (RFC 8949 §3).
 func (d *decoder) head() (major, info byte, arg uint64, err error) {
 	if d.off >= len(d.data) {
-		return 0, 0, 0, ErrTruncated
+		return 0, 0, 0, errTruncated
 	}
 	b := d.data[d.off]
 	d.off++
@@ -114,7 +114,7 @@ func (d *decoder) head() (major, info byte, arg uint64, err error) {
 	case info <= 27:
 		n := 1 << (info - 24)
 		if len(d.data)-d.off < n {
-			return 0, 0, 0, ErrTruncated
+			return 0, 0, 0, errTruncated
 		}
 		for _, c := range d.data[d.off : d.off+n] {
 			arg = arg<<8 | uint64(c)
@@ -122,10 +122,10 @@ func (d *decoder) head() (major, info byte, arg uint64, err error) {
 		d.off += n
 		return major, info, arg, nil
 	case info == 31 && major >= majorBytes && major <= majorMap:
-		return 0, 0, 0, ErrIndefinite
+		return 0, 0, 0, errIndefinite
 	default:
 		// 28 to 30 on any major type; 31 on 0, 1 and 6; a break (7, 31).
-		return 0, 0, 0, ErrNotWellFormed
+		return 0, 0, 0, errNotWellFormed
 	}
 }
 
@@ -134,7 +134,7 @@ func (d *decoder) head() (major, info byte, arg uint64, err error) {
 func (d *decoder) length(arg uint64) (int, error) {
 	left := len(d.data) - d.off
 	if arg > uint64(left) { //nolint:gosec // G115: off never passes len(data), so left is not negative
-		return 0, ErrTruncated
+		return 0, errTruncated
 	}
 	return int(arg), nil //nolint:gosec // G115: arg is at most left, an int
 }
@@ -143,7 +143,7 @@ func (d *decoder) length(arg uint64) (int, error) {
 func (d *decoder) scan(depth int) error {
 	d.items++
 	if d.items > maxItems {
-		return ErrLimit
+		return errLimit
 	}
 	major, info, arg, err := d.head()
 	if err != nil {
@@ -157,10 +157,10 @@ func (d *decoder) scan(depth int) error {
 	case majorArray, majorMap:
 		return d.scanContainer(depth, major, arg)
 	case majorTag:
-		return ErrTag
+		return errTag
 	case majorSimple:
 		if info == 24 && arg < 32 {
-			return ErrNotWellFormed
+			return errNotWellFormed
 		}
 	}
 	return nil
@@ -172,7 +172,7 @@ func (d *decoder) scanContainer(depth int, major byte, arg uint64) error {
 		return err
 	}
 	if depth > maxDepth {
-		return ErrLimit
+		return errLimit
 	}
 	if major == majorMap {
 		n *= 2
@@ -194,12 +194,12 @@ func (d *decoder) item() (Value, error) {
 	switch major {
 	case majorUint:
 		if arg > math.MaxInt64 {
-			return Value{}, ErrIntRange
+			return Value{}, errIntRange
 		}
 		return Value{kind: kindInt, i: int64(arg)}, nil
 	case majorNegInt:
 		if arg > math.MaxInt64 {
-			return Value{}, ErrIntRange
+			return Value{}, errIntRange
 		}
 		return Value{kind: kindInt, i: -1 - int64(arg)}, nil
 	case majorBytes, majorText, majorArray, majorMap:
@@ -224,7 +224,7 @@ func (d *decoder) str(major byte, n int) (Value, error) {
 		return Value{kind: kindBytes, b: b}, nil
 	}
 	if !utf8.Valid(b) {
-		return Value{}, ErrUTF8
+		return Value{}, errUTF8
 	}
 	return Value{kind: kindText, b: b}, nil
 }
@@ -249,11 +249,11 @@ func (d *decoder) mapItem(n int) (Value, error) {
 			return Value{}, err
 		}
 		if k.kind != kindInt && k.kind != kindText {
-			return Value{}, ErrMapKey
+			return Value{}, errMapKey
 		}
 		for j := 0; j < len(kids); j += 2 {
 			if sameKey(&kids[j], &k) {
-				return Value{}, ErrDuplicateKey
+				return Value{}, errDuplicateKey
 			}
 		}
 		v, err := d.item()

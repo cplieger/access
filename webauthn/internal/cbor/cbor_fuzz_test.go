@@ -43,8 +43,8 @@ func FuzzDecode(f *testing.F) {
 				span, render(alone), aloneRest, err, render(v))
 		}
 		for _, n := range []int{len(span) - 1, len(span) / 2} {
-			if _, _, err := Decode(span[:n]); !errors.Is(err, ErrTruncated) {
-				t.Fatalf("prefix %x of %x: error %v, want ErrTruncated", span[:n], span, err)
+			if _, _, err := Decode(span[:n]); !errors.Is(err, errTruncated) {
+				t.Fatalf("prefix %x of %x: error %v, want errTruncated", span[:n], span, err)
 			}
 		}
 
