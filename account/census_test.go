@@ -77,6 +77,9 @@ func censusAnswer(op *operation, scoped bool, who string) error {
 	case classSession:
 		return sessionAnswer("full", "recent", "recent_user")
 	case classRecentAuth:
+		if op.ownerOnly && who == "recent_user" {
+			return account.ErrPolicyRefused
+		}
 		return sessionAnswer("recent", "recent_user")
 	case classAdminScope:
 		session := sessionAnswer("full", "recent", "recent_user")

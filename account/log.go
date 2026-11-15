@@ -17,7 +17,8 @@ const (
 	LogClassSession LogClass = "session" // signed_in, stepped_up, session_revoked
 )
 
-// The library's LogEntry.Detail values, each on a session_revoked entry.
+// The library's LogEntry.Detail values: two on a session_revoked entry, one
+// on an owner_set entry.
 const (
 	// LogDetailTransportChanged is a session revoked for being presented on
 	// the other transport (see [access.Session.Secure]).
@@ -25,6 +26,9 @@ const (
 	// LogDetailSignedInAgain is the session a fresh sign-in replaced: the
 	// one its request presented (Client.Presented).
 	LogDetailSignedInAgain = "signed_in_again"
+	// LogDetailOwnerNeedsLocalMethod is an owner New marked that holds no
+	// password or passkey it signs in with.
+	LogDetailOwnerNeedsLocalMethod = ReasonOwnerNeedsLocalMethod
 )
 
 // LogClasses returns every class, in this order.
@@ -43,9 +47,8 @@ type LogEntry struct {
 	ActorLabel     string // the acting session's Label, or the acting key's Label
 	ActorUserAgent string // the acting session's UserAgent
 	ActorKeySuffix string // the acting key's Suffix
-	// Detail is an app entry's own detail, or a library session_revoked's
-	// LogDetailTransportChanged or LogDetailSignedInAgain; empty on every
-	// other library entry.
+	// Detail is an app entry's own detail, or one of the library's LogDetail
+	// values; empty on every other library entry.
 	Detail string
 	Event  Event // Kind, the subject, the actor's IDs, the kind's fields, and Seq
 }

@@ -267,7 +267,9 @@ func (e *env) createUser(t testing.TB, name string, role access.Role) {
 		t.Fatalf("Hash: %v", err)
 	}
 	now := time.Now()
-	u := &access.User{Username: name, PasswordHash: hash, Role: role, Enabled: true, WebAuthnHandle: access.GenerateWebAuthnHandle(), CreatedAt: now, UpdatedAt: now}
+	// root stands for the owner account.New marks at start (design 5.2).
+	owner := name == "root" && role == access.RoleAdmin
+	u := &access.User{Username: name, PasswordHash: hash, Role: role, Enabled: true, Owner: owner, WebAuthnHandle: access.GenerateWebAuthnHandle(), CreatedAt: now, UpdatedAt: now}
 	if err := e.mem.CreateUser(t.Context(), u); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}

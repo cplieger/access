@@ -23,7 +23,7 @@ Under `PosturePerRequest`, a plain request may sign in and set up the first acco
 | `authPasskeys`, `authPasskeyRename`, `authPasskeyRemove`, `authWebAuthnSignals`, `authOIDCUnlink` | `authPasswordRemove` |
 | `authSessions`, `authSessionRename`, `authSessionRevoke`, `authSessionsRevokeOthers` | `authPasskeyRegisterBegin`, `authPasskeyRegisterFinish` |
 | `authKeys`, `authKeyRename`, `authKeyRevoke`, `authAdminKeys`, `authAdminKeyRevoke` | `authInviteAcceptPassword` |
-| `authAdminUsers`, `authAdminUserCreate`, `authAdminUserUpdate`, `authAdminUserDelete`, `authAdminTokens`, `authAdminSecurityLog` | |
+| `authAdminUsers`, `authAdminUserCreate`, `authAdminUserUpdate`, `authAdminOwner`, `authAdminUserDelete`, `authAdminTokens`, `authAdminSecurityLog` | |
 | every route of yours on the gate, by its class, except a row marked `HTTPS` | `authKeyCreate`, `authKeyRotate`, `authAdminInvite` |
 
 Two rows need a reason:

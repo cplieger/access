@@ -24,6 +24,7 @@ var notOperations = map[string]string{
 	"Shutdown":                "lifecycle: the call every operation's ErrServiceClosed answers to",
 	"RevokeTransportMismatch": "the Authenticator's revoke callback; takes no Actor (TestRevokeTransportMismatch)",
 	"AppendLog":               "appends through the caller's Tx inside the app's own transaction, asks no Policy and reads no Rules (TestAppendLog)",
+	"Owner":                   "a single-user read of the store's owner, asking no Policy (TestServiceOwner)",
 	"UsableMethods":           "reads through the caller's Tx inside the app's own transaction, whose store errors are the app's (TestUsableMethodsRefusals)",
 }
 

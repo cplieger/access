@@ -34,6 +34,7 @@ func newRotWorld(t *testing.T, rules func(*account.Rules)) rotWorld {
 		return r
 	}}
 	w.f = newFixture(t, keyOptions(o, w.pol))
+	mustOwner(t, w.f.mem, "root")
 	w.alice = mustUser(t, w.f.mem, "alice", access.RoleUser)
 	w.sess = w.f.sessionPrincipal(t, w.alice, time.Now())
 	w.key = w.create(t, w.alice, "Deploy")

@@ -25,6 +25,8 @@ type gatePolicy struct {
 // gateReason is the reason of every refusal gatePolicy makes itself.
 const gateReason = "gate_refused"
 
+func (*gatePolicy) SingleUser() bool { return false }
+
 func (p *gatePolicy) Authorize(ctx context.Context, d account.Decision) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()

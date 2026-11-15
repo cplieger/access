@@ -252,7 +252,19 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 
 `RP` and `OIDC` are read on every operation, so an app that swaps its provider at run time does so by returning the new value. A provider swapped in mid-flow fails that flow closed.
 
-`RolePolicy` has two fields. `KeepLocalAdmin` refuses removing, demoting, disabling or migrating to single sign-on the last enabled admin who holds a password. `KeysAdminOnly` lets only admins mint keys for themselves, and rotate their own keys; by default any enabled user may. An out-of-band actor may rotate the key of any enabled user. `SingleOwnerPolicy` keeps one user, the one setup creates, and refuses every change to the user set; the owner and an out-of-band actor may rotate the owner's keys.
+`RolePolicy` has one field. `KeysAdminOnly` lets only admins mint keys for themselves, and rotate their own keys; by default any enabled user may. An out-of-band actor may rotate the key of any enabled user. `SingleOwnerPolicy` keeps one user, the owner, and refuses every change to the user set; the owner and an out-of-band actor may rotate the owner's keys.
+
+A Policy declares through `SingleUser()` whether it admits one account. `account.New` reads the answer once and keeps it, so a Policy must give the same answer for its whole life. Under a single-user Policy, account itself refuses every user creation but first setup, every invite, every invite acceptance and every enable of a disabled account (`single_owner`), whatever `Authorize` would answer, and `Service.Owner` returns the one account.
+
+### Owners
+
+An owner is an enabled admin that carries `access.User.Owner`, the break-glass account. Setup creates its account as an owner. `account.New` makes sure one exists: in a store with users and no owner it marks the enabled admin created first, preferring one that holds a password or passkey, and journals `owner_set` with the actor `migration`. When that admin holds neither, it also logs a WARN naming the repair. A store with users and no enabled admin makes `New` return `account.ErrNoOwner`; stop the app and enable an admin or make an enabled account an admin in the store, or restore a backup.
+
+Under a single-user Policy the store must hold exactly one enabled account, an admin, and `New` refuses any other store with one error naming what it found and the repair. `New` leaves the owner flag on that one account and clears it everywhere else.
+
+`Service.SetOwner(ctx, actor, id, owner)` adds or removes an owner, for an owner's session within `Rules.RecentAuth` or an out-of-band actor, under `OpSetOwner`. An owner needs an enabled admin holding a password or passkey it signs in with (`owner_needs_local_method`). For every Policy, account refuses a principal that is no owner acting on an owner (`owner_target`), a role change of an owner (`owner_role`), and a change that leaves no enabled owner (`last_owner`).
+
+`Service.Owner(ctx)` returns a single-user app's owner for its admin socket: `ErrNotFound` before setup, and an error naming the repair when the store was changed under the running app. Under a multi-user Policy it answers `ErrNotSingleUser`.
 
 ### Rules
 

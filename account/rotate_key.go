@@ -111,7 +111,7 @@ func (s *Service) keyToRotate(ctx context.Context, tx Tx, a Actor, session acces
 	case !found:
 		return access.Key{}, refuse(ErrNotFound)
 	}
-	if polErr := s.policy.Authorize(ctx, Decision{Op: OpRotateKey, Actor: a, Target: owner}); polErr != nil {
+	if polErr := s.authorize(ctx, Decision{Op: OpRotateKey, Actor: a, Target: owner}); polErr != nil {
 		return access.Key{}, refuse(polErr)
 	}
 	if keyExpired(&key, now) {

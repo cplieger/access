@@ -550,6 +550,7 @@ func TestDeviceCookieEveryMethod(t *testing.T) {
 				return envOptions{limits: func(c *ratelimit.Config) { c.Devices = sealer }}
 			}
 			first := newEnv(t, ring())
+			first.createUser(t, "root", access.RoleAdmin)
 			first.createUser(t, "alice", access.RoleUser)
 			b := first.lockUntrusted(t)
 			first.requireUntrustedLocked(t, b, true)

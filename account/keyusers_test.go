@@ -119,10 +119,14 @@ func TestKeyManagesUsers(t *testing.T) {
 // allowAll is a Policy that allows every decision.
 type allowAll struct{}
 
+func (allowAll) SingleUser() bool { return false }
+
 func (allowAll) Authorize(context.Context, account.Decision) error { return nil }
 
 // refuseAll is a Policy that refuses every decision.
 type refuseAll struct{}
+
+func (refuseAll) SingleUser() bool { return false }
 
 func (refuseAll) Authorize(_ context.Context, d account.Decision) error {
 	return &account.PolicyError{Op: d.Op, Reason: "refuse_all"}
@@ -495,7 +499,7 @@ func TestKeyAttributionWrites(t *testing.T) {
 func TestUsersAttributedToKey(t *testing.T) {
 	t.Parallel()
 	w := newAdminWorld(t, options{}, nil)
-	boss := mustUser(t, w.f.mem, "boss", access.RoleAdmin)
+	boss := mustOwner(t, w.f.mem, "boss")
 	bp := w.f.sessionPrincipal(t, boss, time.Now())
 	k := w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
 	k2 := w.f.mint(t, account.As(k.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})

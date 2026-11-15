@@ -48,7 +48,7 @@ func (s *Service) SecurityLog(ctx context.Context, p access.Principal, f LogFilt
 	if err := s.admitAdminScope(p); err != nil {
 		return LogPage{}, err
 	}
-	if err := s.policy.Authorize(ctx, Decision{Op: OpListUsers, Actor: As(p)}); err != nil {
+	if err := s.authorize(ctx, Decision{Op: OpListUsers, Actor: As(p)}); err != nil {
 		return LogPage{}, err
 	}
 	if err := f.check(); err != nil {

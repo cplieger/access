@@ -119,7 +119,7 @@ func (s *Service) IssueSetupToken(ctx context.Context, a Actor, ttl time.Duratio
 	return plaintext, nil
 }
 
-// SetupWithPassword creates the first account, an admin, and signs it in. Every
+// SetupWithPassword creates the first account, an admin and an owner, and signs it in. Every
 // check that can refuse runs before the hash: access.ErrHTTPSRequired for a
 // plain c under access.PostureSecure, the user count, the token when
 // Rules.SetupTokenRequired asks for one (nil: always), the username and
@@ -153,7 +153,7 @@ func (s *Service) SetupWithPassword(ctx context.Context, c Client, in SetupPassw
 			hash, hashErr := s.hasher.Hash(ctx, in.Password.Reveal())
 			now := s.now()
 			base = access.User{
-				Username: username, PasswordHash: hash, Role: access.RoleAdmin, Enabled: true,
+				Username: username, PasswordHash: hash, Role: access.RoleAdmin, Enabled: true, Owner: true,
 				WebAuthnHandle: access.GenerateWebAuthnHandle(), CreatedAt: now, UpdatedAt: now,
 			}
 			return hashErr
@@ -206,7 +206,7 @@ func (s *Service) createFirstUser(ctx context.Context, tx Tx, spend access.Hash,
 			return err
 		}
 	}
-	if err := s.policy.Authorize(ctx, Decision{Op: OpCreateUser, Via: ViaSetup, Role: access.RoleAdmin}); err != nil {
+	if err := s.authorize(ctx, Decision{Op: OpCreateUser, Via: ViaSetup, Role: access.RoleAdmin}); err != nil {
 		return refuse(err)
 	}
 	return s.createUser(ctx, tx, user, tx.CreateInitialUser, ErrSetupComplete)

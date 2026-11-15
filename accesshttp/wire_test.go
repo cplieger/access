@@ -139,10 +139,10 @@ func unsetFields(v reflect.Value, path string, skip []string) []string {
 func TestViewsCarryEveryField(t *testing.T) {
 	created := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
 	user := &access.User{
-		ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleAdmin, Enabled: true,
+		ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleAdmin, Enabled: true, Owner: true,
 		OIDC: access.OIDCIdentity{Issuer: testIssuer, Subject: "s"}, CreatedAt: created,
 	}
-	wantUser := UserView{ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleAdmin, Enabled: true, OIDCLinked: true, CreatedAt: created}
+	wantUser := UserView{ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleAdmin, Enabled: true, OIDCLinked: true, Owner: true, CreatedAt: created}
 	// unsetByDesign is the admin list's extras, and the KeyView fields one key
 	// state cannot both set: a used key has no live previous secret.
 	unsetByDesign := []string{
@@ -165,11 +165,11 @@ func TestViewsCarryEveryField(t *testing.T) {
 	}
 	at := func(h int) time.Time { return created.Add(time.Duration(h) * time.Hour) }
 	me := account.Me{
-		User: user, Methods: methods, CanLinkOIDC: true, SSOGoverned: true,
+		User: user, Methods: methods, CanLinkOIDC: true, SSOGoverned: true, SingleUser: true,
 		Current: account.CurrentSession{ID: "sess", Method: access.MethodPasskey, AuthTime: at(1), IdleDeadline: at(2), AbsoluteDeadline: at(3), Secure: true},
 	}
 	wantMe := MeResponse{
-		User: wantUser, Methods: wantMethods, CanLinkOIDC: true, SSOGoverned: true,
+		User: wantUser, Methods: wantMethods, CanLinkOIDC: true, SSOGoverned: true, Owner: true, SingleUser: true,
 		Session: CurrentSessionView{ID: "sess", Method: access.MethodPasskey, AuthTime: at(1), IdleDeadline: at(2), AbsoluteDeadline: at(3), Secure: true},
 	}
 	wantSignedIn := SignedInResponse{User: wantUser, SessionID: "sess", CloneWarning: true}

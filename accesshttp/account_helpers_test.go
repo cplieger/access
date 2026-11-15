@@ -216,6 +216,10 @@ func (s stubAccount) DeleteUser(ctx context.Context, p access.Principal, userID 
 	return stubbedErr(s, "DeleteUser", func() error { return s.accountAPI.DeleteUser(ctx, p, userID) })
 }
 
+func (s stubAccount) SetOwner(ctx context.Context, a account.Actor, userID int64, owner bool) (*access.User, error) {
+	return stubbed(s, "SetOwner", func() (*access.User, error) { return s.accountAPI.SetOwner(ctx, a, userID, owner) })
+}
+
 func (s stubAccount) CreateInvite(ctx context.Context, p access.Principal, role access.Role, ttl time.Duration) (account.IssuedToken, error) {
 	return stubbed(s, "CreateInvite", func() (account.IssuedToken, error) { return s.accountAPI.CreateInvite(ctx, p, role, ttl) })
 }

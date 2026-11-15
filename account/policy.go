@@ -22,6 +22,11 @@ const (
 	OpCreateKeyFor  Operation = "create_key_for"  // an out-of-band actor mints a key for Target
 	OpCreateOwnKey  Operation = "create_own_key"  // a session or a key mints a key for its own user
 	OpRotateKey     Operation = "rotate_key"      // a new secret for Target's key, by OutOfBand or Target's own session
+	OpSetOwner      Operation = "set_owner"       // Target's owner flag, to Decision.Owner
+	// OpSetTemporaryPassword issues Target a temporary password.
+	OpSetTemporaryPassword Operation = "set_temporary_password"
+	OpResetSecondFactor    Operation = "reset_second_factor" // delete Target's TOTP and recovery code
+	OpUnlinkOIDC           Operation = "unlink_oidc"         // remove Target's identity-provider link for them
 )
 
 // CreateVia names what authorises an OpCreateUser. account alone sets it,
@@ -34,6 +39,7 @@ const (
 	ViaSetup        CreateVia = "setup"        // first-account setup; account sets it only while UserCount == 0
 	ViaInvite       CreateVia = "invite"       // a consumed invite, minted earlier under OpInvite
 	ViaProvisioning CreateVia = "provisioning" // an OIDC identity Rules.Provisioning admitted
+	ViaRegistration CreateVia = "registration" // an anonymous sign-up under open registration
 )
 
 // Decision is one question to the Policy. A write that decides on stored
@@ -53,22 +59,28 @@ type Decision struct {
 	Users   []access.User
 	Actor   Actor // the zero Actor for every Via other than ViaActor
 	Enabled bool  // OpSetEnabled: the value being set
+	Owner   bool  // OpSetOwner: the value being set
 }
 
 // Policy decides who may change the user set and mint credentials. An
 // OutOfBand actor reaches it for OpCreateUser, OpCreateKeyFor,
-// OpManageAllKeys and OpRotateKey, so an app's own Policy decides each. OpRotateKey's Target is the key's owner as stored.
+// OpManageAllKeys, OpRotateKey, OpSetOwner, OpSetTemporaryPassword,
+// OpResetSecondFactor and OpUnlinkOIDC, so an app's own Policy decides each.
+// OpRotateKey's Target is the key's owner as stored. account applies the
+// owner protections itself, after Authorize allows, whatever the Policy.
 type Policy interface {
 	// Authorize returns nil, or a *PolicyError.
 	Authorize(ctx context.Context, d Decision) error
+	// SingleUser reports whether the Policy admits one account only. It
+	// must be constant for a Policy value: New reads it once, and under a
+	// true answer account itself refuses every creation but setup, every
+	// invite and every enable before Authorize is asked.
+	SingleUser() bool
 }
 
-// RolePolicy is the two-role policy: an admin manages the user set, and the
-// last enabled admin cannot be removed, demoted or disabled.
+// RolePolicy is the two-role policy: an admin manages the user set, and an
+// owner manages the owners.
 type RolePolicy struct {
-	// KeepLocalAdmin refuses removing, demoting, disabling or migrating to
-	// SSO the last enabled admin who holds a password.
-	KeepLocalAdmin bool
 	// KeysAdminOnly lets only an admin mint keys for itself
 	// (OpCreateOwnKey) and rotate its own (OpRotateKey); false lets any
 	// enabled user.
@@ -85,20 +97,14 @@ func (p RolePolicy) Authorize(_ context.Context, d Decision) error { //nolint:go
 	actor, isPrincipal := d.Actor.user()
 	switch d.Op {
 	case OpCreateUser:
-		switch {
-		case d.Via != ViaActor:
-			return createViaZeroActor(d)
-		case d.Actor.isOutOfBand():
-			return nil
-		}
-		return requireAdmin(d, actor, isPrincipal)
+		return createUser(d, actor, isPrincipal)
 	case OpCreateOwnKey:
 		return p.ownKey(d, actor, isPrincipal)
 	case OpCreateKeyFor:
 		return outOfBandOn(d, enabled)
 	case OpRotateKey:
 		return p.rotateKey(d, actor, isPrincipal)
-	case OpManageAllKeys:
+	case OpManageAllKeys, OpSetTemporaryPassword, OpResetSecondFactor, OpUnlinkOIDC:
 		if d.Actor.isOutOfBand() {
 			return nil
 		}
@@ -107,14 +113,31 @@ func (p RolePolicy) Authorize(_ context.Context, d Decision) error { //nolint:go
 		if !isPrincipal {
 			return &PolicyError{Op: d.Op, Reason: ReasonNotPrincipal}
 		}
-		return p.keepLocalAdmin(d)
+		return nil
+	case OpSetOwner:
+		if d.Actor.isOutOfBand() || (isPrincipal && isOwner(actor)) {
+			return nil
+		}
+		return &PolicyError{Op: d.Op, Reason: ReasonNotOwner}
 	case OpDeleteUser, OpSetRole, OpSetEnabled:
-		return p.changeUser(d, actor, isPrincipal)
+		return changeUser(d, actor, isPrincipal)
 	case OpInvite, OpListUsers:
 		return requireAdmin(d, actor, isPrincipal)
 	default:
 		return &PolicyError{Op: d.Op, Reason: ReasonUnknownOperation}
 	}
+}
+
+// createUser allows a creation through a consumed setup, invite,
+// provisioning or registration step, and an admin's or an out-of-band one.
+func createUser(d Decision, actor *access.User, isPrincipal bool) error { //nolint:gocritic // hugeParam: the Decision Authorize received
+	switch {
+	case d.Via != ViaActor:
+		return createViaZeroActor(d)
+	case d.Actor.isOutOfBand():
+		return nil
+	}
+	return requireAdmin(d, actor, isPrincipal)
 }
 
 // ownKey is the rule on a principal acting on a key of its own user: an
@@ -147,19 +170,19 @@ func (p RolePolicy) rotateKey(d Decision, actor *access.User, isPrincipal bool) 
 	return nil
 }
 
+// SingleUser reports false: RolePolicy admits many accounts.
+func (RolePolicy) SingleUser() bool { return false }
+
 // changeUser decides a delete, role change or enable change: an admin
-// actor, no self-delete, and no change that leaves no enabled admin.
-func (p RolePolicy) changeUser(d Decision, actor *access.User, isPrincipal bool) error { //nolint:gocritic // hugeParam: the Decision Authorize received
+// actor and no self-delete. The owner rules keep an enabled admin.
+func changeUser(d Decision, actor *access.User, isPrincipal bool) error { //nolint:gocritic // hugeParam: the Decision Authorize received
 	if err := requireAdmin(d, actor, isPrincipal); err != nil {
 		return err
 	}
 	if d.Op == OpDeleteUser && d.Target != nil && actor.ID == d.Target.ID {
 		return &PolicyError{Op: d.Op, Reason: ReasonSelfDelete}
 	}
-	if removesLast(d, func(u *access.User) bool { return u.Role == access.RoleAdmin }) {
-		return &PolicyError{Op: d.Op, Reason: ReasonLastAdmin}
-	}
-	return p.keepLocalAdmin(d)
+	return nil
 }
 
 // outOfBandOn allows only an out-of-band actor, on a target eligible holds
@@ -174,24 +197,18 @@ func outOfBandOn(d Decision, eligible func(*access.User) bool) error { //nolint:
 	return nil
 }
 
-func (p RolePolicy) keepLocalAdmin(d Decision) error { //nolint:gocritic // hugeParam: the Decision Authorize received
-	if p.KeepLocalAdmin && removesLast(d, func(u *access.User) bool {
-		return u.Role == access.RoleAdmin && !u.PasswordHash.IsZero()
-	}) {
-		return &PolicyError{Op: d.Op, Reason: ReasonLastLocalAdmin}
-	}
-	return nil
-}
-
-// SingleOwnerPolicy is the one-user policy: the account setup creates is
-// the owner, and nothing adds, removes or changes a user.
+// SingleOwnerPolicy is the one-user policy: its owner is the account that
+// carries access.User.Owner, which setup and New set, and nothing adds,
+// removes or changes a user.
 type SingleOwnerPolicy struct{}
+
+// SingleUser reports true.
+func (SingleOwnerPolicy) SingleUser() bool { return true }
 
 // Authorize applies the single-owner rules to d.
 func (SingleOwnerPolicy) Authorize(_ context.Context, d Decision) error { //nolint:gocritic // hugeParam: Policy's signature passes the Decision by value
 	refuse := func(reason string) error { return &PolicyError{Op: d.Op, Reason: reason} }
 	actor, isPrincipal := d.Actor.user()
-	isOwner := func(u *access.User) bool { return u.Enabled && u.Role == access.RoleAdmin }
 	requireOwner := func() error {
 		if !isPrincipal || !isOwner(actor) {
 			return refuse(ReasonNotOwner)
@@ -211,7 +228,7 @@ func (SingleOwnerPolicy) Authorize(_ context.Context, d Decision) error { //noli
 		return requireOwner()
 	case OpCreateOwnKey, OpListUsers:
 		return requireOwner()
-	case OpCreateKeyFor:
+	case OpCreateKeyFor, OpSetTemporaryPassword, OpResetSecondFactor, OpUnlinkOIDC:
 		return outOfBandOn(d, isOwner)
 	default:
 		return refuse(ReasonSingleOwner)
@@ -222,7 +239,7 @@ func (SingleOwnerPolicy) Authorize(_ context.Context, d Decision) error { //noli
 // provisioning step authorises, and only from the zero Actor.
 func createViaZeroActor(d Decision) error { //nolint:gocritic // hugeParam: the Decision Authorize received
 	switch d.Via {
-	case ViaSetup, ViaInvite, ViaProvisioning:
+	case ViaSetup, ViaInvite, ViaProvisioning, ViaRegistration:
 	default:
 		return &PolicyError{Op: d.Op, Reason: ReasonUnknownVia}
 	}
@@ -230,24 +247,6 @@ func createViaZeroActor(d Decision) error { //nolint:gocritic // hugeParam: the 
 		return &PolicyError{Op: d.Op, Reason: ReasonViaWithActor}
 	}
 	return nil
-}
-
-// changed is target after d's change: a delete leaves it disabled, a role
-// change sets d.Role, an enable change sets d.Enabled, and an SSO migration
-// drops the password.
-func changed(d Decision, target access.User) access.User { //nolint:gocritic // hugeParam: the Decision Authorize received
-	switch d.Op {
-	case OpDeleteUser:
-		target.Enabled = false
-	case OpSetRole:
-		target.Role = d.Role
-	case OpSetEnabled:
-		target.Enabled = d.Enabled
-	case OpMigrateToSSO:
-		target.PasswordHash = access.Hash{}
-	default:
-	}
-	return target
 }
 
 func enabled(u *access.User) bool { return u.Enabled }
@@ -259,31 +258,27 @@ func requireAdmin(d Decision, actor *access.User, isPrincipal bool) error { //no
 	return nil
 }
 
-// removesLast reports whether d leaves no enabled user that counts, where
-// its target was one. The target is read from d.Users, which carries any
-// earlier change of the same call.
-func removesLast(d Decision, counts func(*access.User) bool) bool { //nolint:gocritic // hugeParam: the Decision Authorize received
-	if d.Target == nil {
+// authorize is the one place account asks the Policy. Under the kept
+// single-user declaration it first refuses every creation but setup, every
+// invite and every enable (ReasonSingleOwner), so no path adds an enabled
+// account whatever the Policy would answer.
+func (s *Service) authorize(ctx context.Context, d Decision) error { //nolint:gocritic // hugeParam: the Decision is built for this one call
+	if s.singleUser && addsAccount(d) {
+		return &PolicyError{Op: d.Op, Reason: ReasonSingleOwner}
+	}
+	return s.policy.Authorize(ctx, d)
+}
+
+// addsAccount reports whether d could raise the count of enabled accounts.
+func addsAccount(d Decision) bool { //nolint:gocritic // hugeParam: as authorize
+	switch d.Op {
+	case OpCreateUser:
+		return d.Via != ViaSetup
+	case OpInvite:
+		return true
+	case OpSetEnabled:
+		return d.Enabled && (d.Target == nil || !d.Target.Enabled)
+	default:
 		return false
 	}
-	target := *d.Target
-	for i := range d.Users {
-		if d.Users[i].ID == target.ID {
-			target = d.Users[i]
-		}
-	}
-	if !target.Enabled || !counts(&target) {
-		return false
-	}
-	after := changed(d, target)
-	if after.Enabled && counts(&after) {
-		return false
-	}
-	for i := range d.Users {
-		u := &d.Users[i]
-		if u.ID != target.ID && u.Enabled && counts(u) {
-			return false
-		}
-	}
-	return true
 }

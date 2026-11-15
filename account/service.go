@@ -50,6 +50,9 @@ type Service struct {
 	logChanges  int
 	logSessions int
 	closed      atomic.Bool
+	// singleUser is Config.Policy.SingleUser() as New read it; no later
+	// answer of the Policy changes a rule.
+	singleUser bool
 }
 
 // testHooks are set only from export_test.go; every nil hook is skipped.
@@ -110,6 +113,7 @@ func newService(ctx context.Context, cfg Config, hooks testHooks) (*Service, err
 		logSessions: cmp.Or(cfg.LogMaxSessions, DefaultLogMaxSessions),
 		done:        make(chan struct{}),
 		allowance:   newAllowance(),
+		singleUser:  cfg.Policy.SingleUser(),
 	}
 	if hooks.wrapHasher != nil {
 		s.hasher = hooks.wrapHasher(s.hasher)
@@ -129,6 +133,9 @@ func newService(ctx context.Context, cfg Config, hooks testHooks) (*Service, err
 		return nil, err
 	}
 	if err := s.sweepFailures(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.markOwners(ctx, cfg.Rules().withDefaults()); err != nil {
 		return nil, err
 	}
 	if err := cfg.Authenticator.UseSessionRevoker(s); err != nil {

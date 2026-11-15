@@ -17,7 +17,7 @@ func (s *Service) Tokens(ctx context.Context, p access.Principal) ([]ListedToken
 	if err := s.admitAdminScope(p); err != nil {
 		return nil, err
 	}
-	if err := s.policy.Authorize(ctx, Decision{Op: OpListUsers, Actor: As(p)}); err != nil {
+	if err := s.authorize(ctx, Decision{Op: OpListUsers, Actor: As(p)}); err != nil {
 		return nil, err
 	}
 	tokens, err := s.store.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeInvite}, s.now())

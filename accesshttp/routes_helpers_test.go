@@ -29,6 +29,8 @@ var testClientIP = netip.MustParseAddr("192.0.2.1")
 // the rest.
 type refusingPolicy map[account.Operation]bool
 
+func (refusingPolicy) SingleUser() bool { return false }
+
 func (p refusingPolicy) Authorize(ctx context.Context, d account.Decision) error {
 	if p[d.Op] {
 		return &account.PolicyError{Reason: "test_refused"}
@@ -359,7 +361,7 @@ func (e *env) requireSignedIn(t testing.TB, w *httptest.ResponseRecorder, name s
 		t.Fatalf("decode %q: %v", w.Body.String(), err)
 	}
 	u := e.user(t, name)
-	want := UserView{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Role: u.Role, Enabled: u.Enabled, OIDCLinked: !u.OIDC.IsZero()}
+	want := UserView{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Role: u.Role, Enabled: u.Enabled, OIDCLinked: !u.OIDC.IsZero(), Owner: u.Owner}
 	got := resp.User
 	if !got.CreatedAt.Equal(u.CreatedAt) {
 		t.Errorf("user created_at %v, want the stored %v", got.CreatedAt, u.CreatedAt)

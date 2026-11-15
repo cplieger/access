@@ -37,6 +37,8 @@ const (
 	EventInviteIssued        EventKind = "invite_issued"
 	EventMethodLocked        EventKind = "method_locked"    // a failure counter reached the cap; reported by the sweep, or by the Update that clears an unreported lock
 	EventMethodReenabled     EventKind = "method_reenabled" // ReenableMethod or a sign-in cleared a lock, after its commit
+	EventOwnerSet            EventKind = "owner_set"
+	EventOwnerRemoved        EventKind = "owner_removed"
 )
 
 // eventKinds is every EventKind in declaration order, with the class its
@@ -70,6 +72,8 @@ var eventKinds = [...]struct {
 	{EventInviteIssued, LogClassChange},
 	{EventMethodLocked, LogClassChange},
 	{EventMethodReenabled, LogClassChange},
+	{EventOwnerSet, LogClassChange},
+	{EventOwnerRemoved, LogClassChange},
 }
 
 // EventKinds returns every EventKind, in declaration order.

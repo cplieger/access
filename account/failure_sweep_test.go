@@ -48,6 +48,7 @@ func TestLockReportedBySweep(t *testing.T) {
 		}
 		sweepFailures(t, p.svc)
 		events := &eventLog{}
+		mustOwner(t, p.mem, "root")
 		cfg := ownAuthenticator(t, p.cfg)
 		cfg.OnEvent = events.record
 		next, err := account.New(t.Context(), cfg)
@@ -78,6 +79,7 @@ func TestLockReportedBySweep(t *testing.T) {
 		u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
 		p.failN(t, clientAt(1), "alice", account.FailureCap)
 		events := &eventLog{}
+		mustOwner(t, p.mem, "root")
 		cfg := ownAuthenticator(t, p.cfg)
 		cfg.OnEvent = events.record
 		next, err := account.New(t.Context(), cfg)

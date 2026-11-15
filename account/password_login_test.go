@@ -491,6 +491,7 @@ func TestKillBetweenCountAndVerify(t *testing.T) {
 	var hk armed
 	p := newPW(t, pwOptions{hooks: account.Hooks{BeforeVerify: hk.hook}})
 	passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
+	mustOwner(t, p.mem, "root")
 	fresh := func() *account.Service {
 		svc, err := account.New(t.Context(), ownAuthenticator(t, p.cfg))
 		if err != nil {

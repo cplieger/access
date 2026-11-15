@@ -11,7 +11,7 @@ An `account.LogEntry` holds:
 - `Class`, `change` or `session`, which retention counts separately.
 - `ActorLabel`, `ActorUserAgent` and `ActorKeySuffix`: the acting session's label and user agent, or the acting key's label and suffix, read from the store in the same transaction. A sign-in's entries take the session it created. Renaming or deleting that session or key later leaves the entry unchanged.
 - `IP`, the client address of the request that made the change. It is zero when the change has no request address: the background sweep, out-of-band calls, `Logout`, which takes only the token hash, the revoke of a session presented on the other transport, an `AppendLog` entry with the zero `Actor`, and a principal your code built rather than `Authenticate`, for an operation that takes no `Client`.
-- `Detail`, the text of an app's own entry. A library entry leaves it empty, except two kinds of `session_revoked`: a session presented on the other transport carries `transport_changed`, and a session a fresh sign-in replaced carries `signed_in_again`.
+- `Detail`, the text of an app's own entry. A library entry leaves it empty, except two kinds of `session_revoked`, where a session presented on the other transport carries `transport_changed` and a session a fresh sign-in replaced carries `signed_in_again`, and an `owner_set` that `account.New` journalled for an owner holding no password or passkey, which carries `owner_needs_local_method`.
 
 No entry holds a password, token, cookie, key or hash: no field of `LogEntry`, `Event` or `EventActor` has the type `access.Secret` or `access.Hash`. No entry holds a username either. The subject and the actor are user IDs, which a store never reuses, so an entry is never mistaken for a later user's. The label is the one the user gave the session or key, as stored when the change ran, and the user agent is the value the session stored when it was created. Nothing else a caller sends enters a library entry: no name a failed attempt typed and no request header. Client IP addresses are stored, as `Session.LastIP` stores them, and [retention](#retention) bounds how long they stay.
 
@@ -40,6 +40,8 @@ Each operation appends its entries in the order it reports its events to `OnEven
 | `setup_token_issued` | change | `IssueSetupToken` |
 | `method_locked` | change | the failure-record sweep reporting a lock, or `ReenableMethod` clearing a lock the sweep has not reported yet, before that change's `method_reenabled` entries |
 | `method_reenabled` | change | `ReenableMethod`, one per lock it clears, and a successful password sign-in, `StepUpPassword`, password change through `SetPassword` or `RemovePassword` that clears its own attempt's lock after the sweep reported it |
+| `owner_set` | change | `SetOwner` making an owner, and `account.New` marking one, with the out-of-band actor `migration`; an owner `New` marked that holds no password or passkey carries `Detail` `owner_needs_local_method` (`account.LogDetailOwnerNeedsLocalMethod`) |
+| `owner_removed` | change | `SetOwner` removing an owner, and `account.New` clearing the flag under a single-user Policy from every account but the one enabled admin, with the actor `migration` |
 | your app's kinds | change | `Service.AppendLog` ([App entries](#app-entries)) |
 
 These are left out, each for its reason:

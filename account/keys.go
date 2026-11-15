@@ -164,7 +164,7 @@ func (s *Service) authorizeMint(ctx context.Context, tx Tx, j *journal, m minter
 	if found {
 		target = owner
 	}
-	if polErr := s.policy.Authorize(ctx, Decision{Op: m.op, Actor: actor, Target: target}); polErr != nil {
+	if polErr := s.authorize(ctx, Decision{Op: m.op, Actor: actor, Target: target}); polErr != nil {
 		return refuse(polErr)
 	}
 	switch {
@@ -298,7 +298,7 @@ func (s *Service) AllAPIKeys(ctx context.Context, a Actor) ([]ListedKey, error) 
 				return keyErr
 			}
 		}
-		if polErr := s.policy.Authorize(ctx, Decision{Op: OpManageAllKeys, Actor: actor}); polErr != nil {
+		if polErr := s.authorize(ctx, Decision{Op: OpManageAllKeys, Actor: actor}); polErr != nil {
 			return refuse(polErr)
 		}
 		var listErr error
@@ -352,7 +352,7 @@ func (s *Service) RevokeAnyAPIKey(ctx context.Context, a Actor, id int64) error 
 				return keyErr
 			}
 		}
-		if polErr := s.policy.Authorize(ctx, Decision{Op: OpManageAllKeys, Actor: actor}); polErr != nil {
+		if polErr := s.authorize(ctx, Decision{Op: OpManageAllKeys, Actor: actor}); polErr != nil {
 			return refuse(polErr)
 		}
 		keys, err := tx.ListAPIKeys(ctx)

@@ -182,7 +182,7 @@ func (s *Service) provisionAdmitted(ctx context.Context, tx Tx, candidate *acces
 	if err != nil {
 		return false, err
 	}
-	return s.policy.Authorize(ctx, Decision{Op: OpCreateUser, Via: ViaProvisioning, Role: candidate.Role, Users: users}) == nil, nil
+	return s.authorize(ctx, Decision{Op: OpCreateUser, Via: ViaProvisioning, Role: candidate.Role, Users: users}) == nil, nil
 }
 
 // pendingLink is claims' identity with its display hints: the
@@ -395,7 +395,7 @@ func (s *Service) migrateIn(ctx context.Context, tx Tx, r Rules, actor Actor, u 
 	if err != nil {
 		return err
 	}
-	if polErr := s.policy.Authorize(ctx, Decision{Op: OpMigrateToSSO, Actor: actor, Target: u, Users: users}); polErr != nil {
+	if polErr := s.authorize(ctx, Decision{Op: OpMigrateToSSO, Actor: actor, Target: u, Users: users}); polErr != nil {
 		return refuse(polErr)
 	}
 	l.password = !u.PasswordHash.IsZero()

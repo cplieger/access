@@ -34,6 +34,7 @@ import type {
   NewKeyRequest,
   NewUserRequest,
   OIDCStartResponse,
+  OwnerRequest,
   PasskeyView,
   PasswordChangeRequest,
   PasswordRemoveRequest,
@@ -169,6 +170,8 @@ export interface AuthClient {
   adminUsers(o?: { readonly key?: number }): Promise<ApiResult<readonly UserView[]>>;
   adminCreateUser(r: NewUserRequest): Promise<ApiResult<UserView>>;
   adminUpdateUser(id: number, r: UserUpdateRequest): Promise<ApiResult<UserView>>;
+  /** Owners only, under recent auth; an owner needs a password or a passkey. */
+  adminSetOwner(id: number, r: OwnerRequest): Promise<ApiResult<UserView>>;
   adminDeleteUser(id: number): Promise<ApiResult<void>>;
   adminInvite(r: InviteRequest): Promise<ApiResult<TokenResponse>>;
   adminTokens(): Promise<ApiResult<readonly TokenView[]>>;
@@ -305,6 +308,8 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     adminUsers: (q) => json("GET", p(`/users${query({ key: num(q?.key) })}`), userList),
     adminCreateUser: (r) => json("POST", p("/users"), parseUserView, { body: r }),
     adminUpdateUser: (id, r) => json("PUT", p(`/users/${String(id)}`), parseUserView, { body: r }),
+    adminSetOwner: (id, r) =>
+      json("PUT", p(`/users/${String(id)}/owner`), parseUserView, { body: r }),
     adminDeleteUser: (id) => empty("DELETE", p(`/users/${String(id)}`)),
     adminInvite: (r) => json("POST", p("/invites"), parseTokenResponse, { body: r }),
     adminTokens: () => json("GET", p("/tokens"), tokenList),

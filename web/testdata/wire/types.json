@@ -260,6 +260,9 @@
         },
         {
           "name": "oidc_linked"
+        },
+        {
+          "name": "owner"
         }
       ]
     },
@@ -268,6 +271,12 @@
     },
     {
       "name": "sso_governed"
+    },
+    {
+      "name": "owner"
+    },
+    {
+      "name": "single_user"
     }
   ],
   "NameRequest": [
@@ -307,6 +316,11 @@
   "OIDCStartResponse": [
     {
       "name": "url"
+    }
+  ],
+  "OwnerRequest": [
+    {
+      "name": "owner"
     }
   ],
   "PasskeyView": [
@@ -662,6 +676,9 @@
         },
         {
           "name": "oidc_linked"
+        },
+        {
+          "name": "owner"
         }
       ]
     },
@@ -811,6 +828,9 @@
     },
     {
       "name": "oidc_linked"
+    },
+    {
+      "name": "owner"
     }
   ]
 }

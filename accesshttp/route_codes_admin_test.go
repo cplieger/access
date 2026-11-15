@@ -81,6 +81,12 @@ func adminScenarios() map[scenarioKey]scenario {
 	out[scenarioKey{del, access.CodeUnavailable}] = closing(envOptions{}, byRoot(del, aliceID, ""))
 	out[scenarioKey{del, access.CodeNotFound}] = scenario{arrange: byRoot(del, missing, "")}
 
+	const owner = "authAdminOwner"
+	makeOwner := `{"owner":true}`
+	out[scenarioKey{owner, access.CodeForbidden}] = byAlice(owner, makeOwner)
+	out[scenarioKey{owner, access.CodeUnavailable}] = closing(envOptions{}, byRoot(owner, aliceID, makeOwner))
+	out[scenarioKey{owner, access.CodeNotFound}] = scenario{arrange: byRoot(owner, missing, makeOwner)}
+
 	const invite = "authAdminInvite"
 	inviteBody := func(n int) string { return `{"role":"user","hours":` + strconv.Itoa(n) + `}` }
 	out[scenarioKey{invite, access.CodeForbidden}] = byAlice(invite, inviteBody(0))

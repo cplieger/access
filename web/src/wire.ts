@@ -243,6 +243,13 @@ export const parseUserUpdateRequest: Validator<UserUpdateRequest> = object({
   enabled: opt(bool),
 });
 
+export interface OwnerRequest {
+  readonly owner: boolean;
+}
+export const parseOwnerRequest: Validator<OwnerRequest> = object({
+  owner: req(bool),
+});
+
 export interface InviteRequest {
   readonly role: Role;
   readonly hours?: number;
@@ -310,6 +317,7 @@ export interface UserView {
   readonly role: Role;
   readonly enabled: boolean;
   readonly oidc_linked: boolean;
+  readonly owner: boolean;
   readonly created_at: string;
   readonly key_lineage?: readonly number[];
   readonly methods?: UserMethodsView;
@@ -321,6 +329,7 @@ export const parseUserView: Validator<UserView> = object({
   role: req(role),
   enabled: req(bool),
   oidc_linked: req(bool),
+  owner: req(bool),
   created_at: req(time),
   key_lineage: opt(ids),
   methods: opt(parseUserMethodsView),
@@ -509,6 +518,9 @@ export interface MeResponse {
   readonly methods: MethodsView;
   readonly can_link_oidc: boolean;
   readonly sso_governed: boolean;
+  readonly owner: boolean;
+  /** The Policy admits one account: hide what cannot apply. */
+  readonly single_user: boolean;
   readonly session: CurrentSessionView;
 }
 export const parseMeResponse: Validator<MeResponse> = object({
@@ -516,6 +528,8 @@ export const parseMeResponse: Validator<MeResponse> = object({
   methods: req(parseMethodsView),
   can_link_oidc: req(bool),
   sso_governed: req(bool),
+  owner: req(bool),
+  single_user: req(bool),
   session: req(parseCurrentSessionView),
 });
 
@@ -862,12 +876,14 @@ export const REASONS = [
   "not_enabled_user",
   "not_admin",
   "self_delete",
-  "last_admin",
-  "last_local_admin",
   "single_owner",
   "not_owner",
   "unknown_via",
   "via_with_actor",
+  "owner_target",
+  "owner_role",
+  "last_owner",
+  "owner_needs_local_method",
   "empty",
   "disallowed_character",
   "label_empty",

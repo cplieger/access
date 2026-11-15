@@ -154,6 +154,8 @@ func TestSessionRulesEveryCreationPath(t *testing.T) {
 // set, and is RolePolicy otherwise.
 type toggledPolicy struct{ off *atomic.Bool }
 
+func (toggledPolicy) SingleUser() bool { return false }
+
 func (p toggledPolicy) Authorize(ctx context.Context, d account.Decision) error {
 	if p.off.Load() && d.Op == account.OpCreateUser && d.Via == account.ViaInvite {
 		return &account.PolicyError{Op: d.Op, Reason: "no_invites"}
@@ -378,6 +380,8 @@ func TestRefusalsBeforeLimitEveryPath(t *testing.T) {
 // issuerPolicy refuses OpInvite while off is set, and is RolePolicy
 // otherwise.
 type issuerPolicy struct{ off *atomic.Bool }
+
+func (issuerPolicy) SingleUser() bool { return false }
 
 func (p issuerPolicy) Authorize(ctx context.Context, d account.Decision) error {
 	if p.off.Load() && d.Op == account.OpInvite {

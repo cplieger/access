@@ -534,10 +534,6 @@ func TestOIDCLinkIntent(t *testing.T) {
 		{name: "identity_taken", want: account.ErrOIDCIdentityTaken, after: func(t *testing.T, f *oidcFixture, _ *access.User, _ access.Session) {
 			linkIdentity(t, f.mem, passwordUser(t, f.mem, nil, "bob", ""), f.rig.identity())
 		}},
-		{name: "last_local_admin", want: account.ErrPolicyRefused, admin: true, sso: true, pol: account.RolePolicy{KeepLocalAdmin: true}},
-		{name: "identity_taken_before_migration", want: account.ErrOIDCIdentityTaken, admin: true, sso: true, pol: account.RolePolicy{KeepLocalAdmin: true}, after: func(t *testing.T, f *oidcFixture, _ *access.User, _ access.Session) {
-			linkIdentity(t, f.mem, passwordUser(t, f.mem, nil, "bob", ""), f.rig.identity())
-		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

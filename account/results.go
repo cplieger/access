@@ -145,6 +145,8 @@ type Me struct {
 	Current     CurrentSession
 	Methods     Methods
 	CanLinkOIDC bool // OIDCAvailable and not OIDCLinked
+	// SingleUser is the Policy's declaration as New kept it.
+	SingleUser bool
 	// SSOGoverned is Rules.SSOGoverned on a linked user: SetPassword and
 	// passkey registration answer ErrSSOGoverned.
 	SSOGoverned bool

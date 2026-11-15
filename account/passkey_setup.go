@@ -16,8 +16,8 @@ type SetupPasskey struct {
 	Origin   webauthn.Origin
 }
 
-// SetupPasskeyBegin starts creating the first account, an admin signing in with
-// a passkey. A plain c is access.ErrHTTPSRequired and a nil RP()
+// SetupPasskeyBegin starts creating the first account, an admin and an owner
+// signing in with a passkey. A plain c is access.ErrHTTPSRequired and a nil RP()
 // ErrPasskeysUnavailable; then, as SetupWithPassword, a user present is
 // ErrSetupComplete, a missing or invalid token where Rules.SetupTokenRequired
 // asks for one ErrSetupTokenRequired or access.ErrTokenInvalid, and a refused
@@ -48,7 +48,7 @@ func (s *Service) SetupPasskeyBegin(ctx context.Context, c Client, in SetupPassk
 	if _, admitErr := gate.admit(); admitErr != nil {
 		return PendingCeremony{}, admitErr
 	}
-	user := access.User{Username: username, Role: access.RoleAdmin, Enabled: true, WebAuthnHandle: access.GenerateWebAuthnHandle()}
+	user := access.User{Username: username, Role: access.RoleAdmin, Enabled: true, Owner: true, WebAuthnHandle: access.GenerateWebAuthnHandle()}
 	creation, ceremony, err := webauthn.BeginRegistration(rp, &webauthn.User{AuthUser: &user}, in.Origin)
 	if err != nil {
 		return PendingCeremony{}, err

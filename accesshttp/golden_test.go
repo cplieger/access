@@ -54,7 +54,7 @@ var (
 
 func goldenUser() UserView {
 	return UserView{
-		ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleUser, Enabled: true, OIDCLinked: true,
+		ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleAdmin, Enabled: true, OIDCLinked: true, Owner: true,
 		CreatedAt: goldenTime, KeyLineage: []int64{3, 5}, Methods: &UserMethodsView{Password: true, PasskeyCount: 2},
 	}
 }
@@ -99,6 +99,7 @@ func fixtures() []fixture {
 		{name: "NewUserRequest", request: true, value: NewUserRequest{Username: "bob", Password: "fixture-password", Role: access.RoleUser}},
 		{name: "NewUserRequest.noPassword", absent: "password", request: true, value: NewUserRequest{Username: "bob", Role: access.RoleUser}},
 		{name: "UserUpdateRequest", request: true, value: UserUpdateRequest{Role: &goldenRole, Enabled: &goldenTrue}},
+		{name: "OwnerRequest", request: true, value: OwnerRequest{Owner: true}},
 		{name: "InviteRequest", request: true, value: InviteRequest{Role: access.RoleUser, Hours: 72}},
 
 		{name: "StateResponse", value: StateResponse{
@@ -110,7 +111,7 @@ func fixtures() []fixture {
 		{name: "OIDCStartResponse", value: OIDCStartResponse{URL: "https://idp.example.com/authorize?state=x"}},
 		{name: "PendingLinkResponse", value: PendingLinkResponse{Issuer: "https://idp.example.com", UsernameHint: "alice", Email: "alice@example.com"}},
 		{name: "MeResponse", value: MeResponse{
-			User: goldenUser(), Methods: goldenMethods(), CanLinkOIDC: true, SSOGoverned: true,
+			User: goldenUser(), Methods: goldenMethods(), CanLinkOIDC: true, SSOGoverned: true, Owner: true, SingleUser: true,
 			Session: CurrentSessionView{ID: "s1", Method: access.MethodPasskey, AuthTime: goldenTime, IdleDeadline: goldenTime, AbsoluteDeadline: goldenLater, Secure: true},
 		}},
 		{name: "PasskeyView", value: PasskeyView{

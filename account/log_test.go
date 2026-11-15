@@ -76,6 +76,16 @@ func stateVariants() []operation {
 				want: events(account.Event{Kind: account.EventUserEnabled, UserID: target.ID, Actor: actorOf(p)}),
 			}
 		}},
+		{name: "SetOwner_remove", class: classRecentAuth, ownerOnly: true, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			target := mustOwner(t, w.mem, w.name("owner"))
+			return opCall{
+				run: func(ctx context.Context) error {
+					_, err := w.svc.SetOwner(ctx, account.As(p), target.ID, false)
+					return err
+				},
+				want: events(account.Event{Kind: account.EventOwnerRemoved, UserID: target.ID, Actor: actorOf(p)}),
+			}
+		}},
 		{name: "SetPassword_first", class: classRecentAuth, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
 			u := mustUser(t, w.mem, w.name("nopassword"), access.RoleUser)
 			q := w.recent(t, u)

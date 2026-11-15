@@ -314,6 +314,8 @@ type recordingPolicy struct {
 	mu        sync.Mutex
 }
 
+func (p *recordingPolicy) SingleUser() bool { return p.inner != nil && p.inner.SingleUser() }
+
 func (p *recordingPolicy) Authorize(ctx context.Context, d account.Decision) error {
 	p.mu.Lock()
 	p.decisions = append(p.decisions, d)

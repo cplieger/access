@@ -48,7 +48,7 @@ func newAdminWorld(t *testing.T, o options, policy account.Policy) *adminWorld {
 	fs := newFaultStore()
 	o.store = fs
 	f := newFixture(t, keyOptions(o, policy))
-	w := &adminWorld{f: f, fs: fs, root: mustUser(t, f.mem, "root", access.RoleAdmin), alice: mustUser(t, f.mem, "alice", access.RoleUser)}
+	w := &adminWorld{f: f, fs: fs, root: mustOwner(t, f.mem, "root"), alice: mustUser(t, f.mem, "alice", access.RoleUser)}
 	w.pr = f.sessionPrincipal(t, w.root, time.Now())
 	return w
 }
@@ -124,19 +124,6 @@ func TestUpdateUser(t *testing.T) {
 			if u.ID == ann.ID && u.Role != access.RoleUser {
 				t.Errorf("OpSetEnabled saw ann as %s, want the demotion applied", u.Role)
 			}
-		}
-		g := newAdminWorld(t, options{}, account.RolePolicy{KeepLocalAdmin: true})
-		local := passwordUser(t, g.f.mem, fastHasher(t), "local", goodPassword)
-		local.Role = access.RoleAdmin
-		if err := g.f.mem.UpdateUser(t.Context(), local); err != nil {
-			t.Fatalf("UpdateUser: %v", err)
-		}
-		_, err := g.f.svc.UpdateUser(t.Context(), g.pr, local.ID, account.UserChange{Role: new(access.RoleUser), Enabled: new(false)})
-		if reason(err) != "last_local_admin" {
-			t.Errorf("demoting and disabling the last local admin = %v, want last_local_admin", err)
-		}
-		if u := stored(t, g.f, local.ID); u.Role != access.RoleAdmin || !u.Enabled {
-			t.Errorf("after the refusal local is %s, enabled %t", u.Role, u.Enabled)
 		}
 	})
 	t.Run("no_change", func(t *testing.T) {
@@ -217,12 +204,14 @@ func TestUpdateUser(t *testing.T) {
 	})
 }
 
-func TestLastAdminConcurrent(t *testing.T) {
+// TestLastOwnerConcurrent: design 5.2, at least one enabled owner always
+// exists; two owners removing each other concurrently leave one.
+func TestLastOwnerConcurrent(t *testing.T) {
 	t.Parallel()
 	for round := range 20 {
 		f := newFixture(t, options{})
-		a := mustUser(t, f.mem, "ann", access.RoleAdmin)
-		b := mustUser(t, f.mem, "ben", access.RoleAdmin)
+		a := mustOwner(t, f.mem, "ann")
+		b := mustOwner(t, f.mem, "ben")
 		pa := f.sessionPrincipal(t, a, time.Now())
 		pb := f.sessionPrincipal(t, b, time.Now())
 		var wg sync.WaitGroup
@@ -230,11 +219,11 @@ func TestLastAdminConcurrent(t *testing.T) {
 		start := make(chan struct{})
 		wg.Go(func() {
 			<-start
-			_, errs[0] = f.svc.UpdateUser(t.Context(), pa, b.ID, account.UserChange{Role: new(access.RoleUser)})
+			_, errs[0] = f.svc.SetOwner(t.Context(), account.As(pa), b.ID, false)
 		})
 		wg.Go(func() {
 			<-start
-			_, errs[1] = f.svc.UpdateUser(t.Context(), pb, a.ID, account.UserChange{Role: new(access.RoleUser)})
+			_, errs[1] = f.svc.SetOwner(t.Context(), account.As(pb), a.ID, false)
 		})
 		close(start)
 		wg.Wait()
@@ -243,18 +232,18 @@ func TestLastAdminConcurrent(t *testing.T) {
 			switch {
 			case err == nil:
 				ok++
-			case reason(err) != "last_admin" && reason(err) != "not_admin":
-				t.Errorf("round %d: the losing demotion = %v, want last_admin or not_admin", round, err)
+			case reason(err) != "last_owner" && reason(err) != "not_owner":
+				t.Errorf("round %d: the losing removal = %v, want last_owner or not_owner", round, err)
 			}
 		}
-		admins := 0
+		owners := 0
 		for _, id := range []int64{a.ID, b.ID} {
-			if stored(t, f, id).Role == access.RoleAdmin {
-				admins++
+			if stored(t, f, id).Owner {
+				owners++
 			}
 		}
-		if ok != 1 || admins != 1 {
-			t.Errorf("round %d: %d demotions succeeded and %d admins remain, want exactly one of each", round, ok, admins)
+		if ok != 1 || owners != 1 {
+			t.Errorf("round %d: %d removals succeeded and %d owners remain, want exactly one of each", round, ok, owners)
 		}
 	}
 }

@@ -48,6 +48,10 @@ var sentinelCodes = []struct {
 	{access.ErrHashBusy, access.CodeBusy, ""},
 	{access.ErrBreachCheckUnavailable, access.CodeBreachCheckUnavailable, ""},
 	{account.ErrRulesInvalid, access.CodeUnavailable, ""},
+	// Service.Owner's answers reach no route; an app handler mapping one
+	// answers a store the operator must repair, or a misconfigured Policy.
+	{account.ErrNoOwner, access.CodeUnavailable, ""},
+	{account.ErrNotSingleUser, access.CodeUnavailable, ""},
 	{account.ErrTTLTooLong, access.CodeBadRequest, ReasonTTLTooLong},
 	{account.ErrTTLNegative, access.CodeBadRequest, ReasonTTLNegative},
 	{account.ErrNoChange, access.CodeBadRequest, ReasonNoChange},

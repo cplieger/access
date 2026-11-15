@@ -37,6 +37,7 @@ var designClasses = map[string]struct {
 	"authAdminUserCreate":  {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
 	"authAdminUserUpdate":  {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
 	"authAdminUserDelete":  {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
+	"authAdminOwner":       {open: ClassRecentAuth, scoped: ClassRecentAuth},
 	"authAdminInvite":      {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
 	"authAdminKeys":        {open: ClassSession, scoped: ClassKeyScope, scope: "admin"},
 	"authAdminKeyRevoke":   {open: ClassSession, scoped: ClassKeyScope, scope: "admin"},

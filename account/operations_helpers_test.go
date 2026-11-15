@@ -92,7 +92,7 @@ func newOpWorld(t *testing.T, o worldOptions) *opWorld {
 		return w
 	}
 	w.root = passwordUser(t, w.mem, w.hasher, "root", goodPassword)
-	w.root.Role = access.RoleAdmin
+	w.root.Role, w.root.Owner = access.RoleAdmin, true
 	if err := w.mem.UpdateUser(t.Context(), w.root); err != nil {
 		t.Fatalf("UpdateUser(root): %v", err)
 	}
@@ -230,6 +230,7 @@ type operation struct {
 	empty     bool // the call needs a store with no user
 	readOnly  bool // the call writes nothing
 	direct    bool // the call writes through one store call outside Update
+	ownerOnly bool // only an owner principal passes the Policy
 }
 
 // actorOf is the EventActor of an event p's call emits.
@@ -630,6 +631,21 @@ func adminOperations() []operation {
 					return err
 				},
 				want: events(account.Event{Kind: account.EventUserDisabled, UserID: target.ID, Actor: actorOf(p)}),
+			}
+		}},
+		{name: "SetOwner", class: classRecentAuth, transport: plainAllowed, ownerOnly: true, asks: []account.Operation{account.OpSetOwner}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			target := w.user(t)
+			target.Role = access.RoleAdmin
+			if err := w.mem.UpdateUser(t.Context(), target); err != nil {
+				t.Fatalf("UpdateUser: %v", err)
+			}
+			return opCall{
+				actor: actorOf(p), target: target.ID,
+				run: func(ctx context.Context) error {
+					_, err := w.svc.SetOwner(ctx, account.As(p), target.ID, true)
+					return err
+				},
+				want: events(account.Event{Kind: account.EventOwnerSet, UserID: target.ID, Actor: actorOf(p)}),
 			}
 		}},
 		{name: "DeleteUser", class: classManageUsers, transport: plainAllowed, asks: []account.Operation{account.OpDeleteUser}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {

@@ -90,7 +90,7 @@ func (s *Service) Users(ctx context.Context, p access.Principal, f UserFilter) (
 	if err := s.admitAdminScope(p); err != nil {
 		return nil, err
 	}
-	if err := s.policy.Authorize(ctx, Decision{Op: OpListUsers, Actor: As(p)}); err != nil {
+	if err := s.authorize(ctx, Decision{Op: OpListUsers, Actor: As(p)}); err != nil {
 		return nil, err
 	}
 	users, err := s.store.ListUsers(ctx)
@@ -206,11 +206,13 @@ func (s *Service) updateUser(ctx context.Context, tx Tx, j *journal, op Operatio
 }
 
 // authorizeChange asks OpSetRole for a set role, then OpSetEnabled for a
-// set enabled state on users with that role applied.
+// set enabled state on users with that role applied, each under the owner
+// protections.
 func (s *Service) authorizeChange(ctx context.Context, actor Actor, target *access.User, users []access.User, userID int64, ch UserChange) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	if ch.Role != nil {
 		role := cmp.Or(*ch.Role, access.RoleUser)
-		if err := s.policy.Authorize(ctx, Decision{Op: OpSetRole, Actor: actor, Target: target, Role: role, Users: users}); err != nil {
+		d := Decision{Op: OpSetRole, Actor: actor, Target: target, Role: role, Users: users}
+		if err := s.authorizeOwned(ctx, &d); err != nil {
 			return err
 		}
 		for i := range users {
@@ -222,7 +224,15 @@ func (s *Service) authorizeChange(ctx context.Context, actor Actor, target *acce
 	if ch.Enabled == nil {
 		return nil
 	}
-	return s.policy.Authorize(ctx, Decision{Op: OpSetEnabled, Actor: actor, Target: target, Enabled: *ch.Enabled, Users: users})
+	return s.authorizeOwned(ctx, &Decision{Op: OpSetEnabled, Actor: actor, Target: target, Enabled: *ch.Enabled, Users: users})
+}
+
+// authorizeOwned is authorize, then ownerGuard on the allowed d.
+func (s *Service) authorizeOwned(ctx context.Context, d *Decision) error {
+	if err := s.authorize(ctx, *d); err != nil {
+		return err
+	}
+	return ownerGuard(d)
 }
 
 // applyUserChange writes the fields that differ from target's stored
@@ -322,7 +332,7 @@ func (s *Service) DeleteUser(ctx context.Context, p access.Principal, userID int
 		if readErr != nil {
 			return readErr
 		}
-		if polErr := s.policy.Authorize(ctx, Decision{Op: OpDeleteUser, Actor: ua.actor, Target: target, Users: users}); polErr != nil {
+		if polErr := s.authorizeOwned(ctx, &Decision{Op: OpDeleteUser, Actor: ua.actor, Target: target, Users: users}); polErr != nil {
 			return refuse(polErr)
 		}
 		if !found {

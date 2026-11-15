@@ -54,6 +54,20 @@ func serveAdminUserUpdate(h *Handler, c *call) error {
 	return nil
 }
 
+// serveAdminOwner sets a user's owner flag.
+func serveAdminOwner(h *Handler, c *call) error {
+	req, err := decodeJSON[OwnerRequest](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	u, err := h.acct.SetOwner(c.r.Context(), account.As(c.p), c.id, req.Owner)
+	if err != nil {
+		return err
+	}
+	writeJSON(c.w, http.StatusOK, userView(u))
+	return nil
+}
+
 func serveAdminUserDelete(h *Handler, c *call) error {
 	if err := h.acct.DeleteUser(c.r.Context(), c.p, c.id); err != nil {
 		return err

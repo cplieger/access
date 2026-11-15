@@ -378,6 +378,15 @@
     "array": false
   },
   {
+    "request": "OwnerRequest",
+    "response": "UserView",
+    "name": "authAdminOwner",
+    "method": "PUT",
+    "path": "{prefix}/users/{id}/owner",
+    "kind": "json",
+    "array": false
+  },
+  {
     "request": null,
     "response": null,
     "name": "authAdminUserDelete",

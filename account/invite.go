@@ -52,7 +52,7 @@ func (s *Service) CreateInvite(ctx context.Context, p access.Principal, role acc
 		if keyErr := requireCurrentSecret(OpInvite, ua.key, p); keyErr != nil {
 			return keyErr
 		}
-		if polErr := s.policy.Authorize(ctx, Decision{Op: OpInvite, Actor: ua.actor, Role: role}); polErr != nil {
+		if polErr := s.authorize(ctx, Decision{Op: OpInvite, Actor: ua.actor, Role: role}); polErr != nil {
 			return refuse(polErr)
 		}
 		if ruleErr := ua.target(OpInvite, role); ruleErr != nil {
@@ -144,7 +144,7 @@ func (s *Service) inviteChecks(ctx context.Context, r Rules, in AcceptInvite) (s
 	if err := s.checkPassword(ctx, r, username, in.Password); err != nil {
 		return "", err
 	}
-	if err := s.policy.Authorize(ctx, Decision{Op: OpCreateUser, Via: ViaInvite, Role: invite.Role}); err != nil {
+	if err := s.authorize(ctx, Decision{Op: OpCreateUser, Via: ViaInvite, Role: invite.Role}); err != nil {
 		return "", err
 	}
 	return username, nil
@@ -224,7 +224,7 @@ func (s *Service) tokenIssuer(ctx context.Context, tx Tx, keyID int64, d Decisio
 		return nil, false, err
 	}
 	d.Actor = actor
-	if s.policy.Authorize(ctx, d) != nil || requireUserTarget(d.Op, role) != nil {
+	if s.authorize(ctx, d) != nil || requireUserTarget(d.Op, role) != nil {
 		return nil, false, nil
 	}
 	return key, true, nil

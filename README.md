@@ -100,7 +100,7 @@ func main() {
 
 	svc, err := account.New(ctx, account.Config{
 		Store:         store,
-		Policy:        account.RolePolicy{KeepLocalAdmin: true},
+		Policy:        account.RolePolicy{},
 		Authenticator: authn,
 		Hasher:        hasher,
 		Limiter:       limiter,

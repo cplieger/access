@@ -219,7 +219,7 @@ func TestOutOfBandMinting(t *testing.T) {
 	t.Run("single_owner", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, keyOptions(options{}, account.SingleOwnerPolicy{}))
-		owner := mustUser(t, f.mem, "owner", access.RoleAdmin)
+		owner := mustOwner(t, f.mem, "owner")
 		if _, err := f.svc.CreateAPIKey(t.Context(), account.OutOfBand("admin-socket"), owner.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}}); err != nil {
 			t.Errorf("out-of-band mint for the owner under SingleOwnerPolicy = %v, want a key", err)
 		}

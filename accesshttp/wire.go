@@ -92,6 +92,11 @@ type UserUpdateRequest struct {
 	Enabled *bool        `json:"enabled,omitempty"`
 }
 
+// OwnerRequest is authAdminOwner's body.
+type OwnerRequest struct {
+	Owner bool `json:"owner"`
+}
+
 // InviteRequest is authAdminInvite's body.
 type InviteRequest struct {
 	Role  access.Role `json:"role"`
@@ -129,6 +134,7 @@ type UserView struct {
 	ID         int64   `json:"id"`
 	Enabled    bool    `json:"enabled"`
 	OIDCLinked bool    `json:"oidc_linked"`
+	Owner      bool    `json:"owner"`
 }
 
 // UserMethodsView is a listed user's password and passkey count.
@@ -199,6 +205,8 @@ type MeResponse struct {
 	User        UserView           `json:"user"`
 	CanLinkOIDC bool               `json:"can_link_oidc"`
 	SSOGoverned bool               `json:"sso_governed"`
+	Owner       bool               `json:"owner"`
+	SingleUser  bool               `json:"single_user"`
 }
 
 // PasskeyView is one passkey.
@@ -395,6 +403,7 @@ func userView(u *access.User) UserView {
 		Role:        u.Role,
 		Enabled:     u.Enabled,
 		OIDCLinked:  !u.OIDC.IsZero(),
+		Owner:       u.Owner,
 		CreatedAt:   u.CreatedAt,
 	}
 }
@@ -515,6 +524,8 @@ func meResponse(m *account.Me) MeResponse {
 		},
 		CanLinkOIDC: m.CanLinkOIDC,
 		SSOGoverned: m.SSOGoverned,
+		Owner:       m.User.Owner,
+		SingleUser:  m.SingleUser,
 	}
 }
 

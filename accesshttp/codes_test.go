@@ -42,6 +42,8 @@ var accountSentinels = []struct {
 	{name: "hash_busy", err: access.ErrHashBusy, code: access.CodeBusy},
 	{name: "backend", err: access.ErrAuthBackend, code: access.CodeUnavailable},
 	{name: "service_closed", err: account.ErrServiceClosed, code: access.CodeUnavailable},
+	{name: "no_owner", err: account.ErrNoOwner, code: access.CodeUnavailable},
+	{name: "not_single_user", err: account.ErrNotSingleUser, code: access.CodeUnavailable},
 	{name: "rules_invalid", err: &account.RulesError{Field: "Breach", Reason: "no client"}, code: access.CodeUnavailable},
 	{name: "ttl_too_long", err: account.ErrTTLTooLong, code: access.CodeBadRequest},
 	{name: "ttl_negative", err: account.ErrTTLNegative, code: access.CodeBadRequest},

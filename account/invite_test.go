@@ -15,6 +15,8 @@ import (
 // refuseInvited refuses only an invite acceptance's OpCreateUser.
 type refuseInvited struct{}
 
+func (refuseInvited) SingleUser() bool { return false }
+
 func (refuseInvited) Authorize(ctx context.Context, d account.Decision) error {
 	if d.Op == account.OpCreateUser && d.Via == account.ViaInvite {
 		return &account.PolicyError{Op: d.Op, Reason: "no_invites"}
@@ -143,7 +145,7 @@ func newKeyIssuer(t *testing.T, expiresIn time.Duration) *keyIssuer {
 	t.Helper()
 	clock := laterClock()
 	w := newAdminWorld(t, options{edit: func(c *account.Config) { c.Now = clock.now }}, nil)
-	ki := &keyIssuer{adminWorld: w, clock: clock, boss: mustUser(t, w.f.mem, "boss", access.RoleAdmin)}
+	ki := &keyIssuer{adminWorld: w, clock: clock, boss: mustOwner(t, w.f.mem, "boss")}
 	ki.bp = w.f.sessionPrincipal(t, ki.boss, time.Now())
 	ki.p = w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
 	ki.k = w.f.mint(t, account.As(ki.p.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}, ExpiresIn: expiresIn})
@@ -209,6 +211,11 @@ func TestKeyIssuedTokens(t *testing.T) {
 			return ki.f.svc
 		},
 		"owner_demoted": func(t *testing.T, ki *keyIssuer) *account.Service {
+			// Design 5.2: an owner's role never changes; demoting one
+			// removes the owner flag first.
+			if _, err := ki.f.svc.SetOwner(t.Context(), account.As(ki.bp), ki.root.ID, false); err != nil {
+				t.Fatalf("remove the owner flag = %v", err)
+			}
 			if _, err := ki.f.svc.UpdateUser(t.Context(), ki.bp, ki.root.ID, account.UserChange{Role: new(access.RoleUser)}); err != nil {
 				t.Fatalf("demote the owner = %v", err)
 			}

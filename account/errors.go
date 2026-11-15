@@ -89,6 +89,12 @@ var (
 	// ErrRegistrationFull is a registration while the waiting accounts are
 	// at Rules.MaxWaitingRegistrations.
 	ErrRegistrationFull = errors.New("account: registration is full")
+	// ErrNoOwner is New refusing a store that holds users and no enabled
+	// admin, and Service.Owner on a single-user store whose owner flag is
+	// not on its one enabled admin alone. Its text names the repair.
+	ErrNoOwner = errors.New("account: no owner")
+	// ErrNotSingleUser is Service.Owner under a multi-user Policy.
+	ErrNotSingleUser = errors.New("account: the policy admits more than one account")
 	// ErrSSOOnly is a local-method operation the stored SSO mode forbids
 	// for the user.
 	ErrSSOOnly = errors.New("account: the identity provider is this account's only sign-in")
@@ -117,12 +123,16 @@ const (
 	ReasonNotEnabledUser     = "not_enabled_user"
 	ReasonNotAdmin           = "not_admin"
 	ReasonSelfDelete         = "self_delete"
-	ReasonLastAdmin          = "last_admin"
-	ReasonLastLocalAdmin     = "last_local_admin"
 	ReasonSingleOwner        = "single_owner"
 	ReasonNotOwner           = "not_owner"
 	ReasonUnknownVia         = "unknown_via"
 	ReasonViaWithActor       = "via_with_actor"
+	// The owner protections account applies after the Policy, for every
+	// Policy.
+	ReasonOwnerTarget           = "owner_target"             // a principal that is no owner acting on an owner
+	ReasonOwnerRole             = "owner_role"               // a role change of an owner
+	ReasonLastOwner             = "last_owner"               // a change that leaves no enabled owner
+	ReasonOwnerNeedsLocalMethod = "owner_needs_local_method" // an owner must be an enabled admin with a usable password or passkey
 )
 
 // PolicyReasons returns every Reason account's own rules and policies put
@@ -145,12 +155,14 @@ func PolicyReasons() []string {
 		ReasonNotEnabledUser,
 		ReasonNotAdmin,
 		ReasonSelfDelete,
-		ReasonLastAdmin,
-		ReasonLastLocalAdmin,
 		ReasonSingleOwner,
 		ReasonNotOwner,
 		ReasonUnknownVia,
 		ReasonViaWithActor,
+		ReasonOwnerTarget,
+		ReasonOwnerRole,
+		ReasonLastOwner,
+		ReasonOwnerNeedsLocalMethod,
 	}
 }
 

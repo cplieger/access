@@ -45,6 +45,7 @@ func (s *Service) meIn(ctx context.Context, tx Tx, r Rules, u *access.User, p ac
 		User:        u,
 		Methods:     m,
 		CanLinkOIDC: m.OIDCAvailable && !m.OIDCLinked,
+		SingleUser:  s.singleUser,
 		SSOGoverned: r.SSOGoverned && m.OIDCLinked,
 		Current: CurrentSession{
 			ID: p.SessionID, Method: p.Method, AuthTime: p.AuthTime,
