@@ -50,7 +50,7 @@ func liveSession(t testing.TB, u *access.User) access.Session {
 
 // provisioningOn is Rules with every OIDC identity admitted.
 func provisioningOn() func() account.Rules {
-	return rulesWith(func(r *account.Rules) { r.Provisioning = oidc.Provisioning{Enabled: true} })
+	return rulesWith(func(r *account.Rules) { r.Provisioning = account.Provisioning{Enabled: true} })
 }
 
 func TestOIDCSignIn(t *testing.T) {
@@ -133,33 +133,30 @@ func TestOIDCSignIn(t *testing.T) {
 
 func TestOIDCProvisioning(t *testing.T) {
 	t.Parallel()
-	staff := oidc.Provisioning{Enabled: true, Claim: "groups", AllowedValues: []string{"staff"}}
-	staffAdmin := staff
-	staffAdmin.Role = access.RoleAdmin
+	staff := account.OIDCAdmission{Claim: "groups", AllowedValues: []string{"staff"}}
+	byClaim := account.Provisioning{Enabled: true, RoleClaim: "groups", AdminValues: []string{"ops"}}
 	for _, tc := range []struct {
 		groups   any
-		policy   account.Policy
 		name     string
 		wantRole access.Role // empty: NotLinked
-		prov     oidc.Provisioning
+		adm      account.OIDCAdmission
+		prov     account.Provisioning
 	}{
 		{name: "off", groups: "staff"},
-		{name: "claim_absent", prov: staff},
-		{name: "claim_values_miss", prov: staff, groups: []string{"guests", "ops"}},
-		{name: "admitted_with_role", prov: staffAdmin, groups: []string{"ops", "staff"}, wantRole: access.RoleAdmin},
-		{name: "admitted_default_role", prov: staff, groups: "staff", wantRole: access.RoleUser},
-		{name: "any_identity", prov: oidc.Provisioning{Enabled: true}, wantRole: access.RoleUser},
-		{name: "single_owner", prov: staff, groups: "staff", policy: account.SingleOwnerPolicy{}},
+		{name: "admitted_with_role", adm: staff, prov: account.Provisioning{Enabled: true, Role: access.RoleAdmin}, groups: []string{"ops", "staff"}, wantRole: access.RoleAdmin},
+		{name: "admitted_default_role", adm: staff, prov: account.Provisioning{Enabled: true}, groups: "staff", wantRole: access.RoleUser},
+		{name: "any_identity", prov: account.Provisioning{Enabled: true}, wantRole: access.RoleUser},
+		// design 5.4: a RoleClaim value in AdminValues makes an admin, by exact string.
+		{name: "role_claim_admin", prov: byClaim, groups: []string{"staff", "ops"}, wantRole: access.RoleAdmin},
+		{name: "role_claim_other", prov: byClaim, groups: []string{"Ops"}, wantRole: access.RoleUser},
+		// design 5.4: an absent or unreadable role claim never makes an admin.
+		{name: "role_claim_absent", prov: byClaim, wantRole: access.RoleUser},
+		{name: "role_claim_number", prov: byClaim, groups: 7, wantRole: access.RoleUser},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := newOIDCFixture(t, newOIDCRig(t, accesstest.IdPOptions{Groups: tc.groups}), pwOptions{
-				rules: rulesWith(func(r *account.Rules) { r.Provisioning = tc.prov }),
-				edit: func(c *account.Config) {
-					if tc.policy != nil {
-						c.Policy = tc.policy
-					}
-				},
+				rules: rulesWith(func(r *account.Rules) { r.Provisioning, r.OIDCAdmission = tc.prov, tc.adm }),
 			})
 			mustUser(t, f.mem, "owner", access.RoleAdmin)
 			flow, claims := f.rig.signInFlow(t)
@@ -226,7 +223,7 @@ func TestOIDCProvisioning(t *testing.T) {
 		t.Parallel()
 		var on atomic.Bool
 		f := newOIDCFixture(t, newOIDCRig(t, accesstest.IdPOptions{}), pwOptions{rules: func() account.Rules {
-			return account.Rules{Provisioning: oidc.Provisioning{Enabled: on.Load()}}
+			return account.Rules{Provisioning: account.Provisioning{Enabled: on.Load()}}
 		}})
 		mustUser(t, f.mem, "owner", access.RoleAdmin)
 		flow, claims := f.rig.signInFlow(t)
@@ -267,7 +264,7 @@ func TestOIDCProvisioning(t *testing.T) {
 	})
 	t.Run("rules_refuse_claim_without_values", func(t *testing.T) {
 		t.Parallel()
-		r := account.Rules{Provisioning: oidc.Provisioning{Enabled: true, Claim: "groups"}}
+		r := account.Rules{Provisioning: account.Provisioning{Enabled: true}, OIDCAdmission: account.OIDCAdmission{Claim: "groups"}}
 		if err := r.Validate(); !errors.Is(err, account.ErrRulesInvalid) {
 			t.Errorf("Validate = %v, want ErrRulesInvalid", err)
 		}
@@ -302,18 +299,27 @@ func TestOIDCNotLinkedOneShape(t *testing.T) {
 	if want.Kind != account.OutcomeNotLinked || want.Pending != wantPending || want.Redirect != "/home" {
 		t.Fatalf("NotLinked outcome = %+v, want Pending %+v and Redirect /home", want, wantPending)
 	}
-	for name, tc := range map[string]struct {
-		rules  func() account.Rules
-		holder string
-	}{
-		"off_name_held":               {rules: off, holder: "password"},
-		"provisioning_name_held":      {rules: provisioningOn(), holder: "password"},
-		"provisioning_name_held_bare": {rules: provisioningOn(), holder: "passwordless"},
-	} {
-		t.Run(name, func(t *testing.T) {
+	// design 5.4: with provisioning off, a hint matching a user and one
+	// matching nobody give the same answer.
+	for _, holder := range []string{"password", "passwordless"} {
+		t.Run("off_name_held_"+holder, func(t *testing.T) {
 			t.Parallel()
-			if got := outcome(t, accesstest.IdPOptions{}, tc.rules, tc.holder); !reflect.DeepEqual(got, want) {
+			if got := outcome(t, accesstest.IdPOptions{}, off, holder); !reflect.DeepEqual(got, want) {
 				t.Errorf("outcome = %+v, want the same as with the name free, %+v", got, want)
+			}
+		})
+	}
+	// design 5.4: an admitted identity whose name is taken gets the create
+	// offer, the hint plus a numeric suffix, whatever the holder signs in with.
+	for _, holder := range []string{"password", "passwordless"} {
+		t.Run("provisioning_name_held_"+holder, func(t *testing.T) {
+			t.Parallel()
+			got := outcome(t, accesstest.IdPOptions{}, provisioningOn(), holder)
+			offer := want
+			offer.Pending.Provision = &account.Provision{Role: access.RoleUser}
+			offer.Pending.SuggestedUsername = accesstest.DefaultIdPUsername + "_2"
+			if !reflect.DeepEqual(got, offer) {
+				t.Errorf("outcome = %+v, want %+v", got, offer)
 			}
 		})
 	}

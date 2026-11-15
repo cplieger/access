@@ -119,6 +119,15 @@ func serveAdminUserDelete(h *Handler, c *call) error {
 	return nil
 }
 
+// serveAdminOIDCUnlink removes a user's identity-provider link.
+func serveAdminOIDCUnlink(h *Handler, c *call) error {
+	if err := h.acct.AdminUnlinkOIDC(c.r.Context(), account.As(c.p), c.id); err != nil {
+		return err
+	}
+	noContent(c.w)
+	return nil
+}
+
 func serveAdminInvite(h *Handler, c *call) error {
 	req, err := decodeJSON[InviteRequest](c.w, c.r)
 	if err != nil {

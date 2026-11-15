@@ -117,6 +117,15 @@
     "array": false
   },
   {
+    "request": "PendingCreateRequest",
+    "response": "SignedInResponse",
+    "name": "authOIDCCreatePending",
+    "method": "POST",
+    "path": "{prefix}/oidc/pending/create",
+    "kind": "json",
+    "array": false
+  },
+  {
     "request": null,
     "response": "MeResponse",
     "name": "authOIDCLinkPending",
@@ -410,6 +419,15 @@
     "name": "authAdminUserDelete",
     "method": "DELETE",
     "path": "{prefix}/users/{id}",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
+    "response": null,
+    "name": "authAdminOIDCUnlink",
+    "method": "DELETE",
+    "path": "{prefix}/users/{id}/oidc",
     "kind": "json",
     "array": false
   },

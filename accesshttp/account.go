@@ -34,6 +34,7 @@ type accountAPI interface {
 	OIDCComplete(ctx context.Context, c account.Client, flow oidc.Flow, claims oidc.Claims) (account.OIDCOutcome, error)
 	LinkPendingOIDC(ctx context.Context, p access.Principal, pending account.PendingLink) (account.Issued, account.Me, error)
 	UnlinkOIDC(ctx context.Context, p access.Principal) error
+	CreatePendingOIDC(ctx context.Context, c account.Client, pending account.PendingLink, username string) (account.SignedIn, error)
 	Logout(ctx context.Context, tokenHash access.Hash) error
 	AcceptInvitePassword(ctx context.Context, c account.Client, in account.AcceptInvite) (account.SignedIn, error)
 	StepUpPassword(ctx context.Context, c account.Client, p access.Principal, password access.Secret) (account.Issued, error)
@@ -64,6 +65,7 @@ type accountAPI interface {
 	UpdateUser(ctx context.Context, p access.Principal, userID int64, ch account.UserChange) (*access.User, error)
 	DeleteUser(ctx context.Context, p access.Principal, userID int64) error
 	SetOwner(ctx context.Context, a account.Actor, userID int64, owner bool) (*access.User, error)
+	AdminUnlinkOIDC(ctx context.Context, a account.Actor, userID int64) error
 	SSOReadiness(ctx context.Context, a account.Actor, mode account.SSOMode) (account.Readiness, error)
 	ApplySSO(ctx context.Context, a account.Actor, mode account.SSOMode) error
 	CreateInvite(ctx context.Context, p access.Principal, role access.Role, ttl time.Duration) (account.IssuedToken, error)

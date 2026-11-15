@@ -19,7 +19,6 @@ import (
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
-	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/ratelimit"
 	"golang.org/x/text/unicode/norm"
 )
@@ -488,7 +487,7 @@ func TestUsernameRuleEveryCreationPath(t *testing.T) {
 			rig := newOIDCRig(t, accesstest.IdPOptions{})
 			rules := rulesWith(func(r *account.Rules) {
 				r.SetupTokenRequired = tokenless
-				r.Provisioning = oidc.Provisioning{Enabled: true}
+				r.Provisioning = account.Provisioning{Enabled: true}
 			})
 			refused := p.refused
 			if refused == nil {
@@ -869,15 +868,17 @@ func TestSessionMint(t *testing.T) {
 func TestSessionCapsAtCreation(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
-		caps              func(context.Context, account.Client) (time.Duration, time.Duration)
+		caps              func(context.Context, account.Client, access.Method) (time.Duration, time.Duration)
 		wantIdle, wantAbs time.Duration
 	}{
-		"capped": {caps: func(context.Context, account.Client) (time.Duration, time.Duration) {
+		"capped": {caps: func(context.Context, account.Client, access.Method) (time.Duration, time.Duration) {
 			return 30 * time.Minute, 12 * time.Hour
 		}, wantIdle: 30 * time.Minute, wantAbs: 12 * time.Hour},
-		"nil":      {},
-		"zero":     {caps: func(context.Context, account.Client) (time.Duration, time.Duration) { return 0, 0 }},
-		"negative": {caps: func(context.Context, account.Client) (time.Duration, time.Duration) { return -time.Minute, -time.Hour }},
+		"nil":  {},
+		"zero": {caps: func(context.Context, account.Client, access.Method) (time.Duration, time.Duration) { return 0, 0 }},
+		"negative": {caps: func(context.Context, account.Client, access.Method) (time.Duration, time.Duration) {
+			return -time.Minute, -time.Hour
+		}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -885,11 +886,11 @@ func TestSessionCapsAtCreation(t *testing.T) {
 			var mu sync.Mutex
 			caps := tc.caps
 			if caps != nil {
-				caps = func(ctx context.Context, c account.Client) (time.Duration, time.Duration) {
+				caps = func(ctx context.Context, c account.Client, m access.Method) (time.Duration, time.Duration) {
 					mu.Lock()
 					calls = append(calls, c)
 					mu.Unlock()
-					return tc.caps(ctx, c)
+					return tc.caps(ctx, c, m)
 				}
 			}
 			f := newFixture(t, options{rules: rulesWith(func(r *account.Rules) { r.SetupTokenRequired = tokenless; r.SessionCaps = caps })})

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/cplieger/access/account"
-	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/ratelimit"
 )
 
@@ -18,7 +17,7 @@ func TestDeviceCookieEveryFullSessionPath(t *testing.T) {
 		t.Run(p.name, func(t *testing.T) {
 			t.Parallel()
 			f := newOIDCFixture(t, rigFor(t, "subject-"+p.name), pwOptions{rules: func() account.Rules {
-				return account.Rules{SetupTokenRequired: tokenless, Provisioning: oidc.Provisioning{Enabled: true}}
+				return account.Rules{SetupTokenRequired: tokenless, Provisioning: account.Provisioning{Enabled: true}}
 			}})
 			in, _, err := p.run(t, f, localClient)
 			if err != nil || in.User == nil {

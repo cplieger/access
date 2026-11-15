@@ -212,7 +212,7 @@ func censusUserNaming(t *testing.T) {
 
 func TestKeyAuthorityEveryWrite(t *testing.T) {
 	t.Parallel()
-	want := []string{"CreateAPIKey", "CreateInvite", "CreateUser", "DeleteUser", "RevokeAnyAPIKey", "UpdateUser"}
+	want := []string{"AdminUnlinkOIDC", "CreateAPIKey", "CreateInvite", "CreateUser", "DeleteUser", "RevokeAnyAPIKey", "UpdateUser"}
 	var (
 		mu      sync.Mutex
 		reached []string

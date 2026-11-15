@@ -64,9 +64,21 @@ type PendingCeremony struct {
 
 // PendingLink is an OIDC identity no account is linked to yet.
 type PendingLink struct {
+	// Provision is set when provisioning admitted the identity but its name
+	// was taken, so CreatePendingOIDC may create an account with this role.
+	Provision    *Provision
 	UsernameHint string // preferred_username as sent, display only
 	Email        string // only when email_verified
-	Identity     access.OIDCIdentity
+	// SuggestedUsername is the default name for CreatePendingOIDC, set only
+	// with Provision; it may be taken too.
+	SuggestedUsername string
+	Identity          access.OIDCIdentity
+}
+
+// Provision is what the callback that admitted a pending identity decided
+// for its account.
+type Provision struct {
+	Role access.Role
 }
 
 // OIDCOutcomeKind is which arm of an OIDCOutcome is set.
@@ -169,6 +181,9 @@ type ListedUser struct {
 	// LocalMethodsDormant is the stored SSO mode, read once for the list,
 	// keeping the user's password and passkeys dormant.
 	LocalMethodsDormant bool
+	// RoleFromProvider is whether Rules.Provisioning.SyncRole, read once for
+	// the list, sets the user's role at each OIDC sign-in.
+	RoleFromProvider bool
 }
 
 // ListedKey is one row of the admin key list.

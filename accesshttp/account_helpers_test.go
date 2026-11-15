@@ -88,6 +88,14 @@ func (s stubAccount) LinkPendingOIDC(ctx context.Context, p access.Principal, pe
 	return s.accountAPI.LinkPendingOIDC(ctx, p, pending)
 }
 
+func (s stubAccount) CreatePendingOIDC(ctx context.Context, c account.Client, pending account.PendingLink, username string) (account.SignedIn, error) {
+	return stubbed(s, "CreatePendingOIDC", func() (account.SignedIn, error) { return s.accountAPI.CreatePendingOIDC(ctx, c, pending, username) })
+}
+
+func (s stubAccount) AdminUnlinkOIDC(ctx context.Context, a account.Actor, userID int64) error {
+	return stubbedErr(s, "AdminUnlinkOIDC", func() error { return s.accountAPI.AdminUnlinkOIDC(ctx, a, userID) })
+}
+
 func (s stubAccount) UnlinkOIDC(ctx context.Context, p access.Principal) error {
 	return stubbedErr(s, "UnlinkOIDC", func() error { return s.accountAPI.UnlinkOIDC(ctx, p) })
 }

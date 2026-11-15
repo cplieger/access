@@ -8,7 +8,6 @@ import (
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/internal/scopetoken"
-	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/webauthn"
 )
 
@@ -49,11 +48,11 @@ type Rules struct {
 	// published. Nil means every held method is usable.
 	MethodUsable func(ctx context.Context, tx Tx, u *access.User, m access.Method) bool
 	// SessionCaps returns per-session limits for a session about to be
-	// created for c, read once at creation. A positive value caps that
-	// limit for the session's whole life (Session.IdleCap,
-	// Session.AbsoluteCap; kept on rotation); zero or less, or a nil func,
-	// means no cap.
-	SessionCaps func(ctx context.Context, c Client) (idle, absolute time.Duration)
+	// created for c by sign-in method m, read once at creation; a step-up
+	// never calls it again. A positive value caps that limit for the
+	// session's whole life (Session.IdleCap, Session.AbsoluteCap; kept on
+	// rotation); zero or less, or a nil func, means no cap.
+	SessionCaps func(ctx context.Context, c Client, m access.Method) (idle, absolute time.Duration)
 	// KeyPrefix starts every minted key's plaintext; see access.GenerateAPIKey.
 	KeyPrefix string
 	// HTTPSOrigin is the app's HTTPS origin ("https://host[:port]"), which
@@ -65,9 +64,13 @@ type Rules struct {
 	// Scopes is the key-scope vocabulary; CreateAPIKey refuses any other.
 	// Each is one RFC 6750 scope-token: printable ASCII but space, '"' and '\'.
 	Scopes []string
-	// Provisioning gates just-in-time creation on an OIDC sign-in with no
-	// linked account. The zero value is off.
-	Provisioning oidc.Provisioning
+	// OIDCAdmission gates every OIDC sign-in, link and step-up, owners'
+	// included. The zero value admits every identity.
+	OIDCAdmission OIDCAdmission
+	// Provisioning creates an account at an admitted identity's first
+	// OIDC sign-in, and maps its role. The zero value is off; a
+	// single-user Policy refuses it on.
+	Provisioning Provisioning
 	// RecentAuth is how recent a sign-in or step-up must be for an
 	// operation that requires recent authentication. Zero means 10m; a
 	// value below 1m is invalid.
@@ -140,8 +143,8 @@ const (
 	maxKeyRotationOverlap     = 24 * time.Hour
 )
 
-// Validate checks every bounded field, KeyPrefix, Scopes, Provisioning and
-// HTTPSOrigin. The error is a *RulesError naming the field, which matches
+// Validate checks every bounded field, KeyPrefix, Scopes, OIDCAdmission,
+// Provisioning and HTTPSOrigin. The error is a *RulesError naming the field, which matches
 // ErrRulesInvalid.
 func (r Rules) Validate() error { //nolint:gocritic // hugeParam: Rules is the value Config.Rules returns
 	switch {
@@ -164,11 +167,22 @@ func (r Rules) Validate() error { //nolint:gocritic // hugeParam: Rules is the v
 			return &RulesError{Field: "Scopes", Reason: fmt.Sprintf("%q is not an RFC 6750 scope-token", scope)}
 		}
 	}
-	if err := r.Provisioning.Validate(); err != nil {
-		return &RulesError{Field: "Provisioning", Reason: err.Error(), Err: err}
+	if err := r.validateOIDC(); err != nil {
+		return err
 	}
 	if r.HTTPSOrigin != "" && !isHTTPSOrigin(r.HTTPSOrigin) {
 		return &RulesError{Field: "HTTPSOrigin", Reason: fmt.Sprintf("%q is not an https origin in its canonical form, https://host or https://host:port", r.HTTPSOrigin)}
+	}
+	return nil
+}
+
+// validateOIDC is Validate's OIDCAdmission and Provisioning checks.
+func (r *Rules) validateOIDC() error {
+	if err := r.OIDCAdmission.Validate(); err != nil {
+		return &RulesError{Field: "OIDCAdmission", Reason: err.Error(), Err: err}
+	}
+	if err := r.Provisioning.Validate(); err != nil {
+		return &RulesError{Field: "Provisioning", Reason: err.Error(), Err: err}
 	}
 	return nil
 }

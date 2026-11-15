@@ -26,6 +26,11 @@ type SetupPasskeyBeginRequest struct {
 	Username string `json:"username"`
 }
 
+// PendingCreateRequest is authOIDCCreatePending's body.
+type PendingCreateRequest struct {
+	Username string `json:"username"`
+}
+
 // LoginRequest is authLoginPassword's body.
 type LoginRequest struct {
 	Username string `json:"username"`
@@ -171,6 +176,7 @@ type UserMethodsView struct {
 	PasskeyCount        int  `json:"passkey_count"`
 	Password            bool `json:"password"`
 	LocalMethodsDormant bool `json:"local_methods_dormant"`
+	RoleFromProvider    bool `json:"role_from_provider"`
 }
 
 // SignedInResponse is the answer of every route that signs a user in.
@@ -198,6 +204,9 @@ type PendingLinkResponse struct {
 	Issuer       string `json:"issuer"`
 	UsernameHint string `json:"username_hint,omitempty"`
 	Email        string `json:"email,omitempty"`
+	// SuggestedUsername is set only with CanCreate, and may be absent then.
+	SuggestedUsername string `json:"suggested_username,omitempty"`
+	CanCreate         bool   `json:"can_create"`
 }
 
 // MethodLockView is one locked method, per trust context.
@@ -451,7 +460,7 @@ func userView(u *access.User) UserView {
 func listedUserView(l *account.ListedUser) UserView {
 	v := userView(&l.User)
 	v.KeyLineage = l.KeyLineage
-	v.Methods = &UserMethodsView{Password: !l.User.PasswordHash.IsZero(), PasskeyCount: l.PasskeyCount, LocalMethodsDormant: l.LocalMethodsDormant}
+	v.Methods = &UserMethodsView{Password: !l.User.PasswordHash.IsZero(), PasskeyCount: l.PasskeyCount, LocalMethodsDormant: l.LocalMethodsDormant, RoleFromProvider: l.RoleFromProvider}
 	return v
 }
 

@@ -243,6 +243,13 @@ export const parseUserUpdateRequest: Validator<UserUpdateRequest> = object({
   enabled: opt(bool),
 });
 
+export interface PendingCreateRequest {
+  readonly username: string;
+}
+export const parsePendingCreateRequest: Validator<PendingCreateRequest> = object({
+  username: req(str),
+});
+
 export interface OwnerRequest {
   readonly owner: boolean;
 }
@@ -321,11 +328,14 @@ export interface UserMethodsView {
   readonly passkey_count: number;
   /** The SSO mode keeps this user's password and passkeys dormant. */
   readonly local_methods_dormant: boolean;
+  /** The role syncs from the identity provider: an in-app change lasts until the next sign-in. */
+  readonly role_from_provider: boolean;
 }
 export const parseUserMethodsView: Validator<UserMethodsView> = object({
   password: req(bool),
   passkey_count: req(count),
   local_methods_dormant: req(bool),
+  role_from_provider: req(bool),
 });
 
 /** key_lineage and methods are set on the admin list only. */
@@ -478,11 +488,17 @@ export interface PendingLinkResponse {
   readonly issuer: string;
   readonly username_hint?: string;
   readonly email?: string;
+  /** "Create a new account" is offered: oidcCreatePending. */
+  readonly can_create: boolean;
+  /** The create form's default name, only when can_create. */
+  readonly suggested_username?: string;
 }
 export const parsePendingLinkResponse: Validator<PendingLinkResponse> = object({
   issuer: req(str),
   username_hint: opt(str),
   email: opt(str),
+  can_create: req(bool),
+  suggested_username: opt(str),
 });
 
 export interface MethodLockView {

@@ -56,7 +56,65 @@ func oidcScenarios() map[scenarioKey]scenario {
 	addCallbackScenarios(out)
 	addStartScenarios(out)
 	addLinkScenarios(out)
+	addCreatePendingScenarios(out)
 	return out
+}
+
+// staffOnly admits only a token whose groups claim holds "staff".
+var staffOnly = envOptions{rules: func(r *account.Rules) {
+	r.OIDCAdmission = account.OIDCAdmission{Claim: "groups", AllowedValues: []string{"staff"}}
+}}
+
+// provisioning turns account creation from an OIDC sign-in on.
+var provisioning = envOptions{rules: func(r *account.Rules) { r.Provisioning = account.Provisioning{Enabled: true} }}
+
+func addCreatePendingScenarios(out map[scenarioKey]scenario) {
+	const route = "authOIDCCreatePending"
+	role := access.RoleUser
+	offer := pendingPayload{Issuer: testIssuer, Subject: accesstest.DefaultIdPSubject, UsernameHint: "alice", Provision: &role}
+	// create posts name for the pending identity p, with bob stored and the
+	// IdP on unless off.
+	create := func(t *testing.T, e *env, p *pendingPayload, name string, off bool) *http.Request {
+		if !off {
+			e.useIdP(t, accesstest.IdPOptions{}, nil)
+		}
+		e.createUser(t, "bob", access.RoleUser)
+		r := request(e.route(t, route), jsonBody(t, PendingCreateRequest{Username: name}))
+		if p != nil {
+			r.AddCookie(e.pendingCookie(t, *p))
+		}
+		return r
+	}
+	out[scenarioKey{route, access.CodeForbidden}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		return create(t, e, &offer, "alice_2", false)
+	}}
+	out[scenarioKey{route, access.CodeRateLimited}] = scenario{opts: with(limited, provisioning), arrange: func(t *testing.T, e *env) *http.Request {
+		r := create(t, e, &offer, "alice_2", false)
+		e.spendRequest(t)
+		return r
+	}}
+	out[scenarioKey{route, access.CodeUnavailable}] = scenario{opts: provisioning, arrange: func(t *testing.T, e *env) *http.Request {
+		r := create(t, e, &offer, "alice_2", false)
+		e.shutdown(t)
+		return r
+	}}
+	out[scenarioKey{route, access.CodeUsernameInvalid}] = scenario{opts: provisioning, arrange: func(t *testing.T, e *env) *http.Request {
+		return create(t, e, &offer, "", false)
+	}}
+	out[scenarioKey{route, access.CodeUsernameTaken}] = scenario{opts: provisioning, arrange: func(t *testing.T, e *env) *http.Request {
+		return create(t, e, &offer, "bob", false)
+	}}
+	out[scenarioKey{route, access.CodeTokenInvalid}] = scenario{opts: provisioning, arrange: func(t *testing.T, e *env) *http.Request {
+		return create(t, e, nil, "alice_2", false)
+	}}
+	out[scenarioKey{route, access.CodeIdentityTaken}] = scenario{opts: provisioning, arrange: func(t *testing.T, e *env) *http.Request {
+		r := create(t, e, &offer, "alice_2", false)
+		e.linkUser(t, "bob", idpIdentity(testIssuer))
+		return r
+	}}
+	out[scenarioKey{route, access.CodeOIDCUnavailable}] = scenario{opts: provisioning, arrange: func(t *testing.T, e *env) *http.Request {
+		return create(t, e, &offer, "alice_2", true)
+	}}
 }
 
 func addCallbackScenarios(out map[scenarioKey]scenario) {
@@ -104,6 +162,11 @@ func addCallbackScenarios(out map[scenarioKey]scenario) {
 	}}
 	out[scenarioKey{route, access.CodeOIDCUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.bareCallback(t)
+	}}
+	out[scenarioKey{route, access.CodeForbidden}] = scenario{opts: staffOnly, arrange: func(t *testing.T, e *env) *http.Request {
+		idp := e.useIdP(t, accesstest.IdPOptions{}, nil)
+		b := newBrowser(t)
+		return b.with(authorize(t, idp, e.startSignIn(t, b, "")))
 	}}
 	out[scenarioKey{route, access.CodeOIDCFailed}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		e.useIdP(t, accesstest.IdPOptions{}, nil)

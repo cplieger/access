@@ -123,6 +123,15 @@ func passthroughCases() []passthroughCase {
 			rt := e.route(t, "authOIDCLinkPending")
 			return b.send(rt, request(rt, ""))
 		}},
+		{name: "oidc_create_pending", route: "authOIDCCreatePending", opts: provisioning, run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+			e.useIdP(t, accesstest.IdPOptions{}, nil)
+			e.createUser(t, "alice", access.RoleUser)
+			role := access.RoleUser
+			rt := e.route(t, "authOIDCCreatePending")
+			r := request(rt, jsonBody(t, PendingCreateRequest{Username: "alice_2"}))
+			r.AddCookie(e.pendingCookie(t, pendingPayload{Issuer: testIssuer, Subject: accesstest.DefaultIdPSubject, Provision: &role}))
+			return serve(t, e, "authOIDCCreatePending", r)
+		}},
 		{name: "invite_accept", route: "authInviteAcceptPassword", run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
 			body := inviteBody(t, e.invite(t), "bob", testPassword)
 			return serve(t, e, "authInviteAcceptPassword", e.post(t, "authInviteAcceptPassword", body))

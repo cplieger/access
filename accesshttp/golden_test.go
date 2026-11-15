@@ -55,7 +55,7 @@ var (
 func goldenUser() UserView {
 	return UserView{
 		ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleAdmin, Enabled: true, OIDCLinked: true, Owner: true,
-		CreatedAt: goldenTime, KeyLineage: []int64{3, 5}, Methods: &UserMethodsView{Password: true, PasskeyCount: 2, LocalMethodsDormant: true},
+		CreatedAt: goldenTime, KeyLineage: []int64{3, 5}, Methods: &UserMethodsView{Password: true, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true},
 	}
 }
 
@@ -100,6 +100,7 @@ func fixtures() []fixture {
 		{name: "NewUserRequest.noPassword", absent: "password", request: true, value: NewUserRequest{Username: "bob", Role: access.RoleUser}},
 		{name: "UserUpdateRequest", request: true, value: UserUpdateRequest{Role: &goldenRole, Enabled: &goldenTrue}},
 		{name: "OwnerRequest", request: true, value: OwnerRequest{Owner: true}},
+		{name: "PendingCreateRequest", request: true, value: PendingCreateRequest{Username: "alice_2"}},
 		{name: "SSORequest", request: true, value: SSORequest{Mode: account.SSONameForLinked}},
 		{name: "InviteRequest", request: true, value: InviteRequest{Role: access.RoleUser, Hours: 72}},
 
@@ -115,7 +116,8 @@ func fixtures() []fixture {
 		{name: "SignedInResponse", value: SignedInResponse{SessionID: "s1", User: goldenUser(), CloneWarning: true}},
 		{name: "CeremonyResponse", value: CeremonyResponse{Ceremony: "c1", PublicKey: json.RawMessage(`{"publicKey":{"challenge":"Y2hhbGxlbmdl"},"mediation":"conditional"}`)}},
 		{name: "OIDCStartResponse", value: OIDCStartResponse{URL: "https://idp.example.com/authorize?state=x"}},
-		{name: "PendingLinkResponse", value: PendingLinkResponse{Issuer: "https://idp.example.com", UsernameHint: "alice", Email: "alice@example.com"}},
+		{name: "PendingLinkResponse", value: PendingLinkResponse{Issuer: "https://idp.example.com", UsernameHint: "alice", Email: "alice@example.com", CanCreate: true, SuggestedUsername: "alice_2"}},
+		{name: "PendingLinkResponse.noCreate", absent: "suggested_username", value: PendingLinkResponse{Issuer: "https://idp.example.com", UsernameHint: "alice"}},
 		{name: "MeResponse", value: MeResponse{
 			User: goldenUser(), Methods: goldenMethods(), CanLinkOIDC: true, SSOOnly: true, Owner: true, SingleUser: true,
 			Session: CurrentSessionView{ID: "s1", Method: access.MethodPasskey, AuthTime: goldenTime, IdleDeadline: goldenTime, AbsoluteDeadline: goldenLater, Secure: true},

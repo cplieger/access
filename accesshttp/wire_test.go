@@ -173,10 +173,10 @@ func TestViewsCarryEveryField(t *testing.T) {
 		Session: CurrentSessionView{ID: "sess", Method: access.MethodPasskey, AuthTime: at(1), IdleDeadline: at(2), AbsoluteDeadline: at(3), Secure: true},
 	}
 	wantSignedIn := SignedInResponse{User: wantUser, SessionID: "sess", CloneWarning: true}
-	listed := account.ListedUser{User: *user, KeyLineage: []int64{3, 5}, PasskeyCount: 2, LocalMethodsDormant: true}
+	listed := account.ListedUser{User: *user, KeyLineage: []int64{3, 5}, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true}
 	listed.User.PasswordHash = access.NewHash("$argon2id$stored")
 	wantListed := wantUser
-	wantListed.Methods = &UserMethodsView{Password: true, PasskeyCount: 2, LocalMethodsDormant: true}
+	wantListed.Methods = &UserMethodsView{Password: true, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true}
 	wantListed.KeyLineage = []int64{3, 5}
 	passkey := access.PasskeyCredential{
 		ID: 2, Name: "laptop", RPID: testRPID, CreatedAt: at(1), LastUsedAt: at(2),

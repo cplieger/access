@@ -43,6 +43,13 @@ const (
 	// EventTemporaryPasswordWithdrawn is a dormant temporary password a
 	// change that brings the user's methods back deleted.
 	EventTemporaryPasswordWithdrawn EventKind = "temporary_password_withdrawn"
+	// EventOIDCNotAdmitted is a token Rules.OIDCAdmission refused; its
+	// UserID is zero for an identity no account is linked to.
+	EventOIDCNotAdmitted EventKind = "oidc_not_admitted"
+	// EventRoleSynced is a role an OIDC sign-in's SyncRole changed, and
+	// EventRoleSyncSkipped one it left because the claim was unreadable.
+	EventRoleSynced      EventKind = "role_synced"
+	EventRoleSyncSkipped EventKind = "role_sync_skipped"
 )
 
 // eventKinds is every EventKind in declaration order, with the class its
@@ -80,6 +87,9 @@ var eventKinds = [...]struct {
 	{EventOwnerRemoved, LogClassChange},
 	{EventSSOModeChanged, LogClassChange},
 	{EventTemporaryPasswordWithdrawn, LogClassChange},
+	{EventOIDCNotAdmitted, LogClassSession},
+	{EventRoleSynced, LogClassChange},
+	{EventRoleSyncSkipped, LogClassChange},
 }
 
 // EventKinds returns every EventKind, in declaration order.
@@ -108,7 +118,8 @@ type Event struct {
 	At     time.Time
 	Kind   EventKind
 	Method access.Method // sign-in, step-up, lock and re-enable
-	// Role is the new role of an EventRoleChanged, the created user's of an
+	// Role is the new role of an EventRoleChanged or EventRoleSynced, the
+	// kept one of an EventRoleSyncSkipped, the created user's of an
 	// EventUserCreated and the invite's of an EventInviteIssued.
 	Role       access.Role
 	SessionIDs []string // sessions ended or rotated

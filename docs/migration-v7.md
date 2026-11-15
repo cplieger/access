@@ -230,10 +230,10 @@ New: `ErrResponseTooLarge`, `LoginResult`, `BeginReauthentication` and `Complete
 | `Provider.AuthorizationURL`, `Provider.Exchange` | `Provider.Begin` and `Provider.Finish` with an `oidc.Callback` |
 | `GenerateState`, `GeneratePKCE` and the `State`, `Nonce`, `CodeChallenge`, `Code`, `CodeVerifier` types | none; `Begin` and `Finish` handle them |
 | `Claims.Subject`, `Claims.Issuer` and its JSON tags | `Claims.Identity`, an `access.OIDCIdentity`; `Claims` gains `AuthTime`, `Raw` and `Strings` |
-| `ResolveUser` | `Provisioning.Admit` and `UsernameCandidate`, which `account` composes |
+| `ResolveUser` | `account.Rules.OIDCAdmission`, `account.Rules.Provisioning` and `UsernameCandidate`, which `account` composes |
 | a discovery document with `http` endpoints | refused with `ErrDiscovery` unless the issuer is a loopback `http` URL |
 
-New: `Provider.Issuer`, `BeginRequest`, the `Intent` constants, `Flow`, `MaxRedirectBytes`, `Provisioning`, `ProviderError`, `UsernameError`, `ErrFlowInvalid`, `ErrStaleAuthentication`, `ErrRedirectTooLong`, `ErrProvisioningDisabled` and `ErrNotAdmitted`.
+New: `Provider.Issuer`, `BeginRequest`, the `Intent` constants, `Flow`, `MaxRedirectBytes`, `ProviderError`, `UsernameError`, `ErrFlowInvalid`, `ErrStaleAuthentication` and `ErrRedirectTooLong`.
 
 ## accesstest
 

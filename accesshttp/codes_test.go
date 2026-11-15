@@ -87,6 +87,8 @@ var accountSentinels = []struct {
 	{name: "registration_full", err: account.ErrRegistrationFull, code: access.CodeRegistrationFull},
 	{name: "sso_only", err: account.ErrSSOOnly, code: access.CodeSSOOnly},
 	{name: "unknown_sso_mode", err: account.ErrUnknownSSOMode, code: access.CodeBadRequest},
+	{name: "not_admitted", err: account.ErrNotAdmitted, code: access.CodeForbidden},
+	{name: "provisioning_disabled", err: account.ErrProvisioningDisabled, code: access.CodeForbidden},
 }
 
 // finishFailure is §7.2's code for a WebAuthn finish failure the table does
@@ -315,6 +317,9 @@ func (c *census) boundaryCases(t *testing.T, rt Route) []boundaryCase {
 			e.useIdP(t, accesstest.IdPOptions{}, nil)
 			e.spendRequest(t)
 			lrt := e.route(t, rt.Name)
+			if lrt.Method != http.MethodGet {
+				return e, lrt, request(lrt, censusBody(t, lrt))
+			}
 			return e, lrt, get(lrt, "")
 		}})
 	}

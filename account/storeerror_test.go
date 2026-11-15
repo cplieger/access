@@ -73,6 +73,7 @@ var storeRefusals = map[string]map[string]error{
 	"SetupPasskeyFinish":    {"CreateInitialUser": account.ErrSetupComplete},
 	"AcceptInvitePassword":  {"CreateUser": account.ErrUsernameTaken},
 	"CreateUser":            {"CreateUser": account.ErrUsernameTaken},
+	"CreatePendingOIDC":     {"CreateUser": account.ErrUsernameTaken},
 	"RenamePasskey":         {"RenamePasskey": account.ErrNotFound},
 	"RenameSession":         {"UpdateSessionLabel": account.ErrNotFound},
 	"RevokeSession":         {"DeleteSession": account.ErrNotFound},

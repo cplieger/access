@@ -21,7 +21,7 @@ var designClasses = map[string]struct {
 	"authSetupPasskeyFinish": {open: ClassPublic}, "authLoginPassword": {open: ClassPublic}, "authLoginPasskeyBegin": {open: ClassPublic},
 	"authLoginPasskeyFinish": {open: ClassPublic}, "authLogout": {open: ClassPublic}, "authOIDCStartSignIn": {open: ClassPublic},
 	"authOIDCStartLink": {open: ClassRecentAuth}, "authOIDCStartStepUp": {open: ClassSession}, "authOIDCCallback": {open: ClassPublic},
-	"authOIDCPending": {open: ClassPublic}, "authOIDCLinkPending": {open: ClassRecentAuth}, "authOIDCUnlink": {open: ClassRecentAuth},
+	"authOIDCPending": {open: ClassPublic}, "authOIDCCreatePending": {open: ClassPublic}, "authOIDCLinkPending": {open: ClassRecentAuth}, "authOIDCUnlink": {open: ClassRecentAuth},
 	"authInviteAcceptPassword": {open: ClassPublic}, "authMe": {open: ClassSession},
 	"authProfile": {open: ClassSession}, "authMethodReenable": {open: ClassRecentAuth}, "authStepUpPassword": {open: ClassSession},
 	"authStepUpPasskeyBegin": {open: ClassSession}, "authStepUpPasskeyFinish": {open: ClassSession}, "authPasswordSet": {open: ClassRecentAuth},
@@ -37,6 +37,7 @@ var designClasses = map[string]struct {
 	"authAdminUserCreate":   {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
 	"authAdminUserUpdate":   {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
 	"authAdminUserDelete":   {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
+	"authAdminOIDCUnlink":   {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
 	"authAdminOwner":        {open: ClassRecentAuth, scoped: ClassRecentAuth},
 	"authAdminSSOReadiness": {open: ClassRecentAuth, scoped: ClassRecentAuth},
 	"authAdminSSOApply":     {open: ClassRecentAuth, scoped: ClassRecentAuth},
@@ -155,7 +156,7 @@ func TestCodesOrder(t *testing.T) {
 			}
 		}
 	}
-	noBody := []string{"authAdminUsers", "authLoginPasskeyBegin", "authMethodReenable", "authPasskeyRemove", "authSessionRevoke", "authKeyRevoke", "authAdminUserDelete", "authAdminKeyRevoke", "authOIDCStartSignIn", "authOIDCCallback"}
+	noBody := []string{"authAdminUsers", "authLoginPasskeyBegin", "authMethodReenable", "authPasskeyRemove", "authSessionRevoke", "authKeyRevoke", "authAdminUserDelete", "authAdminOIDCUnlink", "authAdminKeyRevoke", "authOIDCStartSignIn", "authOIDCCallback"}
 	for _, name := range noBody {
 		d := specNamed(t, name).descriptor(&DescriptorConfig{Prefix: "/p", OIDCPrefix: "/o"})
 		if slices.Contains(d.Codes, access.CodeBodyTooLarge) {

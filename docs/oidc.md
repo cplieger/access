@@ -151,7 +151,7 @@ A key the provider retires keeps verifying from the cache until the first succes
 
 ## Provisioning and usernames
 
-`Provisioning` decides whether an identity with no account may get one, and its zero value is off. With `Claim` set, `Admit` admits a token whose claim holds one of `AllowedValues`, as a string or in an array of strings. `Validate` refuses a `Claim` without `AllowedValues`, `AllowedValues` without a `Claim`, and a `Role` other than empty, `access.RoleUser` or `access.RoleAdmin`.
+`oidc` holds no claim policy. `account.Rules.OIDCAdmission` admits a token whose claim holds one of `AllowedValues`, as a string or in an array of strings, at every sign-in, link and step-up; a refused token is `account.ErrNotAdmitted`. `account.Rules.Provisioning` decides whether an admitted identity with no account may get one, and its zero value is off. An identity whose username is taken gets the pending link with a create offer, and `CreatePendingOIDC` creates the account under a name the person picks. A single-user app accepts no identity but the owner's: any other is `account.ErrInvalidCredentials`, with no pending link.
 
 `UsernameCandidate` proposes a username. It takes `preferred_username` when present, or else the email when `email_verified` is true, and normalises it with `access.NormalizeUsername`. It returns `ErrNoUsername` when neither applies. When the chosen value does not normalise, it returns a `*UsernameError` naming the claim.
 

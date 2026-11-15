@@ -48,7 +48,7 @@ func (s *Service) newDraft(ctx context.Context, r Rules, c Client, op *sessionOp
 		d.session.LastIP = ip.String()
 	}
 	if r.SessionCaps != nil {
-		idle, absolute := r.SessionCaps(ctx, c)
+		idle, absolute := r.SessionCaps(ctx, c, op.method)
 		d.session.IdleCap = max(idle, 0)
 		d.session.AbsoluteCap = max(absolute, 0)
 	}

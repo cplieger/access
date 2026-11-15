@@ -360,14 +360,18 @@ func (s *Service) begin() (Rules, error) {
 	return r.withDefaults(), nil
 }
 
-// checkRules is Rules.Validate plus the one rule Validate cannot see: a
-// breach mode needs Config.Breach.
+// checkRules is Rules.Validate plus the rules Validate cannot see: a
+// breach mode needs Config.Breach, and the kept single-user declaration
+// refuses provisioning.
 func (s *Service) checkRules(r Rules) error { //nolint:gocritic // hugeParam: as Rules.Validate
 	if err := r.Validate(); err != nil {
 		return err
 	}
-	if r.Breach != BreachOff && s.breach == nil {
+	switch {
+	case r.Breach != BreachOff && s.breach == nil:
 		return &RulesError{Field: "Breach", Reason: "a breach mode needs Config.Breach"}
+	case r.Provisioning.Enabled && s.singleUser:
+		return &RulesError{Field: "Provisioning", Reason: "a single-user Policy admits no provisioned account"}
 	}
 	return nil
 }

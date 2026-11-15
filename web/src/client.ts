@@ -40,6 +40,7 @@ import type {
   PasswordChangeRequest,
   PasswordRemoveRequest,
   PasswordRequest,
+  PendingCreateRequest,
   PendingLinkResponse,
   ProfileRequest,
   Readiness,
@@ -126,6 +127,8 @@ export interface AuthClient {
   oidcStartLink(r: RedirectRequest): Promise<ApiResult<OIDCStartResponse>>;
   oidcStartStepUp(r: RedirectRequest): Promise<ApiResult<OIDCStartResponse>>;
   oidcPending(): Promise<ApiResult<PendingLinkResponse>>;
+  /** The pending screen's "Create a new account"; a taken name keeps the pending state. */
+  oidcCreatePending(r: PendingCreateRequest): Promise<ApiResult<SignedInResponse>>;
   oidcLinkPending(): Promise<ApiResult<MeResponse>>;
   oidcUnlink(): Promise<ApiResult<void>>;
   inviteAcceptPassword(r: InviteAcceptRequest): Promise<ApiResult<SignedInResponse>>;
@@ -180,6 +183,8 @@ export interface AuthClient {
   /** Owners only, under recent auth: answers exactly the refusal adminSSOReadiness showed. */
   adminApplySSO(mode: SSOMode): Promise<ApiResult<void>>;
   adminDeleteUser(id: number): Promise<ApiResult<void>>;
+  /** Removes the user's identity-provider link and ends all their sessions. */
+  adminUnlinkOIDC(id: number): Promise<ApiResult<void>>;
   adminInvite(r: InviteRequest): Promise<ApiResult<TokenResponse>>;
   adminTokens(): Promise<ApiResult<readonly TokenView[]>>;
   adminKeys(): Promise<ApiResult<readonly KeyView[]>>;
@@ -280,6 +285,8 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     oidcStartLink: (r) => json("POST", o("/start/link"), parseOIDCStartResponse, { body: r }),
     oidcStartStepUp: (r) => json("POST", o("/start/stepup"), parseOIDCStartResponse, { body: r }),
     oidcPending: () => json("GET", p("/oidc/pending"), parsePendingLinkResponse),
+    oidcCreatePending: (r) =>
+      json("POST", p("/oidc/pending/create"), parseSignedInResponse, { body: r }),
     oidcLinkPending: () => json("POST", p("/oidc/link"), parseMeResponse),
     oidcUnlink: () => empty("DELETE", p("/oidc/link")),
     inviteAcceptPassword: (r) =>
@@ -320,6 +327,7 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     adminSSOReadiness: (mode) => json("GET", p(`/sso/readiness${query({ mode })}`), parseReadiness),
     adminApplySSO: (mode) => empty("PUT", p("/sso"), { mode }),
     adminDeleteUser: (id) => empty("DELETE", p(`/users/${String(id)}`)),
+    adminUnlinkOIDC: (id) => empty("DELETE", p(`/users/${String(id)}/oidc`)),
     adminInvite: (r) => json("POST", p("/invites"), parseTokenResponse, { body: r }),
     adminTokens: () => json("GET", p("/tokens"), tokenList),
     adminKeys: () => json("GET", p("/admin/apikeys"), keyList),

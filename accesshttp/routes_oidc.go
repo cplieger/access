@@ -29,10 +29,14 @@ var errPendingTooLarge = errors.New("accesshttp: the pending link does not fit i
 
 // pendingPayload is the pending link as sealed into its cookie.
 type pendingPayload struct {
-	Issuer       string `json:"iss"`
-	Subject      string `json:"sub"`
-	UsernameHint string `json:"hint,omitempty"`
-	Email        string `json:"email,omitempty"`
+	// Provision is the role CreatePendingOIDC may create the account with;
+	// absent when the callback offered no creation.
+	Provision    *access.Role `json:"provision,omitempty"`
+	Issuer       string       `json:"iss"`
+	Subject      string       `json:"sub"`
+	UsernameHint string       `json:"hint,omitempty"`
+	Email        string       `json:"email,omitempty"`
+	Suggested    string       `json:"suggested,omitempty"`
 }
 
 func serveOIDCStartSignIn(h *Handler, c *call) error {
@@ -120,7 +124,7 @@ func (h *Handler) land(c *call, out *account.OIDCOutcome) error {
 		h.auditSuccess(c, nil, out.Issued.Session)
 		redirect(c.w, withMarker(out.Redirect, markerOIDC, "stepped_up"))
 	case account.OutcomeNotLinked:
-		if err := h.setPendingLink(c, out.Pending); err != nil {
+		if err := h.setPendingLink(c, &out.Pending); err != nil {
 			return err
 		}
 		redirect(c.w, withMarker(h.signIn, markerOIDC, "not_linked"))
@@ -144,8 +148,12 @@ func (h *Handler) redirectFailure(c *call, err error, flow oidc.Flow) { //nolint
 // setPendingLink seals p into the pending cookie. A link whose payload Seal
 // refuses as too large, or whose cookie name and value pass maxCookieBytes,
 // sets no cookie and is errPendingTooLarge.
-func (h *Handler) setPendingLink(c *call, p account.PendingLink) error {
-	payload, err := json.Marshal(pendingPayload{Issuer: p.Identity.Issuer, Subject: p.Identity.Subject, UsernameHint: p.UsernameHint, Email: p.Email})
+func (h *Handler) setPendingLink(c *call, p *account.PendingLink) error {
+	pp := pendingPayload{Issuer: p.Identity.Issuer, Subject: p.Identity.Subject, UsernameHint: p.UsernameHint, Email: p.Email, Suggested: p.SuggestedUsername}
+	if p.Provision != nil {
+		pp.Provision = &p.Provision.Role
+	}
+	payload, err := json.Marshal(pp)
 	if err != nil {
 		return err
 	}
@@ -178,7 +186,13 @@ func (h *Handler) readPending(c *call) (account.PendingLink, bool) {
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return account.PendingLink{}, false
 	}
-	return account.PendingLink{Identity: access.OIDCIdentity{Issuer: p.Issuer, Subject: p.Subject}, UsernameHint: p.UsernameHint, Email: p.Email}, true
+	out := account.PendingLink{
+		Identity: access.OIDCIdentity{Issuer: p.Issuer, Subject: p.Subject}, UsernameHint: p.UsernameHint, Email: p.Email, SuggestedUsername: p.Suggested,
+	}
+	if p.Provision != nil {
+		out.Provision = &account.Provision{Role: *p.Provision}
+	}
+	return out, true
 }
 
 // serveOIDCPending reads the pending cookie only once AdmitOIDC admits the
@@ -191,7 +205,30 @@ func serveOIDCPending(h *Handler, c *call) error {
 	if !ok {
 		return account.ErrNotFound
 	}
-	writeJSON(c.w, http.StatusOK, PendingLinkResponse{Issuer: p.Identity.Issuer, UsernameHint: p.UsernameHint, Email: p.Email})
+	writeJSON(c.w, http.StatusOK, PendingLinkResponse{
+		Issuer: p.Identity.Issuer, UsernameHint: p.UsernameHint, Email: p.Email,
+		CanCreate: p.Provision != nil, SuggestedUsername: p.SuggestedUsername,
+	})
+	return nil
+}
+
+// serveOIDCCreatePending clears the pending cookie only once the account
+// is created: a taken name keeps it for another pick.
+func serveOIDCCreatePending(h *Handler, c *call) error {
+	req, err := decodeJSON[PendingCreateRequest](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	if _, admitErr := h.acct.AdmitOIDC(c.client); admitErr != nil {
+		return admitErr
+	}
+	pending, _ := h.readPending(c)
+	out, err := h.acct.CreatePendingOIDC(c.r.Context(), c.client, pending, req.Username)
+	if err != nil {
+		return err
+	}
+	h.clearPending(c.w, c.client.Secure)
+	h.signedIn(c, out)
 	return nil
 }
 

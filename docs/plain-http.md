@@ -18,12 +18,12 @@ Under `PosturePerRequest`, a plain request may sign in and set up the first acco
 | Allowed over plain HTTP | Refused over plain HTTP with 403 `auth_https_required` |
 | --- | --- |
 | `authState`, `authSetupPassword`, `authLoginPassword`, `authLogout` | `authSetupPasskeyBegin`, `authSetupPasskeyFinish`, `authLoginPasskeyBegin`, `authLoginPasskeyFinish` |
-| `authMe`, `authProfile`, `authMethodReenable` | every OIDC route: `authOIDCStartSignIn`, `authOIDCStartLink`, `authOIDCStartStepUp`, `authOIDCCallback`, `authOIDCPending`, `authOIDCLinkPending` |
+| `authMe`, `authProfile`, `authMethodReenable` | every OIDC route: `authOIDCStartSignIn`, `authOIDCStartLink`, `authOIDCStartStepUp`, `authOIDCCallback`, `authOIDCPending`, `authOIDCCreatePending`, `authOIDCLinkPending` |
 | `authPasswordSet`, whose recent auth is the sign-in's time | `authStepUpPassword`, `authStepUpPasskeyBegin`, `authStepUpPasskeyFinish` |
 | `authPasskeys`, `authPasskeyRename`, `authPasskeyRemove`, `authWebAuthnSignals`, `authOIDCUnlink` | `authPasswordRemove` |
 | `authSessions`, `authSessionRename`, `authSessionRevoke`, `authSessionsRevokeOthers` | `authPasskeyRegisterBegin`, `authPasskeyRegisterFinish` |
 | `authKeys`, `authKeyRename`, `authKeyRevoke`, `authAdminKeys`, `authAdminKeyRevoke` | `authInviteAcceptPassword` |
-| `authAdminUsers`, `authAdminUserCreate`, `authAdminUserUpdate`, `authAdminOwner`, `authAdminUserDelete`, `authAdminTokens`, `authAdminSecurityLog` | `authAdminSSOReadiness`, `authAdminSSOApply` |
+| `authAdminUsers`, `authAdminUserCreate`, `authAdminUserUpdate`, `authAdminOwner`, `authAdminUserDelete`, `authAdminOIDCUnlink`, `authAdminTokens`, `authAdminSecurityLog` | `authAdminSSOReadiness`, `authAdminSSOApply` |
 | every route of yours on the gate, by its class, except a row marked `HTTPS` | `authKeyCreate`, `authKeyRotate`, `authAdminInvite` |
 
 Three rows need a reason:

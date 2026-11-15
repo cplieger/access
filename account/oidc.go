@@ -1,7 +1,6 @@
 package account
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -52,14 +51,14 @@ func (s *Service) AdmitOIDCSession(c Client, p access.Principal) (*oidc.Provider
 	return provider, nil
 }
 
-// OIDCComplete completes the callback oidc.Provider.Finish returned, after
-// AdmitOIDC admitted it and returned that provider, charging no limiter. A
-// plain c is access.ErrHTTPSRequired and a nil OIDC() ErrOIDCUnavailable; the
-// outcome carries flow.Redirect. A sign-in signs in the linked user (disabled:
-// ErrInvalidCredentials) or one Rules.Provisioning admits, else gives one same
-// OutcomeNotLinked. A link begun within RecentAuth, or a step-up of the linked
-// identity (else ErrInvalidCredentials), needs flow's live full session (else
-// ErrSessionGone).
+// OIDCComplete completes the callback Finish returned after AdmitOIDC,
+// charging no limiter (plain: access.ErrHTTPSRequired; nil OIDC():
+// ErrOIDCUnavailable); the outcome carries flow.Redirect. A sign-in signs in
+// the linked user (disabled: ErrInvalidCredentials) or one Rules.Provisioning
+// creates, else gives one same OutcomeNotLinked, or ErrInvalidCredentials in
+// a single-user app. A link within RecentAuth, or a step-up of the linked
+// identity, needs flow's live full session (else ErrSessionGone). Then a
+// token Rules.OIDCAdmission refuses is ErrNotAdmitted, journalled alone.
 func (s *Service) OIDCComplete(ctx context.Context, c Client, flow oidc.Flow, claims oidc.Claims) (OIDCOutcome, error) { //nolint:gocritic // hugeParam: the callback's Client, Flow and Claims, read once
 	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {
@@ -68,14 +67,15 @@ func (s *Service) OIDCComplete(ctx context.Context, c Client, flow oidc.Flow, cl
 	if s.provider() == nil {
 		return OIDCOutcome{}, ErrOIDCUnavailable
 	}
+	admitted := r.OIDCAdmission.admit(claims) == nil
 	var out OIDCOutcome
 	switch flow.Intent {
 	case oidc.IntentSignIn:
-		out, err = s.oidcSignIn(ctx, r, c, claims)
+		out, err = s.oidcSignIn(ctx, r, c, claims, admitted)
 	case oidc.IntentLink:
-		out, err = s.oidcLink(ctx, r, c, flow, claims.Identity)
+		out, err = s.oidcLink(ctx, r, c, flow, claims.Identity, admitted)
 	case oidc.IntentStepUp:
-		out, err = s.oidcStepUp(ctx, c, flow, claims.Identity)
+		out, err = s.oidcStepUp(ctx, c, flow, claims.Identity, admitted)
 	default:
 		return OIDCOutcome{}, fmt.Errorf("%w: unknown intent %q", oidc.ErrFlowInvalid, flow.Intent)
 	}
@@ -86,24 +86,41 @@ func (s *Service) OIDCComplete(ctx context.Context, c Client, flow oidc.Flow, cl
 	return out, nil
 }
 
+// notAdmitted is the EventOIDCNotAdmitted entry of a refused token about
+// userID, zero for an identity no account is linked to.
+func (s *Service) notAdmitted(j *journal, userID int64, actor EventActor) {
+	j.add(Event{Kind: EventOIDCNotAdmitted, At: s.now(), UserID: userID, Method: access.MethodOIDC, Actor: actor})
+}
+
+// signInResult is what one run of a sign-in's Update decided besides the
+// user it signs in.
+type signInResult struct {
+	sync    *Event // EventRoleSynced or EventRoleSyncSkipped
+	pending PendingLink
+	created bool
+}
+
 // oidcSignIn signs in the user linked to claims.Identity, or provisions one,
 // in one Update. With neither, the outcome is OutcomeNotLinked holding the
-// identity's PendingLink alone, so it is the same whether or not a local
-// account of that name exists.
-func (s *Service) oidcSignIn(ctx context.Context, r Rules, c Client, claims oidc.Claims) (OIDCOutcome, error) { //nolint:gocritic // hugeParam: the operation's one Rules value, Client and Claims
-	candidate := s.provisional(r, claims)
-	var created bool
+// identity's PendingLink, with a Provision only when provisioning admits the
+// identity but its name is taken.
+func (s *Service) oidcSignIn(ctx context.Context, r Rules, c Client, claims oidc.Claims, admitted bool) (OIDCOutcome, error) { //nolint:gocritic // hugeParam: the operation's one Rules value, Client and Claims
+	if !admitted {
+		return OIDCOutcome{}, s.refuseSignIn(ctx, c, claims.Identity)
+	}
+	var res signInResult
 	in, err := s.createSession(ctx, r, c, &sessionOp{
 		method: access.MethodOIDC,
 		in: func(tx Tx) (*access.User, error) {
-			var u *access.User
-			var err error
-			u, created, err = s.oidcUserIn(ctx, tx, claims.Identity, candidate)
-			return u, err
+			res = signInResult{}
+			return s.oidcUserIn(ctx, tx, r, claims, &res)
 		},
 		announce: func(j *journal, u *access.User, sess *access.Session) {
-			if created {
+			if res.created {
 				announceCreated(j, u, sess)
+			}
+			if res.sync != nil {
+				j.add(*res.sync)
 			}
 		},
 	})
@@ -111,78 +128,151 @@ func (s *Service) oidcSignIn(ctx context.Context, r Rules, c Client, claims oidc
 	case err != nil:
 		return OIDCOutcome{}, err
 	case in.User == nil:
-		return OIDCOutcome{Kind: OutcomeNotLinked, Pending: pendingLink(claims)}, nil
+		return OIDCOutcome{Kind: OutcomeNotLinked, Pending: res.pending}, nil
 	}
 	return OIDCOutcome{Kind: OutcomeSignedIn, SignedIn: in}, nil
 }
 
-// oidcUserIn is the user a sign-in signs in, read or created inside tx: the
-// user linked to id (disabled: ErrInvalidCredentials), else the candidate,
-// created when provisioning admits it here, else nil.
-func (s *Service) oidcUserIn(ctx context.Context, tx Tx, id access.OIDCIdentity, candidate *access.User) (user *access.User, created bool, err error) {
-	u, found, err := tx.UserByOIDC(ctx, id)
-	switch {
-	case err != nil:
-		return nil, false, err
-	case found && !u.Enabled:
-		return nil, false, refuse(ErrInvalidCredentials)
-	case found:
-		return u, false, nil
-	case candidate == nil:
-		return nil, false, nil
+// refuseSignIn answers a sign-in token OIDCAdmission refused: the answers
+// that come before admission (a disabled linked user, an unlinked identity
+// in a single-user app: ErrInvalidCredentials), else ErrNotAdmitted after
+// journalling it.
+func (s *Service) refuseSignIn(ctx context.Context, c Client, id access.OIDCIdentity) error { //nolint:gocritic // hugeParam: the callback's Client
+	err := s.change(ctx, byClient(Actor{}, c), func(tx Tx, j *journal) error {
+		u, found, err := tx.UserByOIDC(ctx, id)
+		switch {
+		case err != nil:
+			return err
+		case found && !u.Enabled, !found && s.singleUser:
+			return refuse(ErrInvalidCredentials)
+		case found:
+			s.notAdmitted(j, u.ID, EventActor{})
+		default:
+			s.notAdmitted(j, 0, EventActor{})
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
-	admitted, err := s.provisionAdmitted(ctx, tx, candidate)
-	if err != nil || !admitted {
-		return nil, false, err
-	}
-	fresh := *candidate
-	if err := s.createUser(ctx, tx, &fresh, tx.CreateUser); err != nil {
-		return nil, false, err
-	}
-	return &fresh, true, nil
+	return ErrNotAdmitted
 }
 
-// provisional is the user Rules.Provisioning would create for claims: nil
-// when Admit refuses them or UsernameCandidate gives no name the username
-// rule accepts. Whether the store already holds a user, whether the name is
-// free and whether the Policy allows it are decided inside the Update.
-func (s *Service) provisional(r Rules, claims oidc.Claims) *access.User { //nolint:gocritic // hugeParam: the operation's one Rules value and Claims
-	if r.Provisioning.Admit(claims) != nil {
+// oidcUserIn is the user a sign-in signs in, read or created inside tx: the
+// user linked to the identity (disabled: ErrInvalidCredentials) with its
+// role synced, else in a single-user app ErrInvalidCredentials, else a
+// provisioned user, else nil with res.pending set.
+func (s *Service) oidcUserIn(ctx context.Context, tx Tx, r Rules, claims oidc.Claims, res *signInResult) (*access.User, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Claims
+	u, found, err := tx.UserByOIDC(ctx, claims.Identity)
+	switch {
+	case err != nil:
+		return nil, err
+	case found && !u.Enabled:
+		return nil, refuse(ErrInvalidCredentials)
+	case found:
+		return u, s.syncRoleIn(ctx, tx, r, u, claims, res)
+	case s.singleUser:
+		return nil, refuse(ErrInvalidCredentials)
+	}
+	res.pending = pendingLink(claims)
+	if !r.Provisioning.Enabled {
+		return nil, nil
+	}
+	role, _ := r.Provisioning.role(claims)
+	if refusal, err := s.provisionGate(ctx, tx, role); err != nil || refusal != nil {
+		return nil, err
+	}
+	name, named := provisionName(claims)
+	if named {
+		_, taken, err := tx.UserByUsername(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		if !taken {
+			fresh := s.provisioned(name, role, claims.Identity)
+			if err := s.createUser(ctx, tx, fresh, tx.CreateUser); err != nil {
+				return nil, err
+			}
+			res.created = true
+			return fresh, nil
+		}
+		res.pending.SuggestedUsername = suggestedName(name)
+	}
+	res.pending.Provision = &Provision{Role: role}
+	return nil, nil
+}
+
+// syncRoleIn re-applies Rules.Provisioning's role mapping to u inside tx
+// when SyncRole applies to u: a changed role is written and its
+// EventRoleSynced kept in res, and an unreadable RoleClaim changes nothing
+// and keeps EventRoleSyncSkipped.
+func (s *Service) syncRoleIn(ctx context.Context, tx Tx, r Rules, u *access.User, claims oidc.Claims, res *signInResult) error { //nolint:gocritic // hugeParam: the operation's one Rules value and Claims
+	if !r.Provisioning.syncs(u) {
 		return nil
 	}
+	role, readable := r.Provisioning.role(claims)
+	switch {
+	case !readable:
+		res.sync = &Event{Kind: EventRoleSyncSkipped, At: s.now(), UserID: u.ID, Role: u.Role}
+		return nil
+	case role == u.Role:
+		return nil
+	}
+	u.Role, u.UpdatedAt = role, s.now()
+	if err := tx.UpdateUser(ctx, u); err != nil {
+		return err
+	}
+	res.sync = &Event{Kind: EventRoleSynced, At: s.now(), UserID: u.ID, Role: role}
+	return nil
+}
+
+// provisionName is the username provisioning gives claims, and false when
+// UsernameCandidate gives none the username rule accepts.
+func provisionName(claims oidc.Claims) (string, bool) { //nolint:gocritic // hugeParam: Claims is plain data, passed as the caller holds it
 	name, err := oidc.UsernameCandidate(claims)
 	if err != nil {
-		return nil
+		return "", false
 	}
 	username, err := canonicalUsername(name)
+	return username, err == nil
+}
+
+// suggestedName is name with the suffix "_2", trimmed to fit
+// MaxUsernameLength; empty when that is no valid name. It reads no user,
+// so the pending answer names nothing the store holds.
+func suggestedName(name string) string {
+	const suffix = "_2"
+	base := []rune(name)
+	base = base[:min(len(base), MaxUsernameLength-len(suffix))]
+	candidate, err := canonicalUsername(string(base) + suffix)
 	if err != nil {
-		return nil
+		return ""
 	}
+	return candidate
+}
+
+// provisioned is the account provisioning creates for id.
+func (s *Service) provisioned(username string, role access.Role, id access.OIDCIdentity) *access.User {
 	now := s.now()
 	return &access.User{
-		Username: username, Role: cmp.Or(r.Provisioning.Role, access.RoleUser), OIDC: claims.Identity, Enabled: true,
+		Username: username, Role: role, OIDC: id, Enabled: true,
 		WebAuthnHandle: access.GenerateWebAuthnHandle(), CreatedAt: now, UpdatedAt: now,
 	}
 }
 
-// provisionAdmitted is provisioning's checks on the rows tx reads: some
-// user exists, so the first account always comes through setup; no user
-// holds candidate's name, password or not; then the Policy allows
-// OpCreateUser from the zero Actor with ViaProvisioning.
-func (s *Service) provisionAdmitted(ctx context.Context, tx Tx, candidate *access.User) (bool, error) {
-	n, err := tx.UserCount(ctx)
-	if err != nil || n == 0 {
-		return false, err
-	}
-	_, taken, err := tx.UserByUsername(ctx, candidate.Username)
-	if err != nil || taken {
-		return false, err
-	}
+// provisionGate is provisioning's checks on the rows tx reads, as a
+// refusal: some user exists, so the first account always comes through
+// setup (else ErrProvisioningDisabled), then the Policy allows OpCreateUser
+// of role from the zero Actor with ViaProvisioning. err is a store error.
+func (s *Service) provisionGate(ctx context.Context, tx Tx, role access.Role) (refusal, err error) {
 	users, err := tx.ListUsers(ctx)
-	if err != nil {
-		return false, err
+	switch {
+	case err != nil:
+		return nil, err
+	case len(users) == 0:
+		return ErrProvisioningDisabled, nil
 	}
-	return s.authorize(ctx, Decision{Op: OpCreateUser, Via: ViaProvisioning, Role: candidate.Role, Users: users}) == nil, nil
+	return s.authorize(ctx, Decision{Op: OpCreateUser, Via: ViaProvisioning, Role: role, Users: users}), nil
 }
 
 // pendingLink is claims' identity with its display hints: the
@@ -195,10 +285,76 @@ func pendingLink(claims oidc.Claims) PendingLink { //nolint:gocritic // hugePara
 	return p
 }
 
+// CreatePendingOIDC creates an account named username for pending's
+// identity and signs it in (plain: access.ErrHTTPSRequired; the zero
+// PendingLink: access.ErrTokenInvalid). pending's Provision, Rules.Provisioning
+// and some stored user are each needed, else ErrProvisioningDisabled. One
+// Update re-runs the Policy (OpCreateUser, ViaProvisioning), the identity
+// still unlinked (ErrOIDCIdentityTaken) and the name free (ErrUsernameTaken,
+// which leaves pending usable for another name).
+func (s *Service) CreatePendingOIDC(ctx context.Context, c Client, pending PendingLink, username string) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client and the pending link it read
+	r, err := s.beginOver(plainRefused, c.Secure)
+	if err != nil {
+		return SignedIn{}, err
+	}
+	if s.provider() == nil {
+		return SignedIn{}, ErrOIDCUnavailable
+	}
+	switch {
+	case pending.Identity.Issuer == "" || pending.Identity.Subject == "":
+		return SignedIn{}, access.ErrTokenInvalid
+	case pending.Provision == nil || !r.Provisioning.Enabled:
+		return SignedIn{}, ErrProvisioningDisabled
+	}
+	name, err := canonicalUsername(username)
+	if err != nil {
+		return SignedIn{}, err
+	}
+	role := pending.Provision.Role
+	return s.createSession(ctx, r, c, &sessionOp{
+		method: access.MethodOIDC,
+		in: func(tx Tx) (*access.User, error) {
+			return s.createPendingIn(ctx, tx, name, role, pending.Identity)
+		},
+		announce: announceCreated,
+	})
+}
+
+// createPendingIn is CreatePendingOIDC's gates and creation inside tx.
+func (s *Service) createPendingIn(ctx context.Context, tx Tx, name string, role access.Role, id access.OIDCIdentity) (*access.User, error) {
+	refusal, err := s.provisionGate(ctx, tx, role)
+	switch {
+	case err != nil:
+		return nil, err
+	case refusal != nil:
+		return nil, refuse(refusal)
+	}
+	_, linked, err := tx.UserByOIDC(ctx, id)
+	switch {
+	case err != nil:
+		return nil, err
+	case linked:
+		return nil, refuse(ErrOIDCIdentityTaken)
+	}
+	_, taken, err := tx.UserByUsername(ctx, name)
+	switch {
+	case err != nil:
+		return nil, err
+	case taken:
+		return nil, refuse(ErrUsernameTaken)
+	}
+	fresh := s.provisioned(name, role, id)
+	if err := s.createUser(ctx, tx, fresh, tx.CreateUser, ErrUsernameTaken); err != nil {
+		return nil, err
+	}
+	return fresh, nil
+}
+
 // oidcLink links id to flow's user in one Update: the session check, then
 // flow.BeganAt within r.RecentAuth (else access.ErrRecentAuthRequired), then
-// linkIn, rotating the session by (UserID, ID), from c's address.
-func (s *Service) oidcLink(ctx context.Context, r Rules, c Client, flow oidc.Flow, id access.OIDCIdentity) (OIDCOutcome, error) { //nolint:gocritic // hugeParam: the operation's one Rules value, Client and Flow
+// admission, then linkIn, rotating the session by (UserID, ID), from c's
+// address.
+func (s *Service) oidcLink(ctx context.Context, r Rules, c Client, flow oidc.Flow, id access.OIDCIdentity, admitted bool) (OIDCOutcome, error) { //nolint:gocritic // hugeParam: the operation's one Rules value, Client and Flow
 	var l linked
 	err := s.change(ctx, byClient(Actor{}, c), func(tx Tx, j *journal) error {
 		u, sess, err := s.flowSession(ctx, tx, flow)
@@ -210,24 +366,31 @@ func (s *Service) oidcLink(ctx context.Context, r Rules, c Client, flow oidc.Flo
 		if flow.BeganAt.Before(now.Add(-r.RecentAuth)) || flow.BeganAt.After(now) {
 			return refuse(access.ErrRecentAuthRequired)
 		}
+		if !admitted {
+			s.notAdmitted(j, u.ID, eventActor(sessionActor(u, sess)))
+			return nil
+		}
 		if err := s.linkIn(ctx, tx, sessionActor(u, sess), u, linkSession{sess: sess, fresh: true}, id, &l); err != nil {
 			return err
 		}
 		s.addLinked(j, &l)
 		return nil
 	})
-	if err != nil {
+	switch {
+	case err != nil:
 		return OIDCOutcome{}, err
+	case !admitted:
+		return OIDCOutcome{}, ErrNotAdmitted
 	}
 	return OIDCOutcome{Kind: OutcomeLinked, Issued: Issued{Token: l.rot.token, Session: l.rot.session}}, nil
 }
 
 // oidcStepUp re-proves flow's user by its linked identity in one Update:
 // the session check, id equal to the user's non-zero link (else
-// ErrInvalidCredentials), then a rotation by (UserID, ID) to AuthTime now
+// ErrInvalidCredentials), admission, then a rotation by (UserID, ID) to AuthTime now
 // and MethodOIDC, with a device cookie that keeps the ID of c.Device when
 // that is valid for the user.
-func (s *Service) oidcStepUp(ctx context.Context, c Client, flow oidc.Flow, id access.OIDCIdentity) (OIDCOutcome, error) { //nolint:gocritic // hugeParam: the callback's Client and Flow
+func (s *Service) oidcStepUp(ctx context.Context, c Client, flow oidc.Flow, id access.OIDCIdentity, admitted bool) (OIDCOutcome, error) { //nolint:gocritic // hugeParam: the callback's Client and Flow
 	var (
 		user *access.User
 		rot  rotated
@@ -241,6 +404,10 @@ func (s *Service) oidcStepUp(ctx context.Context, c Client, flow oidc.Flow, id a
 		if u.OIDC.IsZero() || u.OIDC != id {
 			return refuse(ErrInvalidCredentials)
 		}
+		if !admitted {
+			s.notAdmitted(j, u.ID, eventActor(sessionActor(u, sess)))
+			return nil
+		}
 		user = u
 		if rot, err = s.rotateSession(ctx, tx, sess, access.Hash{}, access.MethodOIDC, true); err != nil {
 			return err
@@ -249,8 +416,11 @@ func (s *Service) oidcStepUp(ctx context.Context, c Client, flow oidc.Flow, id a
 		j.add(Event{Kind: EventSteppedUp, At: rot.session.AuthTime, UserID: u.ID, Method: access.MethodOIDC, SessionIDs: []string{rot.session.ID}, Actor: actor})
 		return nil
 	})
-	if err != nil {
+	switch {
+	case err != nil:
 		return OIDCOutcome{}, err
+	case !admitted:
+		return OIDCOutcome{}, ErrNotAdmitted
 	}
 	device := s.limiter.DeviceCookie(ratelimit.AccountKey(user.Username), c.Device)
 	return OIDCOutcome{Kind: OutcomeSteppedUp, Issued: Issued{Token: rot.token, DeviceCookie: device, Session: rot.session}}, nil
@@ -429,4 +599,67 @@ func (s *Service) UnlinkOIDC(ctx context.Context, p access.Principal) error { //
 		j.add(Event{Kind: EventOIDCUnlinked, At: s.now(), UserID: p.User.ID, Actor: eventActor(As(p))})
 		return nil
 	})
+}
+
+// AdminUnlinkOIDC removes userID's OIDC link for an admin principal, a
+// ManageUsersScope key or an out-of-band actor, under Policy
+// (OpUnlinkOIDC) and the owner protections, in one Update that also ends
+// every session of the user. A key unlinks RoleUser targets only
+// (admin_target). A refusal answers before existence; a missing or
+// unlinked user is ErrNotFound. No last-method guard applies: a link to a
+// lost or reassigned provider account goes even when nothing else remains.
+func (s *Service) AdminUnlinkOIDC(ctx context.Context, a Actor, userID int64) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
+	r, err := s.begin()
+	if err != nil {
+		return err
+	}
+	if admitErr := s.admitUserAdmin(r, a); admitErr != nil {
+		return admitErr
+	}
+	return s.change(ctx, by(a), func(tx Tx, j *journal) error {
+		target, targetErr := s.unlinkTargetIn(ctx, tx, j, a, userID)
+		if targetErr != nil {
+			return targetErr
+		}
+		target.OIDC, target.UpdatedAt = access.OIDCIdentity{}, s.now()
+		if writeErr := tx.UpdateUser(ctx, target); writeErr != nil {
+			return writeErr
+		}
+		sessions, deleteErr := tx.DeleteUserSessions(ctx, userID, "")
+		if deleteErr != nil {
+			return deleteErr
+		}
+		slices.Sort(sessions)
+		actor := eventActor(a)
+		j.add(Event{Kind: EventOIDCUnlinked, At: s.now(), UserID: userID, Actor: actor})
+		s.addRevoked(j, userID, sessions, actor)
+		return nil
+	})
+}
+
+// unlinkTargetIn is AdminUnlinkOIDC's authority inside tx: the Policy and
+// the owner protections, then existence, the key's admin_target rule and
+// a link to remove, returning the target.
+func (s *Service) unlinkTargetIn(ctx context.Context, tx Tx, j *journal, a Actor, userID int64) (*access.User, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
+	ua, err := s.userAdminIn(ctx, tx, j, OpUnlinkOIDC, a)
+	if err != nil {
+		return nil, err
+	}
+	target, found, users, err := targetIn(ctx, tx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if polErr := s.authorizeOwned(ctx, &Decision{Op: OpUnlinkOIDC, Actor: ua.actor, Target: target, Users: users}); polErr != nil {
+		return nil, refuse(polErr)
+	}
+	if !found {
+		return nil, refuse(ErrNotFound)
+	}
+	if ruleErr := ua.target(OpUnlinkOIDC, target.Role); ruleErr != nil {
+		return nil, ruleErr
+	}
+	if target.OIDC.IsZero() {
+		return nil, refuse(ErrNotFound)
+	}
+	return target, nil
 }

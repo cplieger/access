@@ -187,10 +187,11 @@ describe("wire fixtures", () => {
 
   const variants = [...fixtures.keys()].filter((n) => !META.has(n) && n.includes("."));
 
-  it("has the four absent-optional variants", () => {
+  it("has the five absent-optional variants", () => {
     expect(variants.sort()).toEqual([
       "NewUserRequest.noPassword",
       "PasswordChangeRequest.noCurrent",
+      "PendingLinkResponse.noCreate",
       "SetupPasskeyBeginRequest.noToken",
       "SetupPasswordRequest.noToken",
     ]);

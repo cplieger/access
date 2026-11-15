@@ -15,6 +15,7 @@
   "PasswordChangeRequest",
   "PasswordRemoveRequest",
   "PasswordRequest",
+  "PendingCreateRequest",
   "PendingLinkResponse",
   "ProfileRequest",
   "Readiness",

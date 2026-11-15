@@ -294,11 +294,12 @@ A dormant method is kept, never deleted, and a looser mode brings it back. A loc
 | --- | --- | --- |
 | `SetupTokenRequired` | Whether a first-user setup from a client needs a setup token; `account.Locality`'s `TokenRequired` asks none of a local client ([Local clients](#local-clients)) | nil: always |
 | `MethodUsable` | Whether a held method can sign the user in now under your own rules, ANDed into the last-method guard and `Service.UsableMethods` ([Your own rules inside the transaction](storage.md#your-own-rules-inside-the-transaction)) | nil: every held method is usable |
-| `SessionCaps` | Per-session idle and absolute limits for a new session; a positive value lowers that limit for the session's life | nil: no cap |
+| `SessionCaps` | Per-session idle and absolute limits for a new session, given the sign-in method it is created with and read once, never again at a step-up; a positive value lowers that limit for the session's life | nil: no cap |
 | `KeyPrefix` | The prefix of every minted key's plaintext | empty |
 | `ForbiddenWords` | Words refused in a password, beside the username | none |
 | `Scopes` | The key-scope vocabulary; `CreateAPIKey` refuses any other scope. `Validate` refuses a scope that is not one scope-token | none |
-| `Provisioning` | Just-in-time account creation on an OIDC sign-in with no linked account | off |
+| `OIDCAdmission` | A claim (`Claim`, `AllowedValues`) every OIDC sign-in, link and step-up must hold, owners' included; a string or an array of strings, anything else not admitted | nil: every identity |
+| `Provisioning` | Account creation at an admitted identity's first OIDC sign-in (`Enabled`, `Role`), the role mapping (`RoleClaim`, `AdminValues`) and `SyncRole`, which re-applies the mapping at each sign-in of a linked non-owner; `Validate` refuses `AdminValues` or `SyncRole` without `RoleClaim`, and a single-user Policy refuses `Enabled` | off |
 | `RecentAuth` | How recent a sign-in or step-up must be for a sensitive operation; below 1m is invalid | 10m |
 | `KeyRotationOverlap` | How long `RotateAPIKey` lets a key's superseded secret keep working while the new one is unused; below 1m or above 24h is invalid | 1h |
 | `Breach` | The breached-password check: `BreachOff`, `BreachFailOpen` or `BreachFailClosed` | `BreachOff` |

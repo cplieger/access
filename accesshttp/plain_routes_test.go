@@ -25,7 +25,7 @@ const plainOrigin = "http://192.168.1.77:9847"
 var plainRefusedRoutes = map[string]bool{
 	"authSetupPasskeyBegin": true, "authSetupPasskeyFinish": true, "authLoginPasskeyBegin": true, "authLoginPasskeyFinish": true,
 	"authOIDCStartSignIn": true, "authOIDCStartLink": true, "authOIDCStartStepUp": true, "authOIDCCallback": true,
-	"authOIDCPending": true, "authOIDCLinkPending": true, "authAdminSSOReadiness": true, "authAdminSSOApply": true,
+	"authOIDCPending": true, "authOIDCCreatePending": true, "authOIDCLinkPending": true, "authAdminSSOReadiness": true, "authAdminSSOApply": true,
 	"authStepUpPassword": true, "authStepUpPasskeyBegin": true, "authStepUpPasskeyFinish": true,
 	"authPasswordRemove": true, "authPasskeyRegisterBegin": true, "authPasskeyRegisterFinish": true,
 	"authInviteAcceptPassword": true,

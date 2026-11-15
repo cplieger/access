@@ -3,6 +3,7 @@ package account_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/internal/printcheck"
 	"github.com/cplieger/access/oidc"
@@ -47,9 +49,9 @@ func logSince(t testing.TB, s account.Store, before []account.LogEntry) []accoun
 	return entries
 }
 
-// sessionClass is the set of kinds in the session class: sign-ins, step-ups
-// and session revocations.
-var sessionClass = []account.EventKind{account.EventSignedIn, account.EventSteppedUp, account.EventSessionRevoked}
+// sessionClass is the set of kinds in the session class: sign-ins, step-ups,
+// session revocations and refused OIDC admissions (design 5.7).
+var sessionClass = []account.EventKind{account.EventSignedIn, account.EventSteppedUp, account.EventSessionRevoked, account.EventOIDCNotAdmitted}
 
 func classOf(k account.EventKind) account.LogClass {
 	if slices.Contains(sessionClass, k) {
@@ -86,6 +88,31 @@ func stateVariants() []operation {
 				want: events(account.Event{Kind: account.EventOwnerRemoved, UserID: target.ID, Actor: actorOf(p)}),
 			}
 		}},
+		// design 5.4: an unreadable role claim changes no role and is journalled.
+		{name: "OIDCComplete_role_sync_skipped", class: classPublic, rules: syncRoles, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			return oidcSignInCall(t, w, w.rig, account.EventRoleSyncSkipped, access.RoleUser)
+		}},
+		{name: "OIDCComplete_role_synced", class: classPublic, rules: syncRoles, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			*w.rig = *newOIDCRig(t, accesstest.IdPOptions{Subject: &w.rig.subject, Groups: []string{"ops"}})
+			return oidcSignInCall(t, w, w.rig, account.EventRoleSynced, access.RoleAdmin)
+		}},
+		// design 5.4: a token OIDCAdmission refuses is journalled and refused.
+		{name: "OIDCComplete_not_admitted", class: classPublic, rules: func(r *account.Rules) {
+			r.OIDCAdmission = account.OIDCAdmission{Claim: "groups", AllowedValues: []string{"staff"}}
+		}, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			linkIdentity(t, w.mem, storedUser(t, w.mem, w.alice.ID), w.rig.identity())
+			flow, claims := w.rig.signInFlow(t)
+			return opCall{
+				run: func(ctx context.Context) error {
+					_, err := w.svc.OIDCComplete(ctx, w.client, flow, claims)
+					if errors.Is(err, account.ErrNotAdmitted) {
+						return nil
+					}
+					return fmt.Errorf("OIDCComplete = %v, want ErrNotAdmitted", err)
+				},
+				want: events(account.Event{Kind: account.EventOIDCNotAdmitted, UserID: w.alice.ID, Method: access.MethodOIDC}),
+			}
+		}},
 		{name: "SetPassword_first", class: classRecentAuth, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
 			u := mustUser(t, w.mem, w.name("nopassword"), access.RoleUser)
 			q := w.recent(t, u)
@@ -97,6 +124,29 @@ func stateVariants() []operation {
 				want: events(account.Event{Kind: account.EventPasswordSet, UserID: u.ID, Method: access.MethodPassword, Actor: actorOf(q)}),
 			}
 		}},
+	}
+}
+
+// syncRoles maps the groups claim's "ops" to an admin at each OIDC sign-in.
+func syncRoles(r *account.Rules) {
+	r.Provisioning = account.Provisioning{Enabled: true, RoleClaim: "groups", AdminValues: []string{"ops"}, SyncRole: true}
+}
+
+// oidcSignInCall is alice's OIDC sign-in through rig, which journals kind
+// with role before EventSignedIn.
+func oidcSignInCall(t *testing.T, w *opWorld, rig *oidcRig, kind account.EventKind, role access.Role) opCall {
+	t.Helper()
+	linkIdentity(t, w.mem, storedUser(t, w.mem, w.alice.ID), rig.identity())
+	flow, claims := rig.signInFlow(t)
+	var out account.OIDCOutcome
+	return opCall{
+		run: func(ctx context.Context) (err error) {
+			out, err = w.svc.OIDCComplete(ctx, w.client, flow, claims)
+			return err
+		},
+		want: func() []account.Event {
+			return []account.Event{{Kind: kind, UserID: w.alice.ID, Role: role}, signedIn(out.SignedIn, access.MethodOIDC)}
+		},
 	}
 }
 
@@ -504,7 +554,7 @@ func mustPrincipal(t *testing.T, f *fixture, token access.Secret) access.Princip
 // clientOperations take a Client, whose IP their entries record.
 var clientOperations = []string{
 	"SetupWithPassword", "SetupPasskeyFinish", "PasswordLogin", "PasskeyLoginFinish", "OIDCComplete",
-	"AcceptInvitePassword", "StepUpPassword", "StepUpPasskeyFinish", "SetPassword", "RemovePassword",
+	"AcceptInvitePassword", "CreatePendingOIDC", "StepUpPassword", "StepUpPasskeyFinish", "SetPassword", "RemovePassword",
 }
 
 func TestLogIP(t *testing.T) {

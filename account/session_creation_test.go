@@ -14,7 +14,6 @@ import (
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
-	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/ratelimit"
 )
 
@@ -95,8 +94,8 @@ func TestSessionRulesEveryCreationPath(t *testing.T) {
 				return account.Rules{
 					MaxSessionsPerUser: 1,
 					SetupTokenRequired: tokenless,
-					Provisioning:       oidc.Provisioning{Enabled: true},
-					SessionCaps: func(_ context.Context, c account.Client) (time.Duration, time.Duration) {
+					Provisioning:       account.Provisioning{Enabled: true},
+					SessionCaps: func(_ context.Context, c account.Client, _ access.Method) (time.Duration, time.Duration) {
 						if c.UserAgent == rulesAgent {
 							calls.Add(1)
 						}
@@ -496,7 +495,7 @@ func TestSessionCapsEveryCreation(t *testing.T) {
 			timeouts: newTimeoutSource(week, week).get,
 			edit:     withInterval,
 			rules: rulesWith(func(r *account.Rules) {
-				r.SessionCaps = func(context.Context, account.Client) (time.Duration, time.Duration) {
+				r.SessionCaps = func(context.Context, account.Client, access.Method) (time.Duration, time.Duration) {
 					if capped.Load() {
 						return 30 * time.Minute, 12 * time.Hour
 					}

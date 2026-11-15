@@ -12,7 +12,6 @@ import (
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
-	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/ratelimit"
 )
 
@@ -74,7 +73,7 @@ func newOpWorld(t *testing.T, o worldOptions) *opWorld {
 	rules := func() account.Rules {
 		r := keyRules()
 		r.SetupTokenRequired = tokenless
-		r.Provisioning = oidc.Provisioning{Enabled: true}
+		r.Provisioning = account.Provisioning{Enabled: true}
 		if o.rules != nil {
 			o.rules(&r)
 		}
@@ -367,6 +366,23 @@ func publicOperations() []operation {
 				},
 				want: func() []account.Event {
 					return []account.Event{{Kind: account.EventUserCreated, UserID: in.User.ID, Role: access.RoleUser}, signedIn(in, access.MethodPassword)}
+				},
+			}
+		}},
+		{name: "CreatePendingOIDC", class: classPublic, transport: plainRefused, asks: []account.Operation{account.OpCreateUser}, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
+			pending := account.PendingLink{
+				Identity:  access.OIDCIdentity{Issuer: oidcIssuer, Subject: w.name("pending-")},
+				Provision: &account.Provision{Role: access.RoleUser},
+			}
+			name := w.name("provisioned")
+			var in account.SignedIn
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					in, err = w.svc.CreatePendingOIDC(ctx, w.client, pending, name)
+					return err
+				},
+				want: func() []account.Event {
+					return []account.Event{{Kind: account.EventUserCreated, UserID: in.User.ID, Role: access.RoleUser}, signedIn(in, access.MethodOIDC)}
 				},
 			}
 		}},
@@ -688,6 +704,15 @@ func adminOperations() []operation {
 				actor: actorOf(p), target: target.ID,
 				run:  func(ctx context.Context) error { return w.svc.DeleteUser(ctx, p, target.ID) },
 				want: events(account.Event{Kind: account.EventUserDeleted, UserID: target.ID, Actor: actorOf(p)}),
+			}
+		}},
+		{name: "AdminUnlinkOIDC", class: classManageUsers, transport: plainAllowed, asks: []account.Operation{account.OpUnlinkOIDC}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			target := w.user(t)
+			linkIdentity(t, w.mem, target, access.OIDCIdentity{Issuer: oidcIssuer, Subject: w.name("linked-")})
+			return opCall{
+				actor: actorOf(p), target: target.ID,
+				run:  func(ctx context.Context) error { return w.svc.AdminUnlinkOIDC(ctx, account.As(p), target.ID) },
+				want: events(account.Event{Kind: account.EventOIDCUnlinked, UserID: target.ID, Actor: actorOf(p)}),
 			}
 		}},
 		{name: "CreateInvite", class: classManageUsers, transport: plainRefused, asks: []account.Operation{account.OpInvite}, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {

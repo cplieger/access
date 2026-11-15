@@ -87,11 +87,15 @@ func (ua *userAdmin) issue(tok *access.OneTimeToken) {
 // carries the KeyLineage of the user's most recent record the filter
 // matched. It writes nothing.
 func (s *Service) Users(ctx context.Context, p access.Principal, f UserFilter) ([]ListedUser, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	if err := s.admitAdminScope(p); err != nil {
+	r, err := s.begin()
+	if err != nil {
 		return nil, err
 	}
-	if err := s.authorize(ctx, Decision{Op: OpListUsers, Actor: As(p)}); err != nil {
-		return nil, err
+	if admitErr := s.admitKey(p, s.adminScope, func() error { return nil }); admitErr != nil {
+		return nil, admitErr
+	}
+	if polErr := s.authorize(ctx, Decision{Op: OpListUsers, Actor: As(p)}); polErr != nil {
+		return nil, polErr
 	}
 	users, err := s.store.ListUsers(ctx)
 	if err != nil {
@@ -105,14 +109,7 @@ func (s *Service) Users(ctx context.Context, p access.Principal, f UserFilter) (
 	if err != nil {
 		return nil, storeErr(err)
 	}
-	// records ascend by ID, so the last one kept per user is its most
-	// recent.
-	lineage := make(map[int64][]int64)
-	for i := range records {
-		if f.AttributedToKey == 0 || slices.Contains(records[i].KeyLineage, f.AttributedToKey) {
-			lineage[records[i].UserID] = records[i].KeyLineage
-		}
-	}
+	lineage := lineageByUser(records, f)
 	slices.SortFunc(users, func(a, b access.User) int { return cmp.Compare(a.ID, b.ID) })
 	listed := make([]ListedUser, 0, len(users))
 	for i := range users {
@@ -126,10 +123,23 @@ func (s *Service) Users(ctx context.Context, p access.Principal, f UserFilter) (
 		}
 		listed = append(listed, ListedUser{
 			User: users[i], KeyLineage: slices.Clone(path), PasskeyCount: len(passkeys),
-			LocalMethodsDormant: mode.dormantFor(&users[i]),
+			LocalMethodsDormant: mode.dormantFor(&users[i]), RoleFromProvider: r.Provisioning.syncs(&users[i]),
 		})
 	}
 	return listed, nil
+}
+
+// lineageByUser is each user's KeyLineage of its most recent record f
+// matches. records ascend by ID, so the last one kept per user is its most
+// recent.
+func lineageByUser(records []access.KeyAttribution, f UserFilter) map[int64][]int64 {
+	lineage := make(map[int64][]int64)
+	for i := range records {
+		if f.AttributedToKey == 0 || slices.Contains(records[i].KeyLineage, f.AttributedToKey) {
+			lineage[records[i].UserID] = records[i].KeyLineage
+		}
+	}
+	return lineage
 }
 
 // UpdateUser changes a user's role, enabled state or both (neither is

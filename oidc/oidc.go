@@ -31,10 +31,6 @@ var (
 	// not prove a sign-in at the provider after the flow began.
 	ErrStaleAuthentication = errors.New("oidc: the provider did not authenticate the user again")
 	ErrRedirectTooLong     = errors.New("oidc: redirect longer than MaxRedirectBytes")
-	// ErrProvisioningDisabled and ErrNotAdmitted are Provisioning.Admit's
-	// refusals.
-	ErrProvisioningDisabled = errors.New("oidc: provisioning is disabled")
-	ErrNotAdmitted          = errors.New("oidc: identity not admitted for provisioning")
 )
 
 // ProviderError is the provider's error answer to the authorization request,

@@ -115,7 +115,7 @@ func inventoryAllow(t *testing.T) printcheck.Allow {
 			// set: the jwks_uri and the public keys fetched from it.
 			"oidc.Provider.endpoint", "oidc.Provider.algs", "oidc.Provider.keys",
 			"account.Rotation.ID", "account.OIDCOutcome.Redirect",
-			"account.PendingLink.Email", "account.PendingLink.UsernameHint",
+			"account.PendingLink.Email", "account.PendingLink.UsernameHint", "account.PendingLink.SuggestedUsername", "account.Provision.Role",
 			"account.Client.Host", "account.Client.UserAgent",
 			"account.Credentials.Username", "account.SetupPassword.Username", "account.SetupPasskey.Username",
 			"account.AcceptInvite.Username", "account.NewUser.Username", "account.NewUser.Role",

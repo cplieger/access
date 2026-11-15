@@ -1,1 +1,1 @@
-{"issuer":"https://idp.example.com","username_hint":"alice","email":"alice@example.com"}
+{"issuer":"https://idp.example.com","username_hint":"alice","email":"alice@example.com","suggested_username":"alice_2","can_create":true}
