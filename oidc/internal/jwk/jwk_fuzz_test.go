@@ -7,6 +7,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rsa"
 	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"slices"
 	"testing"
@@ -15,7 +16,10 @@ import (
 	"github.com/cplieger/access/oidc/internal/jwk"
 )
 
-var allAlgs = []jwk.Alg{jwk.RS256, jwk.RS384, jwk.RS512, jwk.PS256, jwk.PS384, jwk.PS512, jwk.ES256, jwk.ES384, jwk.ES512, jwk.EdDSA}
+var (
+	allAlgs = []jwk.Alg{jwk.RS256, jwk.RS384, jwk.RS512, jwk.PS256, jwk.PS384, jwk.PS512, jwk.ES256, jwk.ES384, jwk.ES512, jwk.EdDSA}
+	rsaAlgs = allAlgs[:6]
+)
 
 func fuzzSeeds(f *testing.F) {
 	rsaKey := rsaJWK("rsa", oddWithBits(2048), 65537)
@@ -66,7 +70,44 @@ func FuzzParseSet(f *testing.F) {
 		for k := range s.All() {
 			checkKey(t, k, small)
 		}
+		var doc struct {
+			Keys []jsontext.Value `json:"keys"`
+		}
+		if err := json.Unmarshal(data, &doc); err != nil {
+			t.Fatalf("Parse accepted a set encoding/json/v2 refuses: %v", err)
+		}
+		for _, entry := range doc.Keys {
+			one, err := jwk.Parse([]byte(`{"keys":[` + string(entry) + `]}`))
+			if err != nil || one.Len() != 1 {
+				continue
+			}
+			for k := range one.All() {
+				checkFits(t, k, entry)
+			}
+		}
 	})
+}
+
+// checkFits holds the key Parse made of entry to RFC 8725 §3.1: with an
+// alg it fits that row alone, and without one every row of its type, the
+// six RSA rows or its curve's one row.
+func checkFits(t *testing.T, k jwk.Key, entry jsontext.Value) {
+	t.Helper()
+	fits := slices.DeleteFunc(slices.Clone(allAlgs), func(a jwk.Alg) bool { return !k.Fits(a) })
+	var m map[string]jsontext.Value
+	if err := json.Unmarshal(entry, &m); err != nil {
+		t.Fatalf("Parse kept a key from an entry encoding/json/v2 refuses: %v", err)
+	}
+	var name string
+	if v, ok := m["alg"]; ok && json.Unmarshal(v, &name) == nil {
+		if a, _ := jwk.ParseAlg(name); !slices.Equal(fits, []jwk.Alg{a}) {
+			t.Fatalf("key with alg %q fits %v", name, fits)
+		}
+		return
+	}
+	if len(fits) != 1 && !slices.Equal(fits, rsaAlgs) {
+		t.Fatalf("key without alg fits %v", fits)
+	}
 }
 
 func checkKey(t *testing.T, k jwk.Key, small [][]byte) {
@@ -77,9 +118,6 @@ func checkKey(t *testing.T, k jwk.Key, small [][]byte) {
 	fits := slices.DeleteFunc(slices.Clone(allAlgs), func(a jwk.Alg) bool { return !k.Fits(a) })
 	if len(fits) == 0 {
 		t.Fatal("a usable key fits no row")
-	}
-	if a := k.Alg(); a != 0 && !slices.Equal(fits, []jwk.Alg{a}) {
-		t.Fatalf("key with alg %v fits %v", a, fits)
 	}
 	for _, a := range fits {
 		checkKeyForRow(t, k, a, small)

@@ -11,11 +11,11 @@ import (
 // has no blocking point a black-box test could hold.
 func TestAfterMiss_ReplacedSetFirst(t *testing.T) {
 	t.Parallel()
-	for name, inflight := range map[string]bool{"refetch in flight": true, "gate open": false} {
+	for name, pending := range map[string]chan struct{}{"refetch in flight": make(chan struct{}), "gate open": nil} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
-			k := &KeySet{now: func() time.Time { return now }, inflight: inflight}
+			k := &KeySet{now: func() time.Time { return now }, pending: pending}
 			seen, newer := &snapshot{fetched: now}, &snapshot{fetched: now}
 			k.cur.Store(newer)
 			got, wait := k.afterMiss(t.Context(), seen)

@@ -75,9 +75,6 @@ type Key struct {
 // KeyID is the key's kid, and whether it has one.
 func (k Key) KeyID() (string, bool) { return k.kid, k.hasKID }
 
-// Alg is the row the key's own alg names; zero when it has no alg.
-func (k Key) Alg() Alg { return k.alg }
-
 // Public is the key: *rsa.PublicKey, *ecdsa.PublicKey or ed25519.PublicKey.
 func (k Key) Public() crypto.PublicKey { return k.pub }
 

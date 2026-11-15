@@ -29,9 +29,9 @@ func get(t *testing.T, c *http.Client, url string) []byte {
 	return body
 }
 
-// RFC 7517 §4.2 and §4.3: accesstest.IdP publishes use sig and alg
-// with no key_ops, as most providers do, and every key it serves is usable
-// for exactly its own alg.
+// RFC 7517 §4.2 to §4.4: accesstest.IdP publishes use sig and alg with no
+// key_ops, as most providers do, and every key it serves fits its own alg
+// and no other row (RFC 8725 §3.1).
 func TestParse_AccesstestIdPShape(t *testing.T) {
 	t.Parallel()
 	idp := accesstest.NewIdP(t, accesstest.IdPOptions{})
@@ -55,8 +55,10 @@ func TestParse_AccesstestIdPShape(t *testing.T) {
 			t.Errorf("unexpected kid %q", id)
 			continue
 		}
-		if k.Alg() != a || !k.Fits(a) {
-			t.Errorf("kid %q: Alg = %v, Fits(%v) = %v; want %v, true", id, k.Alg(), a, k.Fits(a), a)
+		for _, b := range allAlgs {
+			if k.Fits(b) != (b == a) {
+				t.Errorf("kid %q: Fits(%v) = %v; want %v", id, b, k.Fits(b), b == a)
+			}
 		}
 	}
 }

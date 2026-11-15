@@ -316,7 +316,7 @@ func TestKeySet_MissJoinsAgeRefresh(t *testing.T) {
 	})
 }
 
-// Design 6.6: concurrent misses share one fetch (singleflight).
+// Design 6.6: concurrent misses share one fetch.
 func TestKeySet_ConcurrentMisses(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
@@ -405,6 +405,26 @@ func TestKeySet_ClockStepsBack(t *testing.T) {
 			f.verifies(t, a)
 			synctest.Wait()
 			f.wantRequests(t, 2)
+		})
+	})
+	// Design 6.6, one fetch at a time: a step back while the age refresh is
+	// in flight opens the age and the gate, and starts no second fetch.
+	t.Run("refresh in flight", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			a := ecSigner(t, "a")
+			f := newFixture(t, a)
+			release := f.idp.holdRequests()
+			f.clock.advance(maxAge)
+			f.verifies(t, a)
+			synctest.Wait()
+			f.wantRequests(t, 2)
+			f.clock.advance(-2 * maxAge)
+			f.verifies(t, a)
+			synctest.Wait()
+			f.wantRequests(t, 2)
+			release()
+			synctest.Wait()
 		})
 	})
 }

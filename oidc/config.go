@@ -25,8 +25,9 @@ type Config struct {
 	// means a default client. The provider uses a copy: a zero Timeout
 	// becomes 10s, and the transport is wrapped so a response body past 1
 	// MiB is refused, whatever length it declares. A negative Timeout is
-	// refused. CheckRedirect, Jar and the transport's dialer and TLS
-	// settings are kept as given.
+	// refused. Jar and the transport's dialer and TLS settings are kept as
+	// given; CheckRedirect applies to the token exchange only, since
+	// discovery and the key set follow no redirect.
 	HTTPClient *http.Client
 	// FlowSealer seals the flow cookie; nil means a new ephemeral sealer
 	// per Provider, so a flow begun under one Provider value cannot finish

@@ -519,12 +519,11 @@ func TestParse_KeyID(t *testing.T) {
 	}
 }
 
-// RFC 8725 §3.1, RFC 7518 §3.1, RFC 9864 §2.2: a key fits a row of its own
-// type and curve, and, when it carries alg, only the row that alg names;
-// EdDSA and Ed25519 name one row.
+// RFC 8725 §3.1, RFC 7517 §4.4, RFC 7518 §3.1, RFC 9864 §2.2: a key fits
+// a row of its own type and curve, and, when it carries alg, only the row
+// that alg names; EdDSA and Ed25519 name one row.
 func TestKey_Fits(t *testing.T) {
 	t.Parallel()
-	all := []jwk.Alg{jwk.RS256, jwk.RS384, jwk.RS512, jwk.PS256, jwk.PS384, jwk.PS512, jwk.ES256, jwk.ES384, jwk.ES512, jwk.EdDSA}
 	rsaKey := rsaJWK("rsa", oddWithBits(2048), 65537)
 	okp := okpJWK("okp", newEd25519(t))
 	cases := []struct {
@@ -534,6 +533,7 @@ func TestKey_Fits(t *testing.T) {
 	}{
 		{rsaKey, "RSA", []jwk.Alg{jwk.RS256, jwk.RS384, jwk.RS512, jwk.PS256, jwk.PS384, jwk.PS512}},
 		{with(rsaKey, "alg", "RS256"), "RSA alg RS256", []jwk.Alg{jwk.RS256}},
+		{with(rsaKey, "alg", "PS256"), "RSA alg PS256", []jwk.Alg{jwk.PS256}},
 		{with(rsaKey, "alg", "PS384"), "RSA alg PS384", []jwk.Alg{jwk.PS384}},
 		{ecJWK(t, "p256", "P-256", newEC(t, ecCurves[0].curve)), "P-256", []jwk.Alg{jwk.ES256}},
 		{ecJWK(t, "p384", "P-384", newEC(t, ecCurves[1].curve)), "P-384", []jwk.Alg{jwk.ES384}},
@@ -552,7 +552,7 @@ func TestKey_Fits(t *testing.T) {
 			}
 			for k := range s.All() {
 				var fits []jwk.Alg
-				for _, a := range all {
+				for _, a := range allAlgs {
 					if k.Fits(a) {
 						fits = append(fits, a)
 					}
@@ -562,36 +562,6 @@ func TestKey_Fits(t *testing.T) {
 				}
 				if k.Fits(0) {
 					t.Error("fits the zero Alg")
-				}
-			}
-		})
-	}
-}
-
-// RFC 7517 §4.4: a key's alg is the row it names, Ed25519 naming EdDSA's
-// (RFC 9864 §2.2); a key without alg has none.
-func TestKey_Alg(t *testing.T) {
-	t.Parallel()
-	okp := okpJWK("okp", newEd25519(t))
-	cases := map[string]struct {
-		key  map[string]any
-		want jwk.Alg
-	}{
-		"absent":  {rsaJWK("rsa", oddWithBits(2048), 65537), 0},
-		"PS256":   {with(rsaJWK("rsa", oddWithBits(2048), 65537), "alg", "PS256"), jwk.PS256},
-		"Ed25519": {with(okp, "alg", "Ed25519"), jwk.EdDSA},
-		"EdDSA":   {with(okp, "alg", "EdDSA"), jwk.EdDSA},
-	}
-	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			s := mustParse(t, jwkSet(t, c.key))
-			if s.Len() != 1 {
-				t.Fatalf("Len = %d; want 1", s.Len())
-			}
-			for k := range s.All() {
-				if k.Alg() != c.want {
-					t.Errorf("Alg = %v; want %v", k.Alg(), c.want)
 				}
 			}
 		})

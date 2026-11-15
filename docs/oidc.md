@@ -67,7 +67,7 @@ Discovery and the key-set fetch follow no redirect, and they never call your `Ch
 
 ## Accepted algorithms
 
-A token's header names one algorithm, and the key that verifies it must be of that algorithm's key type and curve.
+A token's header names one algorithm. The key that verifies it must be of that algorithm's key type and curve, and a key that carries its own `alg` must name that algorithm.
 
 | `alg` | Key | Hash | Signature |
 | --- | --- | --- | --- |
@@ -106,7 +106,7 @@ A key with no `use` and no `key_ops` is usable. A refused set, or one left with 
 2. Each part decodes as unpadded base64url with no stray bits, so only one encoding of a signature passes.
 3. The header is a JSON object. `alg` is a required string, and `kid` an optional string. `crit` is refused in any form, `[]` and `null` included. A `typ`, when present, is `JWT` or `application/jwt`, in any case. `jku`, `jwk`, `x5u` and `x5c` are ignored, so a key is never taken from a token.
 4. The header's `alg` is in the provider's set, before any key is chosen.
-5. The candidate keys are the usable keys that fit the `alg` and, when the header has a `kid`, carry that `kid`. Each is tried in turn. A token without a `kid` tries every key that fits.
+5. The candidate keys are the usable keys that fit the `alg` and, when the header has a `kid`, carry that `kid`. A key fits when it is of the algorithm's key type and curve and, when it carries an `alg`, names that algorithm. Each is tried in turn. A token without a `kid` tries every key that fits.
 6. When no candidate verifies the signature, the key set is fetched again once, as "The key cache" describes, and the result after that is final.
 7. The payload, decoded only now, is a JSON object.
 
@@ -169,6 +169,9 @@ Earlier versions verified tokens with `coreos/go-oidc`, and these behaviours cha
 - A key set that holds a key access cannot use, such as an `oct` key or a malformed RSA, EC or Ed25519 key, now verifies with that key skipped, where it failed the whole set before.
 - An RSA key with a modulus under 2048 bits is now skipped (RFC 7518 §3.3). A provider that signs only with one fails `NewProvider` with `ErrDiscovery`, so rotate it to a key of 2048 bits or more.
 - An RSA key with the CVE-2017-15361 fingerprint, and an Ed25519 key of small order, are now skipped.
+- A key whose `alg` names another algorithm than the token's header no longer verifies it, where any key of the right type did before (RFC 8725 §3.1). Publish the key with the algorithm the provider signs with, or without an `alg`.
+- An ID token over 64 KiB is refused with `ErrTokenInvalid`.
+- A token under an unknown key fetches the key set at most once a minute, where every such token fetched it before. A key a provider serves late verifies once the minute has passed, and `Finish` answers `ErrTokenInvalid` meanwhile.
 - A header `kid` of `""` is a key ID and matches only a key whose `kid` is `""`, where every key was tried before.
 - A Google user's two `iss` forms are one identity. An identity stored with `Issuer` set to `accounts.google.com` no longer matches. That user signs in as new, unless you rewrite the stored issuer to `https://accounts.google.com`.
 - A header `kid` or `typ` of `null`, a `typ` other than `JWT` or `application/jwt`, and a `crit` header in any form are refused.
@@ -183,4 +186,4 @@ These stay as they were:
 - `null` read as absent on `nbf`, `auth_time`, `email`, `email_verified`, `preferred_username` and `name`
 - no type check on any claim the claim table does not name
 
-The tests check the package against RFC 7515, 7517, 7518, 7519 and 8037, OpenID Connect Core 1.0 and Discovery 1.0, with their published examples and the Wycheproof test vectors. `THIRD_PARTY_NOTICES.md` credits the copied test data.
+The tests check the package against RFC 7515, 7517, 7518, 7519 and 8037, OpenID Connect Core 1.0 and Discovery 1.0, with their published examples and the Wycheproof test vectors. `THIRD_PARTY_NOTICES.md` credits the copied test data and the list of primes the CVE-2017-15361 check takes from the ROCA detector.

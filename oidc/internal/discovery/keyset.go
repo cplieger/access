@@ -14,7 +14,6 @@ import (
 
 	"github.com/cplieger/access/oidc/internal/jwk"
 	"github.com/cplieger/access/oidc/internal/jws"
-	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -39,20 +38,20 @@ type KeySet struct {
 	// attempted is the last refetch attempt's time. NewKeySet's fetch
 	// leaves it zero, so a key rotated just after start refetches at once.
 	attempted time.Time
-	group     singleflight.Group
 	cur       atomic.Pointer[snapshot]
-	client    *http.Client
-	logger    *slog.Logger
-	now       func() time.Time
-	uri       string
-	logURI    string
-	algs      []jwk.Alg
-	mu        sync.Mutex
-	// inflight is true from a refetch's start until after it stores its
-	// set. The call clears it and forgets its key in one k.mu section, so
-	// a DoChan under k.mu joins a running call exactly when inflight is
-	// true, and a miss that sees it false sees the set the call stored.
-	inflight bool
+	// pending is the in-flight refetch's done channel, nil when none runs.
+	// It is set with attempted, and the refetch stores its set, clears it
+	// and closes it in one mu section: a miss that finds it nil under mu
+	// sees that set, and a start only while it is nil keeps two fetches
+	// from racing their stores.
+	pending chan struct{}
+	client  *http.Client
+	logger  *slog.Logger
+	now     func() time.Time
+	uri     string
+	logURI  string
+	algs    []jwk.Alg
+	mu      sync.Mutex
 }
 
 type snapshot struct {
@@ -108,17 +107,17 @@ func (k *KeySet) Verify(ctx context.Context, t *jws.Token) ([]byte, error) {
 }
 
 // afterMiss decides what a miss under seen does next, in this order: a set
-// stored since seen is returned to re-verify against; a refetch in flight
-// is joined, whatever started it; otherwise an open gate starts one. Both
-// nil means the miss is final.
-func (k *KeySet) afterMiss(ctx context.Context, seen *snapshot) (newer *snapshot, wait <-chan singleflight.Result) {
+// stored since seen is returned to re-verify against; the refetch in
+// flight, whatever started it, is waited on through its done channel;
+// otherwise an open gate starts one. Both nil means the miss is final.
+func (k *KeySet) afterMiss(ctx context.Context, seen *snapshot) (newer *snapshot, wait <-chan struct{}) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if cur := k.cur.Load(); cur != seen {
 		return cur, nil
 	}
-	if k.inflight {
-		return nil, k.group.DoChan("", k.refetch(ctx))
+	if k.pending != nil {
+		return nil, k.pending
 	}
 	now := k.now()
 	if !due(now, k.attempted, gateInterval) {
@@ -128,7 +127,7 @@ func (k *KeySet) afterMiss(ctx context.Context, seen *snapshot) (newer *snapshot
 }
 
 // refreshIfAged starts a refetch, not waited for, when a set fetched at
-// fetched is due its refresh and the gate is open.
+// fetched is due its refresh, none is in flight and the gate is open.
 func (k *KeySet) refreshIfAged(ctx context.Context, fetched time.Time) {
 	now := k.now()
 	if !due(now, fetched, maxAge) {
@@ -136,34 +135,35 @@ func (k *KeySet) refreshIfAged(ctx context.Context, fetched time.Time) {
 	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if due(now, k.attempted, gateInterval) {
+	if k.pending == nil && due(now, k.attempted, gateInterval) {
 		k.start(ctx, now)
 	}
 }
 
-// start runs one refetch, or joins the one in flight, with k.mu held. Its
-// result channel has room for the result, so a caller may drop it.
-func (k *KeySet) start(ctx context.Context, now time.Time) <-chan singleflight.Result {
-	k.attempted, k.inflight = now, true
-	return k.group.DoChan("", k.refetch(ctx))
+// start begins the one refetch, with k.mu held and k.pending nil, and
+// returns its done channel, closed once the set it fetched is stored or
+// the fetch failed.
+func (k *KeySet) start(ctx context.Context, now time.Time) <-chan struct{} {
+	done := make(chan struct{})
+	k.attempted, k.pending = now, done
+	go k.refetch(context.WithoutCancel(ctx), done)
+	return done
 }
 
-// refetch is the shared call. It runs under context.WithoutCancel, so the
-// waiter that started it leaving fails no other waiter.
-func (k *KeySet) refetch(ctx context.Context) func() (any, error) {
-	return func() (any, error) {
-		s, err := k.fetch(context.WithoutCancel(ctx))
-		if err == nil {
-			k.cur.Store(s)
-		} else {
-			k.log().Warn("access/oidc: JWKS refetch failed; the cached key set stays in use", "jwks", k.logURI, "err", err)
-		}
-		k.mu.Lock()
-		k.inflight = false
-		k.group.Forget("")
-		k.mu.Unlock()
-		return nil, nil
+// refetch runs under a context the waiter that started it cannot cancel,
+// so its leaving fails no other waiter; the client's Timeout bounds it.
+func (k *KeySet) refetch(ctx context.Context, done chan struct{}) {
+	s, err := k.fetch(ctx)
+	if err != nil {
+		k.log().Warn("access/oidc: JWKS refetch failed; the cached key set stays in use", "jwks", k.logURI, "err", err)
 	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if err == nil {
+		k.cur.Store(s)
+	}
+	k.pending = nil
+	close(done)
 }
 
 func (k *KeySet) fetch(ctx context.Context) (*snapshot, error) {

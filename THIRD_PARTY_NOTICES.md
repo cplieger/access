@@ -1,6 +1,6 @@
 # Third-party notices
 
-access has no third-party code in what it ships. Its tests read data copied from two upstreams, whose licenses are reproduced below, and two of its checks follow upstream designs, each named at the line that follows it.
+access ships one table taken from an upstream: the ROCA detector's list of primes in `oidc/internal/jwk/jwk.go`. Its tests read data copied from two upstreams, whose licenses are reproduced below, and two of its checks follow upstream designs, each named at the line that follows it.
 
 ## Code included
 
