@@ -1,6 +1,6 @@
 # Third-party notices
 
-access ships one table taken from an upstream: the ROCA detector's list of primes in `oidc/internal/jwk/jwk.go`. Its tests read data copied from two upstreams, whose licenses are reproduced below, and two of its checks follow upstream designs, each named at the line that follows it.
+access ships one table taken from an upstream: the ROCA detector's list of primes in `oidc/internal/jwk/jwk.go`. Its tests read data copied from six upstreams, whose licenses are reproduced below, and two of its checks follow upstream designs, each named at the line that follows it.
 
 ## Code included
 
@@ -243,6 +243,158 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+### W3C Web Authentication Level 3
+
+<https://www.w3.org/TR/2026/REC-webauthn-3-20260825/>, W3C Software and Document License (2023).
+
+`webauthn/testdata/vectors/webauthn-l3-s16.json` holds the test vectors of §16.2 to §16.16, and `webauthn-l3-s6.5.1.1.json` the example keys of §6.5.1.1, extracted from the Recommendation and re-encoded as JSON; each file names its source and section. This software includes material copied from or derived from Web Authentication: An API for accessing Public Key Credentials - Level 3, <https://www.w3.org/TR/webauthn-3/>. Copyright © 2026 World Wide Web Consortium. <https://www.w3.org/copyright/software-license-2023/>
+
+```text
+License
+
+By obtaining and/or copying this work, you (the licensee) agree that you have
+read, understood, and will comply with the following terms and conditions.
+
+Permission to copy, modify, and distribute this work, with or without
+modification, for any purpose and without fee or royalty is hereby granted,
+provided that you include the following on ALL copies of the work or portions
+thereof, including modifications:
+
+- The full text of this NOTICE in a location viewable to users of the
+  redistributed or derivative work.
+- Any pre-existing intellectual property disclaimers, notices, or terms and
+  conditions. If none exist, the W3C software and document short notice should
+  be included.
+- Notice of any changes or modifications, through a copyright statement on the
+  new code or document such as "This software or document includes material
+  copied from or derived from [title and URI of the W3C document]. Copyright ©
+  [$year-of-document] World Wide Web Consortium.
+  https://www.w3.org/copyright/software-license-2023/"
+
+Disclaimers
+
+THIS WORK IS PROVIDED "AS IS," AND COPYRIGHT HOLDERS MAKE NO REPRESENTATIONS OR
+WARRANTIES, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO, WARRANTIES OF
+MERCHANTABILITY OR FITNESS FOR ANY PARTICULAR PURPOSE OR THAT THE USE OF THE
+SOFTWARE OR DOCUMENT WILL NOT INFRINGE ANY THIRD PARTY PATENTS, COPYRIGHTS,
+TRADEMARKS OR OTHER RIGHTS.
+
+COPYRIGHT HOLDERS WILL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, SPECIAL OR
+CONSEQUENTIAL DAMAGES ARISING OUT OF ANY USE OF THE SOFTWARE OR DOCUMENT.
+
+The name and trademarks of copyright holders may NOT be used in advertising or
+publicity pertaining to the work without specific, written prior permission.
+Title to copyright in this work will at all times remain with copyright
+holders.
+```
+
+### RFC 9964, ML-DSA for JOSE and COSE
+
+<https://www.rfc-editor.org/rfc/rfc9964.txt>, Revised BSD License (IETF Trust Legal Provisions §4.e).
+
+`webauthn/testdata/vectors/rfc9964-appendix-a.json` holds the examples of Appendix A (Figures 3 to 8), extracted from the RFC text and re-encoded as JSON.
+
+```text
+Copyright (c) 2026 IETF Trust and the persons identified as authors of the
+code. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+- Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+- Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+- Neither the name of Internet Society, IETF or IETF Trust, nor the names of
+  specific contributors, may be used to endorse or promote products derived
+  from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### NIST ACVP-Server
+
+<https://github.com/usnistgov/ACVP-Server>, NIST software notice.
+
+`webauthn/testdata/vectors/acvp-mldsa-sigver.json` holds test cases 10, 39 and 64 of `gen-val/json-files/ML-DSA-sigVer-FIPS204/internalProjection.json` at commit `975de31eb83d87039ec88934fdc47d8c312b892d`. Changed in November 2026: those three cases selected, their private keys omitted, and the result re-encoded as JSON. The data is from the National Institute of Standards and Technology.
+
+```text
+NIST-developed software is provided by NIST as a public service. You may use,
+copy, and distribute copies of the software in any medium, provided that you
+keep intact this entire notice. You may improve, modify, and create derivative
+works of the software or any portion of the software, and you may copy and
+distribute such modifications or works. Modified works should carry a notice
+stating that you changed the software and should note the date and nature of
+any such change. Please explicitly acknowledge the National Institute of
+Standards and Technology as the source of the software.
+
+NIST-developed software is expressly provided "AS IS." NIST MAKES NO WARRANTY
+OF ANY KIND, EXPRESS, IMPLIED, IN FACT, OR ARISING BY OPERATION OF LAW,
+INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTY OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND DATA ACCURACY. NIST NEITHER
+REPRESENTS NOR WARRANTS THAT THE OPERATION OF THE SOFTWARE WILL BE
+UNINTERRUPTED OR ERROR-FREE, OR THAT ANY DEFECTS WILL BE CORRECTED. NIST DOES
+NOT WARRANT OR MAKE ANY REPRESENTATIONS REGARDING THE USE OF THE SOFTWARE OR
+THE RESULTS THEREOF, INCLUDING BUT NOT LIMITED TO THE CORRECTNESS, ACCURACY,
+RELIABILITY, OR USEFULNESS OF THE SOFTWARE.
+
+You are solely responsible for determining the appropriateness of using and
+distributing the software and you assume all risks associated with its use,
+including but not limited to the risks and costs of program errors, compliance
+with applicable laws, damage to or loss of data, programs or equipment, and the
+unavailability or interruption of operation. This software is not intended to
+be used in any situation where a failure could cause risk of injury or damage
+to property. The software developed by NIST employees is not subject to
+copyright protection within the United States.
+```
+
+### go-webauthn/webauthn
+
+<https://github.com/go-webauthn/webauthn>, BSD 3-Clause License.
+
+`webauthn/testdata/rpid/go-webauthn-validate-rpid.json` holds the cases of `TestValidateRPID` in `protocol/utils_test.go` at v0.18.2, commit `a4c6fc6a4399bcd1ba982c116189f1598d9d5eec`, as data: each case's name, value and whether it is valid, less the two cases the file lists as excluded.
+
+```text
+Copyright (c) 2025 github.com/go-webauthn/webauthn authors.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
 ## Design followed, no code included

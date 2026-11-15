@@ -1,7 +1,8 @@
 const buffer = (...b: number[]): ArrayBuffer => new Uint8Array(b).buffer;
 const text = (s: string): ArrayBuffer => new TextEncoder().encode(s).buffer;
 
-// Outputs a browser may report unasked; go-webauthn refuses each one the RP did not request.
+// Outputs a browser may report unasked. The server reads only credProps.rk, at registration, so a
+// finish body carries nothing else.
 const unsolicited = { credProps: { rk: true }, prf: { enabled: true }, appid: false };
 
 /**

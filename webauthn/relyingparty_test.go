@@ -74,7 +74,7 @@ func exampleOrigin(t *testing.T) Origin {
 	return mustParseOrigin(t, "https://example.com")
 }
 
-func mustParseOrigin(t *testing.T, raw string) Origin {
+func mustParseOrigin(t testing.TB, raw string) Origin {
 	t.Helper()
 	o, err := ParseOrigin(raw)
 	if err != nil {

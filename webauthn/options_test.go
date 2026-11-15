@@ -1,112 +1,87 @@
 package webauthn
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/cplieger/access"
-	"github.com/go-webauthn/webauthn/protocol"
-	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
 )
 
-// TestCreationOptions_serializesLikeUpstream is the test that makes the
-// first-party options types safe to ship. The browser reads these dictionaries
-// with its own parsers, so a renamed member or a different binary encoding does
-// not fail loudly — it produces a ceremony that silently never completes.
-//
-// Upstream is the oracle: it is the implementation that was on the wire before
-// this mirror existed. The two values are marshalled from ONE ceremony, because
-// the challenge is fresh per call and two ceremonies could never match.
-func TestCreationOptions_serializesLikeUpstream(t *testing.T) {
-	t.Parallel()
-	rp := testRelyingParty(t)
-	user := &User{AuthUser: &access.User{ID: 42, Username: "alex", DisplayName: "Alex", WebAuthnHandle: access.GenerateWebAuthnHandle()}}
-
-	upstream, _, err := testHandle(t, rp).BeginRegistration(&userAdapter{User: user},
-		gowebauthn.WithRegistrationOrigin(testOrigin),
-		gowebauthn.WithCredentialParameters(gowebauthn.CredentialParametersPQCRecommendedL3()),
-		gowebauthn.WithAuthenticatorSelection(upstreamSelection()),
-		gowebauthn.WithExclusions(gowebauthn.Credentials((&userAdapter{User: user}).WebAuthnCredentials()).CredentialDescriptors()),
-		gowebauthn.WithExtensions(gowebauthn.WithExtensionCredProps()),
-	)
+// publicKeyJSON returns the publicKey member of v's JSON as a decoded object.
+func publicKeyJSON(t *testing.T, v any) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(v)
 	if err != nil {
-		t.Fatalf("upstream BeginRegistration: %v", err)
+		t.Fatalf("Marshal: %v", err)
 	}
-
-	assertSameJSON(t, "registration options", upstream, creationFromUpstream(upstream, user.WebAuthnID()))
+	var doc struct {
+		PublicKey map[string]any `json:"publicKey"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil || doc.PublicKey == nil {
+		t.Fatalf("Unmarshal %s: publicKey %v, error %v", raw, doc.PublicKey, err)
+	}
+	return doc.PublicKey
 }
 
-// TestRequestOptions_serializesLikeUpstream is the login half.
-func TestRequestOptions_serializesLikeUpstream(t *testing.T) {
+// TestCreationOptions_WebAuthn5_4_4_requireResidentKey checks that the creation
+// options send requireResidentKey true beside residentKey "required": WebAuthn
+// §5.4.4 has the relying party set it to true for backwards compatibility with
+// Level 1 clients, which read only requireResidentKey.
+func TestCreationOptions_WebAuthn5_4_4_requireResidentKey(t *testing.T) {
 	t.Parallel()
-	rp := testRelyingParty(t)
-
-	upstream, _, err := testHandle(t, rp).BeginDiscoverableLogin(
-		gowebauthn.WithLoginOrigin(testOrigin),
-		gowebauthn.WithUserVerification("required"),
-	)
+	user := &User{AuthUser: &access.User{ID: 42, Username: "alex", WebAuthnHandle: access.GenerateWebAuthnHandle()}}
+	creation, _, err := BeginRegistration(testRelyingParty(t), user, exampleOrigin(t))
 	if err != nil {
-		t.Fatalf("upstream BeginDiscoverableLogin: %v", err)
+		t.Fatalf("BeginRegistration: %v", err)
 	}
-
-	assertSameJSON(t, "assertion options", upstream, assertionFromUpstream(upstream))
+	selection, ok := publicKeyJSON(t, creation)["authenticatorSelection"].(map[string]any)
+	if !ok {
+		t.Fatalf("publicKey.authenticatorSelection is not an object")
+	}
+	if got := selection["requireResidentKey"]; got != true {
+		t.Errorf("authenticatorSelection.requireResidentKey = %v, want true", got)
+	}
+	if got := selection["residentKey"]; got != "required" {
+		t.Errorf("authenticatorSelection.residentKey = %v, want required", got)
+	}
 }
 
-// TestRequestOptions_serializesLikeUpstream_conditional covers the
-// mediation member, which the plain login case above leaves empty on both sides
-// — so without this case, dropping mediation from the conversion goes unnoticed.
-// Conditional mediation is what drives the browser's passkey autofill, so losing
-// it would turn autofill off silently.
-func TestRequestOptions_serializesLikeUpstream_conditional(t *testing.T) {
+// TestOptions_WebAuthn5_4_7_noAttestationOrHints checks that neither options
+// dictionary carries attestation, attestationFormats or hints: an absent
+// attestation member is the default "none" (WebAuthn §5.4.7), and access
+// sends no hints (§5.8.7).
+func TestOptions_WebAuthn5_4_7_noAttestationOrHints(t *testing.T) {
 	t.Parallel()
 	rp := testRelyingParty(t)
-
-	upstream, _, err := testHandle(t, rp).BeginDiscoverableMediatedLogin(protocol.MediationConditional,
-		gowebauthn.WithLoginOrigin(testOrigin),
-		gowebauthn.WithUserVerification("required"),
-	)
+	user := &User{AuthUser: &access.User{ID: 42, Username: "alex", WebAuthnHandle: access.GenerateWebAuthnHandle()}}
+	creation, _, err := BeginRegistration(rp, user, exampleOrigin(t))
 	if err != nil {
-		t.Fatalf("upstream BeginDiscoverableMediatedLogin: %v", err)
+		t.Fatalf("BeginRegistration: %v", err)
 	}
-	if upstream.Mediation != protocol.MediationConditional {
-		t.Fatalf("upstream mediation = %q, want %q (fixture is not exercising mediation)",
-			upstream.Mediation, protocol.MediationConditional)
-	}
-
-	assertSameJSON(t, "conditional assertion options", upstream, assertionFromUpstream(upstream))
-}
-
-// TestCreationOptions_serializesLikeUpstream_withExcludedCredential
-// covers the descriptor list, which the empty-registration case above leaves
-// out and which carries a binary member and a transport list.
-func TestCreationOptions_serializesLikeUpstream_withExcludedCredential(t *testing.T) {
-	t.Parallel()
-	rp := testRelyingParty(t)
-	user := &User{
-		AuthUser: &access.User{ID: 42, Username: "alex", DisplayName: "Alex", WebAuthnHandle: access.GenerateWebAuthnHandle()},
-		Credentials: []access.PasskeyCredential{
-			{CredentialID: []byte{1, 2, 3}, Transport: "internal,hybrid"},
-			{CredentialID: []byte{4, 5, 6}, Transport: "usb"},
-		},
-	}
-
-	upstream, _, err := testHandle(t, rp).BeginRegistration(&userAdapter{User: user},
-		gowebauthn.WithRegistrationOrigin(testOrigin),
-		gowebauthn.WithCredentialParameters(gowebauthn.CredentialParametersPQCRecommendedL3()),
-		gowebauthn.WithAuthenticatorSelection(upstreamSelection()),
-		gowebauthn.WithExclusions(gowebauthn.Credentials((&userAdapter{User: user}).WebAuthnCredentials()).CredentialDescriptors()),
-		gowebauthn.WithExtensions(gowebauthn.WithExtensionCredProps()),
-	)
+	login, _, err := BeginLogin(rp, exampleOrigin(t))
 	if err != nil {
-		t.Fatalf("upstream BeginRegistration: %v", err)
+		t.Fatalf("BeginLogin: %v", err)
 	}
-	if len(upstream.Response.CredentialExcludeList) != 2 {
-		t.Fatalf("upstream exclude list len = %d, want 2 (fixture is not exercising descriptors)",
-			len(upstream.Response.CredentialExcludeList))
+	conditional, _, err := BeginConditionalLogin(rp, exampleOrigin(t))
+	if err != nil {
+		t.Fatalf("BeginConditionalLogin: %v", err)
 	}
-
-	assertSameJSON(t, "registration options with exclusions", upstream, creationFromUpstream(upstream, user.WebAuthnID()))
+	user.Credentials = []access.PasskeyCredential{{CredentialID: []byte{1, 2, 3}}}
+	reauth, _, err := BeginReauthentication(rp, user, exampleOrigin(t))
+	if err != nil {
+		t.Fatalf("BeginReauthentication: %v", err)
+	}
+	for name, options := range map[string]any{"creation": creation, "login": login, "conditional": conditional, "reauthentication": reauth} {
+		publicKey := publicKeyJSON(t, options)
+		for _, member := range []string{"attestation", "attestationFormats", "hints"} {
+			if v, present := publicKey[member]; present {
+				t.Errorf("%s options carry publicKey.%s = %v, want no such member", name, member, v)
+			}
+		}
+	}
 }
 
 // TestBase64URL_roundTrip pins the encoding every binary member uses. Padded
@@ -178,51 +153,144 @@ func testRelyingParty(t *testing.T) *RelyingParty {
 	return rp
 }
 
-const testOrigin = "https://example.com"
-
-// testHandle is the upstream oracle for one ceremony at testOrigin, which is
-// what every Begin function builds for the origin it is handed.
-func testHandle(t *testing.T, rp *RelyingParty) *gowebauthn.WebAuthn {
-	t.Helper()
-	wa, err := rp.handleFor(testOrigin)
-	if err != nil {
-		t.Fatalf("handleFor(%q): %v", testOrigin, err)
-	}
-	return wa
-}
-
-func upstreamSelection() protocol.AuthenticatorSelection {
-	return protocol.AuthenticatorSelection{
-		ResidentKey:      "required",
-		UserVerification: "required",
+// optionsUser is an account holding two passkeys, one with transports.
+func optionsUser() *User {
+	return &User{
+		AuthUser: &access.User{ID: 42, Username: "alex", DisplayName: "Alex", WebAuthnHandle: []byte("alex's user handle")},
+		Credentials: []access.PasskeyCredential{
+			{CredentialID: []byte{1, 2, 3}, Transport: "internal,hybrid"},
+			{CredentialID: []byte{4, 5, 6}},
+		},
 	}
 }
 
-// assertSameJSON marshals both values and compares them as decoded documents.
-// The comparison is semantic rather than byte-for-byte on purpose: JSON objects
-// are unordered and the browser reads these members by name, so field
-// declaration order is free to follow whatever the alignment linter prefers.
-// What must match is the member set, the nesting, and every encoded value.
-func assertSameJSON(t *testing.T, what string, upstream, mirror any) {
+// jsonDoc is v's JSON decoded into maps, slices and scalars, so two
+// documents compare by members and values, never by member order.
+func jsonDoc(t *testing.T, v any) any {
 	t.Helper()
-	wantJSON, err := json.Marshal(upstream)
+	raw, err := json.Marshal(v)
 	if err != nil {
-		t.Fatalf("Marshal upstream %s: %v", what, err)
+		t.Fatalf("Marshal: %v", err)
 	}
-	gotJSON, err := json.Marshal(mirror)
+	var doc any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("Unmarshal %s: %v", raw, err)
+	}
+	return doc
+}
+
+// optionsChallenge returns the publicKey challenge of doc, failing unless it
+// is the unpadded base64url of 32 bytes (WebAuthn §13.4.3 asks for at least
+// 16 random bytes).
+func optionsChallenge(t *testing.T, doc any) string {
+	t.Helper()
+	top, _ := doc.(map[string]any)
+	publicKey, _ := top["publicKey"].(map[string]any)
+	challenge, ok := publicKey["challenge"].(string)
+	if !ok {
+		t.Fatalf("options %v carry no publicKey.challenge string", doc)
+	}
+	raw, err := base64.RawURLEncoding.Strict().DecodeString(challenge)
+	if err != nil || len(raw) != 32 {
+		t.Errorf("publicKey.challenge %q decodes to %d bytes (%v), want 32 as unpadded base64url", challenge, len(raw), err)
+	}
+	return challenge
+}
+
+// wantDoc fails unless got is exactly the JSON document want, with
+// CHALLENGE standing for the options' own challenge.
+func wantDoc(t *testing.T, what string, got any, want string) {
+	t.Helper()
+	expected := jsonDoc(t, json.RawMessage(strings.ReplaceAll(want, "CHALLENGE", optionsChallenge(t, got))))
+	if !reflect.DeepEqual(got, expected) {
+		t.Errorf("%s =\n%s\nwant\n%s", what, mustJSON(t, got), mustJSON(t, expected))
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
 	if err != nil {
-		t.Fatalf("Marshal first-party %s: %v", what, err)
+		t.Fatalf("Marshal: %v", err)
 	}
+	return b
+}
 
-	var want, got any
-	if err := json.Unmarshal(wantJSON, &want); err != nil {
-		t.Fatalf("Unmarshal upstream %s: %v", what, err)
+// TestCreationOptions_WebAuthn5_4_members checks the whole creation options
+// document against WebAuthn §5.4's member names and access's values: the
+// offer order ML-DSA-44, -65, -87 (RFC 9964 §5), EdDSA, ES256, RS256; a
+// required, user-verified resident key (§5.4.4, §5.4.6); the user's passkeys
+// in excludeCredentials with their transports (§5.8.3); credProps (§10.1.3);
+// a 300000 ms timeout; and no attestation, attestationFormats or hints.
+func TestCreationOptions_WebAuthn5_4_members(t *testing.T) {
+	t.Parallel()
+	creation, _, err := BeginRegistration(testRelyingParty(t), optionsUser(), exampleOrigin(t))
+	if err != nil {
+		t.Fatalf("BeginRegistration: %v", err)
 	}
-	if err := json.Unmarshal(gotJSON, &got); err != nil {
-		t.Fatalf("Unmarshal first-party %s: %v", what, err)
-	}
+	wantDoc(t, "creation options", jsonDoc(t, creation), `{"publicKey": {
+		"rp": {"name": "Example", "id": "example.com"},
+		"user": {"name": "alex", "displayName": "Alex", "id": "`+base64.RawURLEncoding.EncodeToString([]byte("alex's user handle"))+`"},
+		"challenge": "CHALLENGE",
+		"pubKeyCredParams": [
+			{"type": "public-key", "alg": -48}, {"type": "public-key", "alg": -49}, {"type": "public-key", "alg": -50},
+			{"type": "public-key", "alg": -8}, {"type": "public-key", "alg": -7}, {"type": "public-key", "alg": -257}
+		],
+		"timeout": 300000,
+		"excludeCredentials": [
+			{"type": "public-key", "id": "AQID", "transports": ["internal", "hybrid"]},
+			{"type": "public-key", "id": "BAUG"}
+		],
+		"authenticatorSelection": {"residentKey": "required", "requireResidentKey": true, "userVerification": "required"},
+		"extensions": {"credProps": true}
+	}}`)
+}
 
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("first-party %s does not serialize to the same document as upstream\n got: %s\nwant: %s", what, gotJSON, wantJSON)
+// TestRequestOptions_WebAuthn5_5_members checks each request options
+// document against WebAuthn §5.5's member names and access's values:
+// rpId, required user verification and a 300000 ms timeout; no
+// allowCredentials for a discoverable login and the user's passkeys for a
+// reauthentication (§5.5, §5.8.3); and mediation "conditional" for the
+// conditional login only (Credential Management Level 1,
+// CredentialMediationRequirement).
+func TestRequestOptions_WebAuthn5_5_members(t *testing.T) {
+	t.Parallel()
+	rp := testRelyingParty(t)
+	const common = `"rpId": "example.com", "userVerification": "required", "challenge": "CHALLENGE", "timeout": 300000`
+	tests := []struct {
+		begin func() (*CredentialAssertion, Ceremony, error)
+		name  string
+		want  string
+	}{
+		{
+			name:  "login",
+			begin: func() (*CredentialAssertion, Ceremony, error) { return BeginLogin(rp, exampleOrigin(t)) },
+			want:  `{"publicKey": {` + common + `}}`,
+		},
+		{
+			name:  "conditional_login",
+			begin: func() (*CredentialAssertion, Ceremony, error) { return BeginConditionalLogin(rp, exampleOrigin(t)) },
+			want:  `{"mediation": "conditional", "publicKey": {` + common + `}}`,
+		},
+		{
+			name: "reauthentication",
+			begin: func() (*CredentialAssertion, Ceremony, error) {
+				return BeginReauthentication(rp, optionsUser(), exampleOrigin(t))
+			},
+			want: `{"publicKey": {` + common + `, "allowCredentials": [
+				{"type": "public-key", "id": "AQID", "transports": ["internal", "hybrid"]},
+				{"type": "public-key", "id": "BAUG"}
+			]}}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			options, _, err := tt.begin()
+			if err != nil {
+				t.Fatalf("Begin: %v", err)
+			}
+			wantDoc(t, tt.name+" options", jsonDoc(t, options), tt.want)
+		})
 	}
 }

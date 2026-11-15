@@ -17,10 +17,17 @@ import (
 	"github.com/cplieger/access/webauthn"
 )
 
-// custodyFailing is a store whose post-login custody write fails.
+// custodyFailing is a store whose post-login custody write fails inside
+// its Update.
 type custodyFailing struct{ account.Store }
 
-func (custodyFailing) UpdatePasskeyAfterLogin(context.Context, int64, []byte, access.PasskeyLoginUpdate) error {
+func (c custodyFailing) Update(ctx context.Context, fn func(tx account.Tx) error) error {
+	return c.Store.Update(ctx, func(tx account.Tx) error { return fn(custodyFailingTx{tx}) })
+}
+
+type custodyFailingTx struct{ account.Tx }
+
+func (custodyFailingTx) UpdatePasskeyAfterLogin(context.Context, int64, []byte, access.PasskeyLoginUpdate) error {
 	return errors.New("custody write failed")
 }
 

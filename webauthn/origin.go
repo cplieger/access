@@ -21,6 +21,9 @@ type Origin struct {
 const (
 	schemeHTTPS = "https"
 	schemeHTTP  = "http"
+	// localhost is the one single-label RP ID ValidateRPID admits and the one
+	// host CheckOrigin lets a ceremony run on over plain http.
+	localhost = "localhost"
 )
 
 // OriginRejection names why an origin cannot conduct a ceremony, or why a
@@ -125,12 +128,12 @@ func (r OriginRejection) clause() string {
 }
 
 // ParseOrigin parses a browser origin as a browser serializes it, typically an
-// Origin request header; the error is a *[OriginError]. It applies only the
-// normalizations the response comparison also applies (ASCII case folding,
-// default-port elision) and refuses a trailing dot, an empty label, a non-ASCII
-// host, one that is neither a hostname nor an IP address, and an IP address not
-// spelled as a browser serializes it. A repair would turn a refusal before the
-// authenticator prompt into a mismatch after it.
+// Origin request header; the error is a *[OriginError]. It folds ASCII case
+// and elides a default port, as that serialization does, so [Origin.String]
+// is what a response's clientDataJSON origin must equal byte for byte. It
+// refuses a trailing dot, an empty label, a non-ASCII host, one neither a
+// hostname nor an IP address, and an IP address spelled otherwise: a repair
+// would turn a refusal before the authenticator prompt into a mismatch after.
 func ParseOrigin(raw string) (Origin, error) {
 	o, err := parseOrigin(raw)
 	if err != nil {
@@ -256,7 +259,7 @@ func parsePort(port, scheme string) (string, bool) {
 // TLS (W3C WebAuthn L3 §13.4.9 recommends accepting no more than needed).
 func defaultOrigins(id string) []Origin {
 	exact := []Origin{{scheme: schemeHTTPS, host: id}}
-	if id == "localhost" {
+	if id == localhost {
 		exact = append(exact, Origin{scheme: schemeHTTP, host: id})
 	}
 	return exact

@@ -6,12 +6,9 @@ import (
 	"fmt"
 )
 
-// These types restate WebAuthn §5.4 PublicKeyCredentialCreationOptions and §5.5
-// PublicKeyCredentialRequestOptions, whose camelCase members the browser's
-// parsers read, so no member may be renamed. Upstream's structs also carry
-// ceremony state that never reaches the wire, hence not copied. Conversion is
-// field by field: a JSON round-trip through upstream would silently drop a
-// member upstream adds, where an assignment fails to compile.
+// These types are WebAuthn §5.4 PublicKeyCredentialCreationOptions and §5.5
+// PublicKeyCredentialRequestOptions in their JSON form (§5.1.8), whose
+// camelCase members the browser's parsers read, so no member may be renamed.
 
 // Base64URL is a byte string that travels as unpadded base64url, the encoding
 // every binary member of the options dictionaries uses.
@@ -84,46 +81,6 @@ const (
 	ResidentKeyRequired    ResidentKeyRequirement = "required"
 )
 
-// ConveyancePreference is the relying party's attestation-conveyance
-// preference. This library requests the specification's default, so it does not
-// set the member.
-type ConveyancePreference string
-
-// The attestation-conveyance preferences defined by WebAuthn §5.4.7.
-const (
-	ConveyanceNone       ConveyancePreference = "none"
-	ConveyanceIndirect   ConveyancePreference = "indirect"
-	ConveyanceDirect     ConveyancePreference = "direct"
-	ConveyanceEnterprise ConveyancePreference = "enterprise"
-)
-
-// AttestationStatementFormat is an attestation statement format identifier the
-// relying party will accept.
-type AttestationStatementFormat string
-
-// The attestation statement formats registered by WebAuthn §8.
-const (
-	AttestationFormatPacked           AttestationStatementFormat = "packed"
-	AttestationFormatTPM              AttestationStatementFormat = "tpm"
-	AttestationFormatAndroidKey       AttestationStatementFormat = "android-key"
-	AttestationFormatAndroidSafetyNet AttestationStatementFormat = "android-safetynet"
-	AttestationFormatFIDOU2F          AttestationStatementFormat = "fido-u2f"
-	AttestationFormatApple            AttestationStatementFormat = "apple"
-	AttestationFormatCompound         AttestationStatementFormat = "compound"
-	AttestationFormatNone             AttestationStatementFormat = "none"
-)
-
-// CredentialHint guides the client's user interface toward a kind of
-// authenticator. It is a hint, so a client may ignore it.
-type CredentialHint string
-
-// The hints defined by WebAuthn §5.8.7.
-const (
-	HintSecurityKey  CredentialHint = "security-key"
-	HintClientDevice CredentialHint = "client-device"
-	HintHybrid       CredentialHint = "hybrid"
-)
-
 // Mediation is the credential-mediation requirement, which decides how much the
 // client may complete a ceremony without an explicit user gesture.
 type Mediation string
@@ -169,9 +126,7 @@ type CredentialParameter struct {
 	Algorithm COSEAlgorithm  `json:"alg"`
 }
 
-// CredentialDescriptor refers to an existing credential (WebAuthn §5.8.3). It
-// carries only the three IDL members; upstream's equivalent also holds
-// attestation bookkeeping that is never serialized.
+// CredentialDescriptor refers to an existing credential (WebAuthn §5.8.3).
 type CredentialDescriptor struct {
 	Type       CredentialType           `json:"type"`
 	ID         Base64URL                `json:"id"`
@@ -183,6 +138,9 @@ type CredentialDescriptor struct {
 type AuthenticatorSelection struct {
 	ResidentKey      ResidentKeyRequirement      `json:"residentKey,omitempty"`
 	UserVerification UserVerificationRequirement `json:"userVerification,omitempty"`
+	// RequireResidentKey is true when ResidentKey is required, since a Level 1
+	// client reads only this member (WebAuthn §5.4.4).
+	RequireResidentKey bool `json:"requireResidentKey,omitempty"`
 }
 
 // RegistrationExtensions are the client extension inputs a registration
@@ -199,17 +157,14 @@ type RegistrationExtensions struct {
 // PublicKeyCredentialCreationOptions: everything the client needs to create a
 // credential.
 type CredentialCreationOptions struct {
-	RelyingParty           RelyingPartyEntity           `json:"rp"`
-	AuthenticatorSelection AuthenticatorSelection       `json:"authenticatorSelection"`
-	Attestation            ConveyancePreference         `json:"attestation,omitempty"`
-	User                   UserEntity                   `json:"user"`
-	Challenge              Base64URL                    `json:"challenge"`
-	Parameters             []CredentialParameter        `json:"pubKeyCredParams,omitempty"`
-	ExcludeCredentials     []CredentialDescriptor       `json:"excludeCredentials,omitempty"`
-	Hints                  []CredentialHint             `json:"hints,omitempty"`
-	AttestationFormats     []AttestationStatementFormat `json:"attestationFormats,omitempty"`
-	Timeout                int                          `json:"timeout,omitempty"`
-	Extensions             RegistrationExtensions       `json:"extensions"`
+	RelyingParty           RelyingPartyEntity     `json:"rp"`
+	AuthenticatorSelection AuthenticatorSelection `json:"authenticatorSelection"`
+	User                   UserEntity             `json:"user"`
+	Challenge              Base64URL              `json:"challenge"`
+	Parameters             []CredentialParameter  `json:"pubKeyCredParams,omitempty"`
+	ExcludeCredentials     []CredentialDescriptor `json:"excludeCredentials,omitempty"`
+	Timeout                int                    `json:"timeout,omitempty"`
+	Extensions             RegistrationExtensions `json:"extensions"`
 }
 
 // CredentialRequestOptions is WebAuthn §5.5
@@ -220,7 +175,6 @@ type CredentialRequestOptions struct {
 	UserVerification UserVerificationRequirement `json:"userVerification,omitempty"`
 	Challenge        Base64URL                   `json:"challenge"`
 	AllowCredentials []CredentialDescriptor      `json:"allowCredentials,omitempty"`
-	Hints            []CredentialHint            `json:"hints,omitempty"`
 	Timeout          int                         `json:"timeout,omitempty"`
 }
 

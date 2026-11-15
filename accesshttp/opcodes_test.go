@@ -201,18 +201,13 @@ var producerErrors = map[string]error{
 	modulePath + ".ErrInvalidKeyPrefix":                access.ErrInvalidKeyPrefix,
 	modulePath + ".ErrSealExpired":                     access.ErrSealExpired,
 	modulePath + ".ErrSealInvalid":                     access.ErrSealInvalid,
-	// Internal to oidc, so not importable here: each stands in by its own
-	// value, which the analysis compares only with itself, and Finish wraps
-	// both under oidc.ErrTokenInvalid, the sentinel classify reads.
-	modulePath + "/oidc/internal/jws.ErrInvalid": errors.New("jws: token refused"),
-	modulePath + "/oidc/internal/jws.ErrNoKey":   errors.New("jws: no key verifies the token"),
 }
 
 // termKind is what one part of an error chain is.
 type termKind int
 
 const (
-	termLeaf      termKind = iota // a registered error: obj is its var or type name
+	termLeaf      termKind = iota // a module error: obj is its var or type name
 	termOpaque                    // an error no module producer names
 	termParam                     // the error parameter obj holds, bound at the call
 	termParamCall                 // what calling parameter obj, or its field at path, returns
@@ -558,6 +553,25 @@ func (p *producers) inModule(pkg *types.Package) bool {
 	return pkg != nil && (pkg.Path() == p.module || strings.HasPrefix(pkg.Path(), p.module+"/"))
 }
 
+// nameable reports whether accesshttp can name obj, an object of the
+// module: exported, and outside any internal directory accesshttp is not
+// under (go help internal). An exported error it cannot name needs no
+// producerErrors row: it stands in by a value of its own (errorValue).
+func nameable(obj types.Object) bool {
+	if !obj.Exported() {
+		return false
+	}
+	from := modulePath + "/accesshttp"
+	segs := strings.Split(obj.Pkg().Path(), "/")
+	for k, seg := range segs {
+		parent := strings.Join(segs[:k], "/")
+		if seg == "internal" && from != parent && !strings.HasPrefix(from, parent+"/") {
+			return false
+		}
+	}
+	return true
+}
+
 func qualified(obj types.Object) string { return obj.Pkg().Path() + "." + obj.Name() }
 
 // serveFunc is s.serve's declaration in the loaded accesshttp.
@@ -714,13 +728,31 @@ func registered(obj types.Object) bool {
 	return ok
 }
 
-// leaf is obj as a chain's leaf; an exported one with no producerErrors
+// leaf is obj as a chain's leaf; a nameable one with no producerErrors
 // row is recorded, for the test to name.
 func (p *producers) leaf(obj types.Object) errValue {
-	if !registered(obj) {
+	if !registered(obj) && nameable(obj) {
 		p.unregistered[qualified(obj)] = true
 	}
 	return valueOf(chain{{kind: termLeaf, obj: obj}})
+}
+
+// standIn is the value of an exported error accesshttp cannot import;
+// equal names are equal errors, so errors.Is matches it only with itself.
+type standIn string
+
+func (s standIn) Error() string { return string(s) }
+
+// errorValue is obj's value in a chain: its producerErrors row, or the
+// stand-in of an exported error accesshttp cannot import.
+func errorValue(obj types.Object) (error, bool) {
+	if v, ok := producerErrors[qualified(obj)]; ok {
+		return v, true
+	}
+	if nameable(obj) || !obj.Exported() {
+		return nil, false
+	}
+	return standIn(qualified(obj)), true
 }
 
 func (p *producers) evalObj(obj types.Object) errValue {
@@ -1200,14 +1232,14 @@ func (p *producers) bind(sum errValue, fn ast.Node, call *ast.CallExpr) errValue
 	return out
 }
 
-// values is c's registered errors, false when c holds an unregistered one.
+// values is c's leaves' errors (errorValue), false when a leaf has none.
 func values(c chain) ([]error, bool) {
 	var vals []error
 	for _, tm := range c {
 		if tm.kind != termLeaf {
 			continue
 		}
-		v, ok := producerErrors[qualified(tm.obj)]
+		v, ok := errorValue(tm.obj)
 		if !ok {
 			return nil, false
 		}
@@ -1283,12 +1315,12 @@ func matchValues(vals []error, test errTest) (match, known bool) {
 	joined := errors.Join(vals...)
 	switch {
 	case test.sentinel != nil:
-		target, ok := producerErrors[qualified(test.sentinel)]
+		target, ok := errorValue(test.sentinel)
 		return ok && errors.Is(joined, target), ok
 	case test.typ != nil:
 		target, ok := producerErrors[qualified(test.typ)]
 		if !ok {
-			return false, !registered(test.typ) && !test.typ.Exported()
+			return false, !nameable(test.typ)
 		}
 		ptr := reflect.New(reflect.TypeOf(target))
 		return errors.As(joined, ptr.Interface()), true

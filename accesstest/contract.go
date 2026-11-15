@@ -10,15 +10,10 @@ import (
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
-	"github.com/cplieger/access/webauthn"
 )
 
-// The roles a store plays beside account: every account.Store is the
-// Authenticator's store and the webauthn package's.
-var (
-	_ access.AuthenticatorStore = account.Store(nil)
-	_ webauthn.Store            = account.Store(nil)
-)
+// Every account.Store is also the Authenticator's store.
+var _ access.AuthenticatorStore = account.Store(nil)
 
 // StoreContract runs every contract rule of account's package doc against
 // stores made by newStore; each call must return an empty, independent store.

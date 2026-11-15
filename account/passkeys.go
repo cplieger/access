@@ -1,6 +1,7 @@
 package account
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -386,11 +387,24 @@ func (c ceremonyStore) PasskeysByUserID(ctx context.Context, userID int64) ([]ac
 	return pks, nil
 }
 
-func (c ceremonyStore) UpdatePasskeyAfterLogin(ctx context.Context, userID int64, credID []byte, upd access.PasskeyLoginUpdate) error {
-	if err := c.store.UpdatePasskeyAfterLogin(ctx, userID, credID, upd); err != nil {
-		return withoutSentinel(err)
-	}
-	return nil
+// RecordAssertion merges upd into the stored credential in one Update, per
+// webauthn.Store's contract.
+func (c ceremonyStore) RecordAssertion(ctx context.Context, userID int64, credID []byte, upd access.PasskeyLoginUpdate) error {
+	err := c.store.Update(ctx, func(tx Tx) error {
+		held, err := tx.PasskeysByUserID(ctx, userID)
+		if err != nil {
+			return err
+		}
+		i := slices.IndexFunc(held, func(pk access.PasskeyCredential) bool { return bytes.Equal(pk.CredentialID, credID) })
+		if i < 0 {
+			return ErrNotFound
+		}
+		merged := upd
+		merged.SignCount = max(held[i].SignCount, upd.SignCount)
+		merged.CloneWarning = held[i].CloneWarning || upd.CloneWarning
+		return tx.UpdatePasskeyAfterLogin(ctx, userID, credID, merged)
+	})
+	return withoutSentinel(err)
 }
 
 func (c ceremonyStore) UserByWebAuthnHandle(ctx context.Context, handle []byte) (*access.User, bool, error) {

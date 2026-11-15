@@ -11,9 +11,6 @@ import (
 	"testing"
 
 	"github.com/cplieger/access"
-	"github.com/go-webauthn/webauthn/protocol"
-	"github.com/go-webauthn/webauthn/protocol/webauthncbor"
-	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
 )
 
 // TestParseOrigin_accepts pins the two normalizations the parser performs,
@@ -64,10 +61,9 @@ func TestParseOrigin_accepts(t *testing.T) {
 }
 
 // TestParseOrigin_refuses pins every parse-stage reason. The trailing-dot row
-// is the anchor against repairing the value: measured on go-webauthn v0.18.1,
-// IsOriginInHaystack("https://sub.example.com.", ["https://sub.example.com"])
-// is false, so a stripped dot would bind an origin the browser's re-presented
-// value never matches.
+// is the anchor against repairing the value: clientDataJSON's origin is
+// compared byte for byte with the bound one (verifyClientData), so a stripped
+// dot would bind an origin the browser's re-presented value never matches.
 func TestParseOrigin_refuses(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -253,6 +249,9 @@ func TestCheckOrigin_allowlist(t *testing.T) {
 		{name: "two_entries_second_accepted", origins: []string{"https://a.example.com", "https://b.example.com"}, origin: "https://b.example.com"},
 		{name: "two_entries_third_refused", origins: []string{"https://a.example.com", "https://b.example.com"}, origin: "https://c.example.com", want: RejectNotAllowlisted},
 		{name: "listed_with_default_port_matches_implicit", origins: []string{"https://subflux.example.com:443"}, origin: "https://subflux.example.com"},
+		// GHSA-f7pm-6hr8-7ggm: an allowlist reduced to hosts let a second port through.
+		{name: "GHSA-f7pm-6hr8-7ggm_listed_port_differs_refused", origins: []string{"https://login.example.com:8443"}, origin: "https://login.example.com:9443", want: RejectNotAllowlisted},
+		{name: "listed_port_accepted", origins: []string{"https://login.example.com:8443"}, origin: "https://login.example.com:8443"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -428,50 +427,6 @@ func TestNew_storesParsedOriginList(t *testing.T) {
 	}
 }
 
-// TestValidateRPID pins the one legality predicate: upstream's domain rules
-// plus this package's lowercase requirement, every refusal matching
-// ErrIllegalRPID. The hyphen and numeric-label rows are the two shapes a
-// derived-domain path can hand it (a leading-hyphen label and "foo.123").
-func TestValidateRPID(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		id      string
-		wantErr bool
-	}{
-		{id: "example.com"},
-		{id: "sub.example.com"},
-		{id: "localhost"},
-		{id: "duckdns.org"},
-		{id: "", wantErr: true},
-		{id: "Example.COM", wantErr: true},
-		{id: "10.0.0.5", wantErr: true},
-		{id: "::1", wantErr: true},
-		{id: "[::1]", wantErr: true},
-		{id: "http://example.com", wantErr: true},
-		{id: "example.com:8443", wantErr: true},
-		{id: "example.com.", wantErr: true},
-		{id: "nas", wantErr: true},
-		{id: "foo.123", wantErr: true},
-		{id: "-foo.example.com", wantErr: true},
-		{id: "ex\u00e4mple.com", wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(strings.ReplaceAll(tt.id, "/", "_"), func(t *testing.T) {
-			t.Parallel()
-			err := ValidateRPID(tt.id)
-			if gotErr := err != nil; gotErr != tt.wantErr {
-				t.Fatalf("ValidateRPID(%q) error = %v, want error presence %v", tt.id, err, tt.wantErr)
-			}
-			if tt.wantErr && !errors.Is(err, ErrIllegalRPID) {
-				t.Errorf("ValidateRPID(%q) error = %v, want it to match ErrIllegalRPID", tt.id, err)
-			}
-			if tt.wantErr && !strings.Contains(err.Error(), `"`+tt.id+`"`) {
-				t.Errorf("ValidateRPID(%q) error = %q, want it to name the value", tt.id, err)
-			}
-		})
-	}
-}
-
 // TestNew_refusesIllegalRPID pins that New applies ValidateRPID, so a
 // misspelled or IP relying party fails at construction rather than at ceremony
 // time.
@@ -486,10 +441,10 @@ func TestNew_refusesIllegalRPID(t *testing.T) {
 }
 
 // TestCeremonyBindsItsOrigin is the CVE-2026-30964 port case asserted at the
-// layer that CVE broke: a ceremony begun at one port refuses a response
-// declaring another, because the bound origin carries the port and the
-// upstream comparator compares it. The second case sends the list's verdict
-// through the bound origin to Finish.
+// finish: a ceremony accepts only client data naming the origin it began at
+// (WebAuthn §7.1's origin step), so a response from
+// another port, a sibling subdomain, or a second allowlisted origin is
+// refused, and the bound origin itself passes the origin step.
 func TestCeremonyBindsItsOrigin(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -501,6 +456,7 @@ func TestCeremonyBindsItsOrigin(t *testing.T) {
 	}{
 		{name: "port_differs", beginAt: "https://sub.example.com:8443", responder: "https://sub.example.com:9443", subdomains: true},
 		{name: "sibling_subdomain_with_list", origins: []string{"https://subflux.example.com"}, beginAt: "https://subflux.example.com", responder: "https://evil.example.com"},
+		{name: "second_allowlisted_origin", origins: []string{"https://a.example.com", "https://b.example.com"}, beginAt: "https://a.example.com", responder: "https://b.example.com"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -511,45 +467,20 @@ func TestCeremonyBindsItsOrigin(t *testing.T) {
 			if err != nil {
 				t.Fatalf("BeginRegistration at %q: %v", tt.beginAt, err)
 			}
-			if ceremony.origin() != tt.beginAt {
-				t.Errorf("ceremony bound origin = %q, want %q", ceremony.origin(), tt.beginAt)
+			if ceremony.st == nil {
+				t.Fatalf("BeginRegistration at %q returned no ceremony", tt.beginAt)
 			}
-			if protocol.IsOriginInHaystack(tt.responder, []string{ceremony.origin()}) {
-				t.Errorf("IsOriginInHaystack(%q, [%q]) = true, want false", tt.responder, ceremony.origin())
+			if _, err := FinishRegistration(rp, user, ceremony, registrationBody(t, ceremony.st.challenge, tt.responder)); !errors.Is(err, errOrigin) {
+				t.Errorf("FinishRegistration with client data from %q = %v, want errOrigin", tt.responder, err)
 			}
-
-			_, err = FinishRegistration(rp, user, ceremony, registrationResponse(t, ceremony.data.Challenge, tt.responder))
-			pe, ok := errors.AsType[*protocol.Error](err)
-			if !ok || pe.Details != "Error validating origin" {
-				t.Errorf("FinishRegistration with response from %q = %v, want the origin to be refused", tt.responder, err)
-			}
-
-			_, err = FinishRegistration(rp, user, ceremony, registrationResponse(t, ceremony.data.Challenge, tt.beginAt))
-			if pe, ok := errors.AsType[*protocol.Error](err); ok && pe.Details == "Error validating origin" {
-				t.Errorf("FinishRegistration with response from %q refused the bound origin: %v", tt.beginAt, err)
+			if _, err := FinishRegistration(rp, user, ceremony, registrationBody(t, ceremony.st.challenge, tt.beginAt)); err == nil || errors.Is(err, errOrigin) {
+				t.Errorf("FinishRegistration with client data from %q = %v, want it past the origin step and refused later", tt.beginAt, err)
 			}
 		})
 	}
 }
 
-// TestFinishRefusesUnboundCeremony pins the fail-closed guard: a ceremony
-// carrying no origin cannot be finished, on either leg, and nothing falls back
-// to a relying-party-derived origin.
-func TestFinishRefusesUnboundCeremony(t *testing.T) {
-	t.Parallel()
-	rp := mustNew(t, RPConfig{ID: "example.com", DisplayName: "Example"})
-	user := &User{AuthUser: &access.User{ID: 7, Username: "alex", WebAuthnHandle: access.GenerateWebAuthnHandle()}}
-	for _, ceremony := range []Ceremony{{}, {data: &gowebauthn.SessionData{Challenge: "c"}}} {
-		if _, err := FinishRegistration(rp, user, ceremony, strings.NewReader("{}")); !errors.Is(err, ErrCeremonyUnbound) {
-			t.Errorf("FinishRegistration(unbound ceremony %+v) error = %v, want ErrCeremonyUnbound", ceremony, err)
-		}
-		if _, err := CompleteLogin(t.Context(), rp, &fakeStore{}, ceremony, strings.NewReader("{}")); !errors.Is(err, ErrCeremonyUnbound) {
-			t.Errorf("CompleteLogin(unbound ceremony %+v) error = %v, want ErrCeremonyUnbound", ceremony, err)
-		}
-	}
-}
-
-func mustNew(t *testing.T, cfg RPConfig) *RelyingParty {
+func mustNew(t testing.TB, cfg RPConfig) *RelyingParty {
 	t.Helper()
 	rp, err := New(cfg)
 	if err != nil {
@@ -558,30 +489,27 @@ func mustNew(t *testing.T, cfg RPConfig) *RelyingParty {
 	return rp
 }
 
-// registrationResponse builds a registration response whose client data
-// declares origin and carries the ceremony's challenge, over a minimal
-// attestation object that parses. It is enough to reach client-data
-// verification, which is the step under test; nothing past it can succeed.
-func registrationResponse(t *testing.T, challenge, origin string) io.Reader {
+// registrationBody builds a registration response whose client data
+// declares origin and carries challenge, over an attestation object that
+// parses. It reaches the origin step; with UV clear nothing past the
+// authenticator data can succeed.
+func registrationBody(t *testing.T, challenge []byte, origin string) io.Reader {
 	t.Helper()
-	clientData, err := json.Marshal(map[string]string{"type": "webauthn.create", "challenge": challenge, "origin": origin})
+	b64 := base64.RawURLEncoding.EncodeToString
+	clientData, err := json.Marshal(map[string]string{"type": "webauthn.create", "challenge": b64(challenge), "origin": origin})
 	if err != nil {
 		t.Fatalf("marshal client data: %v", err)
 	}
 	credID := []byte{1, 2, 3}
 	authData := make([]byte, 0, 64)
 	authData = append(authData, make([]byte, 32)...)
-	authData = append(authData, byte(protocol.FlagUserPresent|protocol.FlagAttestedCredentialData))
+	authData = append(authData, 0x41) // UP and AT (§6.1)
 	authData = append(authData, 0, 0, 0, 1)
 	authData = append(authData, make([]byte, 16)...)
 	authData = append(authData, 0, byte(len(credID)))
 	authData = append(authData, credID...)
 	authData = append(authData, 0xa0)
-	attestation, err := webauthncbor.Marshal(map[string]any{"fmt": "none", "attStmt": map[string]any{}, "authData": authData})
-	if err != nil {
-		t.Fatalf("marshal attestation object: %v", err)
-	}
-	b64 := base64.RawURLEncoding.EncodeToString
+	attestation := cborEnc(cborMap{"fmt", "none", "attStmt", cborMap{}, "authData", authData})
 	body, err := json.Marshal(map[string]any{
 		"id":    b64(credID),
 		"rawId": b64(credID),

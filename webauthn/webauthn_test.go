@@ -4,14 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 	"uuid"
 
 	"github.com/cplieger/access"
-	"github.com/go-webauthn/webauthn/protocol"
-	"github.com/go-webauthn/webauthn/protocol/webauthncose"
-	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
 )
 
 // parseAAGUID parses a UUID string into 16 bytes.
@@ -58,67 +57,6 @@ func TestWebAuthnUser_interface_methods(t *testing.T) {
 	}
 }
 
-func TestCredentialFromAPI_table(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name           string
-		transport      string
-		wantTransports int
-	}{
-		{"no_transport", "", 0},
-		{"single", "internal", 1},
-		{"multi", "usb,nfc,ble", 3},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cred := &access.PasskeyCredential{
-				CredentialID: []byte{1, 2, 3}, PublicKey: []byte{4, 5, 6},
-				AAGUID: make([]byte, 16), AttestationType: "none",
-				Transport: tt.transport, SignCount: 42,
-				RawFlags: uint8(protocol.FlagUserPresent | protocol.FlagUserVerified | protocol.FlagBackupEligible),
-			}
-			got := credentialFromAPI(cred)
-			if len(got.Transport) != tt.wantTransports {
-				t.Errorf("transport count = %d, want %d", len(got.Transport), tt.wantTransports)
-			}
-			if !got.Flags.UserPresent {
-				t.Error("UserPresent = false, want true")
-			}
-		})
-	}
-}
-
-func TestWebAuthnCredentialToAPI_table(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name          string
-		wantTransport string
-		transports    []protocol.AuthenticatorTransport
-	}{
-		{"no_transports", "", nil},
-		{"single", "internal", []protocol.AuthenticatorTransport{"internal"}},
-		{"multi", "usb,nfc", []protocol.AuthenticatorTransport{"usb", "nfc"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			waCred := &gowebauthn.Credential{
-				ID: []byte{10, 20}, PublicKey: []byte{30, 40},
-				Transport: tt.transports,
-				Flags:     gowebauthn.CredentialFlags{UserPresent: true},
-				Authenticator: gowebauthn.Authenticator{
-					AAGUID: make([]byte, 16), SignCount: 99,
-				},
-			}
-			got := mustToAPI(t, waCred, 7, "test-key")
-			if got.Transport != tt.wantTransport {
-				t.Errorf("Transport = %q, want %q", got.Transport, tt.wantTransport)
-			}
-		})
-	}
-}
-
 func TestFormatAAGUID_edge_cases(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -144,34 +82,6 @@ func TestFormatAAGUID_edge_cases(t *testing.T) {
 	}
 }
 
-func mustToAPI(t *testing.T, c *gowebauthn.Credential, userID int64, name string) *access.PasskeyCredential {
-	t.Helper()
-	got, err := credentialToAPI(c, userID, name)
-	if err != nil {
-		t.Fatalf("credentialToAPI: %v", err)
-	}
-	return got
-}
-
-func TestCloneWarning_roundtrip(t *testing.T) {
-	t.Parallel()
-	cred := &access.PasskeyCredential{
-		CredentialID: []byte{1, 2, 3},
-		PublicKey:    []byte{4, 5, 6},
-		AAGUID:       make([]byte, 16),
-		SignCount:    10,
-		CloneWarning: true,
-	}
-	waCred := credentialFromAPI(cred)
-	if !waCred.Authenticator.CloneWarning {
-		t.Error("CredentialFromAPI did not propagate CloneWarning")
-	}
-	back := mustToAPI(t, &waCred, 1, "test")
-	if !back.CloneWarning {
-		t.Error("CredentialToAPI did not propagate CloneWarning")
-	}
-}
-
 func TestNew_valid_config(t *testing.T) {
 	wa, err := New(RPConfig{ID: "example.com", DisplayName: "Example", Origins: []string{"https://example.com"}})
 	if err != nil {
@@ -182,12 +92,8 @@ func TestNew_valid_config(t *testing.T) {
 	}
 }
 
-// New rejects an RPConfig with an empty ID at construction. Upstream
-// go-webauthn validates only RPOrigins, so an empty RP ID would construct
-// successfully and then fail every ceremony with an RP-hash mismatch
-// (sha256("") can never equal a real RP hash); the wrapper exists to make the
-// relying party legible, so the misconfiguration must surface here, naming
-// the field.
+// New rejects an RPConfig with an empty ID at construction, naming the
+// field, rather than failing every ceremony on an rpIdHash mismatch.
 func TestNew_empty_rp_id_rejected(t *testing.T) {
 	t.Parallel()
 	wa, err := New(RPConfig{DisplayName: "Example", Origins: []string{"https://example.com"}})
@@ -199,120 +105,6 @@ func TestNew_empty_rp_id_rejected(t *testing.T) {
 	}
 	if wa != nil {
 		t.Errorf("New(RPConfig{ID: \"\"}) = %v, want nil", wa)
-	}
-}
-
-func TestBeginRegistration_with_user(t *testing.T) {
-	wa, err := New(RPConfig{ID: "example.com", DisplayName: "Example", Origins: []string{"https://example.com"}})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	user := &User{AuthUser: &access.User{ID: 1, Username: "test", WebAuthnHandle: access.GenerateWebAuthnHandle()}}
-	creation, session, err := BeginRegistration(wa, user, exampleOrigin(t))
-	if err != nil {
-		t.Fatalf("BeginRegistration error: %v", err)
-	}
-	if creation == nil {
-		t.Error("BeginRegistration() creation = nil, want non-nil")
-	}
-	if session.Expires().IsZero() {
-		t.Error("BeginRegistration() ceremony has a zero deadline, want a server-side one")
-	}
-}
-
-func TestBeginRegistration_requires_user_verification(t *testing.T) {
-	wa, err := New(RPConfig{ID: "example.com", DisplayName: "Example", Origins: []string{"https://example.com"}})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	user := &User{AuthUser: &access.User{ID: 1, Username: "test", WebAuthnHandle: access.GenerateWebAuthnHandle()}}
-	creation, _, err := BeginRegistration(wa, user, exampleOrigin(t))
-	if err != nil {
-		t.Fatalf("BeginRegistration: %v", err)
-	}
-	uv := creation.Response.AuthenticatorSelection.UserVerification
-	if uv != VerificationRequired {
-		t.Errorf("UserVerification = %q, want %q", uv, VerificationRequired)
-	}
-}
-
-// TestBeginRegistration_requires_resident_key pins ResidentKey=Required in the
-// AuthenticatorSelection literal. Resident (discoverable) credentials are what
-// make passkeys usable with BeginDiscoverableLogin/BeginConditionalLogin; an
-// edit that dropped or weakened ResidentKey would silently break discoverable
-// login while existing tests stayed green.
-func TestBeginRegistration_requires_resident_key(t *testing.T) {
-	wa, err := New(RPConfig{ID: "example.com", DisplayName: "Example", Origins: []string{"https://example.com"}})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	user := &User{AuthUser: &access.User{ID: 1, Username: "test", WebAuthnHandle: access.GenerateWebAuthnHandle()}}
-	creation, _, err := BeginRegistration(wa, user, exampleOrigin(t))
-	if err != nil {
-		t.Fatalf("BeginRegistration: %v", err)
-	}
-	rk := creation.Response.AuthenticatorSelection.ResidentKey
-	if rk != ResidentKeyRequired {
-		t.Errorf("ResidentKey = %q, want %q", rk, ResidentKeyRequired)
-	}
-}
-
-func TestBeginLogin_requires_user_verification(t *testing.T) {
-	wa, err := New(RPConfig{ID: "example.com", DisplayName: "Example", Origins: []string{"https://example.com"}})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	assertion, _, err := BeginLogin(wa, exampleOrigin(t))
-	if err != nil {
-		t.Fatalf("BeginLogin: %v", err)
-	}
-	uv := assertion.Response.UserVerification
-	if uv != VerificationRequired {
-		t.Errorf("UserVerification = %q, want %q", uv, VerificationRequired)
-	}
-}
-
-// CredentialToAPI populates RawAttestation only when the source credential
-// carries attestation data: an attestation with either an Object or a
-// ClientDataJSON present is marshalled, while a fully-empty attestation leaves
-// RawAttestation nil.
-func TestCredentialToAPI_RawAttestation_presence(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name           string
-		object         []byte
-		clientDataJSON []byte
-		wantNil        bool
-	}{
-		{"both_empty_omits_attestation", nil, nil, true},
-		{"object_only_marshals", []byte{0xa0, 0x01}, nil, false},
-		{"clientdata_only_marshals", nil, []byte(`{"x":1}`), false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			waCred := &gowebauthn.Credential{
-				ID:            []byte{1, 2, 3},
-				PublicKey:     []byte{4, 5, 6},
-				Authenticator: gowebauthn.Authenticator{AAGUID: make([]byte, 16)},
-			}
-			waCred.Attestation.Object = tt.object
-			waCred.Attestation.ClientDataJSON = tt.clientDataJSON
-
-			got := mustToAPI(t, waCred, 7, "key")
-
-			if tt.wantNil && got.RawAttestation != nil {
-				t.Errorf("credentialToAPI(Object=%v, ClientDataJSON=%v).RawAttestation = %v, want nil",
-					tt.object, tt.clientDataJSON, got.RawAttestation)
-			}
-			if !tt.wantNil && got.RawAttestation == nil {
-				t.Errorf("credentialToAPI(Object=%v, ClientDataJSON=%v).RawAttestation = nil, want non-nil",
-					tt.object, tt.clientDataJSON)
-			}
-		})
 	}
 }
 
@@ -348,60 +140,12 @@ func TestNewUser(t *testing.T) {
 	})
 }
 
-func TestWebAuthnCredentials_converts_all(t *testing.T) {
-	t.Parallel()
-	u := &User{
-		AuthUser: &access.User{ID: 1, Username: "alice"},
-		Credentials: []access.PasskeyCredential{
-			{CredentialID: []byte{1}, PublicKey: []byte{2}, AAGUID: make([]byte, 16), Transport: "internal"},
-			{CredentialID: []byte{3}, PublicKey: []byte{4}, AAGUID: make([]byte, 16), Transport: "usb,nfc"},
-		},
-	}
-	got := (&userAdapter{User: u}).WebAuthnCredentials()
-	if len(got) != 2 {
-		t.Fatalf("WebAuthnCredentials() len = %d, want 2", len(got))
-	}
-	if !bytes.Equal(got[0].ID, []byte{1}) {
-		t.Errorf("WebAuthnCredentials()[0].ID = %v, want [1]", got[0].ID)
-	}
-	if len(got[1].Transport) != 2 {
-		t.Errorf("WebAuthnCredentials()[1].Transport count = %d, want 2", len(got[1].Transport))
-	}
-}
-
 func TestPasskeyFriendlyName_unknown_numbered(t *testing.T) {
 	t.Parallel()
 	aaguid := parseAAGUID("ffffffff-ffff-ffff-ffff-ffffffffffff")
 	got := PasskeyFriendlyName(aaguid, []string{"Passkey 1", "Passkey 2"})
 	if got != "Passkey 3" {
 		t.Errorf("PasskeyFriendlyName(unknown, [Passkey 1, Passkey 2]) = %q, want %q", got, "Passkey 3")
-	}
-}
-
-// TestBeginConditionalLogin_enforces_conditional_mediation_and_uv pins the two
-// security-relevant ceremony options of the conditional-mediation login helper:
-// conditional mediation (the browser autofill UI that distinguishes it from
-// BeginLogin) and required user verification.
-func TestBeginConditionalLogin_enforces_conditional_mediation_and_uv(t *testing.T) {
-	wa, err := New(RPConfig{ID: "example.com", DisplayName: "Example", Origins: []string{"https://example.com"}})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	assertion, session, err := BeginConditionalLogin(wa, exampleOrigin(t))
-	if err != nil {
-		t.Fatalf("BeginConditionalLogin: %v", err)
-	}
-	if assertion == nil {
-		t.Fatal("BeginConditionalLogin returned a nil assertion")
-	}
-	if session.Expires().IsZero() {
-		t.Error("BeginConditionalLogin() ceremony has a zero deadline, want a server-side one")
-	}
-	if assertion.Mediation != MediationConditional {
-		t.Errorf("Mediation = %q, want %q", assertion.Mediation, MediationConditional)
-	}
-	if uv := assertion.Response.UserVerification; uv != VerificationRequired {
-		t.Errorf("UserVerification = %q, want %q", uv, VerificationRequired)
 	}
 }
 
@@ -478,177 +222,212 @@ func TestPasskeyFriendlyName_single_numbered_entry(t *testing.T) {
 	}
 }
 
-// TestBeginRegistration_enforces_ceremony_deadline pins the Enforce:true timeout
-// posture of New. go-webauthn stamps a server-side deadline on the
-// returned SessionData only when Registration.Enforce is set, so a non-zero
-// Expires is the observable proof that an over-long registration ceremony is
-// rejected at FinishRegistration. go-webauthn leaves Enforce at its false
-// default, so dropping the Timeouts block from New would zero Expires
-// and fail this test. The advisory timeout echoed to the browser equals
-// CeremonyTimeout.
-func TestBeginRegistration_enforces_ceremony_deadline(t *testing.T) {
-	wa, err := New(RPConfig{ID: "example.com", DisplayName: "Example", Origins: []string{"https://example.com"}})
-	if err != nil {
-		t.Fatalf("New: %v", err)
+// beginFunc begins one kind of ceremony at an origin and returns the
+// challenge its options carry.
+type beginFunc func(o Origin) (challenge []byte, c Ceremony, err error)
+
+// begins is every Begin function, for rp and user (which must hold a
+// passkey for the reauthentication).
+func begins(rp *RelyingParty, user *User) map[string]beginFunc {
+	assertion := func(begin func(Origin) (*CredentialAssertion, Ceremony, error)) beginFunc {
+		return func(o Origin) ([]byte, Ceremony, error) {
+			options, c, err := begin(o)
+			if err != nil {
+				return nil, c, err
+			}
+			return options.Response.Challenge, c, nil
+		}
 	}
-	user := &User{AuthUser: &access.User{ID: 1, Username: "test", WebAuthnHandle: access.GenerateWebAuthnHandle()}}
-	creation, session, err := BeginRegistration(wa, user, exampleOrigin(t))
-	if err != nil {
-		t.Fatalf("BeginRegistration: %v", err)
-	}
-	if session.Expires().IsZero() {
-		t.Error("ceremony deadline is zero, want a server-side one (Registration.Enforce must be true)")
-	}
-	if got, want := creation.Response.Timeout, int(CeremonyTimeout.Milliseconds()); got != want {
-		t.Errorf("creation.Response.Timeout = %d ms, want %d ms", got, want)
+	return map[string]beginFunc{
+		"registration": func(o Origin) ([]byte, Ceremony, error) {
+			creation, c, err := BeginRegistration(rp, user, o)
+			if err != nil {
+				return nil, c, err
+			}
+			return creation.Response.Challenge, c, nil
+		},
+		"login":             assertion(func(o Origin) (*CredentialAssertion, Ceremony, error) { return BeginLogin(rp, o) }),
+		"conditional_login": assertion(func(o Origin) (*CredentialAssertion, Ceremony, error) { return BeginConditionalLogin(rp, o) }),
+		"reauthentication":  assertion(func(o Origin) (*CredentialAssertion, Ceremony, error) { return BeginReauthentication(rp, user, o) }),
 	}
 }
 
-// TestBeginRegistration_excludes_existing_credentials pins the WithExclusions
-// wiring in BeginRegistration: a user's already-registered credentials are echoed
-// into CredentialExcludeList so the authenticator refuses to create a duplicate
-// passkey for the same user. Every other BeginRegistration test uses a
-// credential-less user, so dropping WithExclusions would leave this list empty
-// and go unnoticed.
-func TestBeginRegistration_excludes_existing_credentials(t *testing.T) {
-	wa, err := New(RPConfig{ID: "example.com", DisplayName: "Example", Origins: []string{"https://example.com"}})
-	if err != nil {
-		t.Fatalf("New: %v", err)
+// TestBegin_WebAuthn13_4_3_challenge checks that every Begin sends a fresh
+// 32-byte challenge (§13.4.3 asks for at least 16 random bytes),
+// the one its ceremony verifies, expiring CeremonyTimeout after Begin, and
+// that the ceremony shares no byte with the options or the user, so neither
+// can change it after Begin.
+func TestBegin_WebAuthn13_4_3_challenge(t *testing.T) {
+	t.Parallel()
+	for name, begin := range begins(testRelyingParty(t), optionsUser()) {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			before := time.Now()
+			first, c, err := begin(exampleOrigin(t))
+			if err != nil {
+				t.Fatalf("Begin: %v", err)
+			}
+			second, _, err := begin(exampleOrigin(t))
+			if err != nil {
+				t.Fatalf("second Begin: %v", err)
+			}
+			if len(first) != 32 || len(second) != 32 || bytes.Equal(first, second) {
+				t.Errorf("challenges %x and %x, want two different 32-byte challenges", first, second)
+			}
+			if c.st == nil || !bytes.Equal(c.st.challenge, first) {
+				t.Fatalf("ceremony %+v, want one verifying the options' challenge %x", c.st, first)
+			}
+			if lo, hi := before.Add(CeremonyTimeout), time.Now().Add(CeremonyTimeout); c.Expires().Before(lo) || c.Expires().After(hi) {
+				t.Errorf("Expires() = %v, want within [%v, %v]", c.Expires(), lo, hi)
+			}
+			first[0] ^= 0xff
+			if bytes.Equal(c.st.challenge, first) {
+				t.Error("the ceremony's challenge aliases the options'")
+			}
+		})
 	}
-	user := &User{
-		AuthUser: &access.User{ID: 1, Username: "test", WebAuthnHandle: access.GenerateWebAuthnHandle()},
-		Credentials: []access.PasskeyCredential{
-			{CredentialID: []byte{1, 2, 3}, PublicKey: []byte{9}, AAGUID: make([]byte, 16)},
-			{CredentialID: []byte{4, 5, 6}, PublicKey: []byte{9}, AAGUID: make([]byte, 16)},
+	t.Run("user_handle_copied", func(t *testing.T) {
+		t.Parallel()
+		user := optionsUser()
+		for name, begin := range begins(testRelyingParty(t), user) {
+			_, c, err := begin(exampleOrigin(t))
+			if err != nil {
+				t.Fatalf("%s Begin: %v", name, err)
+			}
+			if c.st == nil {
+				t.Fatalf("%s Begin returned no ceremony", name)
+			}
+			if name == "registration" || name == "reauthentication" {
+				handle := slices.Clone(user.WebAuthnID())
+				user.AuthUser.WebAuthnHandle[0] ^= 0xff
+				if !bytes.Equal(c.st.userHandle, handle) {
+					t.Errorf("%s ceremony's user handle %x moved with the user's, want %x", name, c.st.userHandle, handle)
+				}
+				user.AuthUser.WebAuthnHandle[0] ^= 0xff
+			}
+		}
+		_, c, err := BeginReauthentication(testRelyingParty(t), user, exampleOrigin(t))
+		if err != nil {
+			t.Fatalf("BeginReauthentication: %v", err)
+		}
+		user.Credentials[0].CredentialID[0] ^= 0xff
+		if len(c.st.allowed) != 2 || !bytes.Equal(c.st.allowed[0], []byte{1, 2, 3}) {
+			t.Errorf("reauthentication ceremony's allowed IDs %x moved with the user's passkeys, want 010203 first", c.st.allowed)
+		}
+	})
+}
+
+// TestBeginReauthentication_WebAuthn5_5_noPasskeys checks that a user holding
+// no passkey cannot begin a reauthentication: its allowCredentials would be
+// empty, which §5.5 reads as a discoverable ceremony any credential answers.
+func TestBeginReauthentication_WebAuthn5_5_noPasskeys(t *testing.T) {
+	t.Parallel()
+	user := optionsUser()
+	user.Credentials = nil
+	options, c, err := BeginReauthentication(testRelyingParty(t), user, exampleOrigin(t))
+	if !errors.Is(err, errNoPasskeys) || options != nil || c.st != nil {
+		t.Errorf("BeginReauthentication(no passkeys) = %v, %+v, %v; want errNoPasskeys and no ceremony", options, c.st, err)
+	}
+}
+
+// TestBegin_WebAuthn5_4_3_userHandle checks that the Begins that carry a user
+// handle refuse one outside 1 to 64 bytes (§5.4.3: "maximum size of 64
+// bytes", and not empty).
+func TestBegin_WebAuthn5_4_3_userHandle(t *testing.T) {
+	t.Parallel()
+	for _, size := range []int{0, 1, 64, 65} {
+		user := optionsUser()
+		user.AuthUser.WebAuthnHandle = bytes.Repeat([]byte{7}, size)
+		refused := size == 0 || size > 64
+		for _, name := range []string{"registration", "reauthentication"} {
+			t.Run(name+"_"+strconv.Itoa(size)+"_bytes", func(t *testing.T) {
+				t.Parallel()
+				_, _, err := begins(testRelyingParty(t), user)[name](exampleOrigin(t))
+				if refused != errors.Is(err, errUserHandleSize) || (!refused && err != nil) {
+					t.Errorf("Begin with a %d-byte user handle = %v, want refused %v", size, err, refused)
+				}
+			})
+		}
+	}
+}
+
+// TestFinish_WebAuthn7_ceremonyKind checks that each finish takes only the
+// ceremony kind it answers (§7.1, §7.2 pkOptions): registration for
+// FinishRegistration, a login or conditional login for CompleteLogin, a
+// reauthentication for CompleteReauthentication; and a Ceremony no Begin
+// returned is ErrCeremonyUnbound. A matching kind passes on to the response,
+// which "{}" fails at its type (§5.1).
+func TestFinish_WebAuthn7_ceremonyKind(t *testing.T) {
+	t.Parallel()
+	rp := testRelyingParty(t)
+	user := optionsUser()
+	finishes := map[string]func(Ceremony) error{
+		"FinishRegistration": func(c Ceremony) error {
+			_, err := FinishRegistration(rp, user, c, strings.NewReader("{}"))
+			return err
+		},
+		"CompleteLogin": func(c Ceremony) error {
+			_, err := CompleteLogin(t.Context(), rp, &loginStore{}, c, strings.NewReader("{}"))
+			return err
+		},
+		"CompleteReauthentication": func(c Ceremony) error {
+			_, err := CompleteReauthentication(t.Context(), rp, &loginStore{}, user, c, strings.NewReader("{}"))
+			return err
 		},
 	}
-	creation, _, err := BeginRegistration(wa, user, exampleOrigin(t))
-	if err != nil {
-		t.Fatalf("BeginRegistration: %v", err)
+	takes := map[string]string{
+		"registration":      "FinishRegistration",
+		"login":             "CompleteLogin",
+		"conditional_login": "CompleteLogin",
+		"reauthentication":  "CompleteReauthentication",
 	}
-	excludeList := creation.Response.ExcludeCredentials
-	if len(excludeList) != 2 {
-		t.Fatalf("ExcludeCredentials len = %d, want 2", len(excludeList))
+	for kind, begin := range begins(rp, user) {
+		_, c, err := begin(exampleOrigin(t))
+		if err != nil {
+			t.Fatalf("%s Begin: %v", kind, err)
+		}
+		for name, finish := range finishes {
+			t.Run(kind+"_to_"+name, func(t *testing.T) {
+				t.Parallel()
+				err := finish(c)
+				if takes[kind] == name {
+					if !errors.Is(err, errCredentialType) {
+						t.Errorf("%s(%s ceremony, {}) = %v, want the response refused at its type", name, kind, err)
+					}
+				} else if !errors.Is(err, errCeremonyKind) {
+					t.Errorf("%s(%s ceremony) = %v, want errCeremonyKind", name, kind, err)
+				}
+			})
+		}
 	}
-	if !bytes.Equal(excludeList[0].ID, []byte{1, 2, 3}) {
-		t.Errorf("ExcludeCredentials[0].ID = %x, want 010203", excludeList[0].ID)
-	}
-	if !bytes.Equal(excludeList[1].ID, []byte{4, 5, 6}) {
-		t.Errorf("ExcludeCredentials[1].ID = %x, want 040506", excludeList[1].ID)
-	}
-}
-
-// TestBeginLogin_enforces_ceremony_deadline pins the Enforce:true posture for the
-// login ceremony. New sets Login.Enforce, so BeginLogin's SessionData
-// carries a non-zero server-side Expires deadline (go-webauthn rejects an expired
-// assertion at CompleteLogin). go-webauthn leaves Enforce false by default, so
-// removing the Timeouts block from New would zero Expires and fail this
-// test. The advisory timeout echoed to the client equals CeremonyTimeout.
-func TestBeginLogin_enforces_ceremony_deadline(t *testing.T) {
-	wa, err := New(RPConfig{ID: "example.com", DisplayName: "Example", Origins: []string{"https://example.com"}})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	assertion, session, err := BeginLogin(wa, exampleOrigin(t))
-	if err != nil {
-		t.Fatalf("BeginLogin: %v", err)
-	}
-	if session.Expires().IsZero() {
-		t.Error("ceremony deadline is zero, want a server-side one (Login.Enforce must be true)")
-	}
-	if got, want := assertion.Response.Timeout, int(CeremonyTimeout.Milliseconds()); got != want {
-		t.Errorf("assertion.Response.Timeout = %d ms, want %d ms", got, want)
-	}
-}
-
-// TestBeginRegistration_requests_credProps pins the credProps extension request.
-// FinishRegistration reads the credProps output to refuse a non-discoverable
-// credential, so an edit that dropped the request would silently disarm that
-// check: an authenticator reports nothing, and absence is not a denial.
-func TestBeginRegistration_requests_credProps(t *testing.T) {
-	wa, err := New(RPConfig{ID: "example.com", DisplayName: "Example", Origins: []string{"https://example.com"}})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	user := &User{AuthUser: &access.User{ID: 1, Username: "test", WebAuthnHandle: access.GenerateWebAuthnHandle()}}
-	creation, session, err := BeginRegistration(wa, user, exampleOrigin(t))
-	if err != nil {
-		t.Fatalf("BeginRegistration: %v", err)
-	}
-	if !creation.Response.Extensions.CredProps {
-		t.Error("Extensions.CredProps = false, want true")
-	}
-	// The session records the request, which is what the finish step checks a
-	// returned extension output against.
-	if !slices.Contains(session.data.Extensions.Requested, protocol.ExtensionCredProps) {
-		t.Errorf("ceremony extensions requested = %v, want it to contain %q",
-			session.data.Extensions.Requested, protocol.ExtensionCredProps)
-	}
-}
-
-// TestBeginRegistration_offers_post_quantum_algorithms pins the ML-DSA-first
-// credential parameter list. The three post-quantum parameter sets must be
-// offered ahead of the classical algorithms so an authenticator that implements
-// one produces a post-quantum credential, and EdDSA/ES256/RS256 must remain in
-// the list so every authenticator in current use still registers.
-func TestBeginRegistration_offers_post_quantum_algorithms(t *testing.T) {
-	wa, err := New(RPConfig{ID: "example.com", DisplayName: "Example", Origins: []string{"https://example.com"}})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	user := &User{AuthUser: &access.User{ID: 1, Username: "test", WebAuthnHandle: access.GenerateWebAuthnHandle()}}
-	creation, _, err := BeginRegistration(wa, user, exampleOrigin(t))
-	if err != nil {
-		t.Fatalf("BeginRegistration: %v", err)
-	}
-
-	got := make([]COSEAlgorithm, 0, len(creation.Response.Parameters))
-	for _, p := range creation.Response.Parameters {
-		got = append(got, p.Algorithm)
-	}
-	want := []COSEAlgorithm{
-		COSEAlgorithm(webauthncose.AlgMLDSA44), COSEAlgorithm(webauthncose.AlgMLDSA65), COSEAlgorithm(webauthncose.AlgMLDSA87),
-		COSEAlgorithm(webauthncose.AlgEdDSA), COSEAlgorithm(webauthncose.AlgES256), COSEAlgorithm(webauthncose.AlgRS256),
-	}
-	if !slices.Equal(got, want) {
-		t.Errorf("BeginRegistration credential parameters = %v, want %v", got, want)
-	}
-}
-
-// TestFinishRegistration_rejects_non_discoverable pins the ErrNotDiscoverable
-// gate on the credProps output. BeginLogin and BeginConditionalLogin are both
-// discoverable ceremonies, so storing a credential the client reported as
-// non-discoverable gives the user a passkey that fails every login. An absent
-// report is accepted, because absence is not a denial.
-func TestFinishRegistration_rejects_non_discoverable(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		rk      *bool
-		name    string
-		wantErr bool
-	}{
-		{name: "client reports discoverable", rk: new(true), wantErr: false},
-		{name: "client reports non-discoverable", rk: new(false), wantErr: true},
-		{name: "client reports nothing", rk: nil, wantErr: false},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+	for name, finish := range finishes {
+		t.Run("unbound_to_"+name, func(t *testing.T) {
 			t.Parallel()
+			if err := finish(Ceremony{}); !errors.Is(err, ErrCeremonyUnbound) {
+				t.Errorf("%s(Ceremony{}) = %v, want ErrCeremonyUnbound", name, err)
+			}
+		})
+	}
+}
 
-			cred := &gowebauthn.Credential{
-				ID:         []byte{1, 2, 3},
-				Extensions: gowebauthn.CredentialExtensions{RK: test.rk},
+// TestBegin_GHSA_22w3_693w_x895 checks GHSA-22w3-693w-x895's class at the
+// Begins: under AllowSubdomains for RP ID example.com, https://evilexample.com
+// shares the suffix without the dot and is refused (the registrable domain
+// suffix rule of §5.1.3 and §5.1.4.1), while a subdomain on any port begins.
+func TestBegin_GHSA_22w3_693w_x895(t *testing.T) {
+	t.Parallel()
+	rp := mustNew(t, RPConfig{ID: "example.com", DisplayName: "Example", AllowSubdomains: true})
+	for name, begin := range begins(rp, optionsUser()) {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, _, err := begin(mustParseOrigin(t, "https://evilexample.com"))
+			if oe, ok := errors.AsType[*OriginError](err); !ok || oe.Reason != RejectHostNotCovered {
+				t.Errorf("Begin at https://evilexample.com = %v, want an *OriginError %q", err, RejectHostNotCovered)
 			}
-			err := rejectNonDiscoverable(cred)
-			if gotErr := err != nil; gotErr != test.wantErr {
-				t.Fatalf("rejectNonDiscoverable(rk=%v) error = %v, want error presence %v",
-					test.rk, err, test.wantErr)
-			}
-			if test.wantErr && !errors.Is(err, ErrNotDiscoverable) {
-				t.Errorf("rejectNonDiscoverable(rk=%v) error = %v, want it to match ErrNotDiscoverable",
-					test.rk, err)
+			sub := mustParseOrigin(t, "https://sub.example.com:8443")
+			_, c, err := begin(sub)
+			if err != nil || c.st == nil || c.st.origin != sub {
+				t.Errorf("Begin at %v = %+v, %v; want a ceremony bound to it", sub, c.st, err)
 			}
 		})
 	}

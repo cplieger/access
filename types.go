@@ -168,9 +168,7 @@ const (
 //
 // The field set is the credential record of WebAuthn §Credential Record. Every
 // item that specification lists as RECOMMENDED is here, so a store persisting
-// all of it can execute both the registration and the assertion algorithms; the
-// optional items are here too, because a record written without them cannot be
-// backfilled later — the data was never conveyed.
+// all of it can execute both the registration and the assertion algorithms.
 type PasskeyCredential struct {
 	CreatedAt  time.Time `json:"created_at"`
 	LastUsedAt time.Time `json:"last_used_at,omitzero"`
@@ -180,15 +178,6 @@ type PasskeyCredential struct {
 	// false, so a stored false should not occur. It is the only extension output
 	// stored, because credProps is the only extension requested.
 	Discoverable *bool `json:"-"`
-
-	// AttestationType is the attestation type conveyed at registration
-	// ("basic_full", "basic_surrogate", "attca", "anonca", "ecdaa", "none").
-	AttestationType string `json:"-"`
-
-	// AttestationFormat is the attestation statement format identifier
-	// ("packed", "tpm", "android-key", "android-safetynet", "fido-u2f",
-	// "apple", "compound", "none").
-	AttestationFormat string `json:"-"`
 
 	// RPID is the relying-party ID the credential was registered against. It
 	// decides where the credential can be used, so a change to the relying
@@ -203,10 +192,9 @@ type PasskeyCredential struct {
 	// when the client did not report it.
 	Attachment AuthenticatorAttachment `json:"-"`
 
-	CredentialID   []byte `json:"-"`
-	PublicKey      []byte `json:"-"`
-	AAGUID         []byte `json:"-"`
-	RawAttestation []byte `json:"-"`
+	CredentialID []byte `json:"-"`
+	PublicKey    []byte `json:"-"`
+	AAGUID       []byte `json:"-"`
 
 	ID     int64 `json:"id"`
 	UserID int64 `json:"user_id"`
@@ -218,9 +206,9 @@ type PasskeyCredential struct {
 	// library reads, and it keeps the AT and ED bits the booleans below drop.
 	// Those booleans are a decoded view nothing here reads back. A store MUST
 	// persist the octet: a real registration sets user presence, so a zero
-	// octet means the store dropped it, and go-webauthn then refuses the next
-	// login whose authenticator asserts backup eligibility (rule 8 of the
-	// account package's store contract).
+	// octet means the store dropped it, and the webauthn package then refuses
+	// the next login whose authenticator asserts backup eligibility (rule 8 of
+	// the account package's store contract).
 	RawFlags uint8 `json:"-"`
 
 	BackupEligible bool `json:"backup_eligible"`
@@ -247,7 +235,6 @@ func (c *PasskeyCredential) Clone() *PasskeyCredential {
 	cp.CredentialID = slices.Clone(c.CredentialID)
 	cp.PublicKey = slices.Clone(c.PublicKey)
 	cp.AAGUID = slices.Clone(c.AAGUID)
-	cp.RawAttestation = slices.Clone(c.RawAttestation)
 	return &cp
 }
 

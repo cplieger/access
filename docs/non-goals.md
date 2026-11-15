@@ -23,6 +23,6 @@ The library also has no TOTP or SMS second factor. A custom `CredentialVerifier`
 
 Metadata-service verification and AAGUID filtering are both policies about which authenticators a deployment accepts. Each is enforceable only where this library is the relying party. A deployment that needs one runs an identity provider. The identity provider then becomes the relying party and applies the policy itself, with nothing needed from this library.
 
-So `webauthn.New` owns the relying-party configuration and offers no way to inject such a policy. An opening there would break the boundary that keeps every go-webauthn type out of the exported API.
+So `webauthn.New` owns the relying-party configuration and offers no way to inject such a policy.
 
-The stored credential record already keeps the raw attestation and the AAGUID. AAGUID filtering also needs attestation conveyance to work at all. The AAGUID arrives unaltered only under `direct` or `enterprise` conveyance, and the default `none` removes it.
+The stored credential record already keeps the AAGUID, the 16 bytes from the authenticator data. Under WebAuthn Level 3 the browser no longer zeroes it under the default `none` conveyance ([section 18.1.1](https://www.w3.org/TR/webauthn-3/#changes-l3-substantive)), but nothing attests it: a filter on it would trust the authenticator's own word.
