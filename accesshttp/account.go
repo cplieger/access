@@ -64,6 +64,8 @@ type accountAPI interface {
 	UpdateUser(ctx context.Context, p access.Principal, userID int64, ch account.UserChange) (*access.User, error)
 	DeleteUser(ctx context.Context, p access.Principal, userID int64) error
 	SetOwner(ctx context.Context, a account.Actor, userID int64, owner bool) (*access.User, error)
+	SSOReadiness(ctx context.Context, a account.Actor, mode account.SSOMode) (account.Readiness, error)
+	ApplySSO(ctx context.Context, a account.Actor, mode account.SSOMode) error
 	CreateInvite(ctx context.Context, p access.Principal, role access.Role, ttl time.Duration) (account.IssuedToken, error)
 	AllAPIKeys(ctx context.Context, a account.Actor) ([]account.ListedKey, error)
 	RevokeAnyAPIKey(ctx context.Context, a account.Actor, id int64) error

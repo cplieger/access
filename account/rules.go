@@ -84,15 +84,9 @@ type Rules struct {
 	// DisablePasswordLogin refuses password sign-in and step-up with
 	// ErrPasswordLoginDisabled. The zero value allows them.
 	DisablePasswordLogin bool
-	// SSOGoverned makes an OIDC link migrate the account: the password and
-	// passkeys are removed. A session of a user with a linked identity may not then set a
-	// password or enrol a passkey (ErrSSOGoverned); unlinked users are
-	// unaffected.
-	SSOGoverned bool
 	// RevokeKeysOnCredentialChange deletes the user's API keys and their
-	// tokens when SetPassword sets or changes the password, and when an OIDC
-	// link migrates the account under SSOGoverned. Disable and delete always
-	// delete keys, whatever this says.
+	// tokens when SetPassword sets or changes the password. Disable and
+	// delete always delete keys, whatever this says.
 	RevokeKeysOnCredentialChange bool
 }
 

@@ -110,6 +110,9 @@ func (s *Service) AcceptInvitePassword(ctx context.Context, c Client, in AcceptI
 		},
 		in: func(tx Tx) (*access.User, error) {
 			acc = accepted{user: base}
+			if modeErr := requireLocal(ctx, tx, &acc.user, ErrSSOOnly); modeErr != nil {
+				return nil, modeErr
+			}
 			if acceptErr := s.acceptIn(ctx, tx, in.Token, &acc); acceptErr != nil || acc.spent {
 				return nil, acceptErr
 			}
@@ -145,6 +148,9 @@ func (s *Service) inviteChecks(ctx context.Context, r Rules, in AcceptInvite) (s
 		return "", err
 	}
 	if err := s.authorize(ctx, Decision{Op: OpCreateUser, Via: ViaInvite, Role: invite.Role}); err != nil {
+		return "", err
+	}
+	if err := s.localAllowed(ctx, &access.User{Role: invite.Role, Enabled: true}); err != nil {
 		return "", err
 	}
 	return username, nil

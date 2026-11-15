@@ -1,5 +1,4 @@
 [
-  "sso_governed",
   "ttl_too_long",
   "ttl_negative",
   "no_change",
@@ -45,7 +44,6 @@
   "permission_not_admin",
   "other_user",
   "target_not_eligible",
-  "not_principal",
   "unknown_operation",
   "not_enabled_user",
   "not_admin",

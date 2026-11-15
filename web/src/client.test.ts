@@ -68,6 +68,8 @@ interface Binding {
   readonly call: Call;
   // A WebAuthn finish route: the body is the browser's credential JSON, not a wire type.
   readonly credential?: true;
+  // The query a route requires, which the call sends.
+  readonly search?: string;
 }
 
 // The one hand-written part: which client method serves which accesshttp route. Path
@@ -139,6 +141,12 @@ const bindings: Readonly<Record<string, Binding>> = {
   authAdminUserCreate: { method: "adminCreateUser", call: (c, b) => c.adminCreateUser(b) },
   authAdminUserUpdate: { method: "adminUpdateUser", call: (c, b) => c.adminUpdateUser(7, b) },
   authAdminOwner: { method: "adminSetOwner", call: (c, b) => c.adminSetOwner(7, b) },
+  authAdminSSOReadiness: {
+    method: "adminSSOReadiness",
+    call: (c) => c.adminSSOReadiness("for_linked"),
+    search: "?mode=for_linked",
+  },
+  authAdminSSOApply: { method: "adminApplySSO", call: (c) => c.adminApplySSO("for_linked") },
   authAdminUserDelete: { method: "adminDeleteUser", call: (c) => c.adminDeleteUser(7) },
   authAdminInvite: { method: "adminInvite", call: (c, b) => c.adminInvite(b) },
   authAdminKeys: { method: "adminKeys", call: (c) => c.adminKeys() },
@@ -237,8 +245,8 @@ describe("the route table", () => {
     const methods = Object.keys(client).filter(
       (k) => typeof client[k as keyof AuthClient] === "function",
     );
-    expect(methods).toHaveLength(47);
-    expect(jsonRoutes).toHaveLength(47);
+    expect(methods).toHaveLength(49);
+    expect(jsonRoutes).toHaveLength(49);
     expect(Object.keys(bindings).sort()).toEqual(jsonRoutes.map((r) => r.name).sort());
     expect(
       Object.values(bindings)
@@ -276,7 +284,7 @@ describe.each(jsonRoutes)("$name", (route) => {
     const req = sent[0];
     expect(req?.method).toBe(route.method);
     expect(req?.url.pathname).toBe(expectedPath(route));
-    expect(req?.url.search).toBe("");
+    expect(req?.url.search).toBe(b.search ?? "");
     if (b.credential === true) {
       expect(route.request).toBeNull();
       expect(req?.body).toEqual(credential);
@@ -321,10 +329,18 @@ describe("queries", () => {
     }
     const sentByClient = [...queries.keys()].filter((n) => jsonRoutes.some((r) => r.name === n));
     expect(sentByClient.sort()).toEqual([
+      "authAdminSSOReadiness",
       "authAdminSecurityLog",
       "authAdminUsers",
       "authLoginPasskeyBegin",
     ]);
+  });
+
+  it("adminSSOReadiness sends its mode as the route's one query key", async () => {
+    const s = stub(200, fixture("Readiness"));
+    await s.client.adminSSOReadiness("only");
+    expect(keys(s)).toEqual(queries.get("authAdminSSOReadiness"));
+    expect(s.sent[0]?.url.searchParams.get("mode")).toBe("only");
   });
 
   it("loginPasskeyBegin sends mediation=conditional only when asked", async () => {

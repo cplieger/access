@@ -59,7 +59,7 @@ func isWrite(name string) bool {
 	case "UserByID", "UserByUsername", "UserByOIDC", "UserByWebAuthnHandle", "ListUsers", "UserCount",
 		"SessionByHash", "SessionsByUserID", "PasskeysByUserID", "APIKeyByHash", "ListAPIKeysByUserID",
 		"ListAPIKeys", "OneTimeTokenByHash", "LiveOneTimeTokens", "ListKeyAttributions", "AuthFailure",
-		"UnreportedLocks":
+		"UnreportedLocks", "SSOMode", "TemporaryPasswordByUserID", "TOTPByUserID", "RecoveryCodeByUserID", "ListTOTP", "UsersWaiting":
 		return false
 	}
 	return true

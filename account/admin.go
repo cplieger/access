@@ -101,6 +101,10 @@ func (s *Service) Users(ctx context.Context, p access.Principal, f UserFilter) (
 	if err != nil {
 		return nil, storeErr(err)
 	}
+	mode, err := storedMode(ctx, s.store)
+	if err != nil {
+		return nil, storeErr(err)
+	}
 	// records ascend by ID, so the last one kept per user is its most
 	// recent.
 	lineage := make(map[int64][]int64)
@@ -120,7 +124,10 @@ func (s *Service) Users(ctx context.Context, p access.Principal, f UserFilter) (
 		if err != nil {
 			return nil, storeErr(err)
 		}
-		listed = append(listed, ListedUser{User: users[i], KeyLineage: slices.Clone(path), PasskeyCount: len(passkeys)})
+		listed = append(listed, ListedUser{
+			User: users[i], KeyLineage: slices.Clone(path), PasskeyCount: len(passkeys),
+			LocalMethodsDormant: mode.dormantFor(&users[i]),
+		})
 	}
 	return listed, nil
 }

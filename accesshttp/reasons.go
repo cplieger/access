@@ -9,7 +9,6 @@ import (
 
 // The access.Error Reason values accesshttp assigns itself, in Reasons order.
 const (
-	ReasonSSOGoverned              = "sso_governed"
 	ReasonTTLTooLong               = "ttl_too_long"
 	ReasonTTLNegative              = "ttl_negative"
 	ReasonNoChange                 = "no_change"
@@ -39,7 +38,7 @@ const (
 
 // ownReasons is accesshttp's part of Reasons.
 var ownReasons = []string{
-	ReasonSSOGoverned, ReasonTTLTooLong, ReasonTTLNegative, ReasonNoChange, ReasonExpiryInvalid, ReasonRedirectTooLong,
+	ReasonTTLTooLong, ReasonTTLNegative, ReasonNoChange, ReasonExpiryInvalid, ReasonRedirectTooLong,
 	ReasonCurrentPasswordRequired, ReasonSessionGone, ReasonPendingTooLarge, ReasonStaleAuthentication,
 	ReasonFlowInvalid, ReasonDiscoveryFailed, ReasonExchangeFailed, ReasonTokenInvalid, ReasonNonceMismatch,
 	ReasonNoUsername, ReasonProvisioningDisabled, ReasonNotAdmitted, ReasonUsernameInvalid,

@@ -388,6 +388,24 @@
   },
   {
     "request": null,
+    "response": "Readiness",
+    "name": "authAdminSSOReadiness",
+    "method": "GET",
+    "path": "{prefix}/sso/readiness",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "SSORequest",
+    "response": null,
+    "name": "authAdminSSOApply",
+    "method": "PUT",
+    "path": "{prefix}/sso",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": null,
     "response": null,
     "name": "authAdminUserDelete",
     "method": "DELETE",

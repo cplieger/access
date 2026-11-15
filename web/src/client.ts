@@ -13,6 +13,7 @@ import {
   parseOIDCStartResponse,
   parsePasskeyView,
   parsePendingLinkResponse,
+  parseReadiness,
   parseSecurityLogView,
   parseSessionView,
   parseSignedInResponse,
@@ -41,6 +42,7 @@ import type {
   PasswordRequest,
   PendingLinkResponse,
   ProfileRequest,
+  Readiness,
   RedirectRequest,
   SecurityLogView,
   SessionView,
@@ -54,6 +56,7 @@ import type {
   UserView,
   Validator,
   WebAuthnSignals,
+  SSOMode,
 } from "./wire.js";
 
 export interface AuthClientOptions {
@@ -172,6 +175,10 @@ export interface AuthClient {
   adminUpdateUser(id: number, r: UserUpdateRequest): Promise<ApiResult<UserView>>;
   /** Owners only, under recent auth; an owner needs a password or a passkey. */
   adminSetOwner(id: number, r: OwnerRequest): Promise<ApiResult<UserView>>;
+  /** Owners only, under recent auth: call it through withStepUp. A refusal is the body's. */
+  adminSSOReadiness(mode: SSOMode): Promise<ApiResult<Readiness>>;
+  /** Owners only, under recent auth: answers exactly the refusal adminSSOReadiness showed. */
+  adminApplySSO(mode: SSOMode): Promise<ApiResult<void>>;
   adminDeleteUser(id: number): Promise<ApiResult<void>>;
   adminInvite(r: InviteRequest): Promise<ApiResult<TokenResponse>>;
   adminTokens(): Promise<ApiResult<readonly TokenView[]>>;
@@ -310,6 +317,8 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     adminUpdateUser: (id, r) => json("PUT", p(`/users/${String(id)}`), parseUserView, { body: r }),
     adminSetOwner: (id, r) =>
       json("PUT", p(`/users/${String(id)}/owner`), parseUserView, { body: r }),
+    adminSSOReadiness: (mode) => json("GET", p(`/sso/readiness${query({ mode })}`), parseReadiness),
+    adminApplySSO: (mode) => empty("PUT", p("/sso"), { mode }),
     adminDeleteUser: (id) => empty("DELETE", p(`/users/${String(id)}`)),
     adminInvite: (r) => json("POST", p("/invites"), parseTokenResponse, { body: r }),
     adminTokens: () => json("GET", p("/tokens"), tokenList),

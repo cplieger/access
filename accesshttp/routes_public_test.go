@@ -19,7 +19,7 @@ import (
 // secureState is want as a secure request reads it: Secure, and nothing
 // HTTPS would add.
 func secureState(want StateResponse) StateResponse {
-	want.Secure, want.HTTPSRequired = true, []account.HTTPSFeature{}
+	want.Secure, want.HTTPSRequired, want.SSO = true, []account.HTTPSFeature{}, account.SSONameAlongside
 	return want
 }
 

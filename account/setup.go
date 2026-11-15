@@ -42,8 +42,8 @@ func tokenHash(token access.Secret) access.Hash {
 	return access.NewHash(access.HexSHA256(token.Reveal()))
 }
 
-// State reports whether setup is needed, which sign-in methods c's transport
-// admits, and what HTTPS would add (docs/plain-http.md owns the table). It
+// State reports whether setup is needed, the stored SSO mode, which sign-in
+// methods c's transport admits, and what HTTPS would add (docs/plain-http.md owns the table). It
 // checks no transport, so it answers a plain c under both postures, and it
 // writes nothing.
 func (s *Service) State(ctx context.Context, c Client) (State, error) { //nolint:gocritic // hugeParam: the request's Client, read once
@@ -55,7 +55,11 @@ func (s *Service) State(ctx context.Context, c Client) (State, error) { //nolint
 	if err != nil {
 		return State{}, storeErr(err)
 	}
-	st := State{SetupRequired: n == 0, Secure: c.Secure}
+	mode, err := storedMode(ctx, s.store)
+	if err != nil {
+		return State{}, storeErr(err)
+	}
+	st := State{SetupRequired: n == 0, Secure: c.Secure, SSO: mode}
 	// Each feature answers its sign-in operations' own plainRule, so the
 	// screen and the operations read one table.
 	admit := func(offered bool, f HTTPSFeature, rule plainRule) bool {

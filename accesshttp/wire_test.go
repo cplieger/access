@@ -165,18 +165,18 @@ func TestViewsCarryEveryField(t *testing.T) {
 	}
 	at := func(h int) time.Time { return created.Add(time.Duration(h) * time.Hour) }
 	me := account.Me{
-		User: user, Methods: methods, CanLinkOIDC: true, SSOGoverned: true, SingleUser: true,
+		User: user, Methods: methods, CanLinkOIDC: true, SSOOnly: true, SingleUser: true,
 		Current: account.CurrentSession{ID: "sess", Method: access.MethodPasskey, AuthTime: at(1), IdleDeadline: at(2), AbsoluteDeadline: at(3), Secure: true},
 	}
 	wantMe := MeResponse{
-		User: wantUser, Methods: wantMethods, CanLinkOIDC: true, SSOGoverned: true, Owner: true, SingleUser: true,
+		User: wantUser, Methods: wantMethods, CanLinkOIDC: true, SSOOnly: true, Owner: true, SingleUser: true,
 		Session: CurrentSessionView{ID: "sess", Method: access.MethodPasskey, AuthTime: at(1), IdleDeadline: at(2), AbsoluteDeadline: at(3), Secure: true},
 	}
 	wantSignedIn := SignedInResponse{User: wantUser, SessionID: "sess", CloneWarning: true}
-	listed := account.ListedUser{User: *user, KeyLineage: []int64{3, 5}, PasskeyCount: 2}
+	listed := account.ListedUser{User: *user, KeyLineage: []int64{3, 5}, PasskeyCount: 2, LocalMethodsDormant: true}
 	listed.User.PasswordHash = access.NewHash("$argon2id$stored")
 	wantListed := wantUser
-	wantListed.Methods = &UserMethodsView{Password: true, PasskeyCount: 2}
+	wantListed.Methods = &UserMethodsView{Password: true, PasskeyCount: 2, LocalMethodsDormant: true}
 	wantListed.KeyLineage = []int64{3, 5}
 	passkey := access.PasskeyCredential{
 		ID: 2, Name: "laptop", RPID: testRPID, CreatedAt: at(1), LastUsedAt: at(2),
@@ -198,12 +198,12 @@ func TestViewsCarryEveryField(t *testing.T) {
 	state := account.State{
 		SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSOrigin: "https://app.example.com",
 		PlainSession:  &access.SessionTimeouts{Idle: 15*time.Minute + 999*time.Millisecond, Absolute: 12 * time.Hour},
-		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC},
+		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC}, SSO: account.SSOOnly,
 	}
 	wantState := StateResponse{
 		SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSOrigin: "https://app.example.com",
 		PlainSession:  &PlainSessionView{IdleSeconds: 900, AbsoluteSeconds: 43200},
-		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC},
+		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC}, SSO: account.SSONameOnly,
 	}
 	key := access.Key{
 		ID: 5, UserID: 7, Label: "ci", KeyPrefix: "ak_7", KeySuffix: "wxyz", Scopes: []string{"read"},
@@ -230,8 +230,9 @@ func TestViewsCarryEveryField(t *testing.T) {
 			At: at(2), IP: netip.MustParseAddr("192.0.2.9"), Class: account.LogClassChange,
 			ActorLabel: "laptop", ActorUserAgent: "Firefox", ActorKeySuffix: "wxyz", Detail: "d",
 			Event: account.Event{
-				At: at(1), Kind: account.EventMethodLocked, Method: access.MethodPasskey, Role: access.RoleUser,
+				At: at(1), Kind: account.EventSSOModeChanged, Method: access.MethodPasskey, Role: access.RoleUser,
 				SessionIDs: []string{"s1", "s2"}, UserID: 7, KeyID: 5, PasskeyID: 2, Seq: 11, Trusted: true,
+				IssuerUserID: 6, SSOMode: account.SSOOnly, PreviousSSOMode: account.SSOForLinked,
 				Actor: account.EventActor{SessionID: "sess", OutOfBand: "cli", UserID: 3, KeyID: 4},
 			},
 		}},
@@ -239,7 +240,8 @@ func TestViewsCarryEveryField(t *testing.T) {
 	}
 	wantLogPage := SecurityLogView{
 		Entries: []LogEntryView{{
-			Seq: 11, At: at(2), OccurredAt: at(1), Class: account.LogClassChange, Kind: "method_locked",
+			Seq: 11, At: at(2), OccurredAt: at(1), Class: account.LogClassChange, Kind: "sso_mode_changed",
+			IssuerUserID: 6, SSOMode: account.SSONameOnly, PreviousSSOMode: account.SSONameForLinked,
 			IP: "192.0.2.9", Method: access.MethodPasskey, Role: access.RoleUser, Detail: "d",
 			SessionIDs: []string{"s1", "s2"}, UserID: 7, KeyID: 5, PasskeyID: 2, Trusted: true,
 			Actor: LogActorView{SessionID: "sess", OutOfBand: "cli", Label: "laptop", UserAgent: "Firefox", KeySuffix: "wxyz", UserID: 3, KeyID: 4},
@@ -304,6 +306,12 @@ func TestViewsCarryEveryField(t *testing.T) {
 			if got := passkeyView(&tc.in); got != tc.want {
 				t.Errorf("%s: view %+v, want %+v", tc.name, got, tc.want)
 			}
+		}
+	})
+	t.Run("log_mode_only_on_its_kind", func(t *testing.T) {
+		e := account.LogEntry{Event: account.Event{Kind: account.EventMethodLocked, SSOMode: account.SSOOnly}}
+		if v := logEntryView(&e); v.SSOMode != "" || v.PreviousSSOMode != "" {
+			t.Errorf("a method_locked entry = mode %q, previous %q; want neither", v.SSOMode, v.PreviousSSOMode)
 		}
 	})
 	t.Run("state_secure_encodes_empty_list", func(t *testing.T) {

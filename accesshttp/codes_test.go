@@ -37,7 +37,6 @@ var accountSentinels = []struct {
 	{name: "session_required", err: account.ErrSessionRequired, code: access.CodeSessionRequired},
 	{name: "scope_required", err: account.ErrScopeRequired, code: access.CodeScopeRequired},
 	{name: "policy", err: &account.PolicyError{Op: account.OpCreateUser, Reason: account.ReasonAdminTarget}, code: access.CodeForbidden},
-	{name: "sso_governed", err: account.ErrSSOGoverned, code: access.CodeForbidden},
 	{name: "rate_limited", err: &ratelimit.RefusedError{Dimension: "ip", RetryAfter: time.Second}, code: access.CodeRateLimited},
 	{name: "hash_busy", err: access.ErrHashBusy, code: access.CodeBusy},
 	{name: "backend", err: access.ErrAuthBackend, code: access.CodeUnavailable},
@@ -87,6 +86,7 @@ var accountSentinels = []struct {
 	{name: "registration_closed", err: account.ErrRegistrationClosed, code: access.CodeRegistrationClosed},
 	{name: "registration_full", err: account.ErrRegistrationFull, code: access.CodeRegistrationFull},
 	{name: "sso_only", err: account.ErrSSOOnly, code: access.CodeSSOOnly},
+	{name: "unknown_sso_mode", err: account.ErrUnknownSSOMode, code: access.CodeBadRequest},
 }
 
 // finishFailure is §7.2's code for a WebAuthn finish failure the table does

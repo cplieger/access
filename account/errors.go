@@ -62,7 +62,6 @@ var (
 	// ErrLastMethod is a removal that would leave the user no method that
 	// can sign in now.
 	ErrLastMethod          = errors.New("account: the last sign-in method cannot be removed")
-	ErrSSOGoverned         = errors.New("account: the account is governed by its identity provider")
 	ErrPasskeysUnavailable = errors.New("account: passkeys are not available")
 	ErrOIDCUnavailable     = errors.New("account: OIDC is not available")
 	ErrCeremonyInvalid     = errors.New("account: ceremony unknown, expired or of another kind")
@@ -95,17 +94,19 @@ var (
 	ErrNoOwner = errors.New("account: no owner")
 	// ErrNotSingleUser is Service.Owner under a multi-user Policy.
 	ErrNotSingleUser = errors.New("account: the policy admits more than one account")
+	// ErrUnknownSSOMode is a mode outside the SSOMode constants.
+	ErrUnknownSSOMode = errors.New("account: unknown SSO mode")
 	// ErrSSOOnly is a local-method operation the stored SSO mode forbids
 	// for the user.
 	ErrSSOOnly = errors.New("account: the identity provider is this account's only sign-in")
 )
 
 // The PolicyError Reasons, in PolicyReasons order. RolePolicy and
-// SingleOwnerPolicy give the role and owner reasons; ReasonNotPrincipal,
-// ReasonUnknownOperation, ReasonUnknownVia and ReasonViaWithActor answer a
-// Decision no account operation builds. ReasonKeyRetiring is a key principal
-// presenting a secret a rotation superseded, which an operation that creates
-// or restores a way in refuses.
+// SingleOwnerPolicy give the role and owner reasons; ReasonUnknownOperation,
+// ReasonUnknownVia and ReasonViaWithActor answer a Decision no account
+// operation builds. ReasonKeyRetiring is a key principal presenting a secret
+// a rotation superseded, which an operation that creates or restores a way
+// in refuses.
 const (
 	ReasonOutOfBandOnly      = "out_of_band_only"
 	ReasonKeyNotCurrent      = "key_not_current"
@@ -118,7 +119,6 @@ const (
 	ReasonPermissionNotAdmin = "permission_not_admin"
 	ReasonOtherUser          = "other_user"
 	ReasonTargetNotEligible  = "target_not_eligible"
-	ReasonNotPrincipal       = "not_principal"
 	ReasonUnknownOperation   = "unknown_operation"
 	ReasonNotEnabledUser     = "not_enabled_user"
 	ReasonNotAdmin           = "not_admin"
@@ -150,7 +150,6 @@ func PolicyReasons() []string {
 		ReasonPermissionNotAdmin,
 		ReasonOtherUser,
 		ReasonTargetNotEligible,
-		ReasonNotPrincipal,
 		ReasonUnknownOperation,
 		ReasonNotEnabledUser,
 		ReasonNotAdmin,

@@ -633,6 +633,40 @@ func adminOperations() []operation {
 				want: events(account.Event{Kind: account.EventUserDisabled, UserID: target.ID, Actor: actorOf(p)}),
 			}
 		}},
+		{name: "SSO", class: classPublic, transport: plainAllowed, readOnly: true, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
+			return opCall{run: func(ctx context.Context) error { _, _, err := w.svc.SSO(ctx); return err }, want: none}
+		}},
+		{name: "SSOReadiness", class: classRecentAuth, transport: plainRefused, ownerOnly: true, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.SSOReadiness(ctx, account.As(p), account.SSOForLinked)
+				return err
+			}, want: none}
+		}},
+		{name: "CheckSSOReady", class: classRecentAuth, transport: plainRefused, ownerOnly: true, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
+			return opCall{run: func(ctx context.Context) error { return w.svc.CheckSSOReady(ctx, account.As(p), account.SSOForLinked) }, want: none}
+		}},
+		{name: "ApplySSO", class: classRecentAuth, transport: plainRefused, ownerOnly: true, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			storeMode(t, w.mem, account.SSOOnly)
+			u := w.user(t)
+			rec := access.TemporaryPassword{UserID: u.ID, Hash: access.NewHash("x"), CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour), Dormant: true}
+			if err := w.mem.SetTemporaryPassword(t.Context(), rec); err != nil {
+				t.Fatalf("SetTemporaryPassword: %v", err)
+			}
+			return opCall{
+				actor: actorOf(p), target: u.ID,
+				run: func(ctx context.Context) error { return w.svc.ApplySSO(ctx, account.As(p), account.SSOAlongside) },
+				want: events(
+					account.Event{Kind: account.EventTemporaryPasswordWithdrawn, UserID: u.ID, Actor: actorOf(p)},
+					account.Event{Kind: account.EventSSOModeChanged, SSOMode: account.SSOAlongside, PreviousSSOMode: account.SSOOnly, Actor: actorOf(p)},
+				),
+			}
+		}},
+		{name: "MigrateSSO", class: classPublic, transport: plainAllowed, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
+			return opCall{
+				run:  func(ctx context.Context) error { return w.svc.MigrateSSO(ctx, account.SSOForLinked) },
+				want: events(account.Event{Kind: account.EventSSOModeChanged, SSOMode: account.SSOForLinked, Actor: account.EventActor{OutOfBand: "migration"}}),
+			}
+		}},
 		{name: "SetOwner", class: classRecentAuth, transport: plainAllowed, ownerOnly: true, asks: []account.Operation{account.OpSetOwner}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			target := w.user(t)
 			target.Role = access.RoleAdmin

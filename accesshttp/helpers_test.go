@@ -224,8 +224,15 @@ func requestFor(rt Route, id, body string, cookies ...*http.Cookie) *http.Reques
 	return requestAt(testOrigin, strings.NewReplacer("{id}", id, "{method}", id).Replace(rt.Path), rt, body, cookies...)
 }
 
+// requiredQueries is the query a route answers auth_bad_request without,
+// which every request requestAt builds for it carries.
+var requiredQueries = map[string]string{"authAdminSSOReadiness": "mode=for_linked"}
+
 // requestAt is a same-origin request for rt to path on origin.
 func requestAt(origin, path string, rt Route, body string, cookies ...*http.Cookie) *http.Request {
+	if q, ok := requiredQueries[rt.Name]; ok && !strings.Contains(path, "?") {
+		path += "?" + q
+	}
 	r := httptest.NewRequest(rt.Method, origin+path, strings.NewReader(body))
 	if body != "" {
 		r.Header.Set("Content-Type", "application/json")

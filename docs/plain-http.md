@@ -13,7 +13,7 @@ The posture is `CookieConfig.Posture`, and it is the only switch ([Session cooki
 
 ## What a plain request may do
 
-Under `PosturePerRequest`, a plain request may sign in and set up the first account by password, and use what a password session can use. It gets no other sign-in ceremony, no step-up, no removal of the one method a plain session signs in with, and no operation that answers a newly issued long-lived secret.
+Under `PosturePerRequest`, a plain request may sign in and set up the first account by password, and use what a password session can use. It gets no other sign-in ceremony, no step-up, no removal of the one method a plain session signs in with, no operation that answers a newly issued long-lived secret, and no change of the SSO mode.
 
 | Allowed over plain HTTP | Refused over plain HTTP with 403 `auth_https_required` |
 | --- | --- |
@@ -23,11 +23,12 @@ Under `PosturePerRequest`, a plain request may sign in and set up the first acco
 | `authPasskeys`, `authPasskeyRename`, `authPasskeyRemove`, `authWebAuthnSignals`, `authOIDCUnlink` | `authPasswordRemove` |
 | `authSessions`, `authSessionRename`, `authSessionRevoke`, `authSessionsRevokeOthers` | `authPasskeyRegisterBegin`, `authPasskeyRegisterFinish` |
 | `authKeys`, `authKeyRename`, `authKeyRevoke`, `authAdminKeys`, `authAdminKeyRevoke` | `authInviteAcceptPassword` |
-| `authAdminUsers`, `authAdminUserCreate`, `authAdminUserUpdate`, `authAdminOwner`, `authAdminUserDelete`, `authAdminTokens`, `authAdminSecurityLog` | |
+| `authAdminUsers`, `authAdminUserCreate`, `authAdminUserUpdate`, `authAdminOwner`, `authAdminUserDelete`, `authAdminTokens`, `authAdminSecurityLog` | `authAdminSSOReadiness`, `authAdminSSOApply` |
 | every route of yours on the gate, by its class, except a row marked `HTTPS` | `authKeyCreate`, `authKeyRotate`, `authAdminInvite` |
 
-Two rows need a reason:
+Three rows need a reason:
 
+- **Reading and changing the SSO mode are refused.** A change moves every account's way in, so only an owner on a secure request makes it, and the readiness read answers the refusals the change would.
 - **Removing the password is refused.** Over plain HTTP the password is the session's only way back in, since every other sign-in method needs HTTPS.
 - **Creating a user is allowed.** It answers no secret, and the new user's password is exposed exactly as a password change's is.
 

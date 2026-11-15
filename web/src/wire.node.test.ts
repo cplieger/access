@@ -18,6 +18,7 @@ import {
   LOG_CLASSES,
   METHODS,
   REASONS,
+  SSO_MODES,
   ROLES,
   TOKEN_PURPOSES,
   authCode,
@@ -294,6 +295,8 @@ describe("value sets", () => {
     TOKEN_PURPOSES,
     LOG_CLASSES,
     HTTPS_FEATURES,
+    SSO_MODES,
+    CODES,
   ];
 
   it.each(index)("%s: a fixture reaches every value set types.json lists", (type) => {
@@ -421,6 +424,12 @@ describe("StateResponse", () => {
   it("HTTPS_FEATURES is the value set types.json lists, in order", () => {
     const row = fieldsOf("StateResponse").find((f) => f.name === "https_required");
     expect(row?.values).toEqual([...HTTPS_FEATURES]);
+  });
+
+  it("SSO_MODES is the sso value set types.json lists, in order", () => {
+    const row = fieldsOf("StateResponse").find((f) => f.name === "sso");
+    expect(row?.values).toEqual([...SSO_MODES]);
+    expect(parseStateResponse({ ...(state as object), sso: "everyone" })).toBeUndefined();
   });
 });
 

@@ -500,51 +500,6 @@ func TestPasskeySessionPrecondition(t *testing.T) {
 	}
 }
 
-func TestPasskeyRegisterSSOGoverned(t *testing.T) {
-	t.Parallel()
-	governed := func() account.Rules { return account.Rules{SSOGoverned: true} }
-	t.Run("linked", func(t *testing.T) {
-		t.Parallel()
-		p := newPK(t, pwOptions{rules: governed})
-		u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
-		linkUser(t, p.mem, u, "https://idp.example")
-		pr, _ := p.signedInVia(t, u, access.MethodPassword)
-		if _, err := p.svc.PasskeyRegisterBegin(t.Context(), pr, p.origin); !errors.Is(err, account.ErrSSOGoverned) {
-			t.Errorf("a linked user's registration under SSOGoverned = %v, want ErrSSOGoverned", err)
-		}
-	})
-	t.Run("unlinked", func(t *testing.T) {
-		t.Parallel()
-		p := newPK(t, pwOptions{rules: governed})
-		u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
-		pr, _ := p.signedInVia(t, u, access.MethodPassword)
-		if _, err := p.register(t, pr, accesstest.NewPasskeyDevice(t)); err != nil {
-			t.Errorf("an unlinked user's registration under SSOGoverned = %v, want nil", err)
-		}
-	})
-	t.Run("linked_during_ceremony", func(t *testing.T) {
-		t.Parallel()
-		p := newPK(t, pwOptions{rules: governed})
-		u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
-		pr, _ := p.signedInVia(t, u, access.MethodPassword)
-		pc, err := p.svc.PasskeyRegisterBegin(t.Context(), pr, p.origin)
-		if err != nil {
-			t.Fatalf("PasskeyRegisterBegin = %v", err)
-		}
-		body := accesstest.NewPasskeyDevice(t).Register(browserJSON(t, pc.Creation))
-		linkUser(t, p.mem, storedUser(t, p.mem, u.ID), "https://idp.example")
-		if _, err := p.svc.PasskeyRegisterFinish(t.Context(), pr, pc.ID, bytes.NewReader(body)); !errors.Is(err, account.ErrSSOGoverned) {
-			t.Errorf("finish after the user was linked = %v, want ErrSSOGoverned", err)
-		}
-		if n := len(passkeysOf(t, p.mem, u.ID)); n != 0 {
-			t.Errorf("passkeys stored = %d, want none", n)
-		}
-		if got := storedSession(t, p.mem, u.ID, pr.SessionID); !got.TokenHash.Equal(pr.SessionTokenHash()) {
-			t.Error("the refused finish rotated the session")
-		}
-	})
-}
-
 func TestRemovePasskeyLastUsable(t *testing.T) {
 	t.Parallel()
 	type env struct {

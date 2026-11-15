@@ -106,45 +106,6 @@ func TestMeMethods(t *testing.T) {
 	})
 }
 
-func TestMeSSOGoverned(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name             string
-		governed, linked bool
-	}{
-		{"governed_linked", true, true},
-		{"governed_unlinked", true, false},
-		{"ungoverned_linked", false, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			p := newPK(t, pwOptions{rules: func() account.Rules { return account.Rules{SSOGoverned: tc.governed} }})
-			u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
-			if tc.linked {
-				linkUser(t, p.mem, u, "https://idp.example")
-			}
-			pr, _ := p.signedInVia(t, u, access.MethodPassword)
-			me, err := p.svc.Me(t.Context(), pr)
-			if err != nil {
-				t.Fatalf("Me = %v", err)
-			}
-			want := tc.governed && tc.linked
-			if me.SSOGoverned != want {
-				t.Errorf("Me.SSOGoverned = %t, want %t", me.SSOGoverned, want)
-			}
-			agrees := func(err error) bool {
-				return errors.Is(err, account.ErrSSOGoverned) == want && (want || err == nil)
-			}
-			if _, err := p.svc.PasskeyRegisterBegin(t.Context(), pr, p.origin); !agrees(err) {
-				t.Errorf("PasskeyRegisterBegin = %v, want ErrSSOGoverned %t, else nil", err, want)
-			}
-			if _, err := p.setPassword(t.Context(), pr, goodPassword, newPassword); !agrees(err) {
-				t.Errorf("SetPassword = %v, want ErrSSOGoverned %t, else nil", err, want)
-			}
-		})
-	}
-}
-
 func TestMePasswordLoginDisabled(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, options{rules: func() account.Rules { return account.Rules{DisablePasswordLogin: true} }})

@@ -25,7 +25,7 @@ import (
 // designOwnReasons is accesshttp's part of the reason list from §7.2 and
 // errata E12, E22, E26 and E33, written from the spec, not from ownReasons.
 var designOwnReasons = []string{
-	"sso_governed", "ttl_too_long", "ttl_negative", "no_change", "expiry_invalid", "redirect_too_long",
+	"ttl_too_long", "ttl_negative", "no_change", "expiry_invalid", "redirect_too_long",
 	"current_password_required", "session_gone", "pending_too_large", "stale_authentication",
 	"flow_invalid", "discovery_failed", "exchange_failed", "token_invalid", "nonce_mismatch",
 	"no_username", "provisioning_disabled", "not_admitted", "username_invalid",

@@ -1,4 +1,7 @@
 {
+  "authAdminSSOReadiness": [
+    "mode"
+  ],
   "authAdminSecurityLog": [
     "actor",
     "actor_key",

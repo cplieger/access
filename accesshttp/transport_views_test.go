@@ -27,13 +27,14 @@ func TestStateRoute(t *testing.T) {
 	}{
 		{
 			name: "posture_secure_secure", origin: testOrigin,
-			want:   StateResponse{SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSRequired: []account.HTTPSFeature{}},
+			want:   StateResponse{SSO: account.SSONameAlongside, SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSRequired: []account.HTTPSFeature{}},
 			raw:    []string{`"https_required":[]`},
 			absent: []string{`"plain_session"`, `"https_origin"`},
 		},
 		{
 			name: "posture_secure_plain", origin: plainOrigin,
 			want: StateResponse{
+				SSO:           account.SSONameAlongside,
 				SetupRequired: true, HTTPSOrigin: origin,
 				HTTPSRequired: []account.HTTPSFeature{account.HTTPSPassword, account.HTTPSSetup, account.HTTPSPasskeys, account.HTTPSOIDC},
 			},
@@ -42,13 +43,14 @@ func TestStateRoute(t *testing.T) {
 		},
 		{
 			name: "per_request_secure", opts: perRequest, origin: testOrigin,
-			want:   StateResponse{SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSRequired: []account.HTTPSFeature{}},
+			want:   StateResponse{SSO: account.SSONameAlongside, SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSRequired: []account.HTTPSFeature{}},
 			raw:    []string{`"https_required":[]`},
 			absent: []string{`"plain_session"`, `"https_origin"`},
 		},
 		{
 			name: "per_request_plain", opts: perRequest, origin: plainOrigin,
 			want: StateResponse{
+				SSO:           account.SSONameAlongside,
 				SetupRequired: true, PasswordLogin: true, PlainSession: plainSession, HTTPSOrigin: origin,
 				HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys, account.HTTPSOIDC},
 			},

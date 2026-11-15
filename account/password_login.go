@@ -18,9 +18,9 @@ type Credentials struct {
 // *UsernameError, a *ratelimit.RefusedError (the limiter's, or Dimension "untrusted" past
 // its allowance) or access.ErrHashBusy. Each later attempt is counted before the compare,
 // and FailureCap failures lock the password in their trust context. An unknown, disabled,
-// passwordless, locked or wrong-password arm is one ErrInvalidCredentials after the same
-// work; a stored hash costlier than the hasher's can be access.ErrHashBusy after the
-// count. A success resets the failure records and rehashes an old hash.
+// passwordless, locked, dormant or wrong-password arm is one ErrInvalidCredentials after
+// the same work; a stored hash costlier than the hasher's can be access.ErrHashBusy after
+// the count. A success resets the failure records and rehashes an old hash.
 func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
 	r, err := s.beginOver(plainPerRequest, c.Secure)
 	if err != nil {
@@ -52,8 +52,11 @@ func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (
 		},
 		in: func(tx Tx) (*access.User, error) {
 			u, cleared, err := commitVerified(ctx, tx, a)
+			if err != nil {
+				return nil, err
+			}
 			reenabled = cleared
-			return u, err
+			return u, requireLocal(ctx, tx, u, ErrInvalidCredentials)
 		},
 		announce: func(j *journal, u *access.User, sess *access.Session) {
 			if reenabled {

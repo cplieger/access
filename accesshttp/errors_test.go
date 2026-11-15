@@ -45,7 +45,6 @@ func TestErrorCodeTable(t *testing.T) {
 		{name: "scope_required", err: account.ErrScopeRequired, code: "auth_scope_required"},
 		{name: "policy", err: &account.PolicyError{Op: account.OpCreateUser, Reason: "admin_target"}, code: "auth_forbidden", reason: "admin_target"},
 		{name: "wrapped_policy", err: wrapped(&account.PolicyError{Reason: "other_user"}), code: "auth_forbidden", reason: "other_user"},
-		{name: "sso_governed", err: account.ErrSSOGoverned, code: "auth_forbidden", reason: "sso_governed"},
 		{name: "rate_limited", err: &ratelimit.RefusedError{Dimension: "ip", RetryAfter: time.Second}, code: "auth_rate_limited"},
 		{name: "hash_busy", err: access.ErrHashBusy, code: "auth_busy"},
 		{name: "backend", err: fmt.Errorf("%w: %w", access.ErrAuthBackend, errors.New("disk")), code: "auth_unavailable"},
@@ -104,6 +103,7 @@ func TestErrorCodeTable(t *testing.T) {
 		{name: "registration_closed", err: account.ErrRegistrationClosed, code: "auth_registration_closed"},
 		{name: "registration_full", err: account.ErrRegistrationFull, code: "auth_registration_full"},
 		{name: "sso_only", err: account.ErrSSOOnly, code: "auth_sso_only"},
+		{name: "unknown_sso_mode", err: account.ErrUnknownSSOMode, code: "auth_bad_request"},
 	}
 	reached := map[access.Code]bool{}
 	for _, row := range rows {

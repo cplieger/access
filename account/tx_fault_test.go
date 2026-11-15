@@ -262,21 +262,23 @@ func txScenarios() []txScenario {
 			}
 			return setPasswordRevoking("")(t, w)
 		}},
-		{name: "oidc_intent_link_sso_governed", world: worldOptions{rules: func(r *account.Rules) { r.SSOGoverned = true }}, prep: func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
+		{name: "oidc_intent_link_for_linked", prep: func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
+			storeMode(t, w.mem, account.SSOForLinked)
 			p := w.recent(t, w.alice)
 			flow, claims := w.rig.sessionFlow(t, oidc.IntentLink, w.alice, p.SessionID)
 			return func(ctx context.Context) error {
 					_, err := w.svc.OIDCComplete(ctx, localClient, flow, claims)
 					return err
 				},
-				migratedCheck(w)
+				dormantLinkCheck(w, p.SessionID)
 		}},
-		{name: "link_pending_oidc_sso_governed", world: worldOptions{rules: func(r *account.Rules) { r.SSOGoverned = true }}, prep: func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
+		{name: "link_pending_oidc_for_linked", prep: func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
+			storeMode(t, w.mem, account.SSOForLinked)
 			p := w.recent(t, w.alice)
 			return func(ctx context.Context) error {
 				_, _, err := w.svc.LinkPendingOIDC(ctx, p, account.PendingLink{Identity: w.rig.identity()})
 				return err
-			}, migratedCheck(w)
+			}, dormantLinkCheck(w, p.SessionID)
 		}},
 		{name: "remove_second_last_passkey", prep: func(t *testing.T, w *opWorld) (func(context.Context) error, func(*testing.T)) {
 			p := w.recent(t, w.alice)
@@ -420,13 +422,18 @@ func acceptedCheck(w *opWorld, inv account.IssuedToken) func(*testing.T) {
 	}
 }
 
-// migratedCheck is an SSOGoverned link's state: alice linked, with no
-// password and no passkey left.
-func migratedCheck(w *opWorld) func(*testing.T) {
+// dormantLinkCheck is a link's state under SSOForLinked: alice linked,
+// her password and passkeys kept, and only the linking session left, now
+// signed in by OIDC.
+func dormantLinkCheck(w *opWorld, current string) func(*testing.T) {
 	return func(t *testing.T) {
 		u := storedUser(t, w.mem, w.alice.ID)
-		if u.OIDC != w.rig.identity() || !u.PasswordHash.IsZero() || len(passkeysOf(t, w.mem, u.ID)) != 0 {
-			t.Errorf("alice = link %+v, password held %t, %d passkeys; want linked with neither left", u.OIDC, !u.PasswordHash.IsZero(), len(passkeysOf(t, w.mem, u.ID)))
+		if u.OIDC != w.rig.identity() || u.PasswordHash.IsZero() || len(passkeysOf(t, w.mem, u.ID)) == 0 {
+			t.Errorf("alice = link %+v, password held %t, %d passkeys; want linked with both kept", u.OIDC, !u.PasswordHash.IsZero(), len(passkeysOf(t, w.mem, u.ID)))
+		}
+		sessions := sessionsOf(t, w.mem, u.ID)
+		if len(sessions) != 1 || sessions[0].ID != current || sessions[0].AuthMethod != access.MethodOIDC {
+			t.Errorf("alice's sessions = %+v, want the linking one on MethodOIDC", sessions)
 		}
 	}
 }

@@ -18,7 +18,6 @@ const (
 	OpInvite        Operation = "invite"
 	OpListUsers     Operation = "list_users"      // the admin user list, the live invite tokens and the security log
 	OpManageAllKeys Operation = "manage_all_keys" // list and revoke every user's keys
-	OpMigrateToSSO  Operation = "migrate_to_sso"  // an OIDC link under Rules.SSOGoverned
 	OpCreateKeyFor  Operation = "create_key_for"  // an out-of-band actor mints a key for Target
 	OpCreateOwnKey  Operation = "create_own_key"  // a session or a key mints a key for its own user
 	OpRotateKey     Operation = "rotate_key"      // a new secret for Target's key, by OutOfBand or Target's own session
@@ -27,6 +26,10 @@ const (
 	OpSetTemporaryPassword Operation = "set_temporary_password"
 	OpResetSecondFactor    Operation = "reset_second_factor" // delete Target's TOTP and recovery code
 	OpUnlinkOIDC           Operation = "unlink_oidc"         // remove Target's identity-provider link for them
+	// OpApplySSO is a change of the stored SSO mode. account decides it
+	// itself, owners and out-of-band actors only, and asks no Policy; it
+	// names the operation of its PolicyErrors.
+	OpApplySSO Operation = "apply_sso"
 )
 
 // CreateVia names what authorises an OpCreateUser. account alone sets it,
@@ -109,11 +112,6 @@ func (p RolePolicy) Authorize(_ context.Context, d Decision) error { //nolint:go
 			return nil
 		}
 		return requireAdmin(d, actor, isPrincipal)
-	case OpMigrateToSSO:
-		if !isPrincipal {
-			return &PolicyError{Op: d.Op, Reason: ReasonNotPrincipal}
-		}
-		return nil
 	case OpSetOwner:
 		if d.Actor.isOutOfBand() || (isPrincipal && isOwner(actor)) {
 			return nil

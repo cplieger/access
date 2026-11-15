@@ -36,6 +36,7 @@ func operationScenarios() map[scenarioKey]scenario {
 	maps.Copy(out, oidcScenarios())
 	maps.Copy(out, selfScenarios())
 	maps.Copy(out, adminScenarios())
+	maps.Copy(out, ssoScenarios())
 	maps.Copy(out, plainScenarios())
 	return out
 }
@@ -386,6 +387,13 @@ func publicScenarios() map[scenarioKey]scenario {
 
 		{"authInviteAcceptPassword", access.CodeForbidden}: {opts: envOptions{edit: refuse(account.OpCreateUser)}, arrange: func(t *testing.T, e *env) *http.Request {
 			return e.post(t, "authInviteAcceptPassword", inviteBody(t, e.invite(t), "invitee", testPassword))
+		}},
+		{"authInviteAcceptPassword", access.CodeSSOOnly}: {arrange: func(t *testing.T, e *env) *http.Request {
+			body := inviteBody(t, e.invite(t), "invitee", testPassword)
+			if err := e.mem.SetSSOMode(t.Context(), account.SSOOnly); err != nil {
+				t.Fatalf("SetSSOMode: %v", err)
+			}
+			return e.post(t, "authInviteAcceptPassword", body)
 		}},
 		{"authInviteAcceptPassword", access.CodeRateLimited}: {opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
 			body := inviteBody(t, e.invite(t), "invitee", testPassword)

@@ -250,6 +250,19 @@ export const parseOwnerRequest: Validator<OwnerRequest> = object({
   owner: req(bool),
 });
 
+/** @internal Go's account.SSOModeName constants, in SSOMode order. */
+export const SSO_MODES = ["alongside", "for_linked", "only"] as const;
+/** How single sign-on sits beside local sign-in for every account but the owners. */
+export type SSOMode = (typeof SSO_MODES)[number];
+const ssoMode = oneOf(...SSO_MODES);
+
+export interface SSORequest {
+  readonly mode: SSOMode;
+}
+export const parseSSORequest: Validator<SSORequest> = object({
+  mode: req(ssoMode),
+});
+
 export interface InviteRequest {
   readonly role: Role;
   readonly hours?: number;
@@ -286,6 +299,8 @@ export interface StateResponse {
   readonly plain_session?: PlainSessionView;
   readonly https_required: readonly HTTPSFeature[];
   readonly https_origin?: string;
+  /** The stored SSO mode. */
+  readonly sso: SSOMode;
 }
 export const parseStateResponse: Validator<StateResponse> = object({
   setup_required: req(bool),
@@ -298,15 +313,19 @@ export const parseStateResponse: Validator<StateResponse> = object({
   ),
   https_required: req(list(oneOf(...HTTPS_FEATURES))),
   https_origin: opt(str),
+  sso: req(ssoMode),
 });
 
 export interface UserMethodsView {
   readonly password: boolean;
   readonly passkey_count: number;
+  /** The SSO mode keeps this user's password and passkeys dormant. */
+  readonly local_methods_dormant: boolean;
 }
 export const parseUserMethodsView: Validator<UserMethodsView> = object({
   password: req(bool),
   passkey_count: req(count),
+  local_methods_dormant: req(bool),
 });
 
 /** key_lineage and methods are set on the admin list only. */
@@ -517,7 +536,8 @@ export interface MeResponse {
   readonly user: UserView;
   readonly methods: MethodsView;
   readonly can_link_oidc: boolean;
-  readonly sso_governed: boolean;
+  /** The SSO mode keeps this user's local methods dormant: hide their forms. */
+  readonly sso_only: boolean;
   readonly owner: boolean;
   /** The Policy admits one account: hide what cannot apply. */
   readonly single_user: boolean;
@@ -527,7 +547,7 @@ export const parseMeResponse: Validator<MeResponse> = object({
   user: req(parseUserView),
   methods: req(parseMethodsView),
   can_link_oidc: req(bool),
-  sso_governed: req(bool),
+  sso_only: req(bool),
   owner: req(bool),
   single_user: req(bool),
   session: req(parseCurrentSessionView),
@@ -693,6 +713,11 @@ export interface LogEntryView {
   readonly session_ids?: readonly string[];
   readonly key_id?: number;
   readonly passkey_id?: number;
+  /** The issuing user of a withdrawn temporary password. */
+  readonly issuer_user_id?: number;
+  /** An sso_mode_changed entry's new and old mode. */
+  readonly sso_mode?: SSOMode;
+  readonly previous_sso_mode?: SSOMode;
   readonly method?: Method;
   readonly role?: Role;
   readonly trusted?: boolean;
@@ -710,6 +735,9 @@ export const parseLogEntryView: Validator<LogEntryView> = object({
   session_ids: opt(strings),
   key_id: opt(id),
   passkey_id: opt(id),
+  issuer_user_id: opt(id),
+  sso_mode: opt(ssoMode),
+  previous_sso_mode: opt(ssoMode),
   method: opt(method),
   role: opt(role),
   trusted: opt(bool),
@@ -825,7 +853,6 @@ export type AuthCode = (typeof CODES)[number];
 
 /** accesshttp.Reasons(), in its order. @internal */
 export const REASONS = [
-  "sso_governed",
   "ttl_too_long",
   "ttl_negative",
   "no_change",
@@ -871,7 +898,6 @@ export const REASONS = [
   "permission_not_admin",
   "other_user",
   "target_not_eligible",
-  "not_principal",
   "unknown_operation",
   "not_enabled_user",
   "not_admin",
@@ -948,3 +974,27 @@ export function authReason(e: ApiErr): AuthReason | undefined {
   const r = errorReason(e);
   return r !== undefined && reasonSet.has(r) ? (r as AuthReason) : undefined;
 }
+
+/** The refusal a change of the SSO mode would answer: adminApplySSO answers exactly this. */
+export interface ReadinessRefusal {
+  readonly code: AuthCode;
+  readonly reason?: AuthReason;
+}
+
+/** What a change of the SSO mode would do; each count is zero in the direction that does not apply. */
+export interface Readiness {
+  readonly refusal?: ReadinessRefusal;
+  readonly locked_out: number;
+  readonly methods_made_dormant: number;
+  readonly methods_restored: number;
+  readonly temporary_passwords_withdrawn: number;
+}
+export const parseReadiness: Validator<Readiness> = object({
+  refusal: opt(
+    object<ReadinessRefusal>({ code: req(oneOf(...CODES)), reason: opt(oneOf(...REASONS)) }),
+  ),
+  locked_out: req(count),
+  methods_made_dormant: req(count),
+  methods_restored: req(count),
+  temporary_passwords_withdrawn: req(count),
+});

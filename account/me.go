@@ -8,7 +8,7 @@ import (
 )
 
 // Me returns p's own view: the user as stored, its sign-in methods with
-// their failure-cap locks, whether single sign-on governs them, and p's
+// their failure-cap locks, whether the SSO mode keeps them dormant, and p's
 // session with the deadlines p was verified under. Only a full session may
 // call it (ErrSessionRequired); a user deleted since p was verified is
 // ErrSessionGone. It writes nothing.
@@ -41,12 +41,16 @@ func (s *Service) meIn(ctx context.Context, tx Tx, r Rules, u *access.User, p ac
 	if err != nil {
 		return Me{}, err
 	}
+	mode, err := storedMode(ctx, tx)
+	if err != nil {
+		return Me{}, err
+	}
 	return Me{
 		User:        u,
 		Methods:     m,
 		CanLinkOIDC: m.OIDCAvailable && !m.OIDCLinked,
 		SingleUser:  s.singleUser,
-		SSOGoverned: r.SSOGoverned && m.OIDCLinked,
+		SSOOnly:     mode.dormantFor(u),
 		Current: CurrentSession{
 			ID: p.SessionID, Method: p.Method, AuthTime: p.AuthTime,
 			IdleDeadline: p.IdleDeadline, AbsoluteDeadline: p.AbsoluteDeadline, Secure: p.Secure,

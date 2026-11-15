@@ -229,6 +229,9 @@
             },
             {
               "name": "password"
+            },
+            {
+              "name": "local_methods_dormant"
             }
           ],
           "optional": true
@@ -270,7 +273,7 @@
       "name": "can_link_oidc"
     },
     {
-      "name": "sso_governed"
+      "name": "sso_only"
     },
     {
       "name": "owner"
@@ -388,10 +391,98 @@
       "name": "display_name"
     }
   ],
+  "Readiness": [
+    {
+      "name": "refusal",
+      "fields": [
+        {
+          "name": "code",
+          "values": [
+            "auth_required",
+            "auth_session_expired",
+            "auth_invalid_credentials",
+            "auth_key_invalid",
+            "auth_recent_auth_required",
+            "auth_session_required",
+            "auth_scope_required",
+            "auth_key_required",
+            "auth_https_required",
+            "auth_forbidden",
+            "auth_rate_limited",
+            "auth_busy",
+            "auth_unavailable",
+            "auth_bad_request",
+            "auth_body_too_large",
+            "auth_username_invalid",
+            "auth_username_taken",
+            "auth_key_label_taken",
+            "auth_password_rejected",
+            "auth_breach_check_unavailable",
+            "auth_password_login_disabled",
+            "auth_code_invalid",
+            "auth_second_factor_required",
+            "auth_second_factor_unavailable",
+            "auth_totp_disabled",
+            "auth_setup_complete",
+            "auth_setup_token_required",
+            "auth_registration_closed",
+            "auth_registration_full",
+            "auth_token_invalid",
+            "auth_last_method",
+            "auth_identity_taken",
+            "auth_already_linked",
+            "auth_method_not_locked",
+            "auth_cross_origin",
+            "auth_duplicate_credential",
+            "auth_unknown_scope",
+            "auth_passkeys_unavailable",
+            "auth_origin_refused",
+            "auth_ceremony_invalid",
+            "auth_not_discoverable",
+            "auth_unknown_credential",
+            "auth_assertion_failed",
+            "auth_registration_failed",
+            "auth_oidc_unavailable",
+            "auth_oidc_failed",
+            "auth_sso_only",
+            "auth_not_found",
+            "auth_method_not_allowed"
+          ]
+        },
+        {
+          "name": "reason",
+          "optional": true
+        }
+      ],
+      "optional": true
+    },
+    {
+      "name": "locked_out"
+    },
+    {
+      "name": "methods_made_dormant"
+    },
+    {
+      "name": "methods_restored"
+    },
+    {
+      "name": "temporary_passwords_withdrawn"
+    }
+  ],
   "RedirectRequest": [
     {
       "name": "redirect",
       "optional": true
+    }
+  ],
+  "SSORequest": [
+    {
+      "name": "mode",
+      "values": [
+        "alongside",
+        "for_linked",
+        "only"
+      ]
     }
   ],
   "SecurityLogView": [
@@ -446,6 +537,24 @@
           "optional": true
         },
         {
+          "name": "sso_mode",
+          "values": [
+            "alongside",
+            "for_linked",
+            "only"
+          ],
+          "optional": true
+        },
+        {
+          "name": "previous_sso_mode",
+          "values": [
+            "alongside",
+            "for_linked",
+            "only"
+          ],
+          "optional": true
+        },
+        {
           "name": "session_ids",
           "optional": true
         },
@@ -495,6 +604,10 @@
         },
         {
           "name": "passkey_id",
+          "optional": true
+        },
+        {
+          "name": "issuer_user_id",
           "optional": true
         },
         {
@@ -645,6 +758,9 @@
             },
             {
               "name": "password"
+            },
+            {
+              "name": "local_methods_dormant"
             }
           ],
           "optional": true
@@ -703,6 +819,14 @@
     {
       "name": "https_origin",
       "optional": true
+    },
+    {
+      "name": "sso",
+      "values": [
+        "alongside",
+        "for_linked",
+        "only"
+      ]
     },
     {
       "name": "https_required",
@@ -797,6 +921,9 @@
         },
         {
           "name": "password"
+        },
+        {
+          "name": "local_methods_dormant"
         }
       ],
       "optional": true

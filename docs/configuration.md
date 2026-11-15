@@ -266,6 +266,26 @@ Under a single-user Policy the store must hold exactly one enabled account, an a
 
 `Service.Owner(ctx)` returns a single-user app's owner for its admin socket: `ErrNotFound` before setup, and an error naming the repair when the store was changed under the running app. Under a multi-user Policy it answers `ErrNotSingleUser`.
 
+### The SSO mode
+
+The store holds one `account.SSOMode` that sets how single sign-on sits beside local sign-in for every account but the owners, who keep their password and passkeys under every mode. No `Rules` or `Config` field carries it, so a reload never changes it.
+
+| Mode | A linked account | An account with no link |
+| --- | --- | --- |
+| `SSOAlongside`, the default | signs in by single sign-on or with its own password or passkey | signs in locally |
+| `SSOForLinked` | signs in only by single sign-on; its password and passkeys are dormant | signs in locally |
+| `SSOOnly` | signs in only by single sign-on; its password and passkeys are dormant | cannot sign in until an admin links it; its password and passkeys are dormant |
+
+A dormant method is kept, never deleted, and a looser mode brings it back. A local sign-in with a dormant method answers `ErrInvalidCredentials` after the same work and the same failure count as a wrong password. From a session, adding a password or a passkey and stepping up by either answer `ErrSSOOnly` (`auth_sso_only`), and `Me.SSOOnly` tells the screen to hide those forms. Under `SSOOnly` a password invite acceptance answers `ErrSSOOnly` too. The last-method guard counts no dormant method, and never an owner's single sign-on link.
+
+- `Service.SSO(ctx)` returns the stored mode, and whether any write ever set it.
+- `Service.ApplySSO(ctx, actor, mode)` changes it, for an owner's secure session within `Rules.RecentAuth` or an out-of-band actor. It reads `Config.OIDC()` before its transaction opens, then in one transaction writes the mode, ends each non-owner session the mode now forbids, deletes the dormant temporary password of each account it brings back, and journals `sso_mode_changed`. A refusal writes nothing.
+- `Service.MigrateSSO(ctx, mode)` is the same write by the out-of-band actor `migration`, which writes nothing once any write has set the mode. An app moving from an older release's setting calls it wherever it configures its provider, and never reads first.
+- `Service.CheckSSOReady(ctx, actor, mode)` answers every refusal `ApplySSO` would, and `Service.SSOReadiness(ctx, actor, mode)` the counts the settings screen shows: the accounts left unable to sign in, the accounts whose local methods turn dormant or come back, and the temporary passwords withdrawn. A refusal for a state the owner fixes elsewhere is `Readiness.Refusal`: `ErrOIDCUnavailable` while the provider is off, `single_owner` for any mode but `SSOAlongside` under a single-user Policy, and `owner_needs_local_method` for `SSOOnly` while the acting owner, or for an out-of-band actor every owner, holds no password or passkey it signs in with. A principal that is no owner gets `not_owner`, with no counts.
+- `Service.CheckRules(ctx, rules)` answers the `Rules` check every operation makes, for an app to call before it publishes a settings write or a reload.
+
+`account.New` refuses to start on a stored mode other than `SSOAlongside` under a single-user Policy, or with `Config.OIDC` unset, naming the repair: wire the provider and apply `SSOAlongside`, or set the stored mode to `SSOAlongside` with the app stopped. An app that removes its provider calls `ApplySSO(ctx, actor, account.SSOAlongside)` first. A `Config.OIDC` that is set but returns nil, such as a provider whose issuer is down at start, starts, and the stored mode stays in force; the mode operations then answer `ErrOIDCUnavailable`.
+
 ### Rules
 
 `account.Rules` is your policy as data. `Config.Rules` is read once per operation, so a reloaded value applies from the next operation on. The zero value of every field is its default.
@@ -284,8 +304,7 @@ Under a single-user Policy the store must hold exactly one enabled account, an a
 | `Breach` | The breached-password check: `BreachOff`, `BreachFailOpen` or `BreachFailClosed` | `BreachOff` |
 | `MaxSessionsPerUser` | The most sessions per user; a new one past it ends the user's least recently active | 0: unlimited |
 | `DisablePasswordLogin` | Refuses password sign-in and step-up | false: allowed |
-| `SSOGoverned` | Makes linking an OIDC identity remove the password and passkeys | false |
-| `RevokeKeysOnCredentialChange` | Deletes the user's API keys, and the tokens they issued, when `SetPassword` sets or changes the password, and when an OIDC link under `SSOGoverned` migrates the account. Disabling and deleting a user always delete the keys | false |
+| `RevokeKeysOnCredentialChange` | Deletes the user's API keys, and the tokens they issued, when `SetPassword` sets or changes the password. Disabling and deleting a user always delete the keys | false |
 | `HTTPSOrigin` | The app's HTTPS origin, `https://host` or `https://host:port`, which `Service.State` answers a plain request as `https_origin` so the sign-in screen can link there ([Plain HTTP](plain-http.md#what-the-screens-learn)). A link only; nothing trusts it. `Validate` refuses any other scheme, user info, a host that is not a hostname or an IP address in its browser form, an invalid port, the default port `:443`, an uppercase host, a path (`/` included), a query and a fragment | empty: none |
 
 An app may refuse a sign-in method in its own gate before `account` sees the attempt. `Rules` has no sign-in hook for that, and `MethodUsable` keeps the last-method guard from counting a method the app refuses.

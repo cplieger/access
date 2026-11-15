@@ -55,7 +55,7 @@ var (
 func goldenUser() UserView {
 	return UserView{
 		ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleAdmin, Enabled: true, OIDCLinked: true, Owner: true,
-		CreatedAt: goldenTime, KeyLineage: []int64{3, 5}, Methods: &UserMethodsView{Password: true, PasskeyCount: 2},
+		CreatedAt: goldenTime, KeyLineage: []int64{3, 5}, Methods: &UserMethodsView{Password: true, PasskeyCount: 2, LocalMethodsDormant: true},
 	}
 }
 
@@ -100,18 +100,24 @@ func fixtures() []fixture {
 		{name: "NewUserRequest.noPassword", absent: "password", request: true, value: NewUserRequest{Username: "bob", Role: access.RoleUser}},
 		{name: "UserUpdateRequest", request: true, value: UserUpdateRequest{Role: &goldenRole, Enabled: &goldenTrue}},
 		{name: "OwnerRequest", request: true, value: OwnerRequest{Owner: true}},
+		{name: "SSORequest", request: true, value: SSORequest{Mode: account.SSONameForLinked}},
 		{name: "InviteRequest", request: true, value: InviteRequest{Role: access.RoleUser, Hours: 72}},
 
 		{name: "StateResponse", value: StateResponse{
 			SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, PlainSession: &PlainSessionView{IdleSeconds: 1800, AbsoluteSeconds: 43200},
 			HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys, account.HTTPSOIDC}, HTTPSOrigin: "https://app.example.com",
+			SSO: account.SSONameForLinked,
+		}},
+		{name: "Readiness", value: Readiness{
+			Refusal:   &ReadinessRefusal{Code: access.CodeForbidden, Reason: account.ReasonOwnerNeedsLocalMethod},
+			LockedOut: 3, MethodsMadeDormant: 5, MethodsRestored: 4, TemporaryPasswordsWithdrawn: 2,
 		}},
 		{name: "SignedInResponse", value: SignedInResponse{SessionID: "s1", User: goldenUser(), CloneWarning: true}},
 		{name: "CeremonyResponse", value: CeremonyResponse{Ceremony: "c1", PublicKey: json.RawMessage(`{"publicKey":{"challenge":"Y2hhbGxlbmdl"},"mediation":"conditional"}`)}},
 		{name: "OIDCStartResponse", value: OIDCStartResponse{URL: "https://idp.example.com/authorize?state=x"}},
 		{name: "PendingLinkResponse", value: PendingLinkResponse{Issuer: "https://idp.example.com", UsernameHint: "alice", Email: "alice@example.com"}},
 		{name: "MeResponse", value: MeResponse{
-			User: goldenUser(), Methods: goldenMethods(), CanLinkOIDC: true, SSOGoverned: true, Owner: true, SingleUser: true,
+			User: goldenUser(), Methods: goldenMethods(), CanLinkOIDC: true, SSOOnly: true, Owner: true, SingleUser: true,
 			Session: CurrentSessionView{ID: "s1", Method: access.MethodPasskey, AuthTime: goldenTime, IdleDeadline: goldenTime, AbsoluteDeadline: goldenLater, Secure: true},
 		}},
 		{name: "PasskeyView", value: PasskeyView{
@@ -136,6 +142,7 @@ func fixtures() []fixture {
 				Seq: 42, At: goldenLater, OccurredAt: goldenTime, Class: account.LogClassChange, Kind: string(account.EventPasskeyAdded),
 				UserID: 7, IP: "192.0.2.1", SessionIDs: []string{"s1", "s2"}, KeyID: 5, PasskeyID: 2,
 				Method: access.MethodPasskey, Role: access.RoleUser, Trusted: true, Detail: "fixture-detail",
+				IssuerUserID: 8, SSOMode: account.SSONameOnly, PreviousSSOMode: account.SSONameAlongside,
 				Actor: LogActorView{
 					UserID: 7, SessionID: "s1", KeyID: 5, OutOfBand: "cli",
 					Label: "laptop", UserAgent: "Firefox", KeySuffix: "wxyz",

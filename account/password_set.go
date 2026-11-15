@@ -8,12 +8,12 @@ import (
 )
 
 // SetPassword sets p's own password, for a full session within RecentAuth
-// (plain c or p under PostureSecure: access.ErrHTTPSRequired); a linked user
-// under Rules.SSOGoverned is ErrSSOGoverned. A user holding a password gives it
-// as current (zero: ErrCurrentPasswordRequired before any limiter call),
-// counted like StepUpPassword's attempt; one holding none has current ignored,
-// committing while it still holds none. One Update writes the hash, rotates p's
-// session into Issued, revokes the other sessions and, under
+// (plain c or p under PostureSecure: access.ErrHTTPSRequired); a dormant
+// user is ErrSSOOnly. A user holding a password gives it as current (zero:
+// ErrCurrentPasswordRequired before any limiter call), counted like
+// StepUpPassword's attempt; one holding none has current ignored, committing
+// while it still holds none. One Update writes the hash, rotates p's session
+// into Issued, revokes the other sessions and, under
 // RevokeKeysOnCredentialChange, the user's keys and tokens.
 func (s *Service) SetPassword(ctx context.Context, c Client, p access.Principal, current, password access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
 	r, err := s.beginRecentSession(plainPerRequest, c.Secure && p.Secure, p)
@@ -24,8 +24,8 @@ func (s *Service) SetPassword(ctx context.Context, c Client, p access.Principal,
 	if err != nil {
 		return Issued{}, err
 	}
-	if r.SSOGoverned && !u.OIDC.IsZero() {
-		return Issued{}, ErrSSOGoverned
+	if modeErr := s.localAllowed(ctx, u); modeErr != nil {
+		return Issued{}, modeErr
 	}
 	held, err := holds(ctx, s.store, u, credential{method: access.MethodPassword})
 	if err != nil {
@@ -238,9 +238,13 @@ type credentialChange struct {
 // changeCredential writes u's new credential inside tx, then rotates p's
 // session, revokes every other session of the user and, under
 // Rules.RevokeKeysOnCredentialChange, deletes the user's keys and their
-// tokens, all in the caller's Update.
+// tokens, all in the caller's Update. A u, as tx read it, that is a dormant
+// user is ErrSSOOnly.
 func (s *Service) changeCredential(ctx context.Context, tx Tx, r Rules, p access.Principal, u *access.User, ch *credentialChange) error { //nolint:gocritic // hugeParam: the operation's one Rules value and its Principal
 	*ch = credentialChange{}
+	if err := requireLocal(ctx, tx, u, ErrSSOOnly); err != nil {
+		return err
+	}
 	u.UpdatedAt = s.now()
 	if err := tx.UpdateUser(ctx, u); err != nil {
 		return err

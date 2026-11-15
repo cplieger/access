@@ -135,6 +135,9 @@ func newService(ctx context.Context, cfg Config, hooks testHooks) (*Service, err
 	if err := s.sweepFailures(ctx); err != nil {
 		return nil, err
 	}
+	if err := s.checkStoredMode(ctx); err != nil {
+		return nil, err
+	}
 	if err := s.markOwners(ctx, cfg.Rules().withDefaults()); err != nil {
 		return nil, err
 	}

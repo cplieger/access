@@ -97,6 +97,33 @@ type OwnerRequest struct {
 	Owner bool `json:"owner"`
 }
 
+// SSORequest is authAdminSSOApply's body.
+type SSORequest struct {
+	Mode account.SSOModeName `json:"mode"`
+}
+
+// SSOReadinessQuery is authAdminSSOReadiness's query.
+type SSOReadinessQuery struct {
+	Mode account.SSOModeName `json:"mode"`
+}
+
+// Readiness is account.Readiness: what a change of the SSO mode would do.
+type Readiness struct {
+	// Refusal is the state refusal authAdminSSOApply would answer, as its
+	// error body would carry it; absent when the change would be made.
+	Refusal                     *ReadinessRefusal `json:"refusal,omitempty"`
+	LockedOut                   int               `json:"locked_out"`
+	MethodsMadeDormant          int               `json:"methods_made_dormant"`
+	MethodsRestored             int               `json:"methods_restored"`
+	TemporaryPasswordsWithdrawn int               `json:"temporary_passwords_withdrawn"`
+}
+
+// ReadinessRefusal is a state refusal's code and reason.
+type ReadinessRefusal struct {
+	Code   access.Code `json:"code"`
+	Reason string      `json:"reason,omitempty"`
+}
+
 // InviteRequest is authAdminInvite's body.
 type InviteRequest struct {
 	Role  access.Role `json:"role"`
@@ -107,6 +134,7 @@ type InviteRequest struct {
 type StateResponse struct {
 	PlainSession  *PlainSessionView      `json:"plain_session,omitempty"`
 	HTTPSOrigin   string                 `json:"https_origin,omitempty"`
+	SSO           account.SSOModeName    `json:"sso"` // the stored SSO mode
 	HTTPSRequired []account.HTTPSFeature `json:"https_required"`
 	SetupRequired bool                   `json:"setup_required"`
 	PasswordLogin bool                   `json:"password_login"`
@@ -137,10 +165,12 @@ type UserView struct {
 	Owner      bool    `json:"owner"`
 }
 
-// UserMethodsView is a listed user's password and passkey count.
+// UserMethodsView is a listed user's sign-in methods and the facts about
+// them the admin list reads with the page.
 type UserMethodsView struct {
-	PasskeyCount int  `json:"passkey_count"`
-	Password     bool `json:"password"`
+	PasskeyCount        int  `json:"passkey_count"`
+	Password            bool `json:"password"`
+	LocalMethodsDormant bool `json:"local_methods_dormant"`
 }
 
 // SignedInResponse is the answer of every route that signs a user in.
@@ -204,9 +234,11 @@ type MeResponse struct {
 	Methods     MethodsView        `json:"methods"`
 	User        UserView           `json:"user"`
 	CanLinkOIDC bool               `json:"can_link_oidc"`
-	SSOGoverned bool               `json:"sso_governed"`
-	Owner       bool               `json:"owner"`
-	SingleUser  bool               `json:"single_user"`
+	// SSOOnly is account.Me.SSOOnly: the stored SSO mode keeps this user's
+	// local methods dormant.
+	SSOOnly    bool `json:"sso_only"`
+	Owner      bool `json:"owner"`
+	SingleUser bool `json:"single_user"`
 }
 
 // PasskeyView is one passkey.
@@ -308,13 +340,19 @@ type LogEntryView struct {
 	Method     access.Method    `json:"method,omitempty"`
 	Role       access.Role      `json:"role,omitempty"`
 	Detail     string           `json:"detail,omitempty"`
-	SessionIDs []string         `json:"session_ids,omitempty"`
-	Actor      LogActorView     `json:"actor"`
-	Seq        int64            `json:"seq"`
-	UserID     int64            `json:"user_id,omitempty"`
-	KeyID      int64            `json:"key_id,omitempty"`
-	PasskeyID  int64            `json:"passkey_id,omitempty"`
-	Trusted    bool             `json:"trusted,omitempty"`
+	// SSOMode and PreviousSSOMode are an sso_mode_changed entry's new and
+	// old mode; absent on every other kind.
+	SSOMode         account.SSOModeName `json:"sso_mode,omitempty"`
+	PreviousSSOMode account.SSOModeName `json:"previous_sso_mode,omitempty"`
+	SessionIDs      []string            `json:"session_ids,omitempty"`
+	Actor           LogActorView        `json:"actor"`
+	Seq             int64               `json:"seq"`
+	UserID          int64               `json:"user_id,omitempty"`
+	KeyID           int64               `json:"key_id,omitempty"`
+	PasskeyID       int64               `json:"passkey_id,omitempty"`
+	// IssuerUserID is the issuing user of a withdrawn temporary password.
+	IssuerUserID int64 `json:"issuer_user_id,omitempty"`
+	Trusted      bool  `json:"trusted,omitempty"`
 }
 
 // LogActorView is who made a logged change, with the display data the
@@ -413,7 +451,7 @@ func userView(u *access.User) UserView {
 func listedUserView(l *account.ListedUser) UserView {
 	v := userView(&l.User)
 	v.KeyLineage = l.KeyLineage
-	v.Methods = &UserMethodsView{Password: !l.User.PasswordHash.IsZero(), PasskeyCount: l.PasskeyCount}
+	v.Methods = &UserMethodsView{Password: !l.User.PasswordHash.IsZero(), PasskeyCount: l.PasskeyCount, LocalMethodsDormant: l.LocalMethodsDormant}
 	return v
 }
 
@@ -428,7 +466,7 @@ func passkeyView(p *access.PasskeyCredential) PasskeyView {
 func stateResponse(st *account.State) StateResponse {
 	v := StateResponse{
 		SetupRequired: st.SetupRequired, PasswordLogin: st.PasswordLogin, Passkeys: st.Passkeys, OIDC: st.OIDC, Secure: st.Secure,
-		HTTPSRequired: append([]account.HTTPSFeature{}, st.HTTPSRequired...), HTTPSOrigin: st.HTTPSOrigin,
+		HTTPSRequired: append([]account.HTTPSFeature{}, st.HTTPSRequired...), HTTPSOrigin: st.HTTPSOrigin, SSO: st.SSO.Name(),
 	}
 	if p := st.PlainSession; p != nil {
 		v.PlainSession = &PlainSessionView{IdleSeconds: int64(p.Idle / time.Second), AbsoluteSeconds: int64(p.Absolute / time.Second)}
@@ -486,7 +524,7 @@ func logEntryView(e *account.LogEntry) LogEntryView {
 	v := LogEntryView{
 		Seq: int64(ev.Seq), At: e.At, OccurredAt: ev.At, Class: e.Class, Kind: string(ev.Kind), //nolint:gosec // G115: rule 22 bounds Seq at 2^53 - 1
 		UserID: ev.UserID, SessionIDs: ev.SessionIDs, KeyID: ev.KeyID, PasskeyID: ev.PasskeyID,
-		Method: ev.Method, Role: ev.Role, Trusted: ev.Trusted, Detail: e.Detail,
+		Method: ev.Method, Role: ev.Role, Trusted: ev.Trusted, Detail: e.Detail, IssuerUserID: ev.IssuerUserID,
 		Actor: LogActorView{
 			UserID: ev.Actor.UserID, SessionID: ev.Actor.SessionID, KeyID: ev.Actor.KeyID, OutOfBand: ev.Actor.OutOfBand,
 			Label: e.ActorLabel, UserAgent: e.ActorUserAgent, KeySuffix: e.ActorKeySuffix,
@@ -494,6 +532,9 @@ func logEntryView(e *account.LogEntry) LogEntryView {
 	}
 	if e.IP.IsValid() {
 		v.IP = e.IP.String()
+	}
+	if ev.Kind == account.EventSSOModeChanged {
+		v.SSOMode, v.PreviousSSOMode = ev.SSOMode.Name(), ev.PreviousSSOMode.Name()
 	}
 	return v
 }
@@ -523,7 +564,7 @@ func meResponse(m *account.Me) MeResponse {
 			IdleDeadline: m.Current.IdleDeadline, AbsoluteDeadline: m.Current.AbsoluteDeadline, Secure: m.Current.Secure,
 		},
 		CanLinkOIDC: m.CanLinkOIDC,
-		SSOGoverned: m.SSOGoverned,
+		SSOOnly:     m.SSOOnly,
 		Owner:       m.User.Owner,
 		SingleUser:  m.SingleUser,
 	}

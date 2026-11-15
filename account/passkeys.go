@@ -64,11 +64,10 @@ func (s *Service) PasskeyLoginBegin(_ context.Context, c Client, origin webauthn
 // PasskeyLoginFinish completes the sign-in ceremonyID began and creates a full
 // session for the asserting user, with a device cookie that keeps the ID of
 // c.Device when that is valid for the user. A plain c is
-// access.ErrHTTPSRequired, and an unknown, spent, expired or other ceremony
-// ErrCeremonyInvalid; a credential no user holds is
-// webauthn.ErrUnknownCredential; a disabled user is ErrInvalidCredentials,
-// after the credential's custody update is stored. CloneWarning reports a
-// regressed sign counter.
+// access.ErrHTTPSRequired, an unknown, spent, expired or other ceremony
+// ErrCeremonyInvalid, a credential no user holds webauthn.ErrUnknownCredential,
+// and a disabled or dormant user ErrInvalidCredentials, after the credential's
+// custody update is stored. CloneWarning reports a regressed sign counter.
 func (s *Service) PasskeyLoginFinish(ctx context.Context, c Client, ceremonyID string, body io.Reader) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {
@@ -98,7 +97,7 @@ func (s *Service) PasskeyLoginFinish(ctx context.Context, c Client, ceremonyID s
 			case !found || !u.Enabled:
 				return nil, refuse(ErrInvalidCredentials)
 			}
-			return u, nil
+			return u, requireLocal(ctx, tx, u, ErrInvalidCredentials)
 		},
 	})
 	if err != nil {
@@ -110,10 +109,9 @@ func (s *Service) PasskeyLoginFinish(ctx context.Context, c Client, ceremonyID s
 
 // PasskeyRegisterBegin starts enrolling a passkey for p's own user, for a full
 // session within RecentAuth. A plain p is access.ErrHTTPSRequired, a nil RP()
-// ErrPasskeysUnavailable, and a linked user under Rules.SSOGoverned
-// ErrSSOGoverned.
+// ErrPasskeysUnavailable, and a dormant user ErrSSOOnly.
 func (s *Service) PasskeyRegisterBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (PendingCeremony, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	r, err := s.beginRecentSession(plainRefused, p.Secure, p)
+	_, err := s.beginRecentSession(plainRefused, p.Secure, p)
 	if err != nil {
 		return PendingCeremony{}, err
 	}
@@ -125,8 +123,8 @@ func (s *Service) PasskeyRegisterBegin(ctx context.Context, p access.Principal, 
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	if r.SSOGoverned && !u.OIDC.IsZero() {
-		return PendingCeremony{}, ErrSSOGoverned
+	if modeErr := s.localAllowed(ctx, u); modeErr != nil {
+		return PendingCeremony{}, modeErr
 	}
 	wu, err := s.webauthnUser(ctx, u)
 	if err != nil {
@@ -146,7 +144,7 @@ func (s *Service) PasskeyRegisterBegin(ctx context.Context, p access.Principal, 
 // access.ErrHTTPSRequired, a ceremony another user began ErrCeremonyInvalid,
 // and a credential already registered to any user ErrDuplicateCredential.
 func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal, ceremonyID string, body io.Reader) (Registered, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	r, err := s.beginRecentSession(plainRefused, p.Secure, p)
+	_, err := s.beginRecentSession(plainRefused, p.Secure, p)
 	if err != nil {
 		return Registered{}, err
 	}
@@ -171,8 +169,8 @@ func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal,
 		if userErr != nil {
 			return userErr
 		}
-		if r.SSOGoverned && !u.OIDC.IsZero() {
-			return refuse(ErrSSOGoverned)
+		if modeErr := requireLocal(ctx, tx, u, ErrSSOOnly); modeErr != nil {
+			return modeErr
 		}
 		var addErr error
 		if pk, addErr = s.addPasskey(ctx, tx, u.ID, cred, ErrDuplicateCredential); addErr != nil {
@@ -193,8 +191,8 @@ func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal,
 
 // StepUpPasskeyBegin starts re-proving p's user with one of its passkeys under
 // the current relying party's ID, for a full session. A plain p is
-// access.ErrHTTPSRequired, a nil RP() ErrPasskeysUnavailable, and a user
-// holding no such passkey ErrNotFound.
+// access.ErrHTTPSRequired, a nil RP() ErrPasskeysUnavailable, a dormant user
+// ErrSSOOnly, and a user holding no such passkey ErrNotFound.
 func (s *Service) StepUpPasskeyBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (PendingCeremony, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	if _, err := s.beginOver(plainRefused, p.Secure); err != nil {
 		return PendingCeremony{}, err
@@ -209,6 +207,9 @@ func (s *Service) StepUpPasskeyBegin(ctx context.Context, p access.Principal, or
 	u, err := s.ownUser(ctx, p)
 	if err != nil {
 		return PendingCeremony{}, err
+	}
+	if modeErr := s.localAllowed(ctx, u); modeErr != nil {
+		return PendingCeremony{}, modeErr
 	}
 	wu, err := s.webauthnUser(ctx, u)
 	if err != nil {
@@ -231,6 +232,7 @@ func (s *Service) StepUpPasskeyBegin(ctx context.Context, p access.Principal, or
 // AuthMethod MethodPasskey, returning in Issued a device cookie that keeps the
 // ID of c.Device when that is valid for the user. A plain c or p is
 // access.ErrHTTPSRequired, a ceremony another user began ErrCeremonyInvalid,
+// a dormant user ErrSSOOnly,
 // and a session rotated or ended meanwhile ErrSessionGone.
 func (s *Service) StepUpPasskeyFinish(ctx context.Context, c Client, p access.Principal, ceremonyID string, body io.Reader) (Issued, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
 	if _, err := s.beginOver(plainRefused, c.Secure && p.Secure); err != nil {
@@ -260,6 +262,13 @@ func (s *Service) StepUpPasskeyFinish(ctx context.Context, c Client, p access.Pr
 	}
 	var rot rotated
 	err = s.change(ctx, byClient(As(p), c), func(tx Tx, j *journal) error {
+		cur, userErr := ownUserIn(ctx, tx, p)
+		if userErr != nil {
+			return userErr
+		}
+		if modeErr := requireLocal(ctx, tx, cur, ErrSSOOnly); modeErr != nil {
+			return modeErr
+		}
 		var rotErr error
 		if rot, rotErr = s.rotate(ctx, tx, p, u.ID, access.MethodPasskey); rotErr != nil {
 			return rotErr

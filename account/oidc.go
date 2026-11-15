@@ -210,7 +210,7 @@ func (s *Service) oidcLink(ctx context.Context, r Rules, c Client, flow oidc.Flo
 		if flow.BeganAt.Before(now.Add(-r.RecentAuth)) || flow.BeganAt.After(now) {
 			return refuse(access.ErrRecentAuthRequired)
 		}
-		if err := s.linkIn(ctx, tx, r, sessionActor(u, sess), u, sess, access.Hash{}, id, &l); err != nil {
+		if err := s.linkIn(ctx, tx, sessionActor(u, sess), u, linkSession{sess: sess, fresh: true}, id, &l); err != nil {
 			return err
 		}
 		s.addLinked(j, &l)
@@ -242,7 +242,7 @@ func (s *Service) oidcStepUp(ctx context.Context, c Client, flow oidc.Flow, id a
 			return refuse(ErrInvalidCredentials)
 		}
 		user = u
-		if rot, err = s.rotateSession(ctx, tx, sess, access.Hash{}, access.MethodOIDC); err != nil {
+		if rot, err = s.rotateSession(ctx, tx, sess, access.Hash{}, access.MethodOIDC, true); err != nil {
 			return err
 		}
 		actor := EventActor{SessionID: rot.session.ID, UserID: u.ID}
@@ -293,9 +293,9 @@ func sessionActor(u *access.User, sess *access.Session) Actor {
 // re-reads the user, rotates p's session into Issued and reads the returned Me,
 // so a failed read rolls the link back. No identity is ErrNotFound, a disabled
 // user ErrSessionGone, a linked user ErrAlreadyLinked, an identity of another
-// user ErrOIDCIdentityTaken. Under Rules.SSOGoverned the link migrates the
-// account: Policy (OpMigrateToSSO), then the password, the passkeys, the other
-// sessions and, under RevokeKeysOnCredentialChange, the keys go.
+// user ErrOIDCIdentityTaken. A link that leaves the user's local methods
+// dormant under the stored SSO mode moves p's session onto MethodOIDC, its
+// AuthTime kept, and ends the user's other sessions of a local method.
 func (s *Service) LinkPendingOIDC(ctx context.Context, p access.Principal, pending PendingLink) (Issued, Me, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	r, err := s.beginRecentSession(plainRefused, p.Secure, p)
 	if err != nil {
@@ -323,7 +323,7 @@ func (s *Service) LinkPendingOIDC(ctx context.Context, p access.Principal, pendi
 		if sessErr != nil {
 			return sessErr
 		}
-		if linkErr := s.linkIn(ctx, tx, r, As(p), u, sess, p.SessionTokenHash(), pending.Identity, &l); linkErr != nil {
+		if linkErr := s.linkIn(ctx, tx, As(p), u, linkSession{sess: sess, expect: p.SessionTokenHash()}, pending.Identity, &l); linkErr != nil {
 			return linkErr
 		}
 		var meErr error
@@ -340,23 +340,30 @@ func (s *Service) LinkPendingOIDC(ctx context.Context, p access.Principal, pendi
 }
 
 // linked is what a link's Update wrote besides the link: the rotated
-// session and what an SSO migration removed.
+// session and the sessions the stored mode then forbids, ended.
 type linked struct {
 	actor    EventActor
-	passkeys []int64  // deleted, ascending
-	keys     []int64  // deleted under RevokeKeysOnCredentialChange, ascending
-	sessions []string // the other sessions revoked
+	sessions []string
 	rot      rotated
 	userID   int64
-	password bool // a password was cleared
 }
 
-// linkIn links id to u inside tx and rotates sess, as tx read it, with
-// expect as the compare-and-swap. A user already linked is ErrAlreadyLinked,
-// then an identity linked to another user ErrOIDCIdentityTaken. Under
-// r.SSOGoverned the account migrates in the same Update: Policy
-// (OpMigrateToSSO) from actor first, so a refusal fails the link whole.
-func (s *Service) linkIn(ctx context.Context, tx Tx, r Rules, actor Actor, u *access.User, sess *access.Session, expect access.Hash, id access.OIDCIdentity, l *linked) error { //nolint:gocritic // hugeParam: the operation's one Rules value and its Actor
+// linkSession is the session a link rotates, as tx read it. expect is the
+// RotateSession compare-and-swap (zero: by UserID and ID). fresh is a link
+// whose provider round trip authenticated now, so a rotation onto
+// MethodOIDC also moves AuthTime to now.
+type linkSession struct {
+	sess   *access.Session
+	expect access.Hash
+	fresh  bool
+}
+
+// linkIn links id to u inside tx and rotates ls's session. A user already
+// linked is ErrAlreadyLinked, then an identity linked to another user
+// ErrOIDCIdentityTaken. When the link leaves u's local methods dormant
+// under the stored mode, the rotation moves the session onto MethodOIDC and
+// endForbiddenSessions ends u's others.
+func (s *Service) linkIn(ctx context.Context, tx Tx, actor Actor, u *access.User, ls linkSession, id access.OIDCIdentity, l *linked) error { //nolint:gocritic // hugeParam: the operation's Actor
 	*l = linked{userID: u.ID, actor: eventActor(actor)}
 	if !u.OIDC.IsZero() {
 		return refuse(ErrAlreadyLinked)
@@ -368,61 +375,29 @@ func (s *Service) linkIn(ctx context.Context, tx Tx, r Rules, actor Actor, u *ac
 	case taken:
 		return refuse(ErrOIDCIdentityTaken)
 	}
-	if r.SSOGoverned {
-		if migErr := s.migrateIn(ctx, tx, r, actor, u, l); migErr != nil {
-			return migErr
-		}
+	mode, err := storedMode(ctx, tx)
+	if err != nil {
+		return err
 	}
 	u.OIDC, u.UpdatedAt = id, s.now()
 	if writeErr := tx.UpdateUser(ctx, u); writeErr != nil {
 		return writeErr
 	}
-	if l.rot, err = s.rotateSession(ctx, tx, sess, expect, ""); err != nil {
+	if !mode.dormantFor(u) {
+		l.rot, err = s.rotateSession(ctx, tx, ls.sess, ls.expect, "", false)
 		return err
 	}
-	if r.SSOGoverned {
-		l.sessions, err = tx.DeleteUserSessions(ctx, u.ID, sess.ID)
+	if l.rot, err = s.rotateSession(ctx, tx, ls.sess, ls.expect, access.MethodOIDC, ls.fresh); err != nil {
+		return err
 	}
+	l.sessions, err = endForbiddenSessions(ctx, tx, u)
 	return err
 }
 
-// migrateIn is the SSO migration of u inside tx, before the link is
-// written: Policy (OpMigrateToSSO) on the user set read here, then u's
-// password cleared on u, every passkey deleted and, under
-// r.RevokeKeysOnCredentialChange, every key with the tokens it issued.
-func (s *Service) migrateIn(ctx context.Context, tx Tx, r Rules, actor Actor, u *access.User, l *linked) error { //nolint:gocritic // hugeParam: the operation's one Rules value and its Actor
-	users, err := tx.ListUsers(ctx)
-	if err != nil {
-		return err
-	}
-	if polErr := s.authorize(ctx, Decision{Op: OpMigrateToSSO, Actor: actor, Target: u, Users: users}); polErr != nil {
-		return refuse(polErr)
-	}
-	l.password = !u.PasswordHash.IsZero()
-	u.PasswordHash = access.Hash{}
-	if l.passkeys, err = tx.DeleteUserPasskeys(ctx, u.ID); err != nil {
-		return err
-	}
-	slices.Sort(l.passkeys)
-	if r.RevokeKeysOnCredentialChange {
-		l.keys, err = deleteUserKeys(ctx, tx, u.ID)
-	}
-	return err
-}
-
-// addLinked adds a link's entries: EventOIDCLinked, then a migration's
-// EventPasswordRemoved, one EventPasskeyRemoved per passkey, one
-// EventKeyRevoked per key and EventUserSessionsRevoked.
+// addLinked adds a link's entries: EventOIDCLinked, then
+// EventUserSessionsRevoked for the sessions it ended.
 func (s *Service) addLinked(j *journal, l *linked) {
-	at := s.now()
-	j.add(Event{Kind: EventOIDCLinked, At: at, UserID: l.userID, Actor: l.actor})
-	if l.password {
-		j.add(Event{Kind: EventPasswordRemoved, At: at, UserID: l.userID, Method: access.MethodPassword, Actor: l.actor})
-	}
-	for _, id := range l.passkeys {
-		j.add(Event{Kind: EventPasskeyRemoved, At: at, UserID: l.userID, PasskeyID: id, Actor: l.actor})
-	}
-	s.addKeysRevoked(j, l.userID, l.keys, l.actor)
+	j.add(Event{Kind: EventOIDCLinked, At: s.now(), UserID: l.userID, Actor: l.actor})
 	s.addRevoked(j, l.userID, l.sessions, l.actor)
 }
 

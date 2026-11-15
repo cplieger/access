@@ -25,6 +25,7 @@ var notOperations = map[string]string{
 	"RevokeTransportMismatch": "the Authenticator's revoke callback; takes no Actor (TestRevokeTransportMismatch)",
 	"AppendLog":               "appends through the caller's Tx inside the app's own transaction, asks no Policy and reads no Rules (TestAppendLog)",
 	"Owner":                   "a single-user read of the store's owner, asking no Policy (TestServiceOwner)",
+	"CheckRules":              "validates a Rules value; reads no store and asks no Policy (TestCheckRules)",
 	"UsableMethods":           "reads through the caller's Tx inside the app's own transaction, whose store errors are the app's (TestUsableMethodsRefusals)",
 }
 

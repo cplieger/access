@@ -220,6 +220,14 @@ func (s stubAccount) SetOwner(ctx context.Context, a account.Actor, userID int64
 	return stubbed(s, "SetOwner", func() (*access.User, error) { return s.accountAPI.SetOwner(ctx, a, userID, owner) })
 }
 
+func (s stubAccount) SSOReadiness(ctx context.Context, a account.Actor, mode account.SSOMode) (account.Readiness, error) {
+	return stubbed(s, "SSOReadiness", func() (account.Readiness, error) { return s.accountAPI.SSOReadiness(ctx, a, mode) })
+}
+
+func (s stubAccount) ApplySSO(ctx context.Context, a account.Actor, mode account.SSOMode) error {
+	return stubbedErr(s, "ApplySSO", func() error { return s.accountAPI.ApplySSO(ctx, a, mode) })
+}
+
 func (s stubAccount) CreateInvite(ctx context.Context, p access.Principal, role access.Role, ttl time.Duration) (account.IssuedToken, error) {
 	return stubbed(s, "CreateInvite", func() (account.IssuedToken, error) { return s.accountAPI.CreateInvite(ctx, p, role, ttl) })
 }

@@ -499,7 +499,6 @@ func TestOIDCLinkIntent(t *testing.T) {
 		name    string
 		kept    access.OIDCIdentity
 		admin   bool
-		sso     bool
 	}{
 		{name: "revoked_mid_flight", want: account.ErrSessionGone, after: func(t *testing.T, f *oidcFixture, u *access.User, sess access.Session) {
 			if err := f.mem.DeleteSession(t.Context(), access.SessionRef{ID: sess.ID, UserID: u.ID}); err != nil {
@@ -538,7 +537,6 @@ func TestOIDCLinkIntent(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f, u := linkFixture(t, pwOptions{
-				rules: rulesWith(func(r *account.Rules) { r.SSOGoverned = tc.sso }),
 				edit: func(c *account.Config) {
 					if tc.pol != nil {
 						c.Policy = tc.pol
@@ -578,115 +576,6 @@ func TestOIDCLinkIntent(t *testing.T) {
 				t.Errorf("events = %v, want none", got)
 			}
 		})
-	}
-}
-
-func TestOIDCSSOMigration(t *testing.T) {
-	t.Parallel()
-	paths := map[string]func(t *testing.T, f *oidcFixture, u *access.User) (string, error){
-		"intent_link": func(t *testing.T, f *oidcFixture, u *access.User) (string, error) {
-			sess := putSession(t, f.mem, liveSession(t, u))
-			flow, claims := f.rig.sessionFlow(t, oidc.IntentLink, u, sess.ID)
-			_, err := f.complete(t, localClient, flow, claims)
-			return sess.ID, err
-		},
-		"pending_link": func(t *testing.T, f *oidcFixture, u *access.User) (string, error) {
-			flow, claims := f.rig.signInFlow(t)
-			out, err := f.complete(t, localClient, flow, claims)
-			if err != nil || out.Kind != account.OutcomeNotLinked {
-				t.Fatalf("OIDCComplete = %+v, %v; want NotLinked", out, err)
-			}
-			pr, _ := f.signedInVia(t, u, access.MethodPassword)
-			_, _, err = f.svc.LinkPendingOIDC(t.Context(), pr, out.Pending)
-			return pr.SessionID, err
-		},
-	}
-	for path, link := range paths {
-		for _, tc := range []struct {
-			name       string
-			governed   bool
-			revokeKeys bool
-		}{
-			{name: "governed_revoking_keys", governed: true, revokeKeys: true},
-			{name: "governed_keeping_keys", governed: true},
-			{name: "not_governed", revokeKeys: true},
-		} {
-			t.Run(path+"_"+tc.name, func(t *testing.T) {
-				t.Parallel()
-				f, u := linkFixture(t, pwOptions{rules: rulesWith(func(r *account.Rules) {
-					r.SSOGoverned, r.RevokeKeysOnCredentialChange = tc.governed, tc.revokeKeys
-				})})
-				pk1, pk2 := addPasskey(t, f.mem, u, rpID), addPasskey(t, f.mem, u, rpID)
-				_, key := f.keyPrincipalFor(t, nil, u, time.Time{}, nil)
-				_, issued := access.NewOneTimeToken(access.PurposeInvite, time.Hour, time.Now())
-				issued.IssuedByKey = key.ID
-				if err := f.mem.CreateOneTimeToken(t.Context(), issued); err != nil {
-					t.Fatalf("CreateOneTimeToken: %v", err)
-				}
-				other := putSession(t, f.mem, liveSession(t, u))
-				current, err := link(t, f, u)
-				if err != nil {
-					t.Fatalf("link = %v", err)
-				}
-				stored := storedUser(t, f.mem, u.ID)
-				if stored.OIDC != f.rig.identity() {
-					t.Fatalf("stored link = %+v, want %+v", stored.OIDC, f.rig.identity())
-				}
-				passkeys := len(passkeysOf(t, f.mem, u.ID))
-				keys, err := f.mem.ListAPIKeysByUserID(t.Context(), u.ID)
-				if err != nil {
-					t.Fatalf("ListAPIKeysByUserID: %v", err)
-				}
-				_, tokenKept, err := f.mem.OneTimeTokenByHash(t.Context(), issued.Hash)
-				if err != nil {
-					t.Fatalf("OneTimeTokenByHash: %v", err)
-				}
-				ids := make([]string, 0, 2)
-				for _, s := range sessionsOf(t, f.mem, u.ID) {
-					ids = append(ids, s.ID)
-				}
-				slices.Sort(ids)
-				keysGone := tc.governed && tc.revokeKeys
-				if got := !stored.PasswordHash.IsZero(); got == tc.governed {
-					t.Errorf("password held = %v, want %v", got, !tc.governed)
-				}
-				if want := map[bool]int{true: 0, false: 2}[tc.governed]; passkeys != want {
-					t.Errorf("passkeys = %d, want %d", passkeys, want)
-				}
-				if (len(keys) == 0) != keysGone || tokenKept == keysGone {
-					t.Errorf("keys = %d, issued token kept %v; want keys deleted with their tokens = %v", len(keys), tokenKept, keysGone)
-				}
-				wantIDs := []string{current}
-				if !tc.governed {
-					wantIDs = append(wantIDs, other.ID)
-					slices.Sort(wantIDs)
-				}
-				if !slices.Equal(ids, wantIDs) {
-					t.Errorf("sessions = %v, want %v", ids, wantIDs)
-				}
-				want := []account.EventKind{account.EventOIDCLinked}
-				if tc.governed {
-					want = append(want, account.EventPasswordRemoved, account.EventPasskeyRemoved, account.EventPasskeyRemoved)
-					if keysGone {
-						want = append(want, account.EventKeyRevoked)
-					}
-					want = append(want, account.EventUserSessionsRevoked)
-				}
-				if got := kindsOf(f.events); !slices.Equal(got, want) {
-					t.Fatalf("events = %v, want %v", got, want)
-				}
-				if !tc.governed {
-					return
-				}
-				removed := eventsOf(f.events, account.EventPasskeyRemoved)
-				if removed[0].PasskeyID != pk1.ID || removed[1].PasskeyID != pk2.ID {
-					t.Errorf("EventPasskeyRemoved IDs = %d, %d; want %d, %d", removed[0].PasskeyID, removed[1].PasskeyID, pk1.ID, pk2.ID)
-				}
-				if ev := eventsOf(f.events, account.EventUserSessionsRevoked)[0]; !slices.Equal(ev.SessionIDs, []string{other.ID}) {
-					t.Errorf("EventUserSessionsRevoked = %v, want the other session", ev.SessionIDs)
-				}
-			})
-		}
 	}
 }
 

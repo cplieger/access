@@ -39,6 +39,8 @@ type State struct {
 	SetupRequired, PasswordLogin, Passkeys, OIDC bool
 	// Secure is the request's Client.Secure.
 	Secure bool
+	// SSO is the stored SSO mode.
+	SSO SSOMode
 }
 
 // HTTPSFeature is a sign-in feature a plain request is refused.
@@ -147,9 +149,10 @@ type Me struct {
 	CanLinkOIDC bool // OIDCAvailable and not OIDCLinked
 	// SingleUser is the Policy's declaration as New kept it.
 	SingleUser bool
-	// SSOGoverned is Rules.SSOGoverned on a linked user: SetPassword and
-	// passkey registration answer ErrSSOGoverned.
-	SSOGoverned bool
+	// SSOOnly is the stored SSO mode keeping the user's local methods
+	// dormant: adding a password or passkey answers ErrSSOOnly, as does a
+	// step-up by either.
+	SSOOnly bool
 }
 
 // ListedUser is one row of the admin user list.
@@ -163,6 +166,9 @@ type ListedUser struct {
 	// with User.PasswordHash and User.OIDC it is the user's sign-in methods
 	// on the admin list.
 	PasskeyCount int
+	// LocalMethodsDormant is the stored SSO mode, read once for the list,
+	// keeping the user's password and passkeys dormant.
+	LocalMethodsDormant bool
 }
 
 // ListedKey is one row of the admin key list.

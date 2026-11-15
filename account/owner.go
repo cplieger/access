@@ -218,11 +218,12 @@ func (s *Service) Owner(ctx context.Context) (*access.User, error) {
 
 // SetOwner sets userID's owner flag for an owner's full session within
 // Rules().RecentAuth, or an out-of-band actor, under Policy (OpSetOwner),
-// and returns the user as committed. Making an owner needs an enabled
-// admin holding a password or passkey it signs in with
-// (owner_needs_local_method); removing the last enabled owner is refused
-// (last_owner). A refusal answers before existence, nothing is written on
-// one, and setting the flag it already has writes nothing.
+// and returns the user as committed. An owner needs an enabled admin with a
+// password or passkey it signs in with (owner_needs_local_method), and the
+// last enabled owner stays (last_owner). A refusal answers before existence
+// and writes nothing, as does the flag it already has. A new owner's
+// dormant temporary password is withdrawn, and an ex-owner now a dormant
+// user loses its sessions of a local method.
 func (s *Service) SetOwner(ctx context.Context, a Actor, userID int64, owner bool) (*access.User, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	r, err := s.begin()
 	if err != nil {
@@ -278,7 +279,30 @@ func (s *Service) setOwnerIn(ctx context.Context, tx Tx, j *journal, r Rules, a 
 	if err := s.writeOwner(ctx, tx, j, target, owner, a, true); err != nil {
 		return nil, err
 	}
+	if err := s.ownerModeIn(ctx, tx, j, target, eventActor(a)); err != nil {
+		return nil, err
+	}
 	return target.Clone(), nil
+}
+
+// ownerModeIn is the stored mode's effect of u's new owner flag, inside
+// tx: an owner's methods are usable, so its dormant temporary password is
+// withdrawn; an ex-owner the mode keeps dormant loses its sessions of a
+// local method.
+func (s *Service) ownerModeIn(ctx context.Context, tx Tx, j *journal, u *access.User, actor EventActor) error {
+	if u.Owner {
+		return s.withdrawDormant(ctx, tx, j, u.ID, actor)
+	}
+	mode, err := storedMode(ctx, tx)
+	if err != nil || !mode.dormantFor(u) {
+		return err
+	}
+	ended, err := endForbiddenSessions(ctx, tx, u)
+	if err != nil {
+		return err
+	}
+	s.addRevoked(j, u.ID, ended, actor)
+	return nil
 }
 
 // storedActor is a with a principal's user replaced by its row in users,

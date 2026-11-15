@@ -68,6 +68,49 @@ func serveAdminOwner(h *Handler, c *call) error {
 	return nil
 }
 
+// serveAdminSSOReadiness reads what a change of the SSO mode would do; a
+// state refusal is the body's, as authAdminSSOApply would answer it.
+func serveAdminSSOReadiness(h *Handler, c *call) error {
+	mode, ok := account.ParseSSOMode(queryOf[SSOReadinessQuery](c).Mode)
+	if !ok {
+		return account.ErrUnknownSSOMode
+	}
+	rd, err := h.acct.SSOReadiness(c.r.Context(), account.As(c.p), mode)
+	if err != nil {
+		return err
+	}
+	v := Readiness{
+		LockedOut: rd.LockedOut, MethodsMadeDormant: rd.MethodsMadeDormant, MethodsRestored: rd.MethodsRestored,
+		TemporaryPasswordsWithdrawn: rd.TemporaryPasswordsWithdrawn,
+	}
+	if rd.Refusal != nil {
+		e, broken := routeError(rd.Refusal, ceremonyNone, c.desc.Codes)
+		if broken {
+			return rd.Refusal
+		}
+		v.Refusal = &ReadinessRefusal{Code: e.Code, Reason: e.Reason}
+	}
+	writeJSON(c.w, http.StatusOK, v)
+	return nil
+}
+
+// serveAdminSSOApply changes the stored SSO mode.
+func serveAdminSSOApply(h *Handler, c *call) error {
+	req, err := decodeJSON[SSORequest](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	mode, ok := account.ParseSSOMode(req.Mode)
+	if !ok {
+		return account.ErrUnknownSSOMode
+	}
+	if err := h.acct.ApplySSO(c.r.Context(), account.As(c.p), mode); err != nil {
+		return err
+	}
+	noContent(c.w)
+	return nil
+}
+
 func serveAdminUserDelete(h *Handler, c *call) error {
 	if err := h.acct.DeleteUser(c.r.Context(), c.p, c.id); err != nil {
 		return err

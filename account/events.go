@@ -39,6 +39,10 @@ const (
 	EventMethodReenabled     EventKind = "method_reenabled" // ReenableMethod or a sign-in cleared a lock, after its commit
 	EventOwnerSet            EventKind = "owner_set"
 	EventOwnerRemoved        EventKind = "owner_removed"
+	EventSSOModeChanged      EventKind = "sso_mode_changed"
+	// EventTemporaryPasswordWithdrawn is a dormant temporary password a
+	// change that brings the user's methods back deleted.
+	EventTemporaryPasswordWithdrawn EventKind = "temporary_password_withdrawn"
 )
 
 // eventKinds is every EventKind in declaration order, with the class its
@@ -74,6 +78,8 @@ var eventKinds = [...]struct {
 	{EventMethodReenabled, LogClassChange},
 	{EventOwnerSet, LogClassChange},
 	{EventOwnerRemoved, LogClassChange},
+	{EventSSOModeChanged, LogClassChange},
+	{EventTemporaryPasswordWithdrawn, LogClassChange},
 }
 
 // EventKinds returns every EventKind, in declaration order.
@@ -108,10 +114,18 @@ type Event struct {
 	SessionIDs []string // sessions ended or rotated
 	Actor      EventActor
 	UserID     int64 // the account the event is about (target)
-	// KeyID is the key of a key event, and the issuing key of an
-	// invite-accepting EventUserCreated whose token a key issued.
+	// KeyID is the key of a key event, the issuing key of an
+	// invite-accepting EventUserCreated whose token a key issued, and of an
+	// EventTemporaryPasswordWithdrawn whose record a key issued.
 	KeyID     int64
 	PasskeyID int64 // passkey events
+	// IssuerUserID is the user whose session issued the record of an
+	// EventTemporaryPasswordWithdrawn; it and KeyID are zero for one issued
+	// out of band.
+	IssuerUserID int64
+	// SSOMode and PreviousSSOMode are an EventSSOModeChanged's new and old
+	// stored mode.
+	SSOMode, PreviousSSOMode SSOMode
 	// Seq is the Seq of the log entry this event's commit appended; 0 for
 	// EventSessionsExpired, which the log does not hold.
 	Seq     uint64

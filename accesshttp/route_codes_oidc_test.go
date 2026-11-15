@@ -51,13 +51,6 @@ func (s *skewed) opts() envOptions {
 	return envOptions{edit: func(c *account.Config) { c.Now = s.now }}
 }
 
-// ssoRefused governs accounts by SSO under a Policy that refuses the
-// migration.
-var ssoRefused = envOptions{
-	rules: func(r *account.Rules) { r.SSOGoverned = true },
-	edit:  refuse(account.OpMigrateToSSO),
-}
-
 func oidcScenarios() map[scenarioKey]scenario {
 	out := map[scenarioKey]scenario{}
 	addCallbackScenarios(out)
@@ -90,9 +83,6 @@ func addCallbackScenarios(out map[scenarioKey]scenario) {
 	}}
 	out[scenarioKey{route, access.CodeRecentAuthRequired}] = scenario{opts: recent.opts(), arrange: func(t *testing.T, e *env) *http.Request {
 		return e.linkCallback(t, func(*access.User) { recent.by.Store(int64(11 * time.Minute)) })
-	}}
-	out[scenarioKey{route, access.CodeForbidden}] = scenario{opts: ssoRefused, arrange: func(t *testing.T, e *env) *http.Request {
-		return e.linkCallback(t, nil)
 	}}
 	out[scenarioKey{route, access.CodeRateLimited}] = scenario{opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
 		e.useIdP(t, accesstest.IdPOptions{}, nil)
@@ -193,10 +183,6 @@ func addLinkScenarios(out map[scenarioKey]scenario) {
 	}
 	withIdP := func(t *testing.T, e *env) { e.useIdP(t, accesstest.IdPOptions{}, nil) }
 	out[scenarioKey{linkRoute, access.CodeSessionExpired}] = scenario{opts: vanishes, arrange: func(t *testing.T, e *env) *http.Request {
-		withIdP(t, e)
-		return link(t, e, true)
-	}}
-	out[scenarioKey{linkRoute, access.CodeForbidden}] = scenario{opts: ssoRefused, arrange: func(t *testing.T, e *env) *http.Request {
 		withIdP(t, e)
 		return link(t, e, true)
 	}}

@@ -44,7 +44,6 @@ var sentinelCodes = []struct {
 	{errCrossOrigin, access.CodeCrossOrigin, ""},
 	{account.ErrSessionRequired, access.CodeSessionRequired, ""},
 	{account.ErrScopeRequired, access.CodeScopeRequired, ""},
-	{account.ErrSSOGoverned, access.CodeForbidden, ReasonSSOGoverned},
 	{access.ErrHashBusy, access.CodeBusy, ""},
 	{access.ErrBreachCheckUnavailable, access.CodeBreachCheckUnavailable, ""},
 	{account.ErrRulesInvalid, access.CodeUnavailable, ""},
@@ -96,6 +95,7 @@ var sentinelCodes = []struct {
 	{account.ErrRegistrationClosed, access.CodeRegistrationClosed, ""},
 	{account.ErrRegistrationFull, access.CodeRegistrationFull, ""},
 	{account.ErrSSOOnly, access.CodeSSOOnly, ""},
+	{account.ErrUnknownSSOMode, access.CodeBadRequest, ""},
 }
 
 // routeError maps err for a route answering codes. broken reports a code
