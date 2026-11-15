@@ -20,7 +20,6 @@ import (
 	"runtime"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -556,7 +555,7 @@ func (p *producers) inModule(pkg *types.Package) bool {
 
 // nameable reports whether accesshttp can name obj, an object of the
 // module: exported, and outside any internal directory accesshttp is not
-// under (go help internal). An error it cannot name needs no
+// under (go help internal). An exported error it cannot name needs no
 // producerErrors row: it stands in by a value of its own (errorValue).
 func nameable(obj types.Object) bool {
 	if !obj.Exported() {
@@ -738,22 +737,22 @@ func (p *producers) leaf(obj types.Object) errValue {
 	return valueOf(chain{{kind: termLeaf, obj: obj}})
 }
 
-// standIns holds the value of each error accesshttp cannot name, by
-// qualified name, so one error is one value in every chain and classify
-// names it only through a wrap that accesshttp can name.
-var standIns sync.Map
+// standIn is the value of an exported error accesshttp cannot import;
+// equal names are equal errors, so errors.Is matches it only with itself.
+type standIn string
+
+func (s standIn) Error() string { return string(s) }
 
 // errorValue is obj's value in a chain: its producerErrors row, or the
-// stand-in of an error accesshttp cannot name.
+// stand-in of an exported error accesshttp cannot import.
 func errorValue(obj types.Object) (error, bool) {
 	if v, ok := producerErrors[qualified(obj)]; ok {
 		return v, true
 	}
-	if nameable(obj) {
+	if nameable(obj) || !obj.Exported() {
 		return nil, false
 	}
-	v, _ := standIns.LoadOrStore(qualified(obj), errors.New(qualified(obj)))
-	return v.(error), true
+	return standIn(qualified(obj)), true
 }
 
 func (p *producers) evalObj(obj types.Object) errValue {
@@ -1321,7 +1320,7 @@ func matchValues(vals []error, test errTest) (match, known bool) {
 	case test.typ != nil:
 		target, ok := producerErrors[qualified(test.typ)]
 		if !ok {
-			return false, !registered(test.typ) && !nameable(test.typ)
+			return false, !nameable(test.typ)
 		}
 		ptr := reflect.New(reflect.TypeOf(target))
 		return errors.As(joined, ptr.Interface()), true
