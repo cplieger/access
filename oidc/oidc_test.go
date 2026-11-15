@@ -2,12 +2,14 @@ package oidc
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -88,7 +90,7 @@ func TestFlowFrame(t *testing.T) {
 	t.Run("round_trip", func(t *testing.T) {
 		t.Parallel()
 		rapid.Check(t, func(t *rapid.T) {
-			intent := rapid.SampledFrom([]Intent{IntentSignIn, IntentLink, IntentStepUp}).Draw(t, "intent")
+			intent := rapid.SampledFrom([]Intent{IntentSignIn, IntentLink, IntentStepUp, IntentInvite}).Draw(t, "intent")
 			s := flowState{
 				state:       rapid.String().Draw(t, "state"),
 				nonce:       rapid.String().Draw(t, "nonce"),
@@ -102,15 +104,18 @@ func TestFlowFrame(t *testing.T) {
 					BeganAt:  time.UnixMilli(rapid.Int64().Draw(t, "beganAt")),
 				},
 			}
-			if intent != IntentSignIn {
+			switch intent {
+			case IntentLink, IntentStepUp:
 				s.flow.SessionID = rapid.StringN(1, -1, maxSessionIDBytes).Draw(t, "sessionID")
 				s.flow.UserID = rapid.Int64Range(1, math.MaxInt64).Draw(t, "userID")
+			case IntentInvite:
+				s.flow.InviteHash = rapid.SliceOfN(rapid.Byte(), 1, MaxInviteHashBytes).Draw(t, "inviteHash")
 			}
 			got, ok := decodeFlowState(s.encode())
 			if !ok {
 				t.Fatalf("decodeFlowState(encode(%+v)) refused", s)
 			}
-			if got != s {
+			if !reflect.DeepEqual(got, s) {
 				t.Fatalf("decodeFlowState(encode(s)) = %+v, want %+v", got, s)
 			}
 		})
@@ -135,13 +140,20 @@ func TestFlowFrame(t *testing.T) {
 		}
 		cases := map[string][]byte{
 			"trailing byte": append(slices.Clone(frame), 0),
-			"version 2":     append([]byte{2}, frame[1:]...),
+			"version 3":     append([]byte{3}, frame[1:]...),
+			"version 1":     version1Frame(&good),
 		}
+		hash := []byte(strings.Repeat("ab", MaxInviteHashBytes/2))
 		for name, mod := range map[string]func(*flowState){
-			"unknown intent":      func(s *flowState) { s.flow.Intent = "admin" },
-			"step-up no session":  func(s *flowState) { s.flow.SessionID = "" },
-			"step-up no user":     func(s *flowState) { s.flow.UserID = 0 },
-			"sign-in with a user": func(s *flowState) { s.flow.Intent = IntentSignIn },
+			"unknown intent":          func(s *flowState) { s.flow.Intent = "admin" },
+			"step-up no session":      func(s *flowState) { s.flow.SessionID = "" },
+			"step-up no user":         func(s *flowState) { s.flow.UserID = 0 },
+			"sign-in with a user":     func(s *flowState) { s.flow.Intent = IntentSignIn },
+			"step-up with a hash":     func(s *flowState) { s.flow.InviteHash = hash },
+			"sign-in with a hash":     func(s *flowState) { s.flow = Flow{Intent: IntentSignIn, InviteHash: hash} },
+			"invite without a hash":   func(s *flowState) { s.flow = Flow{Intent: IntentInvite} },
+			"invite with a session":   func(s *flowState) { s.flow.Intent, s.flow.InviteHash = IntentInvite, hash },
+			"invite with a long hash": func(s *flowState) { s.flow = Flow{Intent: IntentInvite, InviteHash: append(hash, 'f')} },
 		} {
 			s := sampleFlowState()
 			mod(&s)
@@ -159,6 +171,22 @@ func TestFlowFrame(t *testing.T) {
 			}
 		}
 	})
+}
+
+// version1Frame is s in the frame before the invite hash: version byte 1
+// and no trailing hash field, which a provider must refuse once the frame
+// moved, so a flow begun under the old layout fails closed.
+func version1Frame(s *flowState) []byte {
+	b := []byte{1}
+	for _, v := range []string{s.state, s.nonce, s.verifier, string(s.flow.Intent), s.flow.SessionID} {
+		b = appendString(b, v)
+	}
+	b = binary.AppendUvarint(b, uint64(s.flow.UserID))
+	b = binary.BigEndian.AppendUint64(b, uint64(s.flow.BeganAt.UnixMilli()))
+	for _, v := range []string{s.flow.Redirect, s.issuer, s.clientID, s.redirectURL} {
+		b = appendString(b, v)
+	}
+	return b
 }
 
 // stubTransport answers every request with its body and declared length.
@@ -399,17 +427,37 @@ func TestBeginFitsTheFlowNewProviderSized(t *testing.T) {
 	}) - 1
 	p := &Provider{cfg: configWith(strings.Repeat("c", longest))}
 	session := access.CookieConfig{Name: strings.Repeat("n", access.MaxCookieNameBytes)}
-	req := BeginRequest{Intent: IntentStepUp, SessionID: strings.Repeat("f", maxSessionIDBytes), UserID: math.MaxInt64, Redirect: "/" + strings.Repeat("a", MaxRedirectBytes-1)}
-	rec := httptest.NewRecorder()
-	if _, err := p.Begin(rec, httptest.NewRequest(http.MethodPost, "https://app.example/auth/start", nil), session, req); err != nil {
-		t.Fatalf("Begin under a %d-byte client ID: %v", longest, err)
+	redirect := "/" + strings.Repeat("a", MaxRedirectBytes-1)
+	for name, req := range map[string]BeginRequest{
+		"step_up": {Intent: IntentStepUp, SessionID: strings.Repeat("f", maxSessionIDBytes), UserID: math.MaxInt64, Redirect: redirect},
+		"invite":  {Intent: IntentInvite, InviteHash: []byte(strings.Repeat("f", MaxInviteHashBytes)), Redirect: redirect},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			if _, err := p.Begin(rec, httptest.NewRequest(http.MethodPost, "https://app.example/auth/start", nil), session, req); err != nil {
+				t.Fatalf("Begin under a %d-byte client ID: %v", longest, err)
+			}
+			set := rec.Result().Cookies()
+			if len(set) != 1 {
+				t.Fatalf("Begin set %d cookies, want the flow cookie alone", len(set))
+			}
+			if n := len(set[0].Name) + len(set[0].Value); n > 4096 {
+				t.Errorf("Begin under a %d-byte client ID set a %d-byte flow cookie name and value, want at most 4096", longest, n)
+			}
+		})
 	}
-	set := rec.Result().Cookies()
-	if len(set) != 1 {
-		t.Fatalf("Begin set %d cookies, want the flow cookie alone", len(set))
-	}
-	if n := len(set[0].Name) + len(set[0].Value); n > 4096 {
-		t.Errorf("Begin under a %d-byte client ID set a %d-byte flow cookie name and value, want at most 4096", longest, n)
+}
+
+// TestBeginRequestInviteHash is BeginRequest.check's invite arm: a hash of
+// 1 to MaxInviteHashBytes bytes, and no session or user.
+func TestBeginRequestInviteHash(t *testing.T) {
+	t.Parallel()
+	for n, ok := range map[int]bool{0: false, 1: true, MaxInviteHashBytes: true, MaxInviteHashBytes + 1: false} {
+		req := BeginRequest{Intent: IntentInvite, InviteHash: make([]byte, n)}
+		if err := req.check(); (err == nil) != ok || err != nil && !errors.Is(err, ErrFlowInvalid) {
+			t.Errorf("check() of a %d-byte invite hash = %v, want ok %t, else ErrFlowInvalid", n, err, ok)
+		}
 	}
 }
 

@@ -871,6 +871,11 @@
       "name": "secure"
     }
   ],
+  "TokenRequest": [
+    {
+      "name": "token"
+    }
+  ],
   "TokenResponse": [
     {
       "name": "expires_at"

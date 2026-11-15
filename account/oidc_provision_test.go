@@ -193,11 +193,13 @@ func TestCreatePendingOIDC(t *testing.T) {
 			t.Errorf("CreatePendingOIDC of a pending link with no offer = %v, want ErrProvisioningDisabled", err)
 		}
 	})
+	// design 5.25: a pending state that does not open is not found, as
+	// the pending read answers it.
 	t.Run("no_pending", func(t *testing.T) {
 		t.Parallel()
 		f, _ := takenPending(t, on)
-		if _, err := f.svc.CreatePendingOIDC(t.Context(), localClient, account.PendingLink{}, "picked"); !errors.Is(err, access.ErrTokenInvalid) {
-			t.Errorf("CreatePendingOIDC with no pending link = %v, want access.ErrTokenInvalid", err)
+		if _, err := f.svc.CreatePendingOIDC(t.Context(), localClient, account.PendingLink{}, "picked"); !errors.Is(err, account.ErrNotFound) {
+			t.Errorf("CreatePendingOIDC with no pending link = %v, want ErrNotFound", err)
 		}
 	})
 	t.Run("identity_linked_since", func(t *testing.T) {

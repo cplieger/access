@@ -276,7 +276,7 @@ The store holds one `account.SSOMode` that sets how single sign-on sits beside l
 | `SSOForLinked` | signs in only by single sign-on; its password and passkeys are dormant | signs in locally |
 | `SSOOnly` | signs in only by single sign-on; its password and passkeys are dormant | cannot sign in until an admin links it; its password and passkeys are dormant |
 
-A dormant method is kept, never deleted, and a looser mode brings it back. A local sign-in with a dormant method answers `ErrInvalidCredentials` after the same work and the same failure count as a wrong password. From a session, adding a password or a passkey and stepping up by either answer `ErrSSOOnly` (`auth_sso_only`), and `Me.SSOOnly` tells the screen to hide those forms. Under `SSOOnly` a password invite acceptance answers `ErrSSOOnly` too. The last-method guard counts no dormant method, and never an owner's single sign-on link.
+A dormant method is kept, never deleted, and a looser mode brings it back. A local sign-in with a dormant method answers `ErrInvalidCredentials` after the same work and the same failure count as a wrong password. From a session, adding a password or a passkey and stepping up by either answer `ErrSSOOnly` (`auth_sso_only`), and `Me.SSOOnly` tells the screen to hide those forms. Under `SSOOnly` a password invite acceptance answers `ErrSSOOnly` too, and the invite is accepted by single sign-on instead (`AcceptInviteOIDCBegin`, then the callback). The last-method guard counts no dormant method, and never an owner's single sign-on link.
 
 - `Service.SSO(ctx)` returns the stored mode, and whether any write ever set it.
 - `Service.ApplySSO(ctx, actor, mode)` changes it, for an owner's secure session within `Rules.RecentAuth` or an out-of-band actor. It reads `Config.OIDC()` before its transaction opens, then in one transaction writes the mode, ends each non-owner session the mode now forbids, deletes the dormant temporary password of each account it brings back, and journals `sso_mode_changed`. A refusal writes nothing.
@@ -298,7 +298,7 @@ A dormant method is kept, never deleted, and a looser mode brings it back. A loc
 | `KeyPrefix` | The prefix of every minted key's plaintext | empty |
 | `ForbiddenWords` | Words refused in a password, beside the username | none |
 | `Scopes` | The key-scope vocabulary; `CreateAPIKey` refuses any other scope. `Validate` refuses a scope that is not one scope-token | none |
-| `OIDCAdmission` | A claim (`Claim`, `AllowedValues`) every OIDC sign-in, link and step-up must hold, owners' included; a string or an array of strings, anything else not admitted | nil: every identity |
+| `OIDCAdmission` | A claim (`Claim`, `AllowedValues`) every OIDC sign-in, link, invite acceptance and step-up must hold, owners' included; a string or an array of strings, anything else not admitted | nil: every identity |
 | `Provisioning` | Account creation at an admitted identity's first OIDC sign-in (`Enabled`, `Role`), the role mapping (`RoleClaim`, `AdminValues`) and `SyncRole`, which re-applies the mapping at each sign-in of a linked non-owner; `Validate` refuses `AdminValues` or `SyncRole` without `RoleClaim`, and a single-user Policy refuses `Enabled` | off |
 | `RecentAuth` | How recent a sign-in or step-up must be for a sensitive operation; below 1m is invalid | 10m |
 | `KeyRotationOverlap` | How long `RotateAPIKey` lets a key's superseded secret keep working while the new one is unused; below 1m or above 24h is invalid | 1h |

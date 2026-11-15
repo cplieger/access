@@ -44,7 +44,8 @@ const (
 	// change that brings the user's methods back deleted.
 	EventTemporaryPasswordWithdrawn EventKind = "temporary_password_withdrawn"
 	// EventOIDCNotAdmitted is a token Rules.OIDCAdmission refused; its
-	// UserID is zero for an identity no account is linked to.
+	// UserID is zero at an invite acceptance and for an identity no account
+	// is linked to.
 	EventOIDCNotAdmitted EventKind = "oidc_not_admitted"
 	// EventRoleSynced is a role an OIDC sign-in's SyncRole changed, and
 	// EventRoleSyncSkipped one it left because the claim was unreadable.

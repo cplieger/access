@@ -51,6 +51,7 @@ import type {
   SetupPasswordRequest,
   SignedInResponse,
   StateResponse,
+  TokenRequest,
   TokenResponse,
   TokenView,
   UserUpdateRequest,
@@ -126,6 +127,8 @@ export interface AuthClient {
   logout(): Promise<ApiResult<void>>;
   oidcStartLink(r: RedirectRequest): Promise<ApiResult<OIDCStartResponse>>;
   oidcStartStepUp(r: RedirectRequest): Promise<ApiResult<OIDCStartResponse>>;
+  /** Accept an invite by single sign-on: go to the answer's URL. The token travels in the body only. */
+  inviteAcceptOIDC(r: TokenRequest): Promise<ApiResult<OIDCStartResponse>>;
   oidcPending(): Promise<ApiResult<PendingLinkResponse>>;
   /** The pending screen's "Create a new account"; a taken name keeps the pending state. */
   oidcCreatePending(r: PendingCreateRequest): Promise<ApiResult<SignedInResponse>>;
@@ -284,6 +287,7 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     logout: () => empty("POST", p("/logout")),
     oidcStartLink: (r) => json("POST", o("/start/link"), parseOIDCStartResponse, { body: r }),
     oidcStartStepUp: (r) => json("POST", o("/start/stepup"), parseOIDCStartResponse, { body: r }),
+    inviteAcceptOIDC: (r) => json("POST", o("/start/invite"), parseOIDCStartResponse, { body: r }),
     oidcPending: () => json("GET", p("/oidc/pending"), parsePendingLinkResponse),
     oidcCreatePending: (r) =>
       json("POST", p("/oidc/pending/create"), parseSignedInResponse, { body: r }),

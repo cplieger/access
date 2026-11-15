@@ -1,6 +1,7 @@
 package accesshttp
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -57,6 +58,7 @@ func oidcScenarios() map[scenarioKey]scenario {
 	addStartScenarios(out)
 	addLinkScenarios(out)
 	addCreatePendingScenarios(out)
+	addInviteScenarios(out)
 	return out
 }
 
@@ -104,8 +106,14 @@ func addCreatePendingScenarios(out map[scenarioKey]scenario) {
 	out[scenarioKey{route, access.CodeUsernameTaken}] = scenario{opts: provisioning, arrange: func(t *testing.T, e *env) *http.Request {
 		return create(t, e, &offer, "bob", false)
 	}}
-	out[scenarioKey{route, access.CodeTokenInvalid}] = scenario{opts: provisioning, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{route, access.CodeNotFound}] = scenario{opts: provisioning, arrange: func(t *testing.T, e *env) *http.Request {
 		return create(t, e, nil, "alice_2", false)
+	}}
+	out[scenarioKey{route, access.CodeTokenInvalid}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		invite := pendingPayload{Issuer: testIssuer, Subject: accesstest.DefaultIdPSubject, Invite: storedHash(e.invite(t))}
+		r := create(t, e, &invite, "alice_2", false)
+		e.revoke(t, invite.Invite)
+		return r
 	}}
 	out[scenarioKey{route, access.CodeIdentityTaken}] = scenario{opts: provisioning, arrange: func(t *testing.T, e *env) *http.Request {
 		r := create(t, e, &offer, "alice_2", false)
@@ -171,6 +179,71 @@ func addCallbackScenarios(out map[scenarioKey]scenario) {
 	out[scenarioKey{route, access.CodeOIDCFailed}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		e.useIdP(t, accesstest.IdPOptions{}, nil)
 		return e.bareCallback(t)
+	}}
+	out[scenarioKey{route, access.CodeTokenInvalid}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		idp := e.useIdP(t, accesstest.IdPOptions{}, nil)
+		token := e.invite(t)
+		b := newBrowser(t)
+		cb := authorize(t, idp, e.startInvite(t, b, token))
+		e.revoke(t, storedHash(token))
+		return b.with(cb)
+	}}
+}
+
+// storedHash is the hash an invite's plaintext is stored under.
+func storedHash(token access.Secret) string { return access.HexSHA256(token.Reveal()) }
+
+// revoke deletes the invite stored under hash.
+func (e *env) revoke(t *testing.T, hash string) {
+	t.Helper()
+	if _, found, err := e.mem.ConsumeOneTimeToken(t.Context(), access.NewHash(hash), time.Now()); err != nil || !found {
+		t.Fatalf("ConsumeOneTimeToken = %t, %v", found, err)
+	}
+}
+
+// startInvite serves the SSO invite start for token and returns its
+// authorization URL.
+func (e *env) startInvite(t testing.TB, b *browser, token access.Secret) string {
+	t.Helper()
+	rt := e.route(t, "authInviteAcceptOIDC")
+	w := b.send(rt, request(rt, jsonBody(t, TokenRequest{Token: token.Reveal()})))
+	if w.Code != http.StatusOK {
+		t.Fatalf("invite start = %d %s, want 200", w.Code, w.Body.String())
+	}
+	var out OIDCStartResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode the invite start: %v", err)
+	}
+	return out.URL
+}
+
+func addInviteScenarios(out map[scenarioKey]scenario) {
+	const route = "authInviteAcceptOIDC"
+	start := func(t *testing.T, e *env, token string) *http.Request {
+		return request(e.route(t, route), jsonBody(t, TokenRequest{Token: token}))
+	}
+	out[scenarioKey{route, access.CodeRateLimited}] = scenario{opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
+		e.useIdP(t, accesstest.IdPOptions{}, nil)
+		r := start(t, e, e.invite(t).Reveal())
+		e.spendRequest(t)
+		return r
+	}}
+	out[scenarioKey{route, access.CodeUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		e.useIdP(t, accesstest.IdPOptions{}, nil)
+		r := start(t, e, e.invite(t).Reveal())
+		e.shutdown(t)
+		return r
+	}}
+	out[scenarioKey{route, access.CodeOIDCUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		return start(t, e, e.invite(t).Reveal())
+	}}
+	out[scenarioKey{route, access.CodeTokenInvalid}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		e.useIdP(t, accesstest.IdPOptions{}, nil)
+		return start(t, e, "not-an-invite")
+	}}
+	out[scenarioKey{route, access.CodeForbidden}] = scenario{opts: envOptions{edit: refuse(account.OpCreateUser)}, arrange: func(t *testing.T, e *env) *http.Request {
+		e.useIdP(t, accesstest.IdPOptions{}, nil)
+		return start(t, e, e.invite(t).Reveal())
 	}}
 }
 

@@ -40,6 +40,7 @@ var (
 	signIn = oidc.BeginRequest{Intent: oidc.IntentSignIn, Redirect: "/home?tab=1"}
 	link   = oidc.BeginRequest{Intent: oidc.IntentLink, SessionID: "session-1", UserID: 7, Redirect: "/settings"}
 	stepUp = oidc.BeginRequest{Intent: oidc.IntentStepUp, SessionID: "session-2", UserID: 9, Redirect: "/keys?new=1"}
+	invite = oidc.BeginRequest{Intent: oidc.IntentInvite, InviteHash: []byte(strings.Repeat("0f", oidc.MaxInviteHashBytes/2)), Redirect: "/welcome"}
 )
 
 func configFor(idp *accesstest.IdP) oidc.Config {
@@ -155,14 +156,14 @@ func (b *browser) run(idp *accesstest.IdP, p *oidc.Provider, req oidc.BeginReque
 // returned.
 func wantFlow(t *testing.T, got oidc.Flow, req oidc.BeginRequest) {
 	t.Helper()
-	if got.Intent != req.Intent || got.SessionID != req.SessionID || got.UserID != req.UserID || got.Redirect != req.Redirect || got.BeganAt.IsZero() {
+	if got.Intent != req.Intent || got.SessionID != req.SessionID || got.UserID != req.UserID || got.Redirect != req.Redirect || !bytes.Equal(got.InviteHash, req.InviteHash) || got.BeganAt.IsZero() {
 		t.Errorf("Flow = %+v, want the sealed %+v", got, req)
 	}
 }
 
 func wantZeroFlow(t *testing.T, f finished) {
 	t.Helper()
-	if f.flow != (oidc.Flow{}) {
+	if !reflect.ValueOf(f.flow).IsZero() {
 		t.Errorf("Flow = %+v, want the zero Flow", f.flow)
 	}
 }
@@ -204,7 +205,7 @@ func TestFlow(t *testing.T) { //nolint:paralleltest // the outbound/hung_jwks ca
 	t.Run("claims", flowClaims)
 	t.Run("flow_cookie", flowCookie)
 	t.Run("provider_errors", flowProviderErrors)
-	t.Run("stepup_and_link", flowStepUpAndLink)
+	t.Run("reauthentication", flowReauthentication)
 	t.Run("begin_guard", flowBeginGuard)
 	t.Run("outbound", flowOutbound)
 	t.Run("config", flowConfig)
@@ -576,8 +577,12 @@ func flowProviderErrors(t *testing.T) {
 	})
 }
 
-func flowStepUpAndLink(t *testing.T) {
-	for _, req := range []oidc.BeginRequest{link, stepUp} {
+// flowReauthentication is every intent but sign-in: OpenID Connect Core 1.0
+// §3.1.2.1 max_age=0 and prompt=login on the authorize request, and §2's
+// auth_time, required once max_age is sent, no earlier than the flow's
+// start less the skew.
+func flowReauthentication(t *testing.T) {
+	for _, req := range []oidc.BeginRequest{link, stepUp, invite} {
 		t.Run(string(req.Intent), func(t *testing.T) {
 			t.Parallel()
 			t.Run("fresh", func(t *testing.T) {
@@ -634,6 +639,24 @@ func flowStepUpAndLink(t *testing.T) {
 				}
 				wantZeroFlow(t, f)
 			})
+			// Mattermost CVE-2025-12421, Keycloak CVE-2026-92358: a code
+			// finished in a browser that did not begin its flow binds nothing.
+			t.Run("other_browser", func(t *testing.T) {
+				t.Parallel()
+				idp := accesstest.NewIdP(t, accesstest.IdPOptions{})
+				p := mustProvider(t, configFor(idp))
+				authURL, _, err := newBrowser(t).begin(p, req, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				other := newBrowser(t)
+				cb, loc := other.authorize(idp, authURL)
+				f := other.finish(p, cb, loc.String())
+				if !errors.Is(f.err, oidc.ErrFlowInvalid) {
+					t.Fatalf("Finish in another browser = %v, want ErrFlowInvalid", f.err)
+				}
+				wantZeroFlow(t, f)
+			})
 		})
 	}
 	t.Run("signin_sends_neither", func(t *testing.T) {
@@ -652,7 +675,7 @@ func flowStepUpAndLink(t *testing.T) {
 func flowBeginGuard(t *testing.T) {
 	idp := accesstest.NewIdP(t, accesstest.IdPOptions{})
 	p := mustProvider(t, configFor(idp))
-	for _, req := range []oidc.BeginRequest{link, stepUp} {
+	for _, req := range []oidc.BeginRequest{link, stepUp, invite} {
 		for _, site := range []string{"cross-site", "same-site", "none"} {
 			t.Run(string(req.Intent)+"_"+site, func(t *testing.T) {
 				t.Parallel()
@@ -680,11 +703,16 @@ func flowBeginGuard(t *testing.T) {
 	t.Run("request_shape", func(t *testing.T) {
 		t.Parallel()
 		for name, req := range map[string]oidc.BeginRequest{
-			"unknown intent":      {Intent: "admin"},
-			"sign-in with a user": {Intent: oidc.IntentSignIn, UserID: 1},
-			"link without user":   {Intent: oidc.IntentLink, SessionID: "s"},
-			"step-up no session":  {Intent: oidc.IntentStepUp, UserID: 1},
-			"negative user":       {Intent: oidc.IntentLink, SessionID: "s", UserID: -1},
+			"unknown intent":       {Intent: "admin"},
+			"sign-in with a user":  {Intent: oidc.IntentSignIn, UserID: 1},
+			"link without user":    {Intent: oidc.IntentLink, SessionID: "s"},
+			"step-up no session":   {Intent: oidc.IntentStepUp, UserID: 1},
+			"negative user":        {Intent: oidc.IntentLink, SessionID: "s", UserID: -1},
+			"sign-in with a hash":  {Intent: oidc.IntentSignIn, InviteHash: invite.InviteHash},
+			"link with a hash":     {Intent: oidc.IntentLink, SessionID: "s", UserID: 1, InviteHash: invite.InviteHash},
+			"invite with no hash":  {Intent: oidc.IntentInvite},
+			"invite with a user":   {Intent: oidc.IntentInvite, InviteHash: invite.InviteHash, SessionID: "s", UserID: 1},
+			"invite hash too long": {Intent: oidc.IntentInvite, InviteHash: make([]byte, oidc.MaxInviteHashBytes+1)},
 		} {
 			if _, set, err := newBrowser(t).begin(p, req, nil); !errors.Is(err, oidc.ErrFlowInvalid) || len(set) != 0 {
 				t.Errorf("%s: Begin = %v with %d cookies, want ErrFlowInvalid and none", name, err, len(set))

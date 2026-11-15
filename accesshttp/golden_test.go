@@ -101,6 +101,7 @@ func fixtures() []fixture {
 		{name: "UserUpdateRequest", request: true, value: UserUpdateRequest{Role: &goldenRole, Enabled: &goldenTrue}},
 		{name: "OwnerRequest", request: true, value: OwnerRequest{Owner: true}},
 		{name: "PendingCreateRequest", request: true, value: PendingCreateRequest{Username: "alice_2"}},
+		{name: "TokenRequest", request: true, value: TokenRequest{Token: "fixture-invite-token"}},
 		{name: "SSORequest", request: true, value: SSORequest{Mode: account.SSONameForLinked}},
 		{name: "InviteRequest", request: true, value: InviteRequest{Role: access.RoleUser, Hours: 72}},
 

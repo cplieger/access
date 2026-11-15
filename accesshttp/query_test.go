@@ -93,7 +93,7 @@ func TestQueryDecode(t *testing.T) {
 }
 
 func TestTokenOnlyInQueryRefused(t *testing.T) {
-	for _, name := range []string{"authSetupPassword", "authSetupPasskeyBegin", "authInviteAcceptPassword"} {
+	for _, name := range []string{"authSetupPassword", "authSetupPasskeyBegin", "authInviteAcceptPassword", "authInviteAcceptOIDC"} {
 		for _, query := range []string{"token=abc", "token=%ZZ", "%74oken=abc", "x=1;token=abc", "token"} {
 			t.Run(name+"_"+query, func(t *testing.T) {
 				if _, err := decodeOn(t, name, query); refusedKey(err) != "token_in_query" {

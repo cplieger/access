@@ -13,6 +13,7 @@ import (
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
+	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/webauthn"
 )
 
@@ -274,6 +275,11 @@ func (c *tokenCounting) AcceptInvitePassword(ctx context.Context, cl account.Cli
 	return c.accountAPI.AcceptInvitePassword(ctx, cl, in)
 }
 
+func (c *tokenCounting) AcceptInviteOIDCBegin(ctx context.Context, cl account.Client, token access.Secret) (oidc.BeginRequest, error) {
+	c.calls.Add(1)
+	return c.accountAPI.AcceptInviteOIDCBegin(ctx, cl, token)
+}
+
 func TestTokenOnlyInBody(t *testing.T) {
 	counting := &tokenCounting{}
 	e := newEnv(t, with(passkeys, tokenRequired, envOptions{wrap: func(_ *env, s *account.Service) accountAPI { counting.accountAPI = s; return counting }}))
@@ -283,6 +289,7 @@ func TestTokenOnlyInBody(t *testing.T) {
 		"authSetupPassword":        setupPasswordBody(t, setupToken),
 		"authSetupPasskeyBegin":    setupPasskeyBody(t, setupToken),
 		"authInviteAcceptPassword": inviteBody(t, inviteToken, "invitee", testPassword),
+		"authInviteAcceptOIDC":     jsonBody(t, TokenRequest{Token: inviteToken.Reveal()}),
 	}
 	for _, rt := range e.h.Routes() {
 		if !specNamed(t, rt.Name).tokenBody {

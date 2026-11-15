@@ -28,8 +28,8 @@ var plainRefusedRoutes = map[string]bool{
 	"authOIDCPending": true, "authOIDCCreatePending": true, "authOIDCLinkPending": true, "authAdminSSOReadiness": true, "authAdminSSOApply": true,
 	"authStepUpPassword": true, "authStepUpPasskeyBegin": true, "authStepUpPasskeyFinish": true,
 	"authPasswordRemove": true, "authPasskeyRegisterBegin": true, "authPasskeyRegisterFinish": true,
-	"authInviteAcceptPassword": true,
-	"authKeyCreate":            true, "authKeyRotate": true, "authAdminInvite": true,
+	"authInviteAcceptPassword": true, "authInviteAcceptOIDC": true,
+	"authKeyCreate": true, "authKeyRotate": true, "authAdminInvite": true,
 }
 
 // transportSession stores a password session for name, signed in now over

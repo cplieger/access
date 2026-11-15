@@ -32,8 +32,8 @@ A `Provider` does not change after `NewProvider` returns. When the settings chan
 
 - a `Redirect` longer than `MaxRedirectBytes`, which is 512, with `ErrRedirectTooLong`
 - a session cookie config that fails `Validate`, with `ErrConfigInvalid`
-- a `BeginRequest` whose intent is unknown, or whose session ID and user ID do not fit its intent, with `ErrFlowInvalid`. A sign-in carries neither, and a link or step-up needs both, with a positive user ID.
-- a link or step-up request whose `Sec-Fetch-Site` header is present and is not `same-origin`, with `ErrFlowInvalid`
+- a `BeginRequest` whose intent is unknown, or whose session ID, user ID and invite hash do not fit its intent, with `ErrFlowInvalid`. A link or step-up needs a session ID and a positive user ID, an invite needs an `InviteHash` of at most `MaxInviteHashBytes` (64) bytes, and no intent carries a field another intent needs.
+- a request of any intent but sign-in whose `Sec-Fetch-Site` header is present and is not `same-origin`, with `ErrFlowInvalid`
 
 The redirect goes through `access.ValidateRedirectURI`, so an unsafe path becomes `/`.
 
@@ -48,9 +48,11 @@ Decode the callback's query once and pass its `state`, `code` and `error` values
 
 An error from step 2 on comes with the opened `Flow`, so you can send the browser back to the page the flow began on. Before that, the `Flow` is zero.
 
-## Linking and step-up
+## Linking, step-up and invites
 
-A link adds a sign-in method to an account and a step-up proves the user again. Both need proof that the user signed in at the provider just now, rather than a silent single sign-on answer. For `IntentLink` and `IntentStepUp`, `Begin` sends both `max_age=0` and `prompt=login`. `Finish` then requires an `auth_time` claim no earlier than 60 seconds before the flow began, and a missing or older one is `ErrStaleAuthentication`.
+A link adds a sign-in method to an account, a step-up proves the user again, and an invite creates the invited account for the identity that signs in. Each needs proof that the person signed in at the provider just now, rather than a silent single sign-on answer, so a shared browser's existing provider session cannot bind the wrong person. For `IntentLink`, `IntentStepUp` and `IntentInvite`, `Begin` sends both `max_age=0` and `prompt=login`. `Finish` then requires an `auth_time` claim no earlier than 60 seconds before the flow began, and a missing or older one is `ErrStaleAuthentication`. OpenID Connect Core 1.0 section 2 makes `auth_time` required once `max_age` is sent, so a provider that omits it fails closed.
+
+An invite's flow carries the invite's stored hash in `BeginRequest.InviteHash`. The hash is sealed in the flow cookie and never sent in the authorization request; `Finish` returns it in `Flow.InviteHash`, and `account` reads the invite by it at the callback.
 
 Providers honour different parameters, which is why both are sent. Authentik 2026.8.3 ignores `max_age=0` and honours `prompt=login`. On Authentik the forced sign-in comes from `prompt=login`, and the `auth_time` check proves that it happened.
 
@@ -151,7 +153,7 @@ A key the provider retires keeps verifying from the cache until the first succes
 
 ## Provisioning and usernames
 
-`oidc` holds no claim policy. `account.Rules.OIDCAdmission` admits a token whose claim holds one of `AllowedValues`, as a string or in an array of strings, at every sign-in, link and step-up; a refused token is `account.ErrNotAdmitted`. `account.Rules.Provisioning` decides whether an admitted identity with no account may get one, and its zero value is off. An identity whose username is taken gets the pending link with a create offer, and `CreatePendingOIDC` creates the account under a name the person picks. A single-user app accepts no identity but the owner's: any other is `account.ErrInvalidCredentials`, with no pending link.
+`oidc` holds no claim policy. `account.Rules.OIDCAdmission` admits a token whose claim holds one of `AllowedValues`, as a string or in an array of strings, at every sign-in, link, invite acceptance and step-up; a refused token is `account.ErrNotAdmitted`. `account.Rules.Provisioning` decides whether an admitted identity with no account may get one, and its zero value is off. An identity whose username is taken gets the pending link with a create offer, and `CreatePendingOIDC` creates the account under a name the person picks. An invite accepted by single sign-on needs no provisioning: the callback creates the account linked to the identity with the invite's role, and a taken name gives the same pick, with the invite in the pending state. A single-user app accepts no identity but the owner's: any other is `account.ErrInvalidCredentials`, with no pending link.
 
 `UsernameCandidate` proposes a username. It takes `preferred_username` when present, or else the email when `email_verified` is true, and normalises it with `access.NormalizeUsername`. It returns `ErrNoUsername` when neither applies. When the chosen value does not normalise, it returns a `*UsernameError` naming the claim.
 

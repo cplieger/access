@@ -99,6 +99,15 @@
     "array": false
   },
   {
+    "request": "TokenRequest",
+    "response": "OIDCStartResponse",
+    "name": "authInviteAcceptOIDC",
+    "method": "POST",
+    "path": "{oidcPrefix}/start/invite",
+    "kind": "json",
+    "array": false
+  },
+  {
     "request": null,
     "response": null,
     "name": "authOIDCCallback",

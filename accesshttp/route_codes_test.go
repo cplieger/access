@@ -50,7 +50,7 @@ func plainScenarios() map[scenarioKey]scenario {
 	out := map[scenarioKey]scenario{}
 	anonymous := []string{
 		"authSetupPassword", "authSetupPasskeyBegin", "authSetupPasskeyFinish", "authLoginPassword", "authLoginPasskeyBegin",
-		"authLoginPasskeyFinish", "authInviteAcceptPassword", "authOIDCStartSignIn", "authOIDCCallback", "authOIDCPending", "authOIDCCreatePending",
+		"authLoginPasskeyFinish", "authInviteAcceptPassword", "authInviteAcceptOIDC", "authOIDCStartSignIn", "authOIDCCallback", "authOIDCPending", "authOIDCCreatePending",
 	}
 	for _, route := range anonymous {
 		out[scenarioKey{route, access.CodeHTTPSRequired}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {

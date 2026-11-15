@@ -296,7 +296,7 @@ func TestOIDCNotLinkedOneShape(t *testing.T) {
 		Identity:     access.OIDCIdentity{Issuer: oidcIssuer, Subject: accesstest.DefaultIdPSubject},
 		UsernameHint: accesstest.DefaultIdPUsername, Email: accesstest.DefaultIdPEmail,
 	}
-	if want.Kind != account.OutcomeNotLinked || want.Pending != wantPending || want.Redirect != "/home" {
+	if want.Kind != account.OutcomeNotLinked || !reflect.DeepEqual(want.Pending, wantPending) || want.Redirect != "/home" {
 		t.Fatalf("NotLinked outcome = %+v, want Pending %+v and Redirect /home", want, wantPending)
 	}
 	// design 5.4: with provisioning off, a hint matching a user and one

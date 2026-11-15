@@ -113,18 +113,12 @@ func (s *Service) AcceptInvitePassword(ctx context.Context, c Client, in AcceptI
 			if modeErr := requireLocal(ctx, tx, &acc.user, ErrSSOOnly); modeErr != nil {
 				return nil, modeErr
 			}
-			if acceptErr := s.acceptIn(ctx, tx, in.Token, &acc); acceptErr != nil || acc.spent {
+			if acceptErr := s.acceptIn(ctx, tx, tokenHash(in.Token), &acc); acceptErr != nil || acc.spent {
 				return nil, acceptErr
 			}
 			return &acc.user, nil
 		},
-		announce: func(j *journal, u *access.User, sess *access.Session) {
-			created := Event{Kind: EventUserCreated, At: sess.CreatedAt, UserID: u.ID, Role: u.Role}
-			if acc.issuer != nil {
-				created.KeyID = acc.issuer.ID
-			}
-			j.add(created)
-		},
+		announce: acc.announce,
 	})
 	if err == nil && acc.spent {
 		err = access.ErrTokenInvalid
@@ -165,13 +159,23 @@ type accepted struct {
 	spent  bool
 }
 
+// announce adds the acceptance's EventUserCreated, naming a key-issued
+// invite's issuer.
+func (acc *accepted) announce(j *journal, u *access.User, sess *access.Session) {
+	created := Event{Kind: EventUserCreated, At: sess.CreatedAt, UserID: u.ID, Role: u.Role}
+	if acc.issuer != nil {
+		created.KeyID = acc.issuer.ID
+	}
+	j.add(created)
+}
+
 // acceptIn is the acceptance's part of the Update, before its session:
-// consume the invite, re-check a key-issued one's issuer, create the user,
-// and append a key-issued invite's attribution. An invite the store found
-// expired or absent, or a refused issuer, sets acc.spent and commits the
-// consumption alone.
-func (s *Service) acceptIn(ctx context.Context, tx Tx, token access.Secret, acc *accepted) error {
-	tok, found, err := tx.ConsumeOneTimeToken(ctx, tokenHash(token), s.now())
+// consume the invite stored under hash, re-check a key-issued one's issuer,
+// create the user with the invite's role, and append a key-issued invite's
+// attribution. An invite the store found expired or absent, or a refused
+// issuer, sets acc.spent and commits the consumption alone.
+func (s *Service) acceptIn(ctx context.Context, tx Tx, hash access.Hash, acc *accepted) error {
+	tok, found, err := tx.ConsumeOneTimeToken(ctx, hash, s.now())
 	switch {
 	case err != nil:
 		return err
@@ -205,7 +209,12 @@ func (s *Service) peekToken(ctx context.Context, token access.Secret, purpose ac
 	if token.IsZero() {
 		return access.OneTimeToken{}, access.ErrTokenInvalid
 	}
-	tok, found, err := s.store.OneTimeTokenByHash(ctx, tokenHash(token))
+	return s.peekTokenHash(ctx, tokenHash(token), purpose)
+}
+
+// peekTokenHash is peekToken of the token stored under hash.
+func (s *Service) peekTokenHash(ctx context.Context, hash access.Hash, purpose access.TokenPurpose) (access.OneTimeToken, error) {
+	tok, found, err := s.store.OneTimeTokenByHash(ctx, hash)
 	if err != nil {
 		return access.OneTimeToken{}, storeErr(err)
 	}

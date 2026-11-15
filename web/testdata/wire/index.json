@@ -28,6 +28,7 @@
   "Signals",
   "SignedInResponse",
   "StateResponse",
+  "TokenRequest",
   "TokenResponse",
   "TokenView",
   "UserUpdateRequest",

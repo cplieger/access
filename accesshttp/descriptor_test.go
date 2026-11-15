@@ -22,7 +22,7 @@ var designClasses = map[string]struct {
 	"authLoginPasskeyFinish": {open: ClassPublic}, "authLogout": {open: ClassPublic}, "authOIDCStartSignIn": {open: ClassPublic},
 	"authOIDCStartLink": {open: ClassRecentAuth}, "authOIDCStartStepUp": {open: ClassSession}, "authOIDCCallback": {open: ClassPublic},
 	"authOIDCPending": {open: ClassPublic}, "authOIDCCreatePending": {open: ClassPublic}, "authOIDCLinkPending": {open: ClassRecentAuth}, "authOIDCUnlink": {open: ClassRecentAuth},
-	"authInviteAcceptPassword": {open: ClassPublic}, "authMe": {open: ClassSession},
+	"authInviteAcceptPassword": {open: ClassPublic}, "authInviteAcceptOIDC": {open: ClassPublic}, "authMe": {open: ClassSession},
 	"authProfile": {open: ClassSession}, "authMethodReenable": {open: ClassRecentAuth}, "authStepUpPassword": {open: ClassSession},
 	"authStepUpPasskeyBegin": {open: ClassSession}, "authStepUpPasskeyFinish": {open: ClassSession}, "authPasswordSet": {open: ClassRecentAuth},
 	"authPasswordRemove": {open: ClassRecentAuth}, "authPasskeys": {open: ClassSession}, "authPasskeyRegisterBegin": {open: ClassRecentAuth},
@@ -105,7 +105,7 @@ func TestDescriptorQueryTable(t *testing.T) {
 			t.Errorf("%s Query = %v, want %v", d.Name, d.Query, want[d.Name])
 		}
 	}
-	for _, name := range []string{"authSetupPassword", "authSetupPasskeyBegin", "authInviteAcceptPassword", "authOIDCStartLink", "authOIDCStartStepUp"} {
+	for _, name := range []string{"authSetupPassword", "authSetupPasskeyBegin", "authInviteAcceptPassword", "authInviteAcceptOIDC", "authOIDCStartLink", "authOIDCStartStepUp"} {
 		if d := specNamed(t, name).descriptor(&DescriptorConfig{Prefix: "/p", OIDCPrefix: "/o"}); d.Query != nil {
 			t.Errorf("%s Query = %v, want nil", name, d.Query)
 		}

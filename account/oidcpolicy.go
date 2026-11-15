@@ -19,8 +19,9 @@ var (
 	ErrProvisioningDisabled = errors.New("account: provisioning is disabled")
 )
 
-// OIDCAdmission gates every OIDC sign-in, link and step-up on a claim the
-// provider asserts. The zero value admits every identity.
+// OIDCAdmission gates every OIDC sign-in, link, invite acceptance and
+// step-up on a claim the provider asserts. The zero value admits every
+// identity.
 type OIDCAdmission struct {
 	// Claim names the claim to read, e.g. "groups": a string or an array
 	// of strings. Any other shape, absent included, is not admitted.

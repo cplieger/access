@@ -64,8 +64,8 @@ type Rules struct {
 	// Scopes is the key-scope vocabulary; CreateAPIKey refuses any other.
 	// Each is one RFC 6750 scope-token: printable ASCII but space, '"' and '\'.
 	Scopes []string
-	// OIDCAdmission gates every OIDC sign-in, link and step-up, owners'
-	// included. The zero value admits every identity.
+	// OIDCAdmission gates every OIDC sign-in, link, invite acceptance and
+	// step-up, owners' included. The zero value admits every identity.
 	OIDCAdmission OIDCAdmission
 	// Provisioning creates an account at an admitted identity's first
 	// OIDC sign-in, and maps its role. The zero value is off; a

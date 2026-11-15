@@ -26,6 +26,11 @@ type SetupPasskeyBeginRequest struct {
 	Username string `json:"username"`
 }
 
+// TokenRequest is authInviteAcceptOIDC's body.
+type TokenRequest struct {
+	Token string `json:"token"`
+}
+
 // PendingCreateRequest is authOIDCCreatePending's body.
 type PendingCreateRequest struct {
 	Username string `json:"username"`

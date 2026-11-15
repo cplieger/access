@@ -243,6 +243,11 @@ export const parseUserUpdateRequest: Validator<UserUpdateRequest> = object({
   enabled: opt(bool),
 });
 
+export interface TokenRequest {
+  readonly token: string;
+}
+export const parseTokenRequest: Validator<TokenRequest> = object({ token: req(str) });
+
 export interface PendingCreateRequest {
   readonly username: string;
 }

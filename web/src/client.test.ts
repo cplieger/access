@@ -93,6 +93,7 @@ const bindings: Readonly<Record<string, Binding>> = {
   authLogout: { method: "logout", call: (c) => c.logout() },
   authOIDCStartLink: { method: "oidcStartLink", call: (c, b) => c.oidcStartLink(b) },
   authOIDCStartStepUp: { method: "oidcStartStepUp", call: (c, b) => c.oidcStartStepUp(b) },
+  authInviteAcceptOIDC: { method: "inviteAcceptOIDC", call: (c, b) => c.inviteAcceptOIDC(b) },
   authOIDCPending: { method: "oidcPending", call: (c) => c.oidcPending() },
   authOIDCCreatePending: {
     method: "oidcCreatePending",
@@ -250,8 +251,8 @@ describe("the route table", () => {
     const methods = Object.keys(client).filter(
       (k) => typeof client[k as keyof AuthClient] === "function",
     );
-    expect(methods).toHaveLength(51);
-    expect(jsonRoutes).toHaveLength(51);
+    expect(methods).toHaveLength(52);
+    expect(jsonRoutes).toHaveLength(52);
     expect(Object.keys(bindings).sort()).toEqual(jsonRoutes.map((r) => r.name).sort());
     expect(
       Object.values(bindings)

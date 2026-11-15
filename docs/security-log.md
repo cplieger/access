@@ -21,8 +21,8 @@ Each operation appends its entries in the order it reports its events to `OnEven
 
 | Kind | Class | Appended by |
 | --- | --- | --- |
-| `user_created` | change | first-user setup (with the admin role), `CreateUser`, `AcceptInvitePassword`, and an OIDC sign-in or `CreatePendingOIDC` that creates the account, which is linked from the start and gets no `oidc_linked` |
-| `signed_in` | session | every full sign-in: password, passkey, OIDC, `CreatePendingOIDC`, first-user setup and `AcceptInvitePassword` |
+| `user_created` | change | first-user setup (with the admin role), `CreateUser`, `AcceptInvitePassword`, and an OIDC sign-in, an invite accepted by OIDC or `CreatePendingOIDC` that creates the account, which is linked from the start and gets no `oidc_linked` |
+| `signed_in` | session | every full sign-in: password, passkey, OIDC (an invite accepted by OIDC included), `CreatePendingOIDC`, first-user setup and `AcceptInvitePassword` |
 | `stepped_up` | session | `StepUpPassword`, a passkey step-up and an OIDC step-up |
 | `session_revoked` | session | `RevokeSession`, `Logout` when it ended a session, a sign-in that ends sessions past `Rules.MaxSessionsPerUser`, with one entry naming every session it ended, the revoke of a session presented on the other transport, whose `Detail` is `transport_changed` (`account.LogDetailTransportChanged`), and a full sign-in that replaced the session its request presented, in an entry of its own ahead of any `MaxSessionsPerUser` entry, whose `Detail` is `signed_in_again` (`account.LogDetailSignedInAgain`) |
 | `user_sessions_revoked` | change | `RevokeOtherSessions`, `SetPassword`, an OIDC link that leaves the user's local methods dormant, `ApplySSO` and `MigrateSSO` for each account whose local sessions the new mode ends, and `SetOwner` removing an owner whose local methods the mode keeps dormant, and `AdminUnlinkOIDC`, which ends every session of the user, each when it ended at least one session of the user. A role change, a disable and a delete name the sessions they end in their own entry instead |
@@ -31,7 +31,7 @@ Each operation appends its entries in the order it reports its events to `OnEven
 | `passkey_added` | change | `PasskeyRegisterFinish`. The passkey of a first-user setup gets no entry of its own: the setup appends `user_created` and `signed_in` |
 | `passkey_removed` | change | `RemovePasskey` |
 | `oidc_linked`, `oidc_unlinked` | change | `OIDCComplete` finishing a link and `LinkPendingOIDC`; `UnlinkOIDC` and `AdminUnlinkOIDC` |
-| `oidc_not_admitted` | session | `OIDCComplete` refusing a token `Rules.OIDCAdmission` does not admit, at a sign-in, link or step-up; `UserID` names the account it was for, zero at the sign-in of an identity no account is linked to |
+| `oidc_not_admitted` | session | `OIDCComplete` refusing a token `Rules.OIDCAdmission` does not admit, at a sign-in, link, invite acceptance or step-up; `UserID` names the account it was for, zero at an invite acceptance and at the sign-in of an identity no account is linked to |
 | `role_synced`, `role_sync_skipped` | change | an OIDC sign-in under `Rules.Provisioning.SyncRole`: `role_synced` with the new `Role` when the claim changed it, `role_sync_skipped` with the kept `Role` when the claim was absent or unreadable |
 | `key_minted` | change | `CreateAPIKey` |
 | `key_rotated` | change | `RotateAPIKey`, naming the key and its owner. The end of the overlap appends nothing: it happens when a request verifies the new secret, and the key list shows it |

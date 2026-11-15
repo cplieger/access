@@ -88,6 +88,10 @@ func (s stubAccount) LinkPendingOIDC(ctx context.Context, p access.Principal, pe
 	return s.accountAPI.LinkPendingOIDC(ctx, p, pending)
 }
 
+func (s stubAccount) AcceptInviteOIDCBegin(ctx context.Context, c account.Client, token access.Secret) (oidc.BeginRequest, error) {
+	return stubbed(s, "AcceptInviteOIDCBegin", func() (oidc.BeginRequest, error) { return s.accountAPI.AcceptInviteOIDCBegin(ctx, c, token) })
+}
+
 func (s stubAccount) CreatePendingOIDC(ctx context.Context, c account.Client, pending account.PendingLink, username string) (account.SignedIn, error) {
 	return stubbed(s, "CreatePendingOIDC", func() (account.SignedIn, error) { return s.accountAPI.CreatePendingOIDC(ctx, c, pending, username) })
 }

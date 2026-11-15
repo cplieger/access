@@ -369,6 +369,19 @@ func publicOperations() []operation {
 				},
 			}
 		}},
+		{name: "AcceptInviteOIDCBegin", class: classPublic, transport: plainRefused, readOnly: true, asks: []account.Operation{account.OpCreateUser}, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			inv, err := w.svc.CreateInvite(t.Context(), w.recent(t, w.root), access.RoleUser, 0)
+			if err != nil {
+				t.Fatalf("CreateInvite = %v", err)
+			}
+			return opCall{
+				run: func(ctx context.Context) error {
+					_, err := w.svc.AcceptInviteOIDCBegin(ctx, w.client, inv.Plaintext)
+					return err
+				},
+				want: none,
+			}
+		}},
 		{name: "CreatePendingOIDC", class: classPublic, transport: plainRefused, asks: []account.Operation{account.OpCreateUser}, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
 			pending := account.PendingLink{
 				Identity:  access.OIDCIdentity{Issuer: oidcIssuer, Subject: w.name("pending-")},

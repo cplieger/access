@@ -11,7 +11,7 @@ import (
 )
 
 // AdmitOIDC is an anonymous OIDC request's one provider read, for the
-// sign-in start, the callback and the pending-link read: ErrServiceClosed, then
+// sign-in and invite starts, the callback and the pending routes: ErrServiceClosed, then
 // access.ErrHTTPSRequired for a plain c, then ErrOIDCUnavailable for a nil
 // OIDC(), each charging nothing, then Limiter.Request on c's IP
 // (*ratelimit.RefusedError), else the provider for the whole request.
@@ -51,14 +51,39 @@ func (s *Service) AdmitOIDCSession(c Client, p access.Principal) (*oidc.Provider
 	return provider, nil
 }
 
+// AcceptInviteOIDCBegin starts an invite's acceptance by OIDC after
+// AdmitOIDC, writing nothing: the IntentInvite request for Provider.Begin,
+// sealing token's stored hash. An absent, unknown, expired, used or
+// other-purpose token is access.ErrTokenInvalid before the Policy
+// (OpCreateUser, ViaInvite, its Role); plain: access.ErrHTTPSRequired; nil
+// OIDC(): ErrOIDCUnavailable. Its callback asks both again, then creates the
+// account linked, with the invite's role; a taken name commits nothing and
+// gives OutcomeNotLinked holding the invite.
+func (s *Service) AcceptInviteOIDCBegin(ctx context.Context, c Client, token access.Secret) (oidc.BeginRequest, error) { //nolint:gocritic // hugeParam: the request's Client, read once
+	if _, err := s.beginOver(plainRefused, c.Secure); err != nil {
+		return oidc.BeginRequest{}, err
+	}
+	if s.provider() == nil {
+		return oidc.BeginRequest{}, ErrOIDCUnavailable
+	}
+	invite, err := s.peekToken(ctx, token, access.PurposeInvite)
+	if err != nil {
+		return oidc.BeginRequest{}, err
+	}
+	if err := s.authorize(ctx, Decision{Op: OpCreateUser, Via: ViaInvite, Role: invite.Role}); err != nil {
+		return oidc.BeginRequest{}, err
+	}
+	return oidc.BeginRequest{Intent: oidc.IntentInvite, InviteHash: []byte(tokenHash(token).Reveal())}, nil
+}
+
 // OIDCComplete completes the callback Finish returned after AdmitOIDC,
 // charging no limiter (plain: access.ErrHTTPSRequired; nil OIDC():
-// ErrOIDCUnavailable); the outcome carries flow.Redirect. A sign-in signs in
-// the linked user (disabled: ErrInvalidCredentials) or one Rules.Provisioning
-// creates, else gives one same OutcomeNotLinked, or ErrInvalidCredentials in
-// a single-user app. A link within RecentAuth, or a step-up of the linked
-// identity, needs flow's live full session (else ErrSessionGone). Then a
-// token Rules.OIDCAdmission refuses is ErrNotAdmitted, journalled alone.
+// ErrOIDCUnavailable), the outcome carrying flow.Redirect. A sign-in signs in
+// the linked user or a provisioned one, else gives one same OutcomeNotLinked
+// (disabled, or unlinked in a single-user app: ErrInvalidCredentials). A link
+// within RecentAuth or a step-up needs flow's live full session (else
+// ErrSessionGone); an invite answers as AcceptInviteOIDCBegin says. A token
+// Rules.OIDCAdmission refuses is then ErrNotAdmitted, journalled alone.
 func (s *Service) OIDCComplete(ctx context.Context, c Client, flow oidc.Flow, claims oidc.Claims) (OIDCOutcome, error) { //nolint:gocritic // hugeParam: the callback's Client, Flow and Claims, read once
 	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {
@@ -76,6 +101,8 @@ func (s *Service) OIDCComplete(ctx context.Context, c Client, flow oidc.Flow, cl
 		out, err = s.oidcLink(ctx, r, c, flow, claims.Identity, admitted)
 	case oidc.IntentStepUp:
 		out, err = s.oidcStepUp(ctx, c, flow, claims.Identity, admitted)
+	case oidc.IntentInvite:
+		out, err = s.oidcInvite(ctx, r, c, access.NewHash(string(flow.InviteHash)), claims, admitted)
 	default:
 		return OIDCOutcome{}, fmt.Errorf("%w: unknown intent %q", oidc.ErrFlowInvalid, flow.Intent)
 	}
@@ -189,7 +216,7 @@ func (s *Service) oidcUserIn(ctx context.Context, tx Tx, r Rules, claims oidc.Cl
 			return nil, err
 		}
 		if !taken {
-			fresh := s.provisioned(name, role, claims.Identity)
+			fresh := s.newOIDCUser(name, role, claims.Identity)
 			if err := s.createUser(ctx, tx, fresh, tx.CreateUser); err != nil {
 				return nil, err
 			}
@@ -251,8 +278,8 @@ func suggestedName(name string) string {
 	return candidate
 }
 
-// provisioned is the account provisioning creates for id.
-func (s *Service) provisioned(username string, role access.Role, id access.OIDCIdentity) *access.User {
+// newOIDCUser is the account provisioning or an invite creates for id.
+func (s *Service) newOIDCUser(username string, role access.Role, id access.OIDCIdentity) *access.User {
 	now := s.now()
 	return &access.User{
 		Username: username, Role: role, OIDC: id, Enabled: true,
@@ -287,11 +314,12 @@ func pendingLink(claims oidc.Claims) PendingLink { //nolint:gocritic // hugePara
 
 // CreatePendingOIDC creates an account named username for pending's
 // identity and signs it in (plain: access.ErrHTTPSRequired; the zero
-// PendingLink: access.ErrTokenInvalid). pending's Provision, Rules.Provisioning
-// and some stored user are each needed, else ErrProvisioningDisabled. One
-// Update re-runs the Policy (OpCreateUser, ViaProvisioning), the identity
-// still unlinked (ErrOIDCIdentityTaken) and the name free (ErrUsernameTaken,
-// which leaves pending usable for another name).
+// PendingLink, a pending state that did not open: ErrNotFound). A pending
+// Invite needs the invite (else access.ErrTokenInvalid) and the Policy
+// (ViaInvite); otherwise Provision, Rules.Provisioning and a stored user
+// (else ErrProvisioningDisabled) and the Policy (ViaProvisioning). One Update
+// checks the identity unlinked (ErrOIDCIdentityTaken) and the name free
+// (ErrUsernameTaken, which leaves pending usable for another name).
 func (s *Service) CreatePendingOIDC(ctx context.Context, c Client, pending PendingLink, username string) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client and the pending link it read
 	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {
@@ -302,13 +330,16 @@ func (s *Service) CreatePendingOIDC(ctx context.Context, c Client, pending Pendi
 	}
 	switch {
 	case pending.Identity.Issuer == "" || pending.Identity.Subject == "":
-		return SignedIn{}, access.ErrTokenInvalid
-	case pending.Provision == nil || !r.Provisioning.Enabled:
+		return SignedIn{}, ErrNotFound
+	case pending.Invite.IsZero() && (pending.Provision == nil || !r.Provisioning.Enabled):
 		return SignedIn{}, ErrProvisioningDisabled
 	}
 	name, err := canonicalUsername(username)
 	if err != nil {
 		return SignedIn{}, err
+	}
+	if !pending.Invite.IsZero() {
+		return s.createPendingInvite(ctx, r, c, pending, name)
 	}
 	role := pending.Provision.Role
 	return s.createSession(ctx, r, c, &sessionOp{
@@ -329,12 +360,8 @@ func (s *Service) createPendingIn(ctx context.Context, tx Tx, name string, role 
 	case refusal != nil:
 		return nil, refuse(refusal)
 	}
-	_, linked, err := tx.UserByOIDC(ctx, id)
-	switch {
-	case err != nil:
-		return nil, err
-	case linked:
-		return nil, refuse(ErrOIDCIdentityTaken)
+	if linkErr := identityFreeIn(ctx, tx, id); linkErr != nil {
+		return nil, linkErr
 	}
 	_, taken, err := tx.UserByUsername(ctx, name)
 	switch {
@@ -343,7 +370,7 @@ func (s *Service) createPendingIn(ctx context.Context, tx Tx, name string, role 
 	case taken:
 		return nil, refuse(ErrUsernameTaken)
 	}
-	fresh := s.provisioned(name, role, id)
+	fresh := s.newOIDCUser(name, role, id)
 	if err := s.createUser(ctx, tx, fresh, tx.CreateUser, ErrUsernameTaken); err != nil {
 		return nil, err
 	}

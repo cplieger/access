@@ -121,11 +121,14 @@ var refuted = []struct {
 	{route: "authOIDCStartSignIn", code: access.CodeOIDCFailed, invariant: "serveOIDCStartSignIn begins IntentSignIn with no session or user, which BeginRequest.check's sign-in arm accepts, and Begin skips its Sec-Fetch-Site check for a sign-in"},
 	{route: "authOIDCStartLink", code: access.CodeOIDCFailed, invariant: "startSessionFlow refuses a Sec-Fetch-Site other than same-origin before Begin and passes the guard's session ID, 32 hex characters under maxSessionIDBytes, and user ID, which BeginRequest.check's session-bound arms accept"},
 	{route: "authOIDCStartStepUp", code: access.CodeOIDCFailed, invariant: "startSessionFlow refuses a Sec-Fetch-Site other than same-origin before Begin and passes the guard's session ID, 32 hex characters under maxSessionIDBytes, and user ID, which BeginRequest.check's session-bound arms accept"},
+	{route: "authInviteAcceptOIDC", code: access.CodeOIDCFailed, invariant: "serveInviteAcceptOIDC refuses a Sec-Fetch-Site other than same-origin before Begin and passes AcceptInviteOIDCBegin's request, IntentInvite with a 64-byte hex SHA-256 and no redirect, which BeginRequest.check's invite arm accepts"},
+	{route: "authOIDCCallback", code: access.CodeUsernameTaken, invariant: "oidcInvite reads the name inside the Update that creates the account and commits nothing when it is taken, so acceptIn's ErrUsernameTaken refusal of a store's CreateUser cannot fire on the callback under a serialisable Update"},
 	{route: "authKeyCreate", leaf: modulePath + ".ErrInvalidKeyPrefix", invariant: "CreateAPIKey's begin validates the Rules value it mints under, and Rules.Validate's KeyPrefix check refuses a KeyPrefix access.ValidateKeyPrefix refuses, so GenerateAPIKey in CreateAPIKey cannot"},
 	{route: "authKeyRotate", leaf: modulePath + ".ErrInvalidKeyPrefix", invariant: "admitRotation's begin validates the Rules value RotateAPIKey generates under, and Rules.Validate's KeyPrefix check refuses a KeyPrefix access.ValidateKeyPrefix refuses, so GenerateAPIKey in RotateAPIKey cannot"},
 	{route: "authOIDCStartSignIn", leaf: modulePath + "/oidc.ErrConfigInvalid", invariant: oidcConfigRefuted},
 	{route: "authOIDCStartLink", leaf: modulePath + "/oidc.ErrConfigInvalid", invariant: oidcConfigRefuted},
 	{route: "authOIDCStartStepUp", leaf: modulePath + "/oidc.ErrConfigInvalid", invariant: oidcConfigRefuted},
+	{route: "authInviteAcceptOIDC", leaf: modulePath + "/oidc.ErrConfigInvalid", invariant: oidcConfigRefuted},
 	{route: "authOIDCCallback", leaf: modulePath + "/oidc.ErrConfigInvalid", invariant: oidcConfigRefuted},
 }
 

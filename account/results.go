@@ -66,14 +66,20 @@ type PendingCeremony struct {
 type PendingLink struct {
 	// Provision is set when provisioning admitted the identity but its name
 	// was taken, so CreatePendingOIDC may create an account with this role.
-	Provision    *Provision
+	Provision *Provision
+	// Invite is set instead, to the invite's stored hash, when an invite's
+	// callback found its name taken, so CreatePendingOIDC may accept it.
+	Invite       access.Hash
 	UsernameHint string // preferred_username as sent, display only
 	Email        string // only when email_verified
 	// SuggestedUsername is the default name for CreatePendingOIDC, set only
-	// with Provision; it may be taken too.
+	// when CanCreate; it may be taken too.
 	SuggestedUsername string
 	Identity          access.OIDCIdentity
 }
+
+// CanCreate reports whether CreatePendingOIDC may create an account for p.
+func (p *PendingLink) CanCreate() bool { return p.Provision != nil || !p.Invite.IsZero() }
 
 // Provision is what the callback that admitted a pending identity decided
 // for its account.

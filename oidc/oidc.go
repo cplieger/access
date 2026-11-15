@@ -27,8 +27,8 @@ var (
 	// sealed by another provider or answered with another state, and a
 	// malformed BeginRequest or a cross-site begin that Begin refuses.
 	ErrFlowInvalid = errors.New("oidc: sign-in flow invalid")
-	// ErrStaleAuthentication reports a link or step-up whose ID token does
-	// not prove a sign-in at the provider after the flow began.
+	// ErrStaleAuthentication reports a flow of any intent but sign-in whose
+	// ID token does not prove a sign-in at the provider after the flow began.
 	ErrStaleAuthentication = errors.New("oidc: the provider did not authenticate the user again")
 	ErrRedirectTooLong     = errors.New("oidc: redirect longer than MaxRedirectBytes")
 )

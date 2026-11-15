@@ -15,6 +15,7 @@ import (
 	"github.com/cplieger/access/accesshttp"
 	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
+	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/ratelimit"
 )
 
@@ -25,8 +26,9 @@ const secretsPassword = "correct-horse-battery-staple-9" // gitleaks:allow (test
 // Service it embeds.
 type recordingAccount struct {
 	accesshttp.AccountAPI
-	got map[string][]string
-	mu  sync.Mutex
+	provider *oidc.Provider
+	got      map[string][]string
+	mu       sync.Mutex
 }
 
 func (a *recordingAccount) record(op string, secrets ...access.Secret) {
@@ -57,6 +59,15 @@ func (a *recordingAccount) PasswordLogin(_ context.Context, _ account.Client, in
 func (a *recordingAccount) AcceptInvitePassword(_ context.Context, _ account.Client, in account.AcceptInvite) (account.SignedIn, error) {
 	a.record("authInviteAcceptPassword", in.Token, in.Password)
 	return signedIn, nil
+}
+
+// AdmitOIDC admits every request with the fixture's provider, so the
+// invite start reaches AcceptInviteOIDCBegin.
+func (a *recordingAccount) AdmitOIDC(account.Client) (*oidc.Provider, error) { return a.provider, nil }
+
+func (a *recordingAccount) AcceptInviteOIDCBegin(_ context.Context, _ account.Client, token access.Secret) (oidc.BeginRequest, error) {
+	a.record("authInviteAcceptOIDC", token)
+	return oidc.BeginRequest{Intent: oidc.IntentInvite, InviteHash: []byte("hash")}, nil
 }
 
 func (a *recordingAccount) StepUpPassword(_ context.Context, _ account.Client, _ access.Principal, password access.Secret) (account.Issued, error) {
@@ -137,7 +148,14 @@ func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler,
 	}
 	session := &http.Cookie{Name: cfg.CookieName(true), Value: in.Token.Reveal()}
 
-	fake := &recordingAccount{AccountAPI: svc, got: map[string][]string{}}
+	idp := accesstest.NewIdP(t, accesstest.IdPOptions{})
+	provider, err := oidc.NewProvider(t.Context(), oidc.Config{
+		IssuerURL: idp.Issuer(), ClientID: idp.ClientID(), RedirectURL: "https://app.example.com/api/auth/oidc/callback", HTTPClient: idp.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &recordingAccount{AccountAPI: svc, provider: provider, got: map[string][]string{}}
 	h, err := accesshttp.NewWithAccount(accesshttp.Config{
 		Errors: func(w http.ResponseWriter, _ *http.Request, e access.Error) {
 			errs(e)
@@ -156,6 +174,7 @@ func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler,
 		"authSetupPasskeyBegin":    {body: map[string]string{"token": "tok-passkey", "username": "bob"}, want: []string{"tok-passkey"}},
 		"authLoginPassword":        {body: map[string]string{"username": "bob", "password": "pw-login"}, want: []string{"pw-login"}, required: []string{"password"}},
 		"authInviteAcceptPassword": {body: map[string]string{"token": "tok-invite", "username": "carol", "password": "pw-invite"}, want: []string{"tok-invite", "pw-invite"}, required: []string{"token", "password"}},
+		"authInviteAcceptOIDC":     {body: map[string]string{"token": "tok-invite-oidc"}, want: []string{"tok-invite-oidc"}, required: []string{"token"}},
 		"authStepUpPassword":       {cookie: session, body: map[string]string{"password": "pw-stepup"}, want: []string{"pw-stepup"}, required: []string{"password"}},
 		"authPasswordSet":          {cookie: session, body: map[string]string{"current_password": "pw-current", "password": "pw-next"}, want: []string{"pw-current", "pw-next"}, required: []string{"password"}},
 		"authPasswordRemove":       {cookie: session, body: map[string]string{"current_password": "pw-removed"}, want: []string{"pw-removed"}},

@@ -35,6 +35,7 @@ type accountAPI interface {
 	LinkPendingOIDC(ctx context.Context, p access.Principal, pending account.PendingLink) (account.Issued, account.Me, error)
 	UnlinkOIDC(ctx context.Context, p access.Principal) error
 	CreatePendingOIDC(ctx context.Context, c account.Client, pending account.PendingLink, username string) (account.SignedIn, error)
+	AcceptInviteOIDCBegin(ctx context.Context, c account.Client, token access.Secret) (oidc.BeginRequest, error)
 	Logout(ctx context.Context, tokenHash access.Hash) error
 	AcceptInvitePassword(ctx context.Context, c account.Client, in account.AcceptInvite) (account.SignedIn, error)
 	StepUpPassword(ctx context.Context, c account.Client, p access.Principal, password access.Secret) (account.Issued, error)

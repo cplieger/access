@@ -30,13 +30,16 @@ var errPendingTooLarge = errors.New("accesshttp: the pending link does not fit i
 // pendingPayload is the pending link as sealed into its cookie.
 type pendingPayload struct {
 	// Provision is the role CreatePendingOIDC may create the account with;
-	// absent when the callback offered no creation.
-	Provision    *access.Role `json:"provision,omitempty"`
-	Issuer       string       `json:"iss"`
-	Subject      string       `json:"sub"`
-	UsernameHint string       `json:"hint,omitempty"`
-	Email        string       `json:"email,omitempty"`
-	Suggested    string       `json:"suggested,omitempty"`
+	// absent unless provisioning offered the creation.
+	Provision *access.Role `json:"provision,omitempty"`
+	// Invite is the stored hash of the invite CreatePendingOIDC may accept;
+	// absent unless an invite's callback found its name taken.
+	Invite       string `json:"invite,omitempty"`
+	Issuer       string `json:"iss"`
+	Subject      string `json:"sub"`
+	UsernameHint string `json:"hint,omitempty"`
+	Email        string `json:"email,omitempty"`
+	Suggested    string `json:"suggested,omitempty"`
 }
 
 func serveOIDCStartSignIn(h *Handler, c *call) error {
@@ -57,12 +60,50 @@ func serveOIDCStartLink(h *Handler, c *call) error { return h.startSessionFlow(c
 
 func serveOIDCStartStepUp(h *Handler, c *call) error { return h.startSessionFlow(c, oidc.IntentStepUp) }
 
-// startSessionFlow begins a link or step-up flow from c's session. The
-// Sec-Fetch-Site check is the handler's own: CrossOriginProtection admits
-// "none", which a session-bound start refuses.
-func (h *Handler) startSessionFlow(c *call, intent oidc.Intent) error {
+// serveInviteAcceptOIDC begins an invite's acceptance by OIDC; the
+// invite's hash travels sealed in the flow cookie.
+func serveInviteAcceptOIDC(h *Handler, c *call) error {
+	if err := sameOriginFetch(c); err != nil {
+		return err
+	}
+	req, err := decodeJSON[TokenRequest](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	token, err := requireSecret("token", req.Token)
+	if err != nil {
+		return err
+	}
+	p, err := h.acct.AdmitOIDC(c.client)
+	if err != nil {
+		return err
+	}
+	begin, err := h.acct.AcceptInviteOIDCBegin(c.r.Context(), c.client, token)
+	if err != nil {
+		return err
+	}
+	authURL, err := p.Begin(c.w, c.r, h.acct.Authenticator().Cookie(), begin)
+	if err != nil {
+		return err
+	}
+	writeJSON(c.w, http.StatusOK, OIDCStartResponse{URL: authURL})
+	return nil
+}
+
+// sameOriginFetch refuses a Sec-Fetch-Site other than same-origin, which
+// Provider.Begin would refuse for every intent but sign-in; the check is
+// the handler's own, because CrossOriginProtection admits "none".
+func sameOriginFetch(c *call) error {
 	if site, sent := c.r.Header["Sec-Fetch-Site"]; sent && !slices.Equal(site, []string{"same-origin"}) {
 		return errCrossOrigin
+	}
+	return nil
+}
+
+// startSessionFlow begins a link or step-up flow from c's session.
+func (h *Handler) startSessionFlow(c *call, intent oidc.Intent) error {
+	if err := sameOriginFetch(c); err != nil {
+		return err
 	}
 	req, err := decodeJSON[RedirectRequest](c.w, c.r)
 	if err != nil {
@@ -149,7 +190,10 @@ func (h *Handler) redirectFailure(c *call, err error, flow oidc.Flow) { //nolint
 // refuses as too large, or whose cookie name and value pass maxCookieBytes,
 // sets no cookie and is errPendingTooLarge.
 func (h *Handler) setPendingLink(c *call, p *account.PendingLink) error {
-	pp := pendingPayload{Issuer: p.Identity.Issuer, Subject: p.Identity.Subject, UsernameHint: p.UsernameHint, Email: p.Email, Suggested: p.SuggestedUsername}
+	pp := pendingPayload{
+		Issuer: p.Identity.Issuer, Subject: p.Identity.Subject, UsernameHint: p.UsernameHint, Email: p.Email,
+		Suggested: p.SuggestedUsername, Invite: p.Invite.Reveal(),
+	}
 	if p.Provision != nil {
 		pp.Provision = &p.Provision.Role
 	}
@@ -188,6 +232,7 @@ func (h *Handler) readPending(c *call) (account.PendingLink, bool) {
 	}
 	out := account.PendingLink{
 		Identity: access.OIDCIdentity{Issuer: p.Issuer, Subject: p.Subject}, UsernameHint: p.UsernameHint, Email: p.Email, SuggestedUsername: p.Suggested,
+		Invite: access.NewHash(p.Invite),
 	}
 	if p.Provision != nil {
 		out.Provision = &account.Provision{Role: *p.Provision}
@@ -207,13 +252,15 @@ func serveOIDCPending(h *Handler, c *call) error {
 	}
 	writeJSON(c.w, http.StatusOK, PendingLinkResponse{
 		Issuer: p.Identity.Issuer, UsernameHint: p.UsernameHint, Email: p.Email,
-		CanCreate: p.Provision != nil, SuggestedUsername: p.SuggestedUsername,
+		CanCreate: p.CanCreate(), SuggestedUsername: p.SuggestedUsername,
 	})
 	return nil
 }
 
 // serveOIDCCreatePending clears the pending cookie only once the account
-// is created: a taken name keeps it for another pick.
+// is created: a taken name keeps it for another pick. A cookie that does
+// not open reaches CreatePendingOIDC as the zero PendingLink, which it
+// refuses as not found.
 func serveOIDCCreatePending(h *Handler, c *call) error {
 	req, err := decodeJSON[PendingCreateRequest](c.w, c.r)
 	if err != nil {

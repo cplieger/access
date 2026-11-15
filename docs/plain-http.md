@@ -18,7 +18,7 @@ Under `PosturePerRequest`, a plain request may sign in and set up the first acco
 | Allowed over plain HTTP | Refused over plain HTTP with 403 `auth_https_required` |
 | --- | --- |
 | `authState`, `authSetupPassword`, `authLoginPassword`, `authLogout` | `authSetupPasskeyBegin`, `authSetupPasskeyFinish`, `authLoginPasskeyBegin`, `authLoginPasskeyFinish` |
-| `authMe`, `authProfile`, `authMethodReenable` | every OIDC route: `authOIDCStartSignIn`, `authOIDCStartLink`, `authOIDCStartStepUp`, `authOIDCCallback`, `authOIDCPending`, `authOIDCCreatePending`, `authOIDCLinkPending` |
+| `authMe`, `authProfile`, `authMethodReenable` | every OIDC route: `authOIDCStartSignIn`, `authOIDCStartLink`, `authOIDCStartStepUp`, `authInviteAcceptOIDC`, `authOIDCCallback`, `authOIDCPending`, `authOIDCCreatePending`, `authOIDCLinkPending` |
 | `authPasswordSet`, whose recent auth is the sign-in's time | `authStepUpPassword`, `authStepUpPasskeyBegin`, `authStepUpPasskeyFinish` |
 | `authPasskeys`, `authPasskeyRename`, `authPasskeyRemove`, `authWebAuthnSignals`, `authOIDCUnlink` | `authPasswordRemove` |
 | `authSessions`, `authSessionRename`, `authSessionRevoke`, `authSessionsRevokeOthers` | `authPasskeyRegisterBegin`, `authPasskeyRegisterFinish` |
@@ -34,7 +34,7 @@ Three rows need a reason:
 
 `account` enforces the table, so an app that calls it directly gets the same answers: each operation's godoc names its plain answer. An `OutOfBand` actor has no transport and is never refused. An operation that takes both a `Client` and a `Principal` needs both to be secure. In `account` the refusal comes before any other check, limiter charge or store read, so a refused plain request costs nothing and its answer does not depend on its input. `accesshttp` and the gate only translate `access.ErrHTTPSRequired` into the code, and keep no copy of the table.
 
-Each OIDC route is admitted by `account` before it touches a cookie or the identity provider: the sign-in start, the callback and the pending-link read through `Service.AdmitOIDC`, and the link and step-up starts through `Service.AdmitOIDCSession`. A plain start therefore sets no flow cookie and sends the browser nowhere. A plain pending-link read answers 403 even when it presents a valid pending cookie, which it neither reads nor clears.
+Each OIDC route is admitted by `account` before it touches a cookie or the identity provider: the sign-in and invite starts, the callback and the pending-link read through `Service.AdmitOIDC`, and the link and step-up starts through `Service.AdmitOIDCSession`. A plain start therefore sets no flow cookie and sends the browser nowhere. A plain pending-link read answers 403 even when it presents a valid pending cookie, which it neither reads nor clears.
 
 ## The plain session
 
