@@ -13,7 +13,12 @@ import type {
 export type DOMExceptionName = string;
 
 export type RegisterOutcome =
-  | { readonly kind: "registered"; readonly passkey: PasskeyView }
+  | {
+      readonly kind: "registered";
+      readonly passkey: PasskeyView;
+      /** The recovery code this registration issued: show it once. */
+      readonly recovery_code?: string;
+    }
   | { readonly kind: "cancelled" }
   | { readonly kind: "duplicate" }
   | { readonly kind: "timeout" }
@@ -445,7 +450,10 @@ export async function registerPasskey(
     return registrationRefused(res);
   }
   await sendSignals(c);
-  return { kind: "registered", passkey: res.data };
+  const { passkey, recovery_code } = res.data;
+  return recovery_code === undefined
+    ? { kind: "registered", passkey }
+    : { kind: "registered", passkey, recovery_code };
 }
 
 /** Creates the first user with a passkey; a create-leg duplicate is a failed InvalidStateError here. */

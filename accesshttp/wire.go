@@ -269,10 +269,25 @@ type TOTPBeginResponse struct {
 	Ticket string `json:"ticket"`
 }
 
-// TOTPFinishResponse is authTOTPFinish's answer: the recovery code the
-// enrolment issued, shown once; absent when it issued none.
-type TOTPFinishResponse struct {
+// RecoveryCodeIssuedResponse is the answer of an Account change that may
+// issue a recovery code, authTOTPFinish and authPasswordSet: the code, shown
+// once; absent when it issued none.
+type RecoveryCodeIssuedResponse struct {
 	RecoveryCode string `json:"recovery_code,omitempty"`
+}
+
+// RecoveryCodeResponse is authRecoveryCodeRegenerate's answer: the new
+// recovery code, shown once.
+type RecoveryCodeResponse struct {
+	RecoveryCode string `json:"recovery_code"`
+}
+
+// PasskeyRegisteredResponse is authPasskeyRegisterFinish's answer: the new
+// passkey, and the recovery code its registration issued, shown once;
+// absent when it issued none.
+type PasskeyRegisteredResponse struct {
+	RecoveryCode string      `json:"recovery_code,omitempty"`
+	Passkey      PasskeyView `json:"passkey"`
 }
 
 // OIDCStartResponse is the link and step-up starts' answer.
@@ -307,6 +322,7 @@ type MethodsView struct {
 	OIDCAvailable     bool             `json:"oidc_available"`
 	PasskeysAvailable bool             `json:"passkeys_available"`
 	PasswordLogin     bool             `json:"password_login"`
+	RecoveryCode      bool             `json:"recovery_code"` // a recovery code is stored
 	// SecondFactorHeld is account.Methods.SecondFactorHeld: adding or
 	// removing a passkey needs a current second factor.
 	SecondFactorHeld bool `json:"second_factor_held"`
@@ -658,6 +674,7 @@ func methodsView(m account.Methods) MethodsView {
 		OIDCAvailable:     m.OIDCAvailable,
 		PasskeysAvailable: m.PasskeysAvailable,
 		PasswordLogin:     m.PasswordLogin,
+		RecoveryCode:      m.RecoveryCode,
 		SecondFactorHeld:  m.SecondFactorHeld,
 		PasswordStepUp:    m.PasswordStepUp,
 		Locks:             locks,

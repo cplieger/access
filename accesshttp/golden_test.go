@@ -63,7 +63,7 @@ func goldenMethods() MethodsView {
 	return MethodsView{
 		Locks:    []MethodLockView{{Method: access.MethodPassword, Untrusted: true, Trusted: true}},
 		Password: true, PasskeyCount: 1, OIDCLinked: true, OIDCAvailable: true, PasskeysAvailable: true, PasswordLogin: true,
-		SecondFactorHeld: true, PasswordStepUp: true,
+		SecondFactorHeld: true, PasswordStepUp: true, RecoveryCode: true,
 		TOTP: TOTPView{Since: goldenTime, Enrolled: true, Usable: true, Removable: true},
 	}
 }
@@ -136,8 +136,9 @@ func fixtures() []fixture {
 		}}},
 		{name: "CeremonyResponse", value: CeremonyResponse{Ceremony: "c1", PublicKey: json.RawMessage(`{"publicKey":{"challenge":"Y2hhbGxlbmdl"},"mediation":"conditional"}`)}},
 		{name: "TOTPBeginResponse", value: TOTPBeginResponse{URI: "otpauth://totp/Example:alice?secret=GEZDGNBVGY3TQOJQ&issuer=Example&algorithm=SHA1&digits=6&period=30", Text: "GEZDGNBVGY3TQOJQ", Ticket: "fixture-ticket"}},
-		{name: "TOTPFinishResponse", value: TOTPFinishResponse{RecoveryCode: "ABCD-EFGH-JKMN-PQRS"}},
-		{name: "TOTPFinishResponse.none", absent: "recovery_code", value: TOTPFinishResponse{}},
+		{name: "RecoveryCodeIssuedResponse", value: RecoveryCodeIssuedResponse{RecoveryCode: "ABCD-EFGH-JKMN-PQRS"}},
+		{name: "RecoveryCodeIssuedResponse.none", absent: "recovery_code", value: RecoveryCodeIssuedResponse{}},
+		{name: "RecoveryCodeResponse", value: RecoveryCodeResponse{RecoveryCode: "ABCD-EFGH-JKMN-PQRS"}},
 		{name: "OIDCStartResponse", value: OIDCStartResponse{URL: "https://idp.example.com/authorize?state=x"}},
 		{name: "PendingLinkResponse", value: PendingLinkResponse{Issuer: "https://idp.example.com", UsernameHint: "alice", Email: "alice@example.com", CanCreate: true, SuggestedUsername: "alice_2"}},
 		{name: "PendingLinkResponse.noCreate", absent: "suggested_username", value: PendingLinkResponse{Issuer: "https://idp.example.com", UsernameHint: "alice"}},
@@ -149,6 +150,13 @@ func fixtures() []fixture {
 			ID: 2, Name: "laptop", RPID: testRPID, CreatedAt: goldenTime, LastUsedAt: goldenLater,
 			BackupEligible: true, BackedUp: true, CloneWarning: true, Removable: true,
 		}},
+		{name: "PasskeyRegisteredResponse", value: PasskeyRegisteredResponse{RecoveryCode: "ABCD-EFGH-JKMN-PQRS", Passkey: PasskeyView{
+			ID: 2, Name: "laptop", RPID: testRPID, CreatedAt: goldenTime, LastUsedAt: goldenLater,
+			BackupEligible: true, BackedUp: true, CloneWarning: true, Removable: true,
+		}}},
+		{name: "PasskeyRegisteredResponse.none", absent: "recovery_code", value: PasskeyRegisteredResponse{Passkey: PasskeyView{
+			ID: 2, Name: "laptop", RPID: testRPID, CreatedAt: goldenTime,
+		}}},
 		{name: "Signals", value: signals},
 		{name: "SessionView", value: SessionView{
 			ID: "s1", Label: "laptop", UserAgent: "Firefox", LastIP: "192.0.2.1", Method: access.MethodPassword, Current: true, Secure: true,

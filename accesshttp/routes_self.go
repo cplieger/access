@@ -70,12 +70,12 @@ func servePasswordSet(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	is, err := h.acct.SetPassword(c.r.Context(), c.client, c.p, current, password)
+	set, err := h.acct.SetPassword(c.r.Context(), c.client, c.p, current, password)
 	if err != nil {
 		return err
 	}
-	h.setIssued(c.w, c.client.Secure, is)
-	noContent(c.w)
+	h.setIssued(c.w, c.client.Secure, set.Issued)
+	writeJSON(c.w, http.StatusOK, RecoveryCodeIssuedResponse{RecoveryCode: set.RecoveryCode.Reveal()})
 	return nil
 }
 
@@ -162,7 +162,7 @@ func servePasskeyRegisterFinish(h *Handler, c *call) error {
 		return err
 	}
 	h.setIssued(c.w, c.client.Secure, reg.Issued)
-	writeJSON(c.w, http.StatusCreated, passkeyView(&reg.Passkey))
+	writeJSON(c.w, http.StatusCreated, PasskeyRegisteredResponse{Passkey: passkeyView(&reg.Passkey), RecoveryCode: reg.RecoveryCode.Reveal()})
 	return nil
 }
 

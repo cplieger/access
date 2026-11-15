@@ -635,12 +635,22 @@ export const parseTOTPBeginResponse: Validator<TOTPBeginResponse> = object({
   ticket: req(str),
 });
 
-export interface TOTPFinishResponse {
-  /** The recovery code this enrolment issued: show it once. */
+/** finishTOTP's and setPassword's answer. */
+export interface RecoveryCodeIssuedResponse {
+  /** The recovery code this change issued: show it once. */
   readonly recovery_code?: string;
 }
-export const parseTOTPFinishResponse: Validator<TOTPFinishResponse> = object({
+export const parseRecoveryCodeIssuedResponse: Validator<RecoveryCodeIssuedResponse> = object({
   recovery_code: opt(str),
+});
+
+/** regenerateRecoveryCode's answer. */
+export interface RecoveryCodeResponse {
+  /** The new recovery code: show it once. */
+  readonly recovery_code: string;
+}
+export const parseRecoveryCodeResponse: Validator<RecoveryCodeResponse> = object({
+  recovery_code: req(str),
 });
 
 export interface PendingLinkResponse {
@@ -694,6 +704,8 @@ export interface MethodsView {
   readonly oidc_available: boolean;
   readonly passkeys_available: boolean;
   readonly password_login: boolean;
+  /** The user holds a recovery code: offer regenerateRecoveryCode. */
+  readonly recovery_code: boolean;
   /** Adding or removing a passkey needs a current second factor. */
   readonly second_factor_held: boolean;
   /** Step-up may offer the password. */
@@ -708,6 +720,7 @@ export const parseMethodsView: Validator<MethodsView> = object({
   oidc_available: req(bool),
   passkeys_available: req(bool),
   password_login: req(bool),
+  recovery_code: req(bool),
   second_factor_held: req(bool),
   password_step_up: req(bool),
   totp: req(parseTOTPView),
@@ -775,6 +788,17 @@ export const parsePasskeyView: Validator<PasskeyView> = object({
   clone_warning: opt(bool),
   rp_id: req(str),
   removable: req(bool),
+});
+
+/** passkeyRegisterFinish's answer. */
+export interface PasskeyRegisteredResponse {
+  readonly passkey: PasskeyView;
+  /** The recovery code this registration issued: show it once. */
+  readonly recovery_code?: string;
+}
+export const parsePasskeyRegisteredResponse: Validator<PasskeyRegisteredResponse> = object({
+  passkey: req(parsePasskeyView),
+  recovery_code: opt(str),
 });
 
 export interface SessionView {

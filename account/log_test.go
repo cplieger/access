@@ -89,8 +89,11 @@ func stateVariants() []operation {
 			}
 			in := account.TOTPFinish{Ticket: e.Ticket, Code: codeNow(secretOf(t, e)), CurrentCode: codeNow(old)}
 			return opCall{
-				run:  func(ctx context.Context) error { _, err := w.svc.FinishTOTP(ctx, w.client, p, in); return err },
-				want: events(account.Event{Kind: account.EventTOTPReplaced, UserID: actorOf(p).UserID, Actor: actorOf(p)}),
+				run: func(ctx context.Context) error { _, err := w.svc.FinishTOTP(ctx, w.client, p, in); return err },
+				want: events(
+					account.Event{Kind: account.EventTOTPReplaced, UserID: actorOf(p).UserID, Actor: actorOf(p)},
+					account.Event{Kind: account.EventRecoveryCodeIssued, UserID: actorOf(p).UserID, Actor: actorOf(p)},
+				),
 			}
 		}},
 		// Design 4.4: a pending sign-in's first refused code journals

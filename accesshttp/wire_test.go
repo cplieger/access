@@ -155,7 +155,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 			{Method: access.MethodPasskey, Trusted: true},
 		},
 		PasskeyCount: 2, HasPassword: true, OIDCLinked: true, OIDCAvailable: true, PasskeysAvailable: true, PasswordLogin: true,
-		SecondFactorHeld: true, PasswordStepUp: true,
+		SecondFactorHeld: true, PasswordStepUp: true, RecoveryCode: true,
 		TOTP: account.TOTPState{Since: created, Enrolled: true, Usable: true, Removable: true},
 	}
 	wantMethods := MethodsView{
@@ -164,7 +164,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 			{Method: access.MethodPasskey, Trusted: true},
 		},
 		PasskeyCount: 2, Password: true, OIDCLinked: true, OIDCAvailable: true, PasskeysAvailable: true, PasswordLogin: true,
-		SecondFactorHeld: true, PasswordStepUp: true,
+		SecondFactorHeld: true, PasswordStepUp: true, RecoveryCode: true,
 		TOTP: TOTPView{Since: created, Enrolled: true, Usable: true, Removable: true},
 	}
 	at := func(h int) time.Time { return created.Add(time.Duration(h) * time.Hour) }
@@ -293,6 +293,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 			{account.Methods{PasskeyCount: 3}, MethodsView{PasskeyCount: 3}, "passkey_count"},
 			{account.Methods{SecondFactorHeld: true}, MethodsView{SecondFactorHeld: true}, "second_factor_held"},
 			{account.Methods{PasswordStepUp: true}, MethodsView{PasswordStepUp: true}, "password_step_up"},
+			{account.Methods{RecoveryCode: true}, MethodsView{RecoveryCode: true}, "recovery_code"},
 			{account.Methods{TOTP: account.TOTPState{Enrolled: true}}, MethodsView{TOTP: TOTPView{Enrolled: true}}, "totp_enrolled"},
 			{account.Methods{TOTP: account.TOTPState{Usable: true}}, MethodsView{TOTP: TOTPView{Usable: true}}, "totp_usable"},
 			{account.Methods{TOTP: account.TOTPState{Removable: true}}, MethodsView{TOTP: TOTPView{Removable: true}}, "totp_removable"},

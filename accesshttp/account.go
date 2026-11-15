@@ -46,7 +46,8 @@ type accountAPI interface {
 	BeginTOTP(ctx context.Context, p access.Principal) (account.TOTPEnrolment, error)
 	FinishTOTP(ctx context.Context, c account.Client, p access.Principal, in account.TOTPFinish) (account.Enrolled, error)
 	RemoveTOTP(ctx context.Context, c account.Client, p access.Principal, proof account.SecondFactorProof) error
-	SetPassword(ctx context.Context, c account.Client, p access.Principal, current, password access.Secret) (account.Issued, error)
+	SetPassword(ctx context.Context, c account.Client, p access.Principal, current, password access.Secret) (account.PasswordSet, error)
+	RegenerateRecoveryCode(ctx context.Context, c account.Client, p access.Principal, proof account.SecondFactorProof) (access.Secret, error)
 	RemovePassword(ctx context.Context, c account.Client, p access.Principal, current access.Secret) (account.Issued, error)
 	Me(ctx context.Context, p access.Principal) (account.Me, error)
 	UpdateProfile(ctx context.Context, p access.Principal, displayName string) (account.Me, error)

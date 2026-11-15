@@ -35,6 +35,15 @@ func (e *env) giveTOTP(t testing.TB, name string, sealer *access.Sealer) []byte 
 	return secret
 }
 
+// giveRecoveryCode stores a recovery code record for name; nothing here
+// opens it.
+func (e *env) giveRecoveryCode(t testing.TB, name string) {
+	t.Helper()
+	if err := e.mem.SetRecoveryCode(t.Context(), access.RecoveryCode{UserID: e.user(t, name).ID, Hash: access.NewHash("recovery"), CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("SetRecoveryCode: %v", err)
+	}
+}
+
 // unpaddedBase32 is RFC 4648 §6 base32 with no padding, the otpauth
 // secret's encoding.
 var unpaddedBase32 = base32.StdEncoding.WithPadding(base32.NoPadding)
@@ -109,6 +118,7 @@ func totpScenarios() map[scenarioKey]scenario {
 	addStepUpCodeScenarios(out)
 	addTOTPEnrolScenarios(out)
 	addTOTPRemoveScenarios(out)
+	addRecoveryCodeScenarios(out)
 	addProofScenarios(out)
 	out[scenarioKey{"authStepUpPassword", access.CodeSecondFactorRequired}] = scenario{opts: totpOn, arrange: func(t *testing.T, e *env) *http.Request {
 		cookie := e.aliceSession(t)
@@ -352,6 +362,11 @@ func addTOTPEnrolScenarios(out map[scenarioKey]scenario) {
 		e.spendAccount(t, "alice")
 		return post(t, e, en, TOTPFinishRequest{Code: codeNow(en.secret), CurrentCode: codeNow(en.prev)})
 	}}
+	out[scenarioKey{finishRoute, access.CodeBusy}] = scenario{opts: totpOn, arrange: func(t *testing.T, e *env) *http.Request {
+		r := right(t, e)
+		e.holdBudget(t)
+		return r
+	}}
 	out[scenarioKey{finishRoute, access.CodeUnavailable}] = closing(totpOn, right)
 	out[scenarioKey{finishRoute, access.CodeBadRequest}] = scenario{opts: totpOn, arrange: func(t *testing.T, e *env) *http.Request {
 		return post(t, e, enrolOf(t, e, nil), TOTPFinishRequest{Code: "abc"})
@@ -415,6 +430,35 @@ func addTOTPRemoveScenarios(out map[scenarioKey]scenario) {
 	}}
 }
 
+// addRecoveryCodeScenarios reach authRecoveryCodeRegenerate's own codes;
+// addProofScenarios reaches its proof's.
+func addRecoveryCodeScenarios(out map[scenarioKey]scenario) {
+	const route = "authRecoveryCodeRegenerate"
+	byCode := func(t *testing.T, e *env) *http.Request {
+		cookie := e.recentSession(t, "alice")
+		secret := e.giveTOTP(t, "alice", e.sealer)
+		e.giveRecoveryCode(t, "alice")
+		return e.post(t, route, proofBody(t, SecondFactorProof{Code: codeNow(secret)}), cookie)
+	}
+	out[scenarioKey{route, access.CodeSessionExpired}] = scenario{opts: with(totpOn, vanishes), arrange: byCode}
+	out[scenarioKey{route, access.CodeSSOOnly}] = scenario{opts: totpOn, arrange: func(t *testing.T, e *env) *http.Request {
+		r := byCode(t, e)
+		e.keepDormant(t, "alice")
+		return r
+	}}
+	out[scenarioKey{route, access.CodeBusy}] = scenario{opts: totpOn, arrange: func(t *testing.T, e *env) *http.Request {
+		r := byCode(t, e)
+		e.holdBudget(t)
+		return r
+	}}
+	out[scenarioKey{route, access.CodeUnavailable}] = closing(totpOn, byCode)
+	out[scenarioKey{route, access.CodeNotFound}] = scenario{opts: totpOn, arrange: func(t *testing.T, e *env) *http.Request {
+		cookie := e.recentSession(t, "alice")
+		secret := e.giveTOTP(t, "alice", e.sealer)
+		return e.post(t, route, proofBody(t, SecondFactorProof{Code: codeNow(secret)}), cookie)
+	}}
+}
+
 // addProofScenarios reach the proof verifier's codes on each route that
 // takes a SecondFactorProof (design 4.31), each where its other scenarios
 // do not already.
@@ -456,6 +500,10 @@ func addProofScenarios(out map[scenarioKey]scenario) {
 		},
 		"authPasskeyRemove": func(t *testing.T, e *env, h held, body string) *http.Request {
 			return e.at(t, "authPasskeyRemove", strconv.FormatInt(h.target, 10), body, h.cookie)
+		},
+		"authRecoveryCodeRegenerate": func(t *testing.T, e *env, h held, body string) *http.Request {
+			e.giveRecoveryCode(t, "alice")
+			return e.post(t, "authRecoveryCodeRegenerate", body, h.cookie)
 		},
 	}
 	base := with(passkeys, totpOn)

@@ -116,8 +116,12 @@ func (s stubAccount) StepUpPassword(ctx context.Context, c account.Client, p acc
 	return stubbed(s, "StepUpPassword", func() (account.Issued, error) { return s.accountAPI.StepUpPassword(ctx, c, p, password) })
 }
 
-func (s stubAccount) SetPassword(ctx context.Context, c account.Client, p access.Principal, current, password access.Secret) (account.Issued, error) {
-	return stubbed(s, "SetPassword", func() (account.Issued, error) { return s.accountAPI.SetPassword(ctx, c, p, current, password) })
+func (s stubAccount) SetPassword(ctx context.Context, c account.Client, p access.Principal, current, password access.Secret) (account.PasswordSet, error) {
+	return stubbed(s, "SetPassword", func() (account.PasswordSet, error) { return s.accountAPI.SetPassword(ctx, c, p, current, password) })
+}
+
+func (s stubAccount) RegenerateRecoveryCode(ctx context.Context, c account.Client, p access.Principal, proof account.SecondFactorProof) (access.Secret, error) {
+	return stubbed(s, "RegenerateRecoveryCode", func() (access.Secret, error) { return s.accountAPI.RegenerateRecoveryCode(ctx, c, p, proof) })
 }
 
 func (s stubAccount) RemovePassword(ctx context.Context, c account.Client, p access.Principal, current access.Secret) (account.Issued, error) {

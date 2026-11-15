@@ -75,9 +75,9 @@ func (a *recordingAccount) StepUpPassword(_ context.Context, _ account.Client, _
 	return account.Issued{}, nil
 }
 
-func (a *recordingAccount) SetPassword(_ context.Context, _ account.Client, _ access.Principal, current, password access.Secret) (account.Issued, error) {
+func (a *recordingAccount) SetPassword(_ context.Context, _ account.Client, _ access.Principal, current, password access.Secret) (account.PasswordSet, error) {
 	a.record("authPasswordSet", current, password)
-	return account.Issued{}, nil
+	return account.PasswordSet{}, nil
 }
 
 func (a *recordingAccount) RemovePassword(_ context.Context, _ account.Client, _ access.Principal, current access.Secret) (account.Issued, error) {

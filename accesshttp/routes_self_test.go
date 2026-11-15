@@ -253,7 +253,11 @@ func TestRouteAuthPasswordSet(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		cookie := e.aliceSession(t)
-		e.requireStatus(t, do(e.route(t, "authPasswordSet"), e.post(t, "authPasswordSet", passwordSetBody(t, testPassword, newPassword), cookie)), http.StatusNoContent)
+		// Design 4.50: a change that issues no recovery code answers none.
+		got := decoded[RecoveryCodeIssuedResponse](t, e, do(e.route(t, "authPasswordSet"), e.post(t, "authPasswordSet", passwordSetBody(t, testPassword, newPassword), cookie)), http.StatusOK)
+		if got.RecoveryCode != "" {
+			t.Errorf("recovery_code %q, want none for a changed password", got.RecoveryCode)
+		}
 		if !e.signsIn(t, "alice", newPassword) || e.signsIn(t, "alice", testPassword) {
 			t.Error("after the change, want the new password to sign in and the old one refused")
 		}
@@ -290,7 +294,7 @@ func TestPasswordSetCurrentHTTP(t *testing.T) {
 		cookie := e.aliceSession(t)
 		before := e.principal(t, cookie)
 		w := send(e, cookie, testPassword)
-		e.requireStatus(t, w, http.StatusNoContent)
+		e.requireStatus(t, w, http.StatusOK)
 		e.requireRotated(t, w, cookie, before, "", true)
 	})
 	t.Run("first_password", func(t *testing.T) {
@@ -301,7 +305,7 @@ func TestPasswordSetCurrentHTTP(t *testing.T) {
 		if err := e.mem.UpdateUser(t.Context(), u); err != nil {
 			t.Fatalf("UpdateUser: %v", err)
 		}
-		e.requireStatus(t, send(e, cookie, ""), http.StatusNoContent)
+		e.requireStatus(t, send(e, cookie, ""), http.StatusOK)
 		if !e.signsIn(t, "alice", newPassword) {
 			t.Error("the first password does not sign in")
 		}
@@ -426,7 +430,11 @@ func TestRouteAuthPasskeyRegisterFinish(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		e := newEnv(t, passkeys)
 		cookie := e.aliceSession(t)
-		view := decoded[PasskeyView](t, e, do(e.route(t, "authPasskeyRegisterFinish"), e.registerFinish(t, cookie, nil, nil, nil)), http.StatusCreated)
+		got := decoded[PasskeyRegisteredResponse](t, e, do(e.route(t, "authPasskeyRegisterFinish"), e.registerFinish(t, cookie, nil, nil, nil)), http.StatusCreated)
+		view := got.Passkey
+		if got.RecoveryCode != "" {
+			t.Errorf("recovery_code %q, want none: alice holds no second factor (design 4.50)", got.RecoveryCode)
+		}
 		if id := e.passkeyID(t, "alice"); view.ID != id || view.RPID != testRPID || view.Name == "" {
 			t.Errorf("view %+v, want the stored passkey %d under %s", view, id, testRPID)
 		}

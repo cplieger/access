@@ -20,7 +20,9 @@ import {
   parseSignedInResponse,
   parseStateResponse,
   parseTOTPBeginResponse,
-  parseTOTPFinishResponse,
+  parseRecoveryCodeIssuedResponse,
+  parseRecoveryCodeResponse,
+  parsePasskeyRegisteredResponse,
   parseTokenResponse,
   parseTokenView,
   parseUserView,
@@ -58,7 +60,9 @@ import type {
   StateResponse,
   TOTPBeginResponse,
   TOTPFinishRequest,
-  TOTPFinishResponse,
+  RecoveryCodeIssuedResponse,
+  RecoveryCodeResponse,
+  PasskeyRegisteredResponse,
   TicketRequest,
   TokenRequest,
   TokenResponse,
@@ -161,18 +165,21 @@ export interface AuthClient {
   /** From Account under recent sign-in and HTTPS, for a user with a password. */
   beginTOTP(): Promise<ApiResult<TOTPBeginResponse>>;
   /** current_code is the replaced authenticator's code, required when one is enrolled. */
-  finishTOTP(r: TOTPFinishRequest): Promise<ApiResult<TOTPFinishResponse>>;
+  finishTOTP(r: TOTPFinishRequest): Promise<ApiResult<RecoveryCodeIssuedResponse>>;
   /**
    * A proof while methods.totp.usable; none for an authenticator the app turned off, which
    * needs a recent sign-in instead (withStepUp).
    */
   removeTOTP(proof?: SecondFactorProof): Promise<ApiResult<void>>;
+  /** Under recent sign-in and HTTPS, with a current code or passkey: the new code, shown once. */
+  regenerateRecoveryCode(proof: SecondFactorProof): Promise<ApiResult<RecoveryCodeResponse>>;
   stepUpPasskeyBegin(): Promise<ApiResult<CeremonyResponse>>;
   stepUpPasskeyFinish(
     ceremony: string,
     credential: PublicKeyCredentialJSON,
   ): Promise<ApiResult<void>>;
-  setPassword(r: PasswordChangeRequest): Promise<ApiResult<void>>;
+  /** recovery_code is set when a first password issued one: show it once. */
+  setPassword(r: PasswordChangeRequest): Promise<ApiResult<RecoveryCodeIssuedResponse>>;
   removePassword(r: PasswordRemoveRequest): Promise<ApiResult<void>>;
   passkeys(): Promise<ApiResult<readonly PasskeyView[]>>;
   /** proof while methods.second_factor_held. */
@@ -180,7 +187,7 @@ export interface AuthClient {
   passkeyRegisterFinish(
     ceremony: string,
     credential: PublicKeyCredentialJSON,
-  ): Promise<ApiResult<PasskeyView>>;
+  ): Promise<ApiResult<PasskeyRegisteredResponse>>;
   renamePasskey(id: number, r: NameRequest): Promise<ApiResult<void>>;
   /** proof while methods.second_factor_held. */
   removePasskey(id: number, proof?: SecondFactorProof): Promise<ApiResult<void>>;
@@ -337,15 +344,18 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     stepUpPassword: (r) => empty("POST", p("/stepup/password"), r),
     stepUpCode: (code) => empty("POST", p("/stepup/code"), { code }),
     beginTOTP: () => json("POST", p("/totp/begin"), parseTOTPBeginResponse),
-    finishTOTP: (r) => json("POST", p("/totp/finish"), parseTOTPFinishResponse, { body: r }),
+    finishTOTP: (r) =>
+      json("POST", p("/totp/finish"), parseRecoveryCodeIssuedResponse, { body: r }),
     removeTOTP: (proof) => empty("DELETE", p("/totp"), proof),
+    regenerateRecoveryCode: (proof) =>
+      json("POST", p("/recovery-code"), parseRecoveryCodeResponse, { body: proof }),
     stepUpPasskeyBegin: () => json("POST", p("/stepup/passkey/begin"), parseCeremonyResponse),
     stepUpPasskeyFinish: (c, cred) =>
       f.requestRaw<undefined>("POST", p("/stepup/passkey/finish"), {
         ...finish(c, cred),
         ignoreBody: true,
       }),
-    setPassword: (r) => empty("PUT", p("/password"), r),
+    setPassword: (r) => json("PUT", p("/password"), parseRecoveryCodeIssuedResponse, { body: r }),
     removePassword: (r) => empty("DELETE", p("/password"), r),
     passkeys: () => json("GET", p("/passkeys"), passkeyList),
     passkeyRegisterBegin: (proof) =>
@@ -356,7 +366,7 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
         proof === undefined ? {} : { body: proof },
       ),
     passkeyRegisterFinish: (c, cred) =>
-      json("POST", p("/passkeys/finish"), parsePasskeyView, finish(c, cred)),
+      json("POST", p("/passkeys/finish"), parsePasskeyRegisteredResponse, finish(c, cred)),
     renamePasskey: (id, r) => empty("PUT", p(`/passkeys/${String(id)}`), r),
     removePasskey: (id, proof) => empty("DELETE", p(`/passkeys/${String(id)}`), proof),
     webauthnSignals: () => json("GET", p("/webauthn/signals"), parseWebAuthnSignals),

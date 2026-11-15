@@ -14,42 +14,48 @@ import (
 // StepUpPassword's attempt; one holding none has current ignored, committing
 // while it still holds none. One Update writes the hash, rotates p's session
 // into Issued, revokes the other sessions and, under
-// RevokeKeysOnCredentialChange, the user's keys and tokens.
-func (s *Service) SetPassword(ctx context.Context, c Client, p access.Principal, current, password access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
+// RevokeKeysOnCredentialChange, the user's keys and tokens; a first
+// password's Update also runs the recovery code's issue rule
+// (issueRecoveryIn).
+func (s *Service) SetPassword(ctx context.Context, c Client, p access.Principal, current, password access.Secret) (PasswordSet, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
 	r, err := s.beginRecentSession(plainPerRequest, c.Secure && p.Secure, p)
 	if err != nil {
-		return Issued{}, err
+		return PasswordSet{}, err
 	}
 	u, err := s.ownUser(ctx, p)
 	if err != nil {
-		return Issued{}, err
+		return PasswordSet{}, err
 	}
 	if modeErr := s.localAllowed(ctx, u); modeErr != nil {
-		return Issued{}, modeErr
+		return PasswordSet{}, modeErr
 	}
 	held, err := holds(ctx, s.store, u, credential{method: access.MethodPassword})
 	if err != nil {
-		return Issued{}, storeErr(err)
+		return PasswordSet{}, storeErr(err)
 	}
 	if held && current.IsZero() {
-		return Issued{}, ErrCurrentPasswordRequired
+		return PasswordSet{}, ErrCurrentPasswordRequired
 	}
-	if err := s.checkPassword(ctx, r, u.Username, password); err != nil {
-		return Issued{}, err
+	if checkErr := s.checkPassword(ctx, r, u.Username, password); checkErr != nil {
+		return PasswordSet{}, checkErr
 	}
 	if !held {
 		return s.firstPassword(ctx, r, c, p, password)
 	}
-	return s.changePassword(ctx, r, c, p, current, password)
+	is, err := s.changePassword(ctx, r, c, p, current, password)
+	return PasswordSet{Issued: is}, err
 }
 
-func (s *Service) firstPassword(ctx context.Context, r Rules, c Client, p access.Principal, password access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the operation's one Rules value, Client and Principal
+func (s *Service) firstPassword(ctx context.Context, r Rules, c Client, p access.Principal, password access.Secret) (PasswordSet, error) { //nolint:gocritic // hugeParam: the operation's one Rules value, Client and Principal
 	hash, err := s.hasher.Hash(ctx, password.Reveal())
 	if err != nil {
-		return Issued{}, err
+		return PasswordSet{}, err
 	}
-	var ch credentialChange
-	err = s.change(ctx, byClient(As(p), c), func(tx Tx, j *journal) error {
+	var (
+		ch    credentialChange
+		shown access.Secret
+	)
+	err = s.issuingChange(ctx, byClient(As(p), c), false, func(tx Tx, j *journal, code *issuable) error {
 		u, found, readErr := tx.UserByID(ctx, p.User.ID)
 		switch {
 		case readErr != nil:
@@ -64,13 +70,15 @@ func (s *Service) firstPassword(ctx context.Context, r Rules, c Client, p access
 			return chErr
 		}
 		s.addCredentialChange(j, EventPasswordSet, p, &ch)
-		return nil
+		var issueErr error
+		shown, issueErr = s.issueRecoveryIn(ctx, tx, j, r, u, code, eventActor(As(p)))
+		return issueErr
 	})
 	if err != nil {
-		return Issued{}, err
+		return PasswordSet{}, err
 	}
 	s.pending.dropUser(p.User.ID)
-	return Issued{Token: ch.rot.token, Session: ch.rot.session}, nil
+	return PasswordSet{Issued: Issued{Token: ch.rot.token, Session: ch.rot.session}, RecoveryCode: shown}, nil
 }
 
 func (s *Service) changePassword(ctx context.Context, r Rules, c Client, p access.Principal, current, password access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the operation's one Rules value, Client and Principal

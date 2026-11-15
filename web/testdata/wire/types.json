@@ -240,6 +240,9 @@
           "name": "password_login"
         },
         {
+          "name": "recovery_code"
+        },
+        {
           "name": "second_factor_held"
         },
         {
@@ -359,6 +362,46 @@
   "OwnerRequest": [
     {
       "name": "owner"
+    }
+  ],
+  "PasskeyRegisteredResponse": [
+    {
+      "name": "recovery_code",
+      "optional": true
+    },
+    {
+      "name": "passkey",
+      "fields": [
+        {
+          "name": "created_at"
+        },
+        {
+          "name": "last_used_at",
+          "optional": true
+        },
+        {
+          "name": "name"
+        },
+        {
+          "name": "rp_id"
+        },
+        {
+          "name": "id"
+        },
+        {
+          "name": "backup_eligible"
+        },
+        {
+          "name": "backed_up"
+        },
+        {
+          "name": "clone_warning",
+          "optional": true
+        },
+        {
+          "name": "removable"
+        }
+      ]
     }
   ],
   "PasskeyView": [
@@ -517,6 +560,17 @@
     },
     {
       "name": "temporary_passwords_withdrawn"
+    }
+  ],
+  "RecoveryCodeIssuedResponse": [
+    {
+      "name": "recovery_code",
+      "optional": true
+    }
+  ],
+  "RecoveryCodeResponse": [
+    {
+      "name": "recovery_code"
     }
   ],
   "RedirectRequest": [
@@ -1051,12 +1105,6 @@
     },
     {
       "name": "current_code",
-      "optional": true
-    }
-  ],
-  "TOTPFinishResponse": [
-    {
-      "name": "recovery_code",
       "optional": true
     }
   ],

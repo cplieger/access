@@ -20,7 +20,7 @@ Under `PosturePerRequest`, a plain request may sign in and set up the first acco
 | `authState`, `authSetupPassword`, `authLoginPassword`, `authLoginCode`, `authLogout` | `authSetupPasskeyBegin`, `authSetupPasskeyFinish`, `authLoginPasskeyBegin`, `authLoginPasskeyFinish`, `authLoginSecondPasskeyBegin`, `authLoginSecondPasskeyFinish` |
 | `authMe`, `authProfile`, `authMethodReenable` | every OIDC route: `authOIDCStartSignIn`, `authOIDCStartLink`, `authOIDCStartStepUp`, `authInviteAcceptOIDC`, `authOIDCCallback`, `authOIDCPending`, `authOIDCCreatePending`, `authOIDCLinkPending` |
 | `authPasswordSet`, whose recent auth is the sign-in's time | `authStepUpPassword`, `authStepUpCode`, `authStepUpPasskeyBegin`, `authStepUpPasskeyFinish` |
-| `authPasskeys`, `authPasskeyRename`, `authPasskeyRemove` with a code as its proof, `authTOTPRemove`, `authWebAuthnSignals`, `authOIDCUnlink` | `authPasswordRemove`, `authTOTPBegin`, `authTOTPFinish` |
+| `authPasskeys`, `authPasskeyRename`, `authPasskeyRemove` with a code as its proof, `authTOTPRemove`, `authWebAuthnSignals`, `authOIDCUnlink` | `authPasswordRemove`, `authTOTPBegin`, `authTOTPFinish`, `authRecoveryCodeRegenerate` |
 | `authSessions`, `authSessionRename`, `authSessionRevoke`, `authSessionsRevokeOthers` | `authPasskeyRegisterBegin`, `authPasskeyRegisterFinish` |
 | `authKeys`, `authKeyRename`, `authKeyRevoke`, `authAdminKeys`, `authAdminKeyRevoke` | `authInviteAcceptPassword` |
 | `authAdminUsers`, `authAdminUserCreate`, `authAdminUserUpdate`, `authAdminOwner`, `authAdminUserDelete`, `authAdminOIDCUnlink`, `authAdminTokens`, `authAdminSecurityLog` | `authAdminSSOReadiness`, `authAdminSSOApply` |

@@ -651,8 +651,23 @@ func recentOperations() []operation {
 			}
 			in := account.TOTPFinish{Ticket: e.Ticket, Code: codeNow(secretOf(t, e))}
 			return opCall{
-				run:  func(ctx context.Context) error { _, err := w.svc.FinishTOTP(ctx, w.client, p, in); return err },
-				want: events(account.Event{Kind: account.EventTOTPAdded, UserID: actorOf(p).UserID, Actor: actorOf(p)}),
+				run: func(ctx context.Context) error { _, err := w.svc.FinishTOTP(ctx, w.client, p, in); return err },
+				want: events(
+					account.Event{Kind: account.EventTOTPAdded, UserID: actorOf(p).UserID, Actor: actorOf(p)},
+					account.Event{Kind: account.EventRecoveryCodeIssued, UserID: actorOf(p).UserID, Actor: actorOf(p)},
+				),
+			}
+		}},
+		{name: "RegenerateRecoveryCode", class: classRecentAuth, transport: plainRefused, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			u := w.owner(t, p)
+			secret := sealTOTP(t, w.mem, w.sealer, u)
+			storeRecoveryCode(t, w.mem, u)
+			return opCall{
+				run: func(ctx context.Context) error {
+					_, err := w.svc.RegenerateRecoveryCode(ctx, w.client, p, account.ProofCode(codeNow(secret)))
+					return err
+				},
+				want: events(account.Event{Kind: account.EventRecoveryCodeReplaced, UserID: u.ID, Actor: actorOf(p)}),
 			}
 		}},
 		{name: "PasskeyRegisterBegin", class: classRecentAuth, transport: plainRefused, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {

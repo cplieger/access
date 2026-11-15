@@ -129,6 +129,10 @@ const bindings: Readonly<Record<string, Binding>> = {
   authTOTPBegin: { method: "beginTOTP", call: (c) => c.beginTOTP() },
   authTOTPFinish: { method: "finishTOTP", call: (c, b) => c.finishTOTP(b) },
   authTOTPRemove: { method: "removeTOTP", call: (c, b) => c.removeTOTP(b) },
+  authRecoveryCodeRegenerate: {
+    method: "regenerateRecoveryCode",
+    call: (c, b) => c.regenerateRecoveryCode(b),
+  },
   authStepUpPasskeyBegin: { method: "stepUpPasskeyBegin", call: (c) => c.stepUpPasskeyBegin() },
   authStepUpPasskeyFinish: {
     method: "stepUpPasskeyFinish",
@@ -275,8 +279,8 @@ describe("the route table", () => {
     const methods = Object.keys(client).filter(
       (k) => typeof client[k as keyof AuthClient] === "function",
     );
-    expect(methods).toHaveLength(59);
-    expect(jsonRoutes).toHaveLength(59);
+    expect(methods).toHaveLength(60);
+    expect(jsonRoutes).toHaveLength(60);
     expect(Object.keys(bindings).sort()).toEqual(jsonRoutes.map((r) => r.name).sort());
     expect(
       Object.values(bindings)

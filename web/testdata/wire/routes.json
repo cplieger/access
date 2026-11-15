@@ -253,7 +253,7 @@
   },
   {
     "request": "PasswordChangeRequest",
-    "response": null,
+    "response": "RecoveryCodeIssuedResponse",
     "name": "authPasswordSet",
     "method": "PUT",
     "path": "{prefix}/password",
@@ -280,10 +280,19 @@
   },
   {
     "request": "TOTPFinishRequest",
-    "response": "TOTPFinishResponse",
+    "response": "RecoveryCodeIssuedResponse",
     "name": "authTOTPFinish",
     "method": "POST",
     "path": "{prefix}/totp/finish",
+    "kind": "json",
+    "array": false
+  },
+  {
+    "request": "SecondFactorProof",
+    "response": "RecoveryCodeResponse",
+    "name": "authRecoveryCodeRegenerate",
+    "method": "POST",
+    "path": "{prefix}/recovery-code",
     "kind": "json",
     "array": false
   },
@@ -316,7 +325,7 @@
   },
   {
     "request": null,
-    "response": "PasskeyView",
+    "response": "PasskeyRegisteredResponse",
     "name": "authPasskeyRegisterFinish",
     "method": "POST",
     "path": "{prefix}/passkeys/finish",

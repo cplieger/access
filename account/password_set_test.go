@@ -17,7 +17,8 @@ import (
 const newPassword = "fresh-horse-battery-11"
 
 func (p *pwFixture) setPassword(ctx context.Context, pr access.Principal, current, next string) (account.Issued, error) {
-	return p.svc.SetPassword(ctx, localClient, pr, secretOrZero(current), access.NewSecret(next))
+	set, err := p.svc.SetPassword(ctx, localClient, pr, secretOrZero(current), access.NewSecret(next))
+	return set.Issued, err
 }
 
 func secretOrZero(s string) access.Secret {

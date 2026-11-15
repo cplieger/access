@@ -205,14 +205,15 @@ describe("wire fixtures", () => {
   it("has the absent-optional variants and one variant per further union arm", () => {
     expect(variants.sort()).toEqual([
       "NewUserRequest.noPassword",
+      "PasskeyRegisteredResponse.none",
       "PasswordChangeRequest.noCurrent",
       "PendingLinkResponse.noCreate",
+      "RecoveryCodeIssuedResponse.none",
       "SecondFactorProof.passkey",
       "SetupPasskeyBeginRequest.noToken",
       "SetupPasswordRequest.noToken",
       "SignInOutcome.pending",
       "TOTPFinishRequest.noCurrent",
-      "TOTPFinishResponse.none",
     ]);
   });
 

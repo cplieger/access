@@ -168,6 +168,7 @@ func (s *Service) proveIfHeld(ctx context.Context, r Rules, c Client, p access.P
 // rotates p's session into Issued, in one Update. A plain p is
 // access.ErrHTTPSRequired, a ceremony another user began ErrCeremonyInvalid,
 // and a credential already registered to any user ErrDuplicateCredential.
+// The same Update runs the recovery code's issue rule (issueRecoveryIn).
 func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal, ceremonyID string, body io.Reader) (Registered, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	r, err := s.beginRecentSession(plainRefused, p.Secure, p)
 	if err != nil {
@@ -186,10 +187,11 @@ func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal,
 		return Registered{}, err
 	}
 	var (
-		pk  Passkey
-		rot rotated
+		pk    Passkey
+		rot   rotated
+		shown access.Secret
 	)
-	err = s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
+	err = s.issuingChange(ctx, by(As(p)), false, func(tx Tx, j *journal, code *issuable) error {
 		u, userErr := ownUserIn(ctx, tx, p)
 		if userErr != nil {
 			return userErr
@@ -209,12 +211,14 @@ func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal,
 			return rotErr
 		}
 		j.add(Event{Kind: EventPasskeyAdded, At: pk.Credential.CreatedAt, UserID: u.ID, PasskeyID: pk.Credential.ID, Actor: eventActor(As(p))})
-		return nil
+		var issueErr error
+		shown, issueErr = s.issueRecoveryIn(ctx, tx, j, r, u, code, eventActor(As(p)))
+		return issueErr
 	})
 	if err != nil {
 		return Registered{}, err
 	}
-	return Registered{Passkey: pk, Issued: Issued{Token: rot.token, Session: rot.session}}, nil
+	return Registered{Passkey: pk, Issued: Issued{Token: rot.token, Session: rot.session}, RecoveryCode: shown}, nil
 }
 
 // StepUpPasskeyBegin starts re-proving p's user with one of its passkeys under

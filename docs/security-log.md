@@ -31,6 +31,8 @@ Each operation appends its entries in the order it reports its events to `OnEven
 | `password_removed` | change | `RemovePassword` |
 | `totp_added`, `totp_replaced` | change | `FinishTOTP`: `totp_added` when the user held no TOTP, `totp_replaced` when the current code replaced one |
 | `totp_removed` | change | `RemoveTOTP`, and `RemovePassword`, which deletes the TOTP the password had |
+| `recovery_code_issued` | change | a change that adds a password or a second factor and leaves the user with a password, a usable second factor and no recovery code: `FinishTOTP`, `PasskeyRegisterFinish`, and `SetPassword`'s first password |
+| `recovery_code_replaced` | change | `RegenerateRecoveryCode` |
 | `passkey_added` | change | `PasskeyRegisterFinish`. The passkey of a first-user setup gets no entry of its own: the setup appends `user_created` and `signed_in` |
 | `passkey_removed` | change | `RemovePasskey` |
 | `oidc_linked`, `oidc_unlinked` | change | `OIDCComplete` finishing a link and `LinkPendingOIDC`; `UnlinkOIDC` and `AdminUnlinkOIDC` |

@@ -111,8 +111,19 @@ type OIDCOutcome struct {
 
 // Registered is an enrolled passkey and the rotated session.
 type Registered struct {
-	Issued  Issued
-	Passkey Passkey
+	// RecoveryCode is the recovery code the registration issued, shown
+	// only here; zero when it issued none.
+	RecoveryCode access.Secret
+	Issued       Issued
+	Passkey      Passkey
+}
+
+// PasswordSet is SetPassword's answer: the rotated session, and the
+// recovery code a first password issued, shown only here; zero when it
+// issued none.
+type PasswordSet struct {
+	RecoveryCode access.Secret
+	Issued       Issued
 }
 
 // Passkey is one of a user's own passkeys, with whether RemovePasskey would
@@ -160,6 +171,7 @@ type Methods struct {
 	OIDCAvailable     bool
 	PasskeysAvailable bool
 	PasswordLogin     bool // !Rules.DisablePasswordLogin
+	RecoveryCode      bool // a recovery code is stored
 	// SecondFactorHeld is secondFactorHeld: adding or removing a passkey
 	// needs a current second factor while it is true.
 	SecondFactorHeld bool

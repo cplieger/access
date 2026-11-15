@@ -453,6 +453,14 @@ func addEnrolmentScenarios(out map[scenarioKey]scenario) {
 		e.keepDormant(t, "alice")
 	})}
 	out[scenarioKey{finishRoute, access.CodeUnavailable}] = scenario{opts: passkeys, arrange: finishOwn(nil, nil, func(t *testing.T, e *env) { e.shutdown(t) })}
+	// Design 4.50: a password user's first passkey under the rule issues a
+	// recovery code, whose hash a full budget refuses. The rule goes on once
+	// alice is signed in, which it would hold at enrol_needs_known_device.
+	rule := &atomic.Bool{}
+	out[scenarioKey{finishRoute, access.CodeBusy}] = scenario{opts: with(passkeys, flag(rule, func(r *account.Rules) { r.RequireSecondFactor = true })), arrange: finishOwn(nil, nil, func(t *testing.T, e *env) {
+		rule.Store(true)
+		e.holdBudget(t)
+	})}
 	out[scenarioKey{finishRoute, access.CodeDuplicateCredential}] = scenario{opts: passkeys, arrange: finishOwn(func(t *testing.T, e *env) *accesstest.PasskeyDevice {
 		e.createUser(t, "root", access.RoleAdmin)
 		return e.enrol(t, "root")

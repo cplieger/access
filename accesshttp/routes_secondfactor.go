@@ -79,7 +79,20 @@ func serveTOTPFinish(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, TOTPFinishResponse{RecoveryCode: done.RecoveryCode.Reveal()})
+	writeJSON(c.w, http.StatusOK, RecoveryCodeIssuedResponse{RecoveryCode: done.RecoveryCode.Reveal()})
+	return nil
+}
+
+func serveRecoveryCodeRegenerate(h *Handler, c *call) error {
+	proof, err := decodeProof(c.w, c.r)
+	if err != nil {
+		return err
+	}
+	code, err := h.acct.RegenerateRecoveryCode(c.r.Context(), c.client, c.p, proof)
+	if err != nil {
+		return err
+	}
+	writeJSON(c.w, http.StatusOK, RecoveryCodeResponse{RecoveryCode: code.Reveal()})
 	return nil
 }
 

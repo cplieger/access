@@ -246,7 +246,12 @@ func (v vanishing) UpdateProfile(ctx context.Context, p access.Principal, displa
 	return v.accountAPI.UpdateProfile(ctx, p, displayName)
 }
 
-func (v vanishing) SetPassword(ctx context.Context, c account.Client, p access.Principal, current, password access.Secret) (account.Issued, error) {
+func (v vanishing) RegenerateRecoveryCode(ctx context.Context, c account.Client, p access.Principal, proof account.SecondFactorProof) (access.Secret, error) {
+	v.drop(ctx, p)
+	return v.accountAPI.RegenerateRecoveryCode(ctx, c, p, proof)
+}
+
+func (v vanishing) SetPassword(ctx context.Context, c account.Client, p access.Principal, current, password access.Secret) (account.PasswordSet, error) {
 	v.drop(ctx, p)
 	return v.accountAPI.SetPassword(ctx, c, p, current, password)
 }

@@ -500,7 +500,7 @@ func TestSecondFactorPasskey(t *testing.T) {
 		dev := accesstest.NewPasskeyDevice(t)
 		f.enrol(t, u, dev)
 		out, err := f.step1(t.Context(), clientAt(1), "alice", goodPassword)
-		return f, u, dev, pending(t, out, err, account.NextSecondFactor, access.MethodPasskey).Ticket
+		return f, u, dev, pending(t, out, err, account.NextSecondFactor, access.MethodPasskey, access.MethodRecoveryCode).Ticket
 	}
 	finish := func(t *testing.T, f *sfFixture, ticket access.Secret, dev *accesstest.PasskeyDevice) (account.LoginResult, error) {
 		t.Helper()

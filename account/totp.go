@@ -64,7 +64,8 @@ func (s *Service) BeginTOTP(ctx context.Context, p access.Principal) (TOTPEnrolm
 }
 
 // FinishTOTP stores the secret in.Ticket's enrolment holds once in.Code
-// matches it, with its step spent. The ticket must be p's session's own and
+// matches it, with its step spent, and answers the recovery code the
+// binding issued (issueRecoveryIn). The ticket must be p's session's own and
 // no older than a stored record (else access.ErrTokenInvalid). Replacing a
 // record takes in.CurrentCode of the old secret (none:
 // ErrSecondFactorProofRequired), counted as a proof; its refusals carry
@@ -88,15 +89,22 @@ func (s *Service) FinishTOTP(ctx context.Context, c Client, p access.Principal, 
 			return Enrolled{}, err
 		}
 	}
-	err = s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
-		return s.storeEnrolment(ctx, tx, j, p, &pr, e)
+	_, codeHeld, err := s.store.RecoveryCodeByUserID(ctx, u.ID)
+	if err != nil {
+		return Enrolled{}, storeErr(err)
+	}
+	var done Enrolled
+	err = s.issuingChange(ctx, by(As(p)), !codeHeld, func(tx Tx, j *journal, code *issuable) error {
+		var inErr error
+		done, inErr = s.storeEnrolment(ctx, tx, j, r, p, &pr, e, code)
+		return inErr
 	})
 	pr.settle(err)
 	if err != nil {
 		return Enrolled{}, err
 	}
 	s.pending.drop(in.Ticket.Reveal())
-	return Enrolled{}, nil
+	return done, nil
 }
 
 // enrolmentOf is FinishTOTP's checks before any count, for p's user: the
@@ -150,45 +158,46 @@ type enrolled struct {
 
 // storeEnrolment is FinishTOTP's change for p's user: the password, the
 // mode and the record it replaces re-read, the proof committed, then the
-// new record and its entry. A record its old secret's failures locked is
-// gone, so they go too.
-func (s *Service) storeEnrolment(ctx context.Context, tx Tx, j *journal, p access.Principal, pr *proven, e enrolled) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
+// new record and its entry, then the issue rule with code. A record its
+// old secret's failures locked is gone, so they go too.
+func (s *Service) storeEnrolment(ctx context.Context, tx Tx, j *journal, r Rules, p access.Principal, pr *proven, e enrolled, code *issuable) (Enrolled, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and its Principal
 	u, err := ownUserIn(ctx, tx, p)
 	switch {
 	case err != nil:
-		return err
+		return Enrolled{}, err
 	case u.PasswordHash.IsZero():
-		return refuse(ErrPasswordRequired)
+		return Enrolled{}, refuse(ErrPasswordRequired)
 	}
 	if modeErr := requireLocal(ctx, tx, u, ErrSSOOnly); modeErr != nil {
-		return modeErr
+		return Enrolled{}, modeErr
 	}
 	cur, found, err := tx.TOTPByUserID(ctx, u.ID)
 	switch {
 	case err != nil:
-		return err
+		return Enrolled{}, err
 	case found != e.replacing || found && !cur.CreatedAt.Equal(e.old.CreatedAt):
-		return refuse(access.ErrTokenInvalid)
+		return Enrolled{}, refuse(access.ErrTokenInvalid)
 	}
 	if commitErr := pr.commit(ctx, s, tx); commitErr != nil {
-		return commitErr
+		return Enrolled{}, commitErr
 	}
 	sealed, err := s.sealTOTP(u.ID, e.secret)
 	if err != nil {
-		return err
+		return Enrolled{}, err
 	}
-	if err := tx.SetTOTP(ctx, access.TOTP{UserID: u.ID, Sealed: sealed, CreatedAt: s.stamp(), LastStep: e.step}); err != nil {
-		return err
+	if setErr := tx.SetTOTP(ctx, access.TOTP{UserID: u.ID, Sealed: sealed, CreatedAt: s.stamp(), LastStep: e.step}); setErr != nil {
+		return Enrolled{}, setErr
 	}
-	if err := tx.DeleteAuthFailures(ctx, failureName(s.failureMAC(), u.Username), []access.Method{access.MethodTOTP}); err != nil {
-		return err
+	if delErr := tx.DeleteAuthFailures(ctx, failureName(s.failureMAC(), u.Username), []access.Method{access.MethodTOTP}); delErr != nil {
+		return Enrolled{}, delErr
 	}
 	kind := EventTOTPAdded
 	if e.replacing {
 		kind = EventTOTPReplaced
 	}
 	j.add(Event{Kind: kind, At: s.now(), UserID: u.ID, Actor: eventActor(As(p))})
-	return nil
+	shown, err := s.issueRecoveryIn(ctx, tx, j, r, u, code, eventActor(As(p)))
+	return Enrolled{RecoveryCode: shown}, err
 }
 
 // RemoveTOTP deletes p's own TOTP record and its failure records, for a

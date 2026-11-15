@@ -385,12 +385,17 @@ describe("registerPasskey", () => {
     const create = credentialsCreate(attests);
     const s = fakeServer({
       "POST /api/auth/passkeys/begin": creation,
-      "POST /api/auth/passkeys/finish": ok("PasskeyView"),
+      "POST /api/auth/passkeys/finish": ok("PasskeyRegisteredResponse"),
       "GET /api/auth/webauthn/signals": ok("Signals"),
     });
+    const answer = fixture("PasskeyRegisteredResponse") as {
+      passkey: unknown;
+      recovery_code: string;
+    };
     expect(await registerPasskey(s.client)).toEqual({
       kind: "registered",
-      passkey: fixture("PasskeyView"),
+      passkey: answer.passkey,
+      recovery_code: answer.recovery_code,
     });
     expect(s.sent.map((x) => x.route)).toEqual([
       "POST /api/auth/passkeys/begin",
@@ -402,6 +407,23 @@ describe("registerPasskey", () => {
     const arg = create.mock.calls[0]?.[0] as CredentialCreationOptions;
     expect(arg.publicKey?.rp).toEqual({ name: "App" });
     expect(signalAllAcceptedCredentials).toHaveBeenCalledOnce();
+  });
+
+  // Design 4.50: the code rides only the answer whose registration issued it.
+  it("answers no recovery_code when the registration issued none", async () => {
+    bareplatform();
+    credentialsCreate(attests);
+    const s = fakeServer({
+      "POST /api/auth/passkeys/begin": creation,
+      "POST /api/auth/passkeys/finish": ok("PasskeyRegisteredResponse.none"),
+      "GET /api/auth/webauthn/signals": ok("Signals"),
+    });
+    const got = await registerPasskey(s.client);
+    expect(got).toEqual({
+      kind: "registered",
+      passkey: (fixture("PasskeyRegisteredResponse.none") as { passkey: unknown }).passkey,
+    });
+    expect(got).not.toHaveProperty("recovery_code");
   });
 
   it("refuses request options from a create route as a decode failure", async () => {
@@ -459,7 +481,7 @@ describe("the finish body", () => {
         status: 200,
         body: { ceremony: "c-create", public_key: { publicKey } },
       },
-      "POST /api/auth/passkeys/finish": ok("PasskeyView"),
+      "POST /api/auth/passkeys/finish": ok("PasskeyRegisteredResponse"),
     });
     expect((await registerPasskey(s.client)).kind).toBe("registered");
     expect(s.sent[1]?.body).toEqual({
