@@ -260,9 +260,9 @@ type logSink struct {
 	mu   sync.Mutex
 }
 
-func (s *logSink) Enabled(context.Context, slog.Level) bool { return true }
-func (s *logSink) WithAttrs([]slog.Attr) slog.Handler       { return s }
-func (s *logSink) WithGroup(string) slog.Handler            { return s }
+func (*logSink) Enabled(context.Context, slog.Level) bool { return true }
+func (s *logSink) WithAttrs([]slog.Attr) slog.Handler     { return s }
+func (s *logSink) WithGroup(string) slog.Handler          { return s }
 
 func (s *logSink) Handle(_ context.Context, r slog.Record) error {
 	s.mu.Lock()

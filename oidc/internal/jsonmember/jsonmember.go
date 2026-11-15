@@ -95,15 +95,15 @@ func wholeSeconds(num string) (int64, bool) {
 	if exp != "" {
 		// Past ±limit the outcome no longer depends on the exponent, and
 		// clamping keeps point from overflowing.
-		limit := int64(len(num) + maxNumericDateDigits + 1)
-		e, err := strconv.ParseInt(exp, 10, 64)
+		limit := len(num) + maxNumericDateDigits + 1
+		e, err := strconv.Atoi(exp)
 		if err != nil {
 			e = limit
 			if exp[0] == '-' {
 				e = -limit
 			}
 		}
-		point += int(min(max(e, -limit), limit))
+		point += min(max(e, -limit), limit)
 	}
 	switch {
 	case neg || point > maxNumericDateDigits:

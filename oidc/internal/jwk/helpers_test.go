@@ -7,7 +7,6 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"maps"
 	"math/big"
@@ -17,7 +16,7 @@ import (
 
 func b64(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
 
-// jwkSet marshals {"keys": keys}; a key is a map or a raw jsontext.Value.
+// jwkSet marshals {"keys": keys}.
 func jwkSet(t testing.TB, keys ...any) []byte {
 	t.Helper()
 	out, err := json.Marshal(map[string]any{"keys": keys})
@@ -98,8 +97,6 @@ func newEd25519(t testing.TB) ed25519.PublicKey {
 func okpJWK(kid string, pub ed25519.PublicKey) map[string]any {
 	return map[string]any{"kty": "OKP", "kid": kid, "crv": "Ed25519", "x": b64(pub)}
 }
-
-func raw(s string) jsontext.Value { return jsontext.Value(s) }
 
 // smallOrderEncodings derives, from the edwards25519 curve of RFC 8032
 // §5.1 (-x² + y² = 1 + d·x²·y² over p = 2^255 − 19), every 32-byte encoding
