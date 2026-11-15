@@ -4,7 +4,7 @@
 
 access gives your Go web service its sign-in: Argon2id passwords, passkeys, OIDC sign-in, sessions, API keys, invites and recovery, served as JSON routes you mount on your own mux, with a typed browser client. You write the storage and the pages.
 
-It reads no environment variables, and every setting lives on the value you construct. It is licensed under Apache-2.0. It has five direct dependencies at run time: `golang.org/x/crypto`, `golang.org/x/oauth2`, `golang.org/x/sync`, `golang.org/x/text` and `go-webauthn/webauthn`.
+It reads no environment variables, and every setting lives on the value you construct. It is licensed under Apache-2.0. It has four direct dependencies at run time: `golang.org/x/crypto`, `golang.org/x/oauth2`, `golang.org/x/sync` and `golang.org/x/text`.
 
 ## Why use it
 
@@ -14,7 +14,7 @@ access is built for a Go service that owns its login pages and its database.
 - Passwords hash with Argon2id at OWASP's parameters. When every `Hasher` is given the same `HashBudget`, that bound is process-wide. With no `HashBudget`, each `Hasher` has its own budget of four derivations. An unknown username costs the same work as a wrong password.
 - Repeated wrong passwords lock the method durably: after 100 consecutive failures for one account, method and trust context, that method is locked in that context until the user, signed in another way, re-enables it. A browser that signed in before keeps its own context, so a stranger's guesses do not lock the owner out.
 - Your store keeps only the SHA-256 hash of each 256-bit random session token. The session cookie holds only the token, and the cookies that carry state are sealed with AES-256-GCM.
-- Passkey ceremonies accept only your exact origin by default, and the API exposes no go-webauthn type.
+- Passkey ceremonies accept only your exact origin by default.
 - OIDC sign-in sends a PKCE S256 challenge, checks the ID token's nonce and keeps the flow in a sealed cookie, with nothing stored on the server.
 - API keys can carry scopes, and two permissions you grant explicitly let a key manage regular users or mint narrower keys, each act attributed to the key's whole lineage. A key rotates to a new secret in place, and its old secret keeps working through a short overlap.
 - Every credential is an `access.Secret` or an `access.Hash`, which print as redacted wherever they are logged.

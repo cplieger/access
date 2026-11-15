@@ -199,9 +199,8 @@ function base64url(buffer: ArrayBuffer): string {
 }
 
 // Built from the raw buffers, not toJSON(), which the browsers taking the options fallback above
-// lack. Only a requested extension output is forwarded: go-webauthn's default
-// UnsolicitedOutputPolicyReject (protocol/extensions_session.go) refuses any other, and accesshttp
-// requests credProps on the create leg only.
+// lack. Only credProps.rk is forwarded, on the create leg: it is the one extension output the
+// server reads.
 function finishBody(cred: PublicKeyCredential, credProps: boolean): PublicKeyCredentialJSON {
   const attachment = (cred as { readonly authenticatorAttachment?: unknown })
     .authenticatorAttachment;

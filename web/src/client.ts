@@ -70,8 +70,8 @@ export interface AuthClientOptions {
 }
 
 /**
- * A finish route's body as the ceremonies build it: clientExtensionResults carries only an output
- * the begin options requested (credProps on the create leg), because go-webauthn refuses any other.
+ * A finish route's body as the ceremonies build it: clientExtensionResults carries only credProps.rk
+ * on the create leg, the one extension output the server reads.
  */
 export type PublicKeyCredentialJSON =
   | {

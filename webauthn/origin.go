@@ -128,12 +128,12 @@ func (r OriginRejection) clause() string {
 }
 
 // ParseOrigin parses a browser origin as a browser serializes it, typically an
-// Origin request header; the error is a *[OriginError]. It applies only the
-// normalizations the response comparison also applies (ASCII case folding,
-// default-port elision) and refuses a trailing dot, an empty label, a non-ASCII
-// host, one that is neither a hostname nor an IP address, and an IP address not
-// spelled as a browser serializes it. A repair would turn a refusal before the
-// authenticator prompt into a mismatch after it.
+// Origin request header; the error is a *[OriginError]. It folds ASCII case
+// and elides a default port, as that serialization does, so [Origin.String]
+// is what a response's clientDataJSON origin must equal byte for byte. It
+// refuses a trailing dot, an empty label, a non-ASCII host, one neither a
+// hostname nor an IP address, and an IP address spelled otherwise: a repair
+// would turn a refusal before the authenticator prompt into a mismatch after.
 func ParseOrigin(raw string) (Origin, error) {
 	o, err := parseOrigin(raw)
 	if err != nil {
