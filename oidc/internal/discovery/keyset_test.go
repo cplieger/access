@@ -16,16 +16,18 @@ import (
 	"github.com/cplieger/access/oidc/internal/jws"
 )
 
-// The design's two intervals (6.6): a cached set is refreshed once it is
-// 24 hours old, and refetch attempts are at least 60 seconds apart.
+// The two intervals of docs/oidc.md "The key cache": a cached set is
+// refreshed once it is 24 hours old, and refetch attempts are at least 60
+// seconds apart.
 const (
 	maxAge = 24 * time.Hour
 	gate   = 60 * time.Second
 )
 
-// Design 6.6: the key set is fetched when the provider is built, which
-// fails when the JWKS cannot be fetched (Discovery 1.0 §4.2: only a 200
-// answer is read) or holds no usable key (RFC 7517 §5 skips the rest).
+// docs/oidc.md "The key cache": the key set is fetched when the provider is
+// built, which fails when the JWKS cannot be fetched (Discovery 1.0 §4.2:
+// only a 200 answer is read) or holds no usable key (RFC 7517 §5 skips the
+// rest).
 func TestNewKeySet_Refusals(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
@@ -65,8 +67,8 @@ func TestNewKeySet_Refusals(t *testing.T) {
 // skipped, so it holds no usable key.
 var octOnly = jsonText(map[string]any{"keys": []any{map[string]any{"kty": "oct", "k": "c2VjcmV0"}}})
 
-// Design 6.6: the fetch ends within the client's timeout, so a JWKS that
-// never answers fails construction after 10 seconds.
+// docs/oidc.md "Outbound calls": the fetch ends within the client's
+// timeout, so a JWKS that never answers fails construction after 10 seconds.
 func TestNewKeySet_HangingJWKS(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
@@ -96,9 +98,9 @@ func TestNewKeySet_ErrorOmitsURL(t *testing.T) {
 	}
 }
 
-// Design 6.6: every JWKS request, the first included, sends Cache-Control:
-// no-cache, so a caching intermediary cannot pin a stale set (RFC 9111
-// §5.2.1.4).
+// docs/oidc.md "Outbound calls": every JWKS request, the first included,
+// sends Cache-Control: no-cache, so a caching intermediary cannot pin a
+// stale set (RFC 9111 §5.2.1.4).
 func TestKeySet_NoCache(t *testing.T) {
 	t.Parallel()
 	a, b := ecSigner(t, "a"), ecSigner(t, "b")
@@ -118,7 +120,7 @@ func TestKeySet_NoCache(t *testing.T) {
 
 // OpenID Connect Core 1.0 §10.1.1: a provider rotates by publishing a new
 // kid, so a token under a kid the cache lacks is a miss that refetches
-// once and verifies (design 6.4 step 5).
+// once and verifies (docs/oidc.md "Parsing a token" step 6).
 func TestKeySet_MissRefetches(t *testing.T) {
 	t.Parallel()
 	t.Run("new kid", func(t *testing.T) {
@@ -160,8 +162,9 @@ func TestKeySet_MissRefetches(t *testing.T) {
 	})
 }
 
-// Design 6.6: at most one refetch attempt per 60 seconds of Config.Now,
-// and NewKeySet's own fetch does not start the gate.
+// docs/oidc.md "The key cache"; PyJWT CVE-2026-48524, CVE-2026-101917: at
+// most one refetch attempt per 60 seconds of Config.Now, and NewKeySet's own
+// fetch does not start the gate.
 func TestKeySet_Gate(t *testing.T) {
 	t.Parallel()
 	a, b, c := ecSigner(t, "a"), ecSigner(t, "b"), ecSigner(t, "c")
@@ -202,8 +205,9 @@ func TestKeySet_UnknownKIDAmplification(t *testing.T) {
 	f.wantRequests(t, 2)
 }
 
-// Design 6.6: a dead JWKS endpoint costs one attempt a minute, and a miss
-// while the gate is shut answers at once, without the network.
+// docs/oidc.md "The key cache"; PyJWT CVE-2026-48524, CVE-2026-101917: a dead
+// JWKS endpoint costs one attempt a minute, and a miss while the gate is shut
+// answers at once, without the network.
 func TestKeySet_DeadEndpoint(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
@@ -234,8 +238,8 @@ func TestKeySet_DeadEndpoint(t *testing.T) {
 	})
 }
 
-// Design 6.6 step 1: a verify that succeeds from a set whose age is due
-// starts one refresh and does not wait for it.
+// docs/oidc.md "The key cache": a verify that succeeds from a set whose age
+// is due starts one refresh and does not wait for it.
 func TestKeySet_AgeRefresh(t *testing.T) {
 	t.Parallel()
 	t.Run("boundary", func(t *testing.T) {
@@ -288,7 +292,7 @@ func TestKeySet_AgeRefresh(t *testing.T) {
 	})
 }
 
-// Design 6.6 step 3: a miss while a refetch is in flight joins it,
+// docs/oidc.md "The key cache": a miss while a refetch is in flight joins it,
 // whatever started it, and verifies with the key it brings.
 func TestKeySet_MissJoinsAgeRefresh(t *testing.T) {
 	t.Parallel()
@@ -316,7 +320,7 @@ func TestKeySet_MissJoinsAgeRefresh(t *testing.T) {
 	})
 }
 
-// Design 6.6: concurrent misses share one fetch.
+// docs/oidc.md "The key cache": concurrent misses share one fetch.
 func TestKeySet_ConcurrentMisses(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
@@ -343,9 +347,9 @@ func TestKeySet_ConcurrentMisses(t *testing.T) {
 	})
 }
 
-// Design 6.6 and 6.9: the fetch runs under context.WithoutCancel, so the
-// first waiter leaving fails only itself, and the second waiter verifies
-// from the same fetch.
+// docs/oidc.md "The key cache": the fetch runs under context.WithoutCancel,
+// so the first waiter leaving fails only itself, and the second waiter
+// verifies from the same fetch.
 func TestKeySet_CancelledFirstWaiter(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
@@ -380,8 +384,8 @@ func TestKeySet_CancelledFirstWaiter(t *testing.T) {
 	})
 }
 
-// Design 6.6: Config.Now may step back, so the gate and the age both open
-// when now reads before the last attempt or the fetch.
+// docs/oidc.md "The key cache": Config.Now may step back, so the gate and the
+// age both open when now reads before the last attempt or the fetch.
 func TestKeySet_ClockStepsBack(t *testing.T) {
 	t.Parallel()
 	t.Run("gate", func(t *testing.T) {
@@ -407,8 +411,9 @@ func TestKeySet_ClockStepsBack(t *testing.T) {
 			f.wantRequests(t, 2)
 		})
 	})
-	// Design 6.6, one fetch at a time: a step back while the age refresh is
-	// in flight opens the age and the gate, and starts no second fetch.
+	// One fetch at a time (docs/oidc.md "The key cache"): a step back while
+	// the age refresh is in flight opens the age and the gate, and starts no
+	// second fetch.
 	t.Run("refresh in flight", func(t *testing.T) {
 		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
@@ -429,7 +434,8 @@ func TestKeySet_ClockStepsBack(t *testing.T) {
 	})
 }
 
-// Design 6.6: a failed refetch keeps the last good set and logs one WARN.
+// docs/oidc.md "The key cache": a failed refetch keeps the last good set and
+// logs one WARN.
 func TestKeySet_FailedRefetchKeepsSet(t *testing.T) {
 	t.Parallel()
 	for name, rep := range map[string]reply{
@@ -539,9 +545,10 @@ func TestKeySet_SharedKID(t *testing.T) {
 	})
 }
 
-// Design 6.6 and OpenID Connect Core 1.0 §10.1.1: a key the provider
-// retires verifies from the cache until the first successful refetch after
-// the age is due, or an earlier miss's refetch; a failed refresh keeps it.
+// docs/oidc.md "The key cache" and OpenID Connect Core 1.0 §10.1.1: a key the
+// provider retires verifies from the cache until the first successful refetch
+// after the age is due, or an earlier miss's refetch; a failed refresh keeps
+// it.
 func TestKeySet_RetiredKey(t *testing.T) {
 	t.Parallel()
 	t.Run("age refresh drops it", func(t *testing.T) {
@@ -590,8 +597,9 @@ func TestKeySet_RetiredKey(t *testing.T) {
 	})
 }
 
-// Design 6.6: no long-lived goroutine. Once an age refresh has ended,
-// nothing the KeySet started is left running, and it has nothing to stop.
+// docs/oidc.md "The key cache": no long-lived goroutine. Once an age refresh
+// has ended, nothing the KeySet started is left running, and it has nothing
+// to stop.
 func TestKeySet_NoGoroutineLeft(t *testing.T) {
 	for _, name := range []string{"Stop", "Close", "Shutdown"} {
 		if _, ok := reflect.TypeFor[*discovery.KeySet]().MethodByName(name); ok {

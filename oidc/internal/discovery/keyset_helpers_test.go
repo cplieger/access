@@ -249,7 +249,7 @@ func (f *jwksIdP) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 // client is the capped client NewProvider hands discovery, whose Timeout
-// is 10 seconds (design 6.6).
+// is 10 seconds (docs/oidc.md "Outbound calls").
 func (f *jwksIdP) client() *http.Client {
 	return &http.Client{Transport: f, Timeout: 10 * time.Second}
 }

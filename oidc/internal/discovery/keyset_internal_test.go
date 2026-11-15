@@ -5,10 +5,10 @@ import (
 	"time"
 )
 
-// Design 6.6 step 2: a miss under a set replaced since the verify began
-// re-verifies against the new set before it joins a refetch in flight or
-// consults the gate. The window between the cached verify and the miss
-// has no blocking point a black-box test could hold.
+// docs/oidc.md "The key cache": a miss under a set replaced since the verify
+// began re-verifies against the new set before it joins a refetch in flight
+// or consults the gate. The window between the cached verify and the miss has
+// no blocking point a black-box test could hold.
 func TestAfterMiss_ReplacedSetFirst(t *testing.T) {
 	t.Parallel()
 	for name, pending := range map[string]chan struct{}{"refetch in flight": make(chan struct{}), "gate open": nil} {

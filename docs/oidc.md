@@ -161,7 +161,7 @@ Earlier versions verified tokens with `coreos/go-oidc`, and these behaviours cha
 
 - `NewProvider` also fails when the key set cannot be fetched or holds no usable key, and when the provider's algorithms share nothing with the table above.
 - A provider that signs outside the table, with `HS256` or EdDSA on Ed448, while it lists an accepted algorithm, now fails at `Finish` with `ErrTokenInvalid`.
-- `exp` gains 5 minutes of grace. An `iat` more than 5 minutes ahead, a missing `iat` or `exp`, and an empty `aud` array are now refused. `nbf` keeps its 5 minutes.
+- `exp` gains 5 minutes of grace, and an `iat` that is missing or more than 5 minutes ahead is now refused. `nbf` keeps its 5 minutes.
 - A `sub` that is not 1 to 255 ASCII characters is refused. A provider set to send a username as `sub`, such as Authentik's mode based on the user's username, can produce one.
 - A token with no `nonce`, or a `null` one, now fails with `ErrTokenInvalid` where it failed with `ErrNonceMismatch`. Both are refused on every intent.
 - Discovery and key-set redirects are refused, and a status other than 200 is a failed fetch.
