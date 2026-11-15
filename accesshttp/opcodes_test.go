@@ -201,11 +201,6 @@ var producerErrors = map[string]error{
 	modulePath + ".ErrInvalidKeyPrefix":                access.ErrInvalidKeyPrefix,
 	modulePath + ".ErrSealExpired":                     access.ErrSealExpired,
 	modulePath + ".ErrSealInvalid":                     access.ErrSealInvalid,
-	// Internal to oidc, so not importable here: each stands in by its own
-	// value, which the analysis compares only with itself, and Finish wraps
-	// both under oidc.ErrTokenInvalid, the sentinel classify reads.
-	modulePath + "/oidc/internal/jws.ErrInvalid": errors.New("jws: token refused"),
-	modulePath + "/oidc/internal/jws.ErrNoKey":   errors.New("jws: no key verifies the token"),
 }
 
 // termKind is what one part of an error chain is.
