@@ -15,6 +15,7 @@ export type { ShownOnce } from "./secret.js";
 export { createSessionsModel } from "./sessions.js";
 export type { SessionsModel } from "./sessions.js";
 export { withStepUp } from "./stepup.js";
+export { looksLikeTemporaryPassword } from "./temporary-password.js";
 export type { StepUpMethod, StepUpOptions, StepUpPrompt, StepUpResult } from "./stepup.js";
 export {
   loginSecondPasskey,

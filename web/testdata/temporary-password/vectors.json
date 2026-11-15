@@ -1,0 +1,261 @@
+{
+  "source": "written by UPDATE_VECTORS=1 go test ./account/ -run '^TestTemporaryPasswordVectors$'",
+  "issued": [
+    {
+      "random": "54632b63ef6087f2",
+      "shown": "AHHJ-PRZF-C23Z-52XQ"
+    },
+    {
+      "random": "3395d56cc43cf2fd",
+      "shown": "6EAX-AV64-7KSF-VBC7"
+    },
+    {
+      "random": "12602268c4d3b187",
+      "shown": "29G2-4T64-TERR-EHH9"
+    },
+    {
+      "random": "c90b99668c43b429",
+      "shown": "S45S-JSMC-8ET2-KPS3"
+    },
+    {
+      "random": "f6a9931a328cf463",
+      "shown": "YTMS-66HJ-HKT6-6YA2"
+    },
+    {
+      "random": "69a42d07076f4d24",
+      "shown": "D6J2-T1R7-DX6J-8E21"
+    },
+    {
+      "random": "c5a8c7537ad63005",
+      "shown": "RPMC-EMVT-TRR0-APS2"
+    },
+    {
+      "random": "0fe4d3ab7dda4c31",
+      "shown": "1ZJD-7AVX-V963-2HTK"
+    },
+    {
+      "random": "7415b0516c6b5af0",
+      "shown": "EGAV-0MBC-DDDF-0BEW"
+    },
+    {
+      "random": "80799e0337e1c081",
+      "shown": "G1WS-W0SQ-W708-3Q6Z"
+    },
+    {
+      "random": "babb8b0ffe312e61",
+      "shown": "QAXR-P3ZY-64Q6-3JT7"
+    },
+    {
+      "random": "1b5bd1863ddc3255",
+      "shown": "3DDX-31HX-VGS5-BP63"
+    },
+    {
+      "random": "21e24fb6b20d534a",
+      "shown": "47H4-ZDNJ-1N9M-NZ69"
+    },
+    {
+      "random": "20d297703b6bdaa4",
+      "shown": "4399-EW1V-DFDA-8Y32"
+    },
+    {
+      "random": "6baae8349aa59b9a",
+      "shown": "DENE-GD4T-MPDS-NQYD"
+    },
+    {
+      "random": "a8c6820044dd92d8",
+      "shown": "N338-4024-VP9D-HST5"
+    },
+    {
+      "random": "cd76dbc2b83dbd06",
+      "shown": "SNVD-QGNR-7PYG-CPNZ"
+    },
+    {
+      "random": "351daf26474be44a",
+      "shown": "6MET-Y9J7-9FJ4-N6H2"
+    },
+    {
+      "random": "def212c6d203a924",
+      "shown": "VVS1-5HPJ-0EMJ-80K6"
+    },
+    {
+      "random": "a7ee0e6125a63e3c",
+      "shown": "MZQ0-WR95-MRZ3-SJGZ"
+    },
+    {
+      "random": "c11282d822d0e33f",
+      "shown": "R498-5P12-T3HK-YJZV"
+    },
+    {
+      "random": "3bb7f95869f2811c",
+      "shown": "7EVZ-JP39-YA0H-SHY5"
+    },
+    {
+      "random": "9639183817f0a953",
+      "shown": "JRWH-GE0Q-Y2MN-7THQ"
+    },
+    {
+      "random": "25871427c6620a68",
+      "shown": "4P3H-89Y6-C856-GYYA"
+    },
+    {
+      "random": "546973e05b25507a",
+      "shown": "AHMQ-7R2V-4N87-MPGD"
+    },
+    {
+      "random": "f23d49a865bda885",
+      "shown": "Y8YM-KA35-QPM8-BB03"
+    },
+    {
+      "random": "96cee2d353b0b81d",
+      "shown": "JV7E-5MTK-P2W1-TBZW"
+    },
+    {
+      "random": "cb794369568d1433",
+      "shown": "SDWM-6TAP-HMA3-64Q0"
+    },
+    {
+      "random": "0279941301544d74",
+      "shown": "09WS-84R1-AH6Q-94CF"
+    },
+    {
+      "random": "f90af4459a051c33",
+      "shown": "Z45F-8HCT-0ME3-7Z0G"
+    },
+    {
+      "random": "6bed23e581dfad36",
+      "shown": "DFPJ-7SC1-VYPK-CVRA"
+    },
+    {
+      "random": "89871bc37613f856",
+      "shown": "H63H-QGVP-2FW5-D25A"
+    },
+    {
+      "random": "dfbd69563eb446fe",
+      "shown": "VYYP-JNHY-PH3F-W7W6"
+    },
+    {
+      "random": "6ee8e9754c5759e0",
+      "shown": "DVME-JXAC-AXCY-0YXG"
+    },
+    {
+      "random": "efb15c14759f3b9a",
+      "shown": "XYRN-R53N-KWXS-MVVZ"
+    },
+    {
+      "random": "e234621d628b7f48",
+      "shown": "W8T6-47B2-HDZM-HSH4"
+    },
+    {
+      "random": "1ed339159104739b",
+      "shown": "3V9K-J5CH-0HSS-QSEV"
+    },
+    {
+      "random": "d744aa09ed8eb20f",
+      "shown": "TX2A-M2FD-HTS0-ZQSV"
+    },
+    {
+      "random": "a181efbe3302afb7",
+      "shown": "M60Y-ZFHK-0AQV-FGSQ"
+    },
+    {
+      "random": "9e0542c985d5c4c1",
+      "shown": "KR2M-5JC5-TQ2C-29KY"
+    },
+    {
+      "random": "2da55fa5d76219cf",
+      "shown": "5PJN-Z9EQ-C8CW-Y5NM"
+    },
+    {
+      "random": "7e0156a28c136dc2",
+      "shown": "FR0N-D8MC-2DPW-5MNZ"
+    },
+    {
+      "random": "6db805dda3e99cd9",
+      "shown": "DPW0-BQD3-X6ED-KCSX"
+    },
+    {
+      "random": "3578378d81e17120",
+      "shown": "6NW3-F3C1-W5RJ-0Q5W"
+    },
+    {
+      "random": "455f12c9c63e9b25",
+      "shown": "8NFH-5JE6-7TDJ-AQAJ"
+    },
+    {
+      "random": "05668a3e3ce87bfd",
+      "shown": "0NK8-MFHW-X1XZ-TW8P"
+    },
+    {
+      "random": "33f4084f15448831",
+      "shown": "6FT0-GKRN-8J43-2J00"
+    },
+    {
+      "random": "730334f846b7c891",
+      "shown": "EC1K-9Y26-PZ49-2720"
+    },
+    {
+      "random": "47805bcc25fa798b",
+      "shown": "8Y05-QK15-Z9WR-PCMW"
+    },
+    {
+      "random": "a61c0d7b03d6e966",
+      "shown": "MRE0-TYR3-TVMP-CVVW"
+    },
+    {
+      "random": "a20b280d8217ef47",
+      "shown": "M85J-G3C2-2ZQM-FP6X"
+    },
+    {
+      "random": "b5e18d385aa5ca21",
+      "shown": "PQGR-TE2T-MQ52-20CZ"
+    },
+    {
+      "random": "8afe24302fba71e9",
+      "shown": "HBZ2-8C1F-Q9RY-JBMW"
+    },
+    {
+      "random": "a1632d50dbd7f121",
+      "shown": "M5HJ-TM6V-TZRJ-2TNF"
+    },
+    {
+      "random": "b5d54a5557debf87",
+      "shown": "PQAM-MNAQ-VTZR-FJ9C"
+    },
+    {
+      "random": "b6a8cc77827bfdbd",
+      "shown": "PTMC-RXW2-FFYV-VNMG"
+    },
+    {
+      "random": "2585d52f7b8fdcd6",
+      "shown": "4P2X-ABVV-HZED-DHCN"
+    },
+    {
+      "random": "4eed1d665df3f7e7",
+      "shown": "9VPH-TSJX-YFVY-EGCY"
+    },
+    {
+      "random": "b55020f50e2f28da",
+      "shown": "PN82-1X8E-5WMD-NNW8"
+    },
+    {
+      "random": "5b2edd4d95895455",
+      "shown": "BCQD-TKCN-H5A5-BVC3"
+    },
+    {
+      "random": "d5fa9a6687e79f9f",
+      "shown": "TQX9-MSM7-WYFS-Y9F9"
+    },
+    {
+      "random": "ee397a229c3b2f5f",
+      "shown": "XRWQ-M8MW-7CQN-YYGX"
+    },
+    {
+      "random": "dceb7e12efde5b5d",
+      "shown": "VKNQ-W4QF-VSDN-T1G6"
+    },
+    {
+      "random": "0b7d9dfab95d0275",
+      "shown": "1DYS-VYNS-BM17-AS3Q"
+    }
+  ]
+}

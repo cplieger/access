@@ -191,3 +191,14 @@ func TicketOf(s *Service, ticket access.Secret) (Ticket, bool) {
 
 // CountedMethods is the methods with failure records.
 func CountedMethods() []access.Method { return countedMethods }
+
+// NewTemporaryPassword draws a temporary password: its shown and canonical forms.
+func NewTemporaryPassword() (access.Secret, string) { return newTemporaryPassword() }
+
+// TemporaryPasswordFrom is the canonical temporary password of eight random bytes.
+func TemporaryPasswordFrom(random [temporaryPasswordRandomBytes]byte) string {
+	return temporaryPasswordFrom(random)
+}
+
+// TemporaryPasswordForm is a presented value's canonical form, and whether it is one.
+func TemporaryPasswordForm(presented string) (string, bool) { return temporaryPasswordForm(presented) }

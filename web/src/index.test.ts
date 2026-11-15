@@ -173,6 +173,7 @@ const helpers = [
   "createAuthClient",
   "createSessionsModel",
   "loginSecondPasskey",
+  "looksLikeTemporaryPassword",
   "pendingPasskey",
   "oidcSignInURL",
   "passkeyProof",
