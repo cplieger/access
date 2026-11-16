@@ -19,6 +19,7 @@
   "PasswordRemoveRequest",
   "PasswordRequest",
   "PendingCreateRequest",
+  "PendingLinkByAdminRequest",
   "PendingLinkResponse",
   "PendingTOTPBeginResponse",
   "ProfileRequest",

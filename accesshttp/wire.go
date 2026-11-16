@@ -36,6 +36,13 @@ type PendingCreateRequest struct {
 	Username string `json:"username"`
 }
 
+// PendingLinkByAdminRequest is authOIDCLinkByAdmin's body: the account's
+// name and the temporary password an admin issued it.
+type PendingLinkByAdminRequest struct {
+	Username          string `json:"username"`
+	TemporaryPassword string `json:"temporary_password"`
+}
+
 // CodeRequest is a pending sign-in step's body: its ticket and a code, six
 // digits once spaces are removed, or authLoginRecoveryCode's 16 symbols.
 type CodeRequest struct {
@@ -239,8 +246,8 @@ type TemporaryPasswordView struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// TemporaryPasswordOptions is authAdminTemporaryPassword's body,
-// account.TemporaryPasswordOptions on the wire.
+// TemporaryPasswordOptions is authAdminTemporaryPassword's and
+// authAdminOIDCRelink's body, account.TemporaryPasswordOptions on the wire.
 type TemporaryPasswordOptions struct {
 	TTLHours       int  `json:"ttl_hours,omitempty"` // 0 is 24 hours; at most 168
 	RevokePasskeys bool `json:"revoke_passkeys,omitempty"`

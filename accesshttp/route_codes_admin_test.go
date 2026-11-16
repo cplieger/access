@@ -108,6 +108,21 @@ func adminScenarios() map[scenarioKey]scenario {
 		return r
 	}}
 
+	const relink = "authAdminOIDCRelink"
+	linkedAlice := func(t *testing.T, e *env) string {
+		e.linkUser(t, "alice", idpIdentity(testIssuer))
+		return e.userID(t, "alice")
+	}
+	out[scenarioKey{relink, access.CodeForbidden}] = byAlice(relink, `{}`)
+	out[scenarioKey{relink, access.CodeBusy}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		r := byRoot(relink, linkedAlice, `{}`)(t, e)
+		e.holdBudget(t)
+		return r
+	}}
+	out[scenarioKey{relink, access.CodeUnavailable}] = closing(envOptions{}, byRoot(relink, linkedAlice, `{}`))
+	out[scenarioKey{relink, access.CodeBadRequest}] = scenario{arrange: byRoot(relink, linkedAlice, `{"ttl_hours":169}`)}
+	out[scenarioKey{relink, access.CodeNotFound}] = scenario{arrange: byRoot(relink, aliceID, `{}`)}
+
 	const reset = "authAdminSecondFactorReset"
 	out[scenarioKey{reset, access.CodeForbidden}] = byAlice(reset, "")
 	out[scenarioKey{reset, access.CodeUnavailable}] = closing(envOptions{}, byRoot(reset, aliceID, ""))

@@ -132,6 +132,10 @@ func passthroughCases() []passthroughCase {
 			r.AddCookie(e.pendingCookie(t, pendingPayload{Issuer: testIssuer, Subject: accesstest.DefaultIdPSubject, Provision: &role}))
 			return serve(t, e, "authOIDCCreatePending", r)
 		}},
+		{name: "oidc_link_by_admin", route: "authOIDCLinkByAdmin", run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+			secret := e.issueForAdminLink(t, true)
+			return serve(t, e, "authOIDCLinkByAdmin", e.adminLink(t, "alice", secret.Reveal(), true))
+		}},
 		{name: "invite_accept", route: "authInviteAcceptPassword", run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
 			body := inviteBody(t, e.invite(t), "bob", testPassword)
 			return serve(t, e, "authInviteAcceptPassword", e.post(t, "authInviteAcceptPassword", body))

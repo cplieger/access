@@ -203,10 +203,14 @@ func (s *Service) AdminRelinkOIDC(ctx context.Context, a Actor, userID int64, in
 		if issueErr != nil {
 			return issueErr
 		}
+		mode, modeErr := storedMode(ctx, tx)
+		if modeErr != nil {
+			return modeErr
+		}
 		if writeErr := s.unlinkWriteIn(ctx, tx, j, a, target); writeErr != nil {
 			return writeErr
 		}
-		return s.issueWriteIn(ctx, tx, j, a, &ua, target, iss)
+		return s.issueWriteIn(ctx, tx, j, a, &ua, target, iss, mode)
 	})
 	if err != nil {
 		return IssuedTemporaryPassword{}, err

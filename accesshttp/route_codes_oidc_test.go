@@ -58,6 +58,7 @@ func oidcScenarios() map[scenarioKey]scenario {
 	addStartScenarios(out)
 	addLinkScenarios(out)
 	addCreatePendingScenarios(out)
+	addAdminLinkScenarios(out)
 	addInviteScenarios(out)
 	return out
 }
@@ -122,6 +123,53 @@ func addCreatePendingScenarios(out map[scenarioKey]scenario) {
 	}}
 	out[scenarioKey{route, access.CodeOIDCUnavailable}] = scenario{opts: provisioning, arrange: func(t *testing.T, e *env) *http.Request {
 		return create(t, e, &offer, "alice_2", true)
+	}}
+}
+
+func addAdminLinkScenarios(out map[scenarioKey]scenario) {
+	const route = "authOIDCLinkByAdmin"
+	// link is alice's admin link with her temporary password under SSOOnly,
+	// with the IdP on unless off.
+	link := func(t *testing.T, e *env, off bool) *http.Request {
+		secret := e.issueForAdminLink(t, !off)
+		return e.adminLink(t, "alice", secret.Reveal(), true)
+	}
+	out[scenarioKey{route, access.CodeRateLimited}] = scenario{opts: limited, arrange: func(t *testing.T, e *env) *http.Request {
+		r := link(t, e, false)
+		e.spendRequest(t)
+		return r
+	}}
+	out[scenarioKey{route, access.CodeBusy}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		r := link(t, e, false)
+		e.holdBudget(t)
+		return r
+	}}
+	out[scenarioKey{route, access.CodeUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		r := link(t, e, false)
+		e.shutdown(t)
+		return r
+	}}
+	out[scenarioKey{route, access.CodeInvalidCredentials}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		e.issueForAdminLink(t, true)
+		return e.adminLink(t, "alice", "AAAA-AAAA-AAAA-AAAA", true)
+	}}
+	out[scenarioKey{route, access.CodeAlreadyLinked}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		r := link(t, e, false)
+		e.linkUser(t, "alice", otherIdentity)
+		return r
+	}}
+	out[scenarioKey{route, access.CodeIdentityTaken}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		r := link(t, e, false)
+		e.createUser(t, "bob", access.RoleUser)
+		e.linkUser(t, "bob", idpIdentity(testIssuer))
+		return r
+	}}
+	out[scenarioKey{route, access.CodeOIDCUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		return link(t, e, true)
+	}}
+	out[scenarioKey{route, access.CodeNotFound}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		secret := e.issueForAdminLink(t, true)
+		return e.adminLink(t, "alice", secret.Reveal(), false)
 	}}
 }
 

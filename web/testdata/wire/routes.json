@@ -260,6 +260,16 @@
     "doc": "Creates an account for the waiting identity under a chosen username and signs it in."
   },
   {
+    "request": "PendingLinkByAdminRequest",
+    "response": "SignedInResponse",
+    "name": "authOIDCLinkByAdmin",
+    "method": "POST",
+    "path": "{prefix}/oidc/pending/link",
+    "kind": "json",
+    "array": false,
+    "doc": "Links the waiting identity to an account named with the temporary password an admin issued it, and signs it in."
+  },
+  {
     "request": null,
     "response": "MeResponse",
     "name": "authOIDCLinkPending",
@@ -648,6 +658,16 @@
     "kind": "json",
     "array": false,
     "doc": "Unlinks an account's single sign-on identity."
+  },
+  {
+    "request": "TemporaryPasswordOptions",
+    "response": "TemporaryPasswordResponse",
+    "name": "authAdminOIDCRelink",
+    "method": "POST",
+    "path": "{prefix}/users/{id}/oidc/relink",
+    "kind": "json",
+    "array": false,
+    "doc": "Unlinks an account's single sign-on identity, issues it a temporary password and answers it once."
   },
   {
     "request": "TemporaryPasswordOptions",

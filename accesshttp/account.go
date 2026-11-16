@@ -46,6 +46,7 @@ type accountAPI interface {
 	LinkPendingOIDC(ctx context.Context, p access.Principal, pending account.PendingLink) (account.Issued, account.Me, error)
 	UnlinkOIDC(ctx context.Context, p access.Principal) error
 	CreatePendingOIDC(ctx context.Context, c account.Client, pending account.PendingLink, username string) (account.SignedIn, error)
+	LinkPendingOIDCByAdmin(ctx context.Context, c account.Client, pending account.PendingLink, username string, secret access.Secret) (account.SignedIn, error)
 	AcceptInviteOIDCBegin(ctx context.Context, c account.Client, token access.Secret) (oidc.BeginRequest, error)
 	Logout(ctx context.Context, tokenHash access.Hash) error
 	AcceptInvitePassword(ctx context.Context, c account.Client, in account.AcceptInvite) (account.LoginResult, error)
@@ -83,6 +84,7 @@ type accountAPI interface {
 	DeleteUser(ctx context.Context, p access.Principal, userID int64) error
 	SetOwner(ctx context.Context, a account.Actor, userID int64, owner bool) (*access.User, error)
 	AdminUnlinkOIDC(ctx context.Context, a account.Actor, userID int64) error
+	AdminRelinkOIDC(ctx context.Context, a account.Actor, userID int64, in account.TemporaryPasswordOptions) (account.IssuedTemporaryPassword, error)
 	SetTemporaryPassword(ctx context.Context, a account.Actor, userID int64, in account.TemporaryPasswordOptions) (account.IssuedTemporaryPassword, error)
 	TemporaryPasswordHTTPSOnly(issued account.IssuedTemporaryPassword) bool
 	ResetSecondFactor(ctx context.Context, a account.Actor, userID int64) error

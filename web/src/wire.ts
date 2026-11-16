@@ -361,6 +361,15 @@ export const parsePendingCreateRequest: Validator<PendingCreateRequest> = object
   username: req(str),
 });
 
+export interface PendingLinkByAdminRequest {
+  readonly username: string;
+  readonly temporary_password: string;
+}
+export const parsePendingLinkByAdminRequest: Validator<PendingLinkByAdminRequest> = object({
+  username: req(str),
+  temporary_password: req(str),
+});
+
 export interface OwnerRequest {
   readonly owner: boolean;
 }

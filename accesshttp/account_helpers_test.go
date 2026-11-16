@@ -96,6 +96,18 @@ func (s stubAccount) CreatePendingOIDC(ctx context.Context, c account.Client, pe
 	return stubbed(s, "CreatePendingOIDC", func() (account.SignedIn, error) { return s.accountAPI.CreatePendingOIDC(ctx, c, pending, username) })
 }
 
+func (s stubAccount) LinkPendingOIDCByAdmin(ctx context.Context, c account.Client, pending account.PendingLink, username string, secret access.Secret) (account.SignedIn, error) {
+	return stubbed(s, "LinkPendingOIDCByAdmin", func() (account.SignedIn, error) {
+		return s.accountAPI.LinkPendingOIDCByAdmin(ctx, c, pending, username, secret)
+	})
+}
+
+func (s stubAccount) AdminRelinkOIDC(ctx context.Context, a account.Actor, userID int64, in account.TemporaryPasswordOptions) (account.IssuedTemporaryPassword, error) {
+	return stubbed(s, "AdminRelinkOIDC", func() (account.IssuedTemporaryPassword, error) {
+		return s.accountAPI.AdminRelinkOIDC(ctx, a, userID, in)
+	})
+}
+
 func (s stubAccount) AdminUnlinkOIDC(ctx context.Context, a account.Actor, userID int64) error {
 	return stubbedErr(s, "AdminUnlinkOIDC", func() error { return s.accountAPI.AdminUnlinkOIDC(ctx, a, userID) })
 }

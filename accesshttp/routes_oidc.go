@@ -279,6 +279,34 @@ func serveOIDCCreatePending(h *Handler, c *call) error {
 	return nil
 }
 
+// serveOIDCLinkByAdmin charges the IP's request window before it reads the
+// pending cookie, and clears the cookie only once the link commits: a
+// refused name or secret keeps it for another try. A cookie that does not
+// open reaches LinkPendingOIDCByAdmin as the zero PendingLink, which it
+// refuses as not found before any hash.
+func serveOIDCLinkByAdmin(h *Handler, c *call) error {
+	req, err := decodeJSON[PendingLinkByAdminRequest](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	secret, err := requireSecret("temporary_password", req.TemporaryPassword)
+	if err != nil {
+		return err
+	}
+	c.username = canonical(req.Username)
+	if _, admitErr := h.acct.AdmitOIDC(c.client); admitErr != nil {
+		return admitErr
+	}
+	pending, _ := h.readPending(c)
+	out, err := h.acct.LinkPendingOIDCByAdmin(c.r.Context(), c.client, pending, req.Username, secret)
+	if err != nil {
+		return err
+	}
+	h.clearPending(c.w, c.client.Secure)
+	h.signedIn(c, out)
+	return nil
+}
+
 // serveOIDCLinkPending clears the pending cookie only once the link
 // commits: a refusal (auth_already_linked, a lapsed recent auth) keeps it,
 // so the user can act and retry. A cookie that does not open reaches

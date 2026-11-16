@@ -114,14 +114,21 @@ type tempIssue struct {
 	ttl   time.Duration
 }
 
-// issueTemporaryIn is SetTemporaryPassword's change: issueTargetIn, then
-// issueWriteIn.
+// issueTemporaryIn is SetTemporaryPassword's change: issueTargetIn, the
+// mode's refusal of a linked dormant user, then issueWriteIn.
 func (s *Service) issueTemporaryIn(ctx context.Context, tx Tx, j *journal, a Actor, userID int64, iss *tempIssue) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	ua, target, err := s.issueTargetIn(ctx, tx, j, a, userID)
 	if err != nil {
 		return err
 	}
-	return s.issueWriteIn(ctx, tx, j, a, &ua, target, iss)
+	mode, err := storedMode(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if mode.dormantFor(target) && !target.OIDC.IsZero() {
+		return refuse(ErrSSOLinked)
+	}
+	return s.issueWriteIn(ctx, tx, j, a, &ua, target, iss, mode)
 }
 
 // issueTargetIn is an issue's authority inside tx, before any write: the
@@ -148,17 +155,10 @@ func (s *Service) issueTargetIn(ctx context.Context, tx Tx, j *journal, a Actor,
 	return ua, target, nil
 }
 
-// issueWriteIn is an issue's writes for target as tx holds it: the mode's
-// refusal of a linked dormant user, then the record and its arm's writes.
-func (s *Service) issueWriteIn(ctx context.Context, tx Tx, j *journal, a Actor, ua *userAdmin, target *access.User, iss *tempIssue) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
-	mode, err := storedMode(ctx, tx)
-	if err != nil {
-		return err
-	}
+// issueWriteIn is an issue's writes for target as tx holds it under the
+// stored mode: the record and its arm's writes.
+func (s *Service) issueWriteIn(ctx context.Context, tx Tx, j *journal, a Actor, ua *userAdmin, target *access.User, iss *tempIssue, mode SSOMode) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	dormant := mode.dormantFor(target)
-	if dormant && !target.OIDC.IsZero() {
-		return refuse(ErrSSOLinked)
-	}
 	rec := s.temporaryRecord(ua, a, target.ID, iss, dormant)
 	if err := tx.SetTemporaryPassword(ctx, rec); err != nil {
 		return err

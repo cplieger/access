@@ -51,6 +51,7 @@ import type {
   PasswordRemoveRequest,
   PasswordRequest,
   PendingCreateRequest,
+  PendingLinkByAdminRequest,
   PendingLinkResponse,
   ProfileRequest,
   Readiness,
@@ -181,6 +182,8 @@ export interface AuthClient {
   oidcPending(): Promise<ApiResult<PendingLinkResponse>>;
   /** The pending screen's "Create a new account"; a taken name keeps the pending state. */
   oidcCreatePending(r: PendingCreateRequest): Promise<ApiResult<SignedInResponse>>;
+  /** Under sso "only": link the pending identity to an account with its admin's temporary password. */
+  oidcLinkByAdmin(r: PendingLinkByAdminRequest): Promise<ApiResult<SignedInResponse>>;
   oidcLinkPending(): Promise<ApiResult<MeResponse>>;
   oidcUnlink(): Promise<ApiResult<void>>;
   /** pending enrol under "Require a second factor", with the invite not yet spent. */
@@ -254,6 +257,11 @@ export interface AuthClient {
   adminDeleteUser(id: number): Promise<ApiResult<void>>;
   /** Removes the user's identity-provider link and ends all their sessions. */
   adminUnlinkOIDC(id: number): Promise<ApiResult<void>>;
+  /** Unlinks the user and issues the temporary password the admin link takes, in one step. */
+  adminRelinkOIDC(
+    id: number,
+    options: TemporaryPasswordOptions,
+  ): Promise<ApiResult<TemporaryPasswordResponse>>;
   adminTemporaryPassword(
     id: number,
     options: TemporaryPasswordOptions,
@@ -385,6 +393,8 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     oidcPending: () => json("GET", p("/oidc/pending"), parsePendingLinkResponse),
     oidcCreatePending: (r) =>
       json("POST", p("/oidc/pending/create"), parseSignedInResponse, { body: r }),
+    oidcLinkByAdmin: (r) =>
+      json("POST", p("/oidc/pending/link"), parseSignedInResponse, { body: r }),
     oidcLinkPending: () => json("POST", p("/oidc/link"), parseMeResponse),
     oidcUnlink: () => empty("DELETE", p("/oidc/link")),
     inviteAcceptPassword: (r) =>
@@ -439,6 +449,10 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     adminApplySSO: (mode) => empty("PUT", p("/sso"), { mode }),
     adminDeleteUser: (id) => empty("DELETE", p(`/users/${String(id)}`)),
     adminUnlinkOIDC: (id) => empty("DELETE", p(`/users/${String(id)}/oidc`)),
+    adminRelinkOIDC: (id, options) =>
+      json("POST", p(`/users/${String(id)}/oidc/relink`), parseTemporaryPasswordResponse, {
+        body: options,
+      }),
     adminTemporaryPassword: (id, options) =>
       json("POST", p(`/users/${String(id)}/temporary-password`), parseTemporaryPasswordResponse, {
         body: options,

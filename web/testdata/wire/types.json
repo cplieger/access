@@ -558,6 +558,14 @@
       "name": "username"
     }
   ],
+  "PendingLinkByAdminRequest": [
+    {
+      "name": "username"
+    },
+    {
+      "name": "temporary_password"
+    }
+  ],
   "PendingLinkResponse": [
     {
       "name": "issuer"

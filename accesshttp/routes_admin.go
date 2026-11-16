@@ -138,21 +138,45 @@ func serveAdminSecondFactorReset(h *Handler, c *call) error {
 }
 
 // serveAdminTemporaryPassword issues a temporary password and answers it
-// once, https_only read after the issue commits (account owns why).
+// once.
 func serveAdminTemporaryPassword(h *Handler, c *call) error {
 	req, err := decodeJSON[TemporaryPasswordOptions](c.w, c.r)
 	if err != nil {
 		return err
 	}
-	in := account.TemporaryPasswordOptions{TTL: units(req.TTLHours, time.Hour), RevokePasskeys: req.RevokePasskeys, KeepKeys: req.KeepKeys}
-	issued, err := h.acct.SetTemporaryPassword(c.r.Context(), account.As(c.p), c.id, in)
+	issued, err := h.acct.SetTemporaryPassword(c.r.Context(), account.As(c.p), c.id, temporaryPasswordOptions(req))
 	if err != nil {
 		return err
 	}
+	writeTemporaryPassword(h, c, issued)
+	return nil
+}
+
+func temporaryPasswordOptions(req TemporaryPasswordOptions) account.TemporaryPasswordOptions {
+	return account.TemporaryPasswordOptions{TTL: units(req.TTLHours, time.Hour), RevokePasskeys: req.RevokePasskeys, KeepKeys: req.KeepKeys}
+}
+
+// writeTemporaryPassword answers issued once, https_only read after the
+// issue commits (account owns why).
+func writeTemporaryPassword(h *Handler, c *call, issued account.IssuedTemporaryPassword) {
 	writeShownOnce(c.w, http.StatusOK, TemporaryPasswordResponse{
 		ExpiresAt: issued.ExpiresAt, HTTPSOrigin: issued.HTTPSOrigin, HTTPSOnly: h.acct.TemporaryPasswordHTTPSOnly(issued),
 		Dormant: issued.Dormant, PasswordKept: issued.PasswordKept,
 	}, issued.Password)
+}
+
+// serveAdminOIDCRelink unlinks a user and issues the temporary password the
+// admin link takes, answered as serveAdminTemporaryPassword answers.
+func serveAdminOIDCRelink(h *Handler, c *call) error {
+	req, err := decodeJSON[TemporaryPasswordOptions](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	issued, err := h.acct.AdminRelinkOIDC(c.r.Context(), account.As(c.p), c.id, temporaryPasswordOptions(req))
+	if err != nil {
+		return err
+	}
+	writeTemporaryPassword(h, c, issued)
 	return nil
 }
 

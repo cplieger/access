@@ -18,13 +18,13 @@ Under `PosturePerRequest`, a plain request may sign in and set up the first acco
 | Allowed over plain HTTP | Refused over plain HTTP with 403 `auth_https_required` |
 | --- | --- |
 | `authState`, `authSetupPassword` (with `RequireSecondFactor` off, since under it setup enrols a second factor, which needs HTTPS), `authLoginPassword` (a temporary password whose next step needs HTTPS, under `RequireSecondFactor` or with password sign-in off, is cancelled and answers `auth_https_required` with reason `temporary_password_exposed`; one the SSO mode refuses is cancelled and answers as a wrong password), `authLoginCode`, `authLoginSetPassword` (on a ticket a plain step 1 minted, with `RequireSecondFactor` off, since under it the password set leads to an enrolment, which needs HTTPS), `authLogout` | `authSetupPasskeyBegin`, `authSetupPasskeyFinish`, `authLoginPasskeyBegin`, `authLoginPasskeyFinish`, `authLoginSecondPasskeyBegin`, `authLoginSecondPasskeyFinish`, `authLoginSetPasskeyBegin`, `authLoginSetPasskeyFinish`, `authLoginRecoveryCode` (before the code is read, since the enrolment that follows needs HTTPS), `authPendingTOTPBegin`, `authPendingTOTPFinish`, `authPendingPasskeyBegin`, `authPendingPasskeyFinish` |
-| `authMe`, `authProfile`, `authMethodReenable` | every OIDC route: `authOIDCStartSignIn`, `authOIDCStartLink`, `authOIDCStartStepUp`, `authInviteAcceptOIDC`, `authOIDCCallback`, `authOIDCPending`, `authOIDCCreatePending`, `authOIDCLinkPending` |
+| `authMe`, `authProfile`, `authMethodReenable` | every OIDC route: `authOIDCStartSignIn`, `authOIDCStartLink`, `authOIDCStartStepUp`, `authInviteAcceptOIDC`, `authOIDCCallback`, `authOIDCPending`, `authOIDCCreatePending`, `authOIDCLinkByAdmin`, `authOIDCLinkPending` |
 | `authPasswordSet`, whose recent auth is the sign-in's time | `authStepUpPassword`, `authStepUpCode`, `authStepUpPasskeyBegin`, `authStepUpPasskeyFinish` |
 | `authPasskeys`, `authPasskeyRename`, `authPasskeyRemove` with a code as its proof, `authTOTPRemove`, `authWebAuthnSignals`, `authOIDCUnlink` | `authPasswordRemove`, `authTOTPBegin`, `authTOTPFinish`, `authRecoveryCodeRegenerate` |
 | `authSessions`, `authSessionRename`, `authSessionRevoke`, `authSessionsRevokeOthers` | `authPasskeyRegisterBegin`, `authPasskeyRegisterFinish` |
 | `authKeys`, `authKeyRename`, `authKeyRevoke`, `authAdminKeys`, `authAdminKeyRevoke` | `authInviteAcceptPassword` |
 | `authAdminUsers`, `authAdminUserCreate`, `authAdminUserUpdate`, `authAdminOwner`, `authAdminUserDelete`, `authAdminOIDCUnlink`, `authAdminSecondFactorReset`, `authAdminTokens`, `authAdminSecurityLog` | `authAdminSSOReadiness`, `authAdminSSOApply` |
-| every route of yours on the gate, by its class, except a row marked `HTTPS` | `authKeyCreate`, `authKeyRotate`, `authAdminInvite`, `authAdminTemporaryPassword` (an admin socket's recovery verb is the plain-only path) |
+| every route of yours on the gate, by its class, except a row marked `HTTPS` | `authKeyCreate`, `authKeyRotate`, `authAdminInvite`, `authAdminTemporaryPassword`, `authAdminOIDCRelink` (an admin socket's recovery verb is the plain-only path) |
 
 Four rows need a reason:
 

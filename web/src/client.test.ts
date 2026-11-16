@@ -143,6 +143,7 @@ const bindings: Readonly<Record<string, Binding>> = {
     method: "oidcCreatePending",
     call: (c, b) => c.oidcCreatePending(b),
   },
+  authOIDCLinkByAdmin: { method: "oidcLinkByAdmin", call: (c, b) => c.oidcLinkByAdmin(b) },
   authOIDCLinkPending: { method: "oidcLinkPending", call: (c) => c.oidcLinkPending() },
   authOIDCUnlink: { method: "oidcUnlink", call: (c) => c.oidcUnlink() },
   authInviteAcceptPassword: {
@@ -202,6 +203,7 @@ const bindings: Readonly<Record<string, Binding>> = {
   authAdminUserUpdate: { method: "adminUpdateUser", call: (c, b) => c.adminUpdateUser(7, b) },
   authAdminOwner: { method: "adminSetOwner", call: (c, b) => c.adminSetOwner(7, b) },
   authAdminOIDCUnlink: { method: "adminUnlinkOIDC", call: (c) => c.adminUnlinkOIDC(7) },
+  authAdminOIDCRelink: { method: "adminRelinkOIDC", call: (c, b) => c.adminRelinkOIDC(7, b) },
   authAdminSecondFactorReset: {
     method: "adminResetSecondFactor",
     call: (c) => c.adminResetSecondFactor(7),
@@ -318,8 +320,8 @@ describe("the route table", () => {
     const methods = Object.keys(client).filter(
       (k) => typeof client[k as keyof AuthClient] === "function",
     );
-    expect(methods).toHaveLength(70);
-    expect(jsonRoutes).toHaveLength(70);
+    expect(methods).toHaveLength(72);
+    expect(jsonRoutes).toHaveLength(72);
     expect(Object.keys(bindings).sort()).toEqual(jsonRoutes.map((r) => r.name).sort());
     expect(
       Object.values(bindings)
