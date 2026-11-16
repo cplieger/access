@@ -1,8 +1,6 @@
 package accesshttp
 
 import (
-	"net/http"
-
 	"github.com/cplieger/access/account"
 )
 
@@ -140,7 +138,7 @@ func servePendingTOTPBegin(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, PendingTOTPBeginResponse{URI: e.URI.Reveal(), Text: e.Text.Reveal()})
+	c.answer(PendingTOTPBeginResponse{URI: e.URI.Reveal(), Text: e.Text.Reveal()})
 	return nil
 }
 
@@ -200,14 +198,14 @@ func servePendingPasskeyFinish(h *Handler, c *call) error {
 func (h *Handler) enrolled(c *call, out account.EnrolmentResult) { //nolint:gocritic // hugeParam: account's own result, read once
 	if wt := out.Waiting; wt != nil {
 		h.auditWaiting(c, wt.User)
-		writeJSON(c.w, http.StatusOK, EnrolmentOutcome{WaitingApproval: true, RecoveryCode: wt.RecoveryCode.Reveal()})
+		c.answer(EnrolmentOutcome{WaitingApproval: true, RecoveryCode: wt.RecoveryCode.Reveal()})
 		return
 	}
 	s := out.SignedIn
 	h.setSignedIn(c.w, c.client.Secure, s)
 	h.auditSuccess(c, s.User, s.Session)
 	signed := signedInResponse(s)
-	writeJSON(c.w, http.StatusOK, EnrolmentOutcome{SignedIn: &signed})
+	c.answer(EnrolmentOutcome{SignedIn: &signed})
 }
 
 func serveTOTPBegin(h *Handler, c *call) error {
@@ -215,7 +213,7 @@ func serveTOTPBegin(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, TOTPBeginResponse{URI: e.URI.Reveal(), Text: e.Text.Reveal(), Ticket: e.Ticket.Reveal()})
+	c.answer(TOTPBeginResponse{URI: e.URI.Reveal(), Text: e.Text.Reveal(), Ticket: e.Ticket.Reveal()})
 	return nil
 }
 
@@ -233,7 +231,7 @@ func serveTOTPFinish(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, RecoveryCodeIssuedResponse{RecoveryCode: done.RecoveryCode.Reveal()})
+	c.answer(RecoveryCodeIssuedResponse{RecoveryCode: done.RecoveryCode.Reveal()})
 	return nil
 }
 
@@ -246,7 +244,7 @@ func serveRecoveryCodeRegenerate(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, RecoveryCodeResponse{RecoveryCode: code.Reveal()})
+	c.answer(RecoveryCodeResponse{RecoveryCode: code.Reveal()})
 	return nil
 }
 
@@ -258,7 +256,7 @@ func serveTOTPRemove(h *Handler, c *call) error {
 	if err := h.acct.RemoveTOTP(c.r.Context(), c.client, c.p, proof); err != nil {
 		return err
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -273,6 +271,6 @@ func serveStepUpCode(h *Handler, c *call) error {
 	}
 	h.setIssued(c.w, c.client.Secure, is)
 	h.auditSuccess(c, c.p.User, is.Session)
-	noContent(c.w)
+	c.done()
 	return nil
 }

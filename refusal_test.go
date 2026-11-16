@@ -123,6 +123,23 @@ func TestNewErrorTable(t *testing.T) {
 	})
 }
 
+// TestStatusOf holds each code's status to the spec's table, so an app
+// declaring access's codes in its own catalog answers them as access does,
+// and a code access does not define to 0.
+func TestStatusOf(t *testing.T) {
+	t.Parallel()
+	for _, s := range specCodes {
+		if got := access.StatusOf(s.code); got != s.status {
+			t.Errorf("StatusOf(%s) = %d, want %d", s.code, got, s.status)
+		}
+	}
+	for _, c := range []access.Code{"", "auth_not_a_code", "not_found"} {
+		if got := access.StatusOf(c); got != 0 {
+			t.Errorf("StatusOf(%q) = %d, want 0", c, got)
+		}
+	}
+}
+
 // TestErrorFor is the mapping of every error Authenticate and
 // RequireRecentAuth return, each row's code, status and detail from the
 // spec. Its Reason is empty, so a refusal names no stored state, but for a

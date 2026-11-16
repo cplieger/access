@@ -55,9 +55,9 @@ func withMarker(target, key, value string) string {
 // 10.2.2). http.Redirect escapes the same bytes but also runs path.Clean
 // before the first '?', a fragment included, so "/settings#/../../admin"
 // would land on "/admin", not the validated target.
-func redirect(w http.ResponseWriter, location string) {
+func redirect(w http.ResponseWriter, status int, location string) {
 	w.Header().Set("Location", escapeNonASCII(location))
-	w.WriteHeader(http.StatusFound)
+	w.WriteHeader(status)
 }
 
 func escapeNonASCII(s string) string {

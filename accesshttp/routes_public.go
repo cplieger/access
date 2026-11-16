@@ -1,8 +1,6 @@
 package accesshttp
 
 import (
-	"net/http"
-
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
 )
@@ -21,7 +19,7 @@ func canonical(username string) string {
 func (h *Handler) signedIn(c *call, s account.SignedIn) { //nolint:gocritic // hugeParam: account's own result, read once
 	h.setSignedIn(c.w, c.client.Secure, s)
 	h.auditSuccess(c, s.User, s.Session)
-	writeJSON(c.w, http.StatusOK, signedInResponse(s))
+	c.answer(signedInResponse(s))
 }
 
 func serveState(h *Handler, c *call) error {
@@ -29,7 +27,7 @@ func serveState(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, stateResponse(&st))
+	c.answer(stateResponse(&st))
 	return nil
 }
 
@@ -106,7 +104,7 @@ func serveLoginPassword(h *Handler, c *call) error {
 // the body only.
 func (h *Handler) loginOutcome(c *call, out account.LoginResult) { //nolint:gocritic // hugeParam: account's own result, read once
 	signed, pending := h.signInArms(c, out)
-	writeJSON(c.w, http.StatusOK, SignInOutcome{SignedIn: signed, Pending: pending})
+	c.answer(SignInOutcome{SignedIn: signed, Pending: pending})
 }
 
 // signInArms sets out's cookies and audits it, and returns its one arm.
@@ -158,7 +156,7 @@ func serveLogout(h *Handler, c *call) error {
 		return err
 	}
 	h.clearSession(c.w, c.client.Secure)
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -190,6 +188,6 @@ func writeCeremony(c *call, pc account.PendingCeremony) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, resp)
+	c.answer(resp)
 	return nil
 }

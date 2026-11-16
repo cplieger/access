@@ -124,4 +124,17 @@ func (h *Handler) logBreak(c *call, err error, code access.Code) {
 	h.log().ErrorContext(ctx, "accesshttp: contract break", "route", c.desc.Name, "code", string(code), "err", err.Error())
 }
 
-func noContent(w http.ResponseWriter) { w.WriteHeader(http.StatusNoContent) }
+// answer writes v as the route's success body.
+func (c *call) answer(v any) { writeJSON(c.w, c.spec.success, v) }
+
+// done answers the route's success with no body.
+func (c *call) done() { c.w.WriteHeader(c.spec.success) }
+
+// redirect sends the browser to location, the one answer of a redirect
+// route, its refusals included.
+func (c *call) redirect(location string) { redirect(c.w, c.spec.success, location) }
+
+// answerShownOnce answers resp with its one plaintext (writeShownOnce).
+func answerShownOnce[R shownOnce](c *call, resp R, plaintext access.Secret) {
+	writeShownOnce(c.w, c.spec.success, resp, plaintext)
+}

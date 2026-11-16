@@ -147,7 +147,7 @@ func TestCallbackRedirects(t *testing.T) {
 				withMarker(sealed, markerError, "x"),
 			} {
 				w := httptest.NewRecorder()
-				redirect(w, target)
+				redirect(w, http.StatusFound, target)
 				loc := w.Header().Get("Location")
 				if want := asciiLocation(target); loc != want {
 					t.Errorf("seed %q: Location %q, want %q", seed, loc, want)

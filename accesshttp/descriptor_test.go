@@ -1,7 +1,12 @@
 package accesshttp
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"go/types"
 	"net/http"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -243,6 +248,153 @@ func TestDescriptorsEqualsNewRoutes(t *testing.T) {
 				t.Errorf("Descriptors lists %d of the %d routes the case names", seen, len(tc.want))
 			}
 		})
+	}
+}
+
+// TestRouteSuccess holds each route's success status: present on every
+// route, 302 Found on a redirect (RFC 9110 §15.4.3), 201 Created where the
+// answer describes the resource the request created (§15.3.2: a user, an
+// invite, an API key, a passkey added from Account, design 4.50), 204 No
+// Content where no body is sent (§15.3.5), else 200 OK (§15.3.1).
+func TestRouteSuccess(t *testing.T) {
+	created := []string{"authAdminUserCreate", "authAdminInvite", "authKeyCreate", "authPasskeyRegisterFinish"}
+	for i := range specs {
+		s := &specs[i]
+		want := http.StatusOK
+		switch {
+		case s.redirect:
+			want = http.StatusFound
+		case slices.Contains(created, s.name):
+			want = http.StatusCreated
+		case s.response == nil:
+			want = http.StatusNoContent
+		}
+		if s.success != want {
+			t.Errorf("%s success status %d, want %d", s.name, s.success, want)
+		}
+		if s.success == http.StatusCreated && s.method != http.MethodPost {
+			t.Errorf("%s answers 201 to %s; only a POST creates", s.name, s.method)
+		}
+	}
+}
+
+// TestSuccessWrittenFromSpec: every success status accesshttp writes is
+// its route's spec's, so a route answers exactly the status it states.
+// The status writers pass on their status argument; every other caller
+// passes c.spec.success with c the request's *call. Refusals are written
+// by internal/refusal.
+func TestSuccessWrittenFromSpec(t *testing.T) {
+	writers := map[string]int{"WriteHeader": 0, "writeJSON": 1, "writeShownOnce": 1, "redirect": 1}
+	names, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	writes := 0
+	for _, name := range names {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range f.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			_, isWriter := writers[fn.Name.Name]
+			isWriter = isWriter && fn.Recv == nil
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				ce, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				callee := ""
+				switch fun := ce.Fun.(type) {
+				case *ast.Ident:
+					callee = fun.Name
+				case *ast.SelectorExpr:
+					if fun.Sel.Name == "WriteHeader" {
+						callee = fun.Sel.Name
+					}
+				}
+				idx, ok := writers[callee]
+				if !ok || callee == "" || len(ce.Args) <= idx {
+					return true
+				}
+				writes++
+				arg := types.ExprString(ce.Args[idx])
+				passed := arg == "status" && isWriter
+				if fromSpec := arg == "c.spec.success" && takesCall(fn); !passed && !fromSpec {
+					t.Errorf("%s: %s writes status %s, want its route's c.spec.success", fset.Position(ce.Pos()), fn.Name.Name, arg)
+				}
+				return true
+			})
+		}
+	}
+	if writes == 0 {
+		t.Error("found no status write; the check reads nothing")
+	}
+}
+
+// takesCall reports whether fn's receiver or a parameter is c *call.
+func takesCall(fn *ast.FuncDecl) bool {
+	var fields []*ast.Field
+	if fn.Recv != nil {
+		fields = fn.Recv.List
+	}
+	fields = append(fields, fn.Type.Params.List...)
+	for _, f := range fields {
+		star, ok := f.Type.(*ast.StarExpr)
+		if !ok {
+			continue
+		}
+		if id, ok := star.X.(*ast.Ident); ok && id.Name == "call" && len(f.Names) == 1 && f.Names[0].Name == "c" {
+			return true
+		}
+	}
+	return false
+}
+
+// TestRoutePathParams holds each route's path parameter to its ServeMux
+// pattern's one {name} wildcard, typed as the ID the wire names that
+// resource by in its view, or as a sign-in method.
+func TestRoutePathParams(t *testing.T) {
+	idType := func(v any) reflect.Type {
+		f, _ := reflect.TypeOf(v).FieldByName("ID")
+		return f.Type
+	}
+	byCollection := map[string]reflect.Type{
+		"users": idType(UserView{}), "passkeys": idType(PasskeyView{}), "apikeys": idType(KeyView{}),
+		"sessions": idType(SessionView{}), "methods": reflect.TypeFor[access.Method](),
+	}
+	for i := range specs {
+		s := &specs[i]
+		var wildcards []string
+		collection := ""
+		segments := strings.Split(s.path, "/")
+		for j, seg := range segments {
+			if name, ok := strings.CutPrefix(seg, "{"); ok {
+				wildcards = append(wildcards, strings.TrimSuffix(name, "}"))
+				collection = segments[j-1]
+			}
+		}
+		if s.pathID == pathNone {
+			if len(wildcards) != 0 {
+				t.Errorf("%s path %s has wildcards %v and no path parameter", s.name, s.path, wildcards)
+			}
+			continue
+		}
+		if len(wildcards) != 1 || wildcards[0] != s.pathID.key() {
+			t.Errorf("%s path %s has wildcards %v, want its parameter %q alone", s.name, s.path, wildcards, s.pathID.key())
+			continue
+		}
+		want := byCollection[collection]
+		if got := s.pathID.typ(); got == nil || got != want {
+			t.Errorf("%s parameter %s is typed %v, want %v", s.name, s.pathID.key(), got, want)
+		}
 	}
 }
 

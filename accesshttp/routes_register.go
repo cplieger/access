@@ -1,8 +1,6 @@
 package accesshttp
 
 import (
-	"net/http"
-
 	"github.com/cplieger/access/account"
 )
 
@@ -22,11 +20,11 @@ func serveRegisterPassword(h *Handler, c *call) error {
 	}
 	if out.Waiting != nil {
 		h.auditWaiting(c, out.Waiting.User)
-		writeJSON(c.w, http.StatusOK, RegistrationOutcome{WaitingApproval: true})
+		c.answer(RegistrationOutcome{WaitingApproval: true})
 		return nil
 	}
 	signed, pending := h.signInArms(c, account.LoginResult{Pending: out.Pending, SignedIn: out.SignedIn})
-	writeJSON(c.w, http.StatusOK, RegistrationOutcome{SignedIn: signed, Pending: pending})
+	c.answer(RegistrationOutcome{SignedIn: signed, Pending: pending})
 	return nil
 }
 

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 	"time"
 
@@ -52,7 +51,7 @@ func serveOIDCStartSignIn(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	redirect(c.w, authURL)
+	c.redirect(authURL)
 	return nil
 }
 
@@ -86,7 +85,7 @@ func serveInviteAcceptOIDC(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, OIDCStartResponse{URL: authURL})
+	c.answer(OIDCStartResponse{URL: authURL})
 	return nil
 }
 
@@ -119,7 +118,7 @@ func (h *Handler) startSessionFlow(c *call, intent oidc.Intent) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, OIDCStartResponse{URL: authURL})
+	c.answer(OIDCStartResponse{URL: authURL})
 	return nil
 }
 
@@ -156,19 +155,19 @@ func (h *Handler) land(c *call, out *account.OIDCOutcome) error {
 	case account.OutcomeSignedIn:
 		h.setSignedIn(c.w, c.client.Secure, out.SignedIn)
 		h.auditSuccess(c, out.SignedIn.User, out.SignedIn.Session)
-		redirect(c.w, out.Redirect)
+		c.redirect(out.Redirect)
 	case account.OutcomeLinked:
 		h.setIssued(c.w, c.client.Secure, out.Issued)
-		redirect(c.w, withMarker(out.Redirect, markerOIDC, oidcLinked))
+		c.redirect(withMarker(out.Redirect, markerOIDC, oidcLinked))
 	case account.OutcomeSteppedUp:
 		h.setIssued(c.w, c.client.Secure, out.Issued)
 		h.auditSuccess(c, nil, out.Issued.Session)
-		redirect(c.w, withMarker(out.Redirect, markerOIDC, oidcSteppedUp))
+		c.redirect(withMarker(out.Redirect, markerOIDC, oidcSteppedUp))
 	case account.OutcomeNotLinked:
 		if err := h.setPendingLink(c, &out.Pending); err != nil {
 			return err
 		}
-		redirect(c.w, withMarker(h.signIn, markerOIDC, oidcNotLinked))
+		c.redirect(withMarker(h.signIn, markerOIDC, oidcNotLinked))
 	default:
 		return fmt.Errorf("accesshttp: unknown OIDC outcome %d", out.Kind)
 	}
@@ -183,7 +182,7 @@ func (h *Handler) redirectFailure(c *call, err error, flow oidc.Flow) { //nolint
 	if flow.Intent == oidc.IntentLink || flow.Intent == oidc.IntentStepUp {
 		target = flow.Redirect
 	}
-	redirect(c.w, withMarker(target, markerError, string(e.Code)))
+	c.redirect(withMarker(target, markerError, string(e.Code)))
 }
 
 // setPendingLink seals p into the pending cookie. A link whose payload Seal
@@ -250,7 +249,7 @@ func serveOIDCPending(h *Handler, c *call) error {
 	if !ok {
 		return account.ErrNotFound
 	}
-	writeJSON(c.w, http.StatusOK, PendingLinkResponse{
+	c.answer(PendingLinkResponse{
 		Issuer: p.Identity.Issuer, UsernameHint: p.UsernameHint, Email: p.Email,
 		CanCreate: p.CanCreate(), SuggestedUsername: p.SuggestedUsername,
 	})
@@ -321,7 +320,7 @@ func serveOIDCLinkPending(h *Handler, c *call) error {
 	}
 	h.clearPending(c.w, c.client.Secure)
 	h.setIssued(c.w, c.client.Secure, is)
-	writeJSON(c.w, http.StatusOK, meResponse(&me))
+	c.answer(meResponse(&me))
 	return nil
 }
 
@@ -329,6 +328,6 @@ func serveOIDCUnlink(h *Handler, c *call) error {
 	if err := h.acct.UnlinkOIDC(c.r.Context(), c.p); err != nil {
 		return err
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }

@@ -1,7 +1,6 @@
 package accesshttp
 
 import (
-	"net/http"
 	"strings"
 	"time"
 
@@ -21,7 +20,7 @@ func serveAdminUserCreate(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusCreated, userView(u))
+	c.answer(userView(u))
 	return nil
 }
 
@@ -37,7 +36,7 @@ func serveAdminUsers(h *Handler, c *call) error {
 	for i := range users {
 		views[i] = listedUserView(&users[i])
 	}
-	writeJSON(c.w, http.StatusOK, views)
+	c.answer(views)
 	return nil
 }
 
@@ -50,7 +49,7 @@ func serveAdminUserUpdate(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, userView(u))
+	c.answer(userView(u))
 	return nil
 }
 
@@ -64,7 +63,7 @@ func serveAdminOwner(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, userView(u))
+	c.answer(userView(u))
 	return nil
 }
 
@@ -90,7 +89,7 @@ func serveAdminSSOReadiness(h *Handler, c *call) error {
 		}
 		v.Refusal = &ReadinessRefusal{Code: e.Code, Reason: e.Reason}
 	}
-	writeJSON(c.w, http.StatusOK, v)
+	c.answer(v)
 	return nil
 }
 
@@ -107,7 +106,7 @@ func serveAdminSSOApply(h *Handler, c *call) error {
 	if err := h.acct.ApplySSO(c.r.Context(), account.As(c.p), mode); err != nil {
 		return err
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -115,7 +114,7 @@ func serveAdminUserDelete(h *Handler, c *call) error {
 	if err := h.acct.DeleteUser(c.r.Context(), c.p, c.id); err != nil {
 		return err
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -124,7 +123,7 @@ func serveAdminOIDCUnlink(h *Handler, c *call) error {
 	if err := h.acct.AdminUnlinkOIDC(c.r.Context(), account.As(c.p), c.id); err != nil {
 		return err
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -133,7 +132,7 @@ func serveAdminSecondFactorReset(h *Handler, c *call) error {
 	if err := h.acct.ResetSecondFactor(c.r.Context(), account.As(c.p), c.id); err != nil {
 		return err
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -159,7 +158,7 @@ func temporaryPasswordOptions(req TemporaryPasswordOptions) account.TemporaryPas
 // writeTemporaryPassword answers issued once, https_only read after the
 // issue commits (account owns why).
 func writeTemporaryPassword(h *Handler, c *call, issued account.IssuedTemporaryPassword) {
-	writeShownOnce(c.w, http.StatusOK, TemporaryPasswordResponse{
+	answerShownOnce(c, TemporaryPasswordResponse{
 		ExpiresAt: issued.ExpiresAt, HTTPSOrigin: issued.HTTPSOrigin, HTTPSOnly: h.acct.TemporaryPasswordHTTPSOnly(issued),
 		Dormant: issued.Dormant, PasswordKept: issued.PasswordKept,
 	}, issued.Password)
@@ -202,7 +201,7 @@ func serveAdminKeys(h *Handler, c *call) error {
 	for i := range keys {
 		views[i] = keyView(&keys[i].Key, keys[i].Owner, now)
 	}
-	writeJSON(c.w, http.StatusOK, views)
+	c.answer(views)
 	return nil
 }
 
@@ -210,7 +209,7 @@ func serveAdminKeyRevoke(h *Handler, c *call) error {
 	if err := h.acct.RevokeAnyAPIKey(c.r.Context(), account.As(c.p), c.id); err != nil {
 		return err
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -223,7 +222,7 @@ func serveAdminTokens(h *Handler, c *call) error {
 	for i := range tokens {
 		views[i] = tokenView(&tokens[i])
 	}
-	writeJSON(c.w, http.StatusOK, views)
+	c.answer(views)
 	return nil
 }
 
@@ -249,12 +248,12 @@ func serveAdminSecurityLog(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, securityLogView(&page))
+	c.answer(securityLogView(&page))
 	return nil
 }
 
 // writeToken answers a minted invite token, its expiry the one
 // account stored.
 func writeToken(c *call, it account.IssuedToken) {
-	writeShownOnce(c.w, http.StatusCreated, TokenResponse{ExpiresAt: it.ExpiresAt}, it.Plaintext)
+	answerShownOnce(c, TokenResponse{ExpiresAt: it.ExpiresAt}, it.Plaintext)
 }

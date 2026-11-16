@@ -147,8 +147,9 @@ var codeIndex = func() map[Code]int {
 	return m
 }()
 
-// codeStatus is code's status in the code table, 0 for a code it lacks.
-func codeStatus(code Code) int {
+// StatusOf is the HTTP status a refusal with code answers, 0 for a code
+// Codes does not list.
+func StatusOf(code Code) int {
 	if i, ok := codeIndex[code]; ok {
 		return codeTable[i].status
 	}
