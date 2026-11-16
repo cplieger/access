@@ -12,19 +12,14 @@ import (
 )
 
 // setCredentialTicket is the head of every NextSetCredential step:
-// stepTicket under rule, then a live NextSetCredential ticket listing m
-// (else access.ErrTokenInvalid).
-func (s *Service) setCredentialTicket(ticket access.Secret, c Client, rule plainRule, m access.Method) (Rules, pending, error) { //nolint:gocritic // hugeParam: the request's Client
+// stepTicket under rule, then a live NextSetCredential ticket (else
+// access.ErrTokenInvalid). Each step checks its own method is listed.
+func (s *Service) setCredentialTicket(ticket access.Secret, c Client, rule plainRule) (Rules, pending, error) { //nolint:gocritic // hugeParam: the request's Client
 	r, entry, found, err := s.stepTicket(ticket, c, rule)
 	switch {
 	case err != nil:
 		return Rules{}, pending{}, err
 	case !found || entry.ticket.next != NextSetCredential:
-		return Rules{}, pending{}, access.ErrTokenInvalid
-	case !slices.Contains(entry.ticket.methods, m):
-		if m == access.MethodPassword {
-			return Rules{}, pending{}, ErrPasswordLoginDisabled
-		}
 		return Rules{}, pending{}, access.ErrTokenInvalid
 	}
 	return r, entry, nil
@@ -42,11 +37,11 @@ func (s *Service) setCredentialTicket(ticket access.Secret, c Client, rule plain
 // answers a NextEnrol ticket holding the password, which the enrolment
 // finish writes.
 func (s *Service) SetCredentialPassword(ctx context.Context, c Client, ticket, password access.Secret) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client, read once
-	r, entry, err := s.setCredentialTicket(ticket, c, plainPerRequest, access.MethodPassword)
+	r, entry, err := s.setCredentialTicket(ticket, c, plainPerRequest)
 	if err != nil {
 		return LoginResult{}, err
 	}
-	if r.DisablePasswordLogin {
+	if r.DisablePasswordLogin || !slices.Contains(entry.ticket.methods, access.MethodPassword) {
 		return LoginResult{}, ErrPasswordLoginDisabled
 	}
 	var hash access.Hash
@@ -168,9 +163,12 @@ func (s *Service) setAnswered(ticket access.Secret, entry *pending, out LoginRes
 // limit; a user the ticket no longer signs in, access.ErrTokenInvalid; the
 // relying party's *webauthn.OriginError.
 func (s *Service) SetCredentialPasskeyBegin(ctx context.Context, c Client, ticket access.Secret, origin webauthn.Origin) (PendingCeremony, error) { //nolint:gocritic // hugeParam: the request's Client, read once
-	_, entry, err := s.setCredentialTicket(ticket, c, plainRefused, access.MethodPasskey)
-	if err != nil {
+	_, entry, err := s.setCredentialTicket(ticket, c, plainRefused)
+	switch {
+	case err != nil:
 		return PendingCeremony{}, err
+	case !slices.Contains(entry.ticket.methods, access.MethodPasskey):
+		return PendingCeremony{}, access.ErrTokenInvalid
 	}
 	rp := s.relyingParty()
 	if rp == nil {
@@ -212,11 +210,11 @@ func (s *Service) SetCredentialPasskeyFinish(ctx context.Context, c Client, cere
 		return SignedIn{}, ErrCeremonyInvalid
 	}
 	ticket := cer.ticketID
-	r, entry, err := s.setCredentialTicket(ticket, c, plainRefused, access.MethodPasskey)
+	r, entry, err := s.setCredentialTicket(ticket, c, plainRefused)
 	switch {
 	case err != nil:
 		return SignedIn{}, err
-	case entry.user.ID != cer.user.ID:
+	case !slices.Contains(entry.ticket.methods, access.MethodPasskey), entry.user.ID != cer.user.ID:
 		return SignedIn{}, access.ErrTokenInvalid
 	}
 	rp := s.relyingParty()
@@ -224,7 +222,7 @@ func (s *Service) SetCredentialPasskeyFinish(ctx context.Context, c Client, cere
 		return SignedIn{}, ErrPasskeysUnavailable
 	}
 	var cred *access.PasskeyCredential
-	out, err := s.signIn(ctx, r, c, &sessionOp{
+	out, signErr := s.signIn(ctx, r, c, &sessionOp{
 		method: access.MethodPassword,
 		gate:   admission{limit: s.stepAttempt(c, &entry)},
 		prepare: func(*ratelimit.Reservation) error {
@@ -242,6 +240,6 @@ func (s *Service) SetCredentialPasskeyFinish(ctx context.Context, c Client, cere
 			return nil
 		},
 	})
-	out, err = s.setAnswered(ticket, &entry, out, err)
-	return out.SignedIn, err
+	answered, err := s.setAnswered(ticket, &entry, out, signErr)
+	return answered.SignedIn, err
 }

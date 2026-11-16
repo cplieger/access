@@ -158,6 +158,16 @@ func passthroughCases() []passthroughCase {
 			e.enrol(t, "alice")
 			return serve(t, e, "authPasswordRemove", e.post(t, "authPasswordRemove", passwordRemoveBody(t, testPassword), cookie))
 		}},
+		{name: "set_credential_password", route: "authLoginSetPassword", run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+			e.createUser(t, "alice", access.RoleUser)
+			ticket, _ := e.temporaryTicket(t, "alice", true)
+			return serve(t, e, "authLoginSetPassword", e.setPassword(t, testOrigin, ticket, chosenPassword))
+		}},
+		{name: "set_credential_passkey", route: "authLoginSetPasskeyFinish", opts: passkeys, run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+			e.createUser(t, "alice", access.RoleUser)
+			ticket, _ := e.temporaryTicket(t, "alice", true)
+			return serve(t, e, "authLoginSetPasskeyFinish", e.setPasskeyFinish(t, ticket, nil, nil, nil))
+		}},
 		{name: "pending_totp_enrol", route: "authPendingTOTPFinish", opts: totpOn, run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
 			return serve(t, e, "authPendingTOTPFinish", e.pendingTOTPFinish(t, e.recoveredTicket(t, "alice")))
 		}},

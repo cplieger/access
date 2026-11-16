@@ -73,6 +73,60 @@ func serveLoginRecoveryCode(h *Handler, c *call) error {
 	return nil
 }
 
+func serveLoginSetPassword(h *Handler, c *call) error {
+	req, err := decodeJSON[SetPasswordRequest](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	ticket, err := requireSecret("ticket", req.Ticket)
+	if err != nil {
+		return err
+	}
+	password, err := requireSecret("password", req.Password)
+	if err != nil {
+		return err
+	}
+	out, err := h.acct.SetCredentialPassword(c.r.Context(), c.client, ticket, password)
+	if err != nil {
+		return err
+	}
+	h.loginOutcome(c, out)
+	return nil
+}
+
+func serveLoginSetPasskeyBegin(h *Handler, c *call) error {
+	req, err := decodeJSON[TicketRequest](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	ticket, err := requireSecret("ticket", req.Ticket)
+	if err != nil {
+		return err
+	}
+	origin, err := requestOrigin(c.r)
+	if err != nil {
+		return err
+	}
+	pc, err := h.acct.SetCredentialPasskeyBegin(c.r.Context(), c.client, ticket, origin)
+	if err != nil {
+		return err
+	}
+	return writeCeremony(c, pc)
+}
+
+func serveLoginSetPasskeyFinish(h *Handler, c *call) error {
+	body, err := readCredential(c.w, c.r)
+	if err != nil {
+		return err
+	}
+	s, err := h.acct.SetCredentialPasskeyFinish(c.r.Context(), c.client, c.r.Header.Get(ceremonyHeader), body)
+	if err != nil {
+		return err
+	}
+	h.loginOutcome(c, account.LoginResult{SignedIn: s})
+	return nil
+}
+
 func servePendingTOTPBegin(h *Handler, c *call) error {
 	req, err := decodeJSON[TicketRequest](c.w, c.r)
 	if err != nil {

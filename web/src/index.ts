@@ -19,6 +19,7 @@ export { looksLikeTemporaryPassword } from "./temporary-password.js";
 export type { StepUpMethod, StepUpOptions, StepUpPrompt, StepUpResult } from "./stepup.js";
 export {
   loginSecondPasskey,
+  loginSetPasskey,
   pendingPasskey,
   passkeyProof,
   passkeySupport,
@@ -35,6 +36,7 @@ export type {
   RegisterOutcome,
   SecondPasskeyOutcome,
   PendingPasskeyOutcome,
+  SetPasskeyOutcome,
   StepUpOutcome,
 } from "./webauthn.js";
 export {
@@ -68,6 +70,7 @@ export {
   parseRedirectRequest,
   parseSecondFactorProof,
   parseSessionView,
+  parseSetPasswordRequest,
   parseSetupPasskeyBeginRequest,
   parseSetupPasswordRequest,
   parseSSORequest,
@@ -137,6 +140,7 @@ export type {
   SecondFactorProof,
   SecurityLogView,
   SessionView,
+  SetPasswordRequest,
   SetupPasskeyBeginRequest,
   SetupPasswordRequest,
   SignInOutcome,

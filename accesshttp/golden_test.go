@@ -99,6 +99,7 @@ func fixtures() []fixture {
 		{name: "SetupPasskeyBeginRequest.noToken", absent: "token", request: true, value: SetupPasskeyBeginRequest{Username: "owner"}},
 		{name: "CodeRequest", request: true, value: CodeRequest{Ticket: "fixture-ticket", Code: "123456"}},
 		{name: "TicketRequest", request: true, value: TicketRequest{Ticket: "fixture-ticket"}},
+		{name: "SetPasswordRequest", request: true, value: SetPasswordRequest{Ticket: "fixture-ticket", Password: "fixture-password"}},
 		{name: "StepUpCodeRequest", request: true, value: StepUpCodeRequest{Code: "123456"}},
 		{name: "TOTPFinishRequest", request: true, value: TOTPFinishRequest{Ticket: "fixture-ticket", Code: "123456", CurrentCode: "654321"}},
 		{name: "TOTPFinishRequest.noCurrent", absent: "current_code", request: true, value: TOTPFinishRequest{Ticket: "fixture-ticket", Code: "123456"}},

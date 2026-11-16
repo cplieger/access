@@ -9,6 +9,7 @@ import {
   setupWithPasskey,
   signInWithPasskey,
   loginSecondPasskey,
+  loginSetPasskey,
   pendingPasskey,
   passkeyProof,
   stepUpWithPasskey,
@@ -376,6 +377,35 @@ describe("pendingPasskey", () => {
       "POST /api/auth/pending/passkey/finish": refusal(409, "auth_duplicate_credential"),
     });
     expect(await pendingPasskey(s.client, "t-1")).toEqual({ kind: "duplicate" });
+  });
+});
+
+// Design 4.9 and 4.12: a passkey registered in place of a temporary password signs in.
+describe("loginSetPasskey", () => {
+  it("sends the ticket, then the registration, and answers the sign-in step's outcome", async () => {
+    bareplatform();
+    credentialsCreate(attests);
+    const s = fakeServer({
+      "POST /api/auth/login/set-passkey/begin": creation,
+      "POST /api/auth/login/set-passkey/finish": ok("SignInOutcome"),
+    });
+    expect(await loginSetPasskey(s.client, "t-1")).toEqual({
+      kind: "answered",
+      result: fixture("SignInOutcome"),
+    });
+    expect(s.sent[0]?.body).toEqual({ ticket: "t-1" });
+    expect(s.sent[1]?.body).toEqual(attestationJSON);
+    expect(s.sent[1]?.headers.get("X-Auth-Ceremony")).toBe("c-create");
+  });
+
+  it("maps a refused registration as registerPasskey does", async () => {
+    bareplatform();
+    credentialsCreate(attests);
+    const s = fakeServer({
+      "POST /api/auth/login/set-passkey/begin": creation,
+      "POST /api/auth/login/set-passkey/finish": refusal(409, "auth_duplicate_credential"),
+    });
+    expect(await loginSetPasskey(s.client, "t-1")).toEqual({ kind: "duplicate" });
   });
 });
 

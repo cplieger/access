@@ -148,6 +148,14 @@ export interface AuthClient {
   ): Promise<ApiResult<SignInOutcome>>;
   /** A pending sign-in's recovery-code step: a pending enrolment marked recovered, never a session. */
   loginRecoveryCode(ticket: string, code: string): Promise<ApiResult<SignInOutcome>>;
+  /** A set_credential step's password: signed_in, or pending enrol under "Require a second factor". */
+  loginSetPassword(ticket: string, password: string): Promise<ApiResult<SignInOutcome>>;
+  /** loginSetPasskey's begin: a registration for the ticket's user. */
+  loginSetPasskeyBegin(r: TicketRequest): Promise<ApiResult<CeremonyResponse>>;
+  loginSetPasskeyFinish(
+    ceremony: string,
+    credential: PublicKeyCredentialJSON,
+  ): Promise<ApiResult<SignInOutcome>>;
   /** A pending enrolment's TOTP begin; the ticket keeps the secret for pendingTOTPFinish. */
   pendingTOTPBegin(r: TicketRequest): Promise<ApiResult<PendingTOTPBeginResponse>>;
   /** Binds the authenticator pendingTOTPBegin showed and completes the sign-in. */
@@ -346,6 +354,12 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
       json("POST", p("/login/second-passkey/finish"), parseSignInOutcome, finish(c, cred)),
     loginRecoveryCode: (ticket, code) =>
       json("POST", p("/login/recovery-code"), parseSignInOutcome, { body: { ticket, code } }),
+    loginSetPassword: (ticket, password) =>
+      json("POST", p("/login/set-password"), parseSignInOutcome, { body: { ticket, password } }),
+    loginSetPasskeyBegin: (r) =>
+      json("POST", p("/login/set-passkey/begin"), parseCeremonyResponse, { body: r }),
+    loginSetPasskeyFinish: (c, cred) =>
+      json("POST", p("/login/set-passkey/finish"), parseSignInOutcome, finish(c, cred)),
     pendingTOTPBegin: (r) =>
       json("POST", p("/pending/totp/begin"), parsePendingTOTPBeginResponse, { body: r }),
     pendingTOTPFinish: (ticket, code) =>

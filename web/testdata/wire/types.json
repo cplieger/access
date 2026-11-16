@@ -918,6 +918,14 @@
       "name": "secure"
     }
   ],
+  "SetPasswordRequest": [
+    {
+      "name": "ticket"
+    },
+    {
+      "name": "password"
+    }
+  ],
   "SetupPasskeyBeginRequest": [
     {
       "name": "token",

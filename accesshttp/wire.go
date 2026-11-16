@@ -48,6 +48,13 @@ type TicketRequest struct {
 	Ticket string `json:"ticket"`
 }
 
+// SetPasswordRequest is authLoginSetPassword's body: a set_credential
+// ticket and the password its holder chose.
+type SetPasswordRequest struct {
+	Ticket   string `json:"ticket"`
+	Password string `json:"password"`
+}
+
 // StepUpCodeRequest is authStepUpCode's body.
 type StepUpCodeRequest struct {
 	Code string `json:"code"`

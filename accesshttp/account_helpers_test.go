@@ -184,6 +184,24 @@ func (s stubAccount) SignInWithRecoveryCode(ctx context.Context, c account.Clien
 	})
 }
 
+func (s stubAccount) SetCredentialPassword(ctx context.Context, c account.Client, ticket, password access.Secret) (account.LoginResult, error) {
+	return stubbed(s, "SetCredentialPassword", func() (account.LoginResult, error) {
+		return s.accountAPI.SetCredentialPassword(ctx, c, ticket, password)
+	})
+}
+
+func (s stubAccount) SetCredentialPasskeyBegin(ctx context.Context, c account.Client, ticket access.Secret, origin webauthn.Origin) (account.PendingCeremony, error) {
+	return stubbed(s, "SetCredentialPasskeyBegin", func() (account.PendingCeremony, error) {
+		return s.accountAPI.SetCredentialPasskeyBegin(ctx, c, ticket, origin)
+	})
+}
+
+func (s stubAccount) SetCredentialPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.SignedIn, error) {
+	return stubbed(s, "SetCredentialPasskeyFinish", func() (account.SignedIn, error) {
+		return s.accountAPI.SetCredentialPasskeyFinish(ctx, c, ceremonyID, body)
+	})
+}
+
 func (s stubAccount) PendingTOTPBegin(ctx context.Context, c account.Client, ticket access.Secret) (account.PendingTOTP, error) {
 	return stubbed(s, "PendingTOTPBegin", func() (account.PendingTOTP, error) { return s.accountAPI.PendingTOTPBegin(ctx, c, ticket) })
 }

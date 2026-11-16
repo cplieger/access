@@ -277,6 +277,16 @@ export interface TicketRequest {
 }
 export const parseTicketRequest: Validator<TicketRequest> = object({ ticket: req(str) });
 
+/** A set_credential ticket and the password its holder chose. */
+export interface SetPasswordRequest {
+  readonly ticket: string;
+  readonly password: string;
+}
+export const parseSetPasswordRequest: Validator<SetPasswordRequest> = object({
+  ticket: req(str),
+  password: req(str),
+});
+
 export interface StepUpCodeRequest {
   readonly code: string;
 }

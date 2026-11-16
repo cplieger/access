@@ -30,6 +30,7 @@
   "SecondFactorProof",
   "SecurityLogView",
   "SessionView",
+  "SetPasswordRequest",
   "SetupPasskeyBeginRequest",
   "SetupPasswordRequest",
   "SignInOutcome",

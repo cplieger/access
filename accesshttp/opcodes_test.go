@@ -127,6 +127,8 @@ var refuted = []struct {
 	{route: "authSetupPassword", code: access.CodeSecondFactorRequired, invariant: "passwordDraft mints a new account's NextEnrol with ticketMint's unknownDevice false, since only an existing account's enrolment needs a known device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there (design 4.4)"},
 	{route: "authInviteAcceptPassword", code: access.CodeSecondFactorRequired, invariant: "passwordDraft mints a new account's NextEnrol with ticketMint's unknownDevice false, since only an existing account's enrolment needs a known device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there (design 4.4)"},
 	{route: "authLoginRecoveryCode", code: access.CodeSecondFactorRequired, invariant: "countRecoveryIn mints its NextEnrol with ticketMint's unknownDevice false, since step 1 settled the device before minting the ticket the recovery code replaces, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there (design 4.4)"},
+	{route: "authLoginSetPassword", code: access.CodeSecondFactorRequired, invariant: "stagePassword mints its NextEnrol with ticketMint's unknownDevice false, since a temporary password is the issuer's trust and its step 1 reads no device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there (design 4.4, 4.9)"},
+	{route: "authLoginSetPassword", leaf: modulePath + ".ErrHashInvalid", invariant: "chosenPassword verifies against the ticket's temporary-password hash, which step 1 verified on the same Hasher, whose Capacity never changes, so Verify's over-budget ErrHashInvalid arm cannot fire there"},
 	{route: "authKeyCreate", leaf: modulePath + ".ErrInvalidKeyPrefix", invariant: "CreateAPIKey's begin validates the Rules value it mints under, and Rules.Validate's KeyPrefix check refuses a KeyPrefix access.ValidateKeyPrefix refuses, so GenerateAPIKey in CreateAPIKey cannot"},
 	{route: "authKeyRotate", leaf: modulePath + ".ErrInvalidKeyPrefix", invariant: "admitRotation's begin validates the Rules value RotateAPIKey generates under, and Rules.Validate's KeyPrefix check refuses a KeyPrefix access.ValidateKeyPrefix refuses, so GenerateAPIKey in RotateAPIKey cannot"},
 	{route: "authOIDCStartSignIn", leaf: modulePath + "/oidc.ErrConfigInvalid", invariant: oidcConfigRefuted},
@@ -338,6 +340,15 @@ type funcPath struct {
 	res  int
 }
 
+// evalKey is one evaluation of v from the definitions starting at first, n
+// of them, so a definition that reads v's earlier value (err = f(err))
+// evaluates those earlier definitions instead of stopping at v.
+type evalKey struct {
+	v     *types.Var
+	first ast.Node
+	n     int
+}
+
 // varDef is one assignment to a local variable.
 type varDef struct {
 	at    ast.Node // the defining identifier, or the case clause of a type switch
@@ -361,7 +372,7 @@ type producers struct {
 	stack        map[summaryKey]bool
 	parent       map[ast.Node]ast.Node
 	guardLists   map[string]*guardList
-	evaluating   map[*types.Var]bool
+	evaluating   map[evalKey]bool
 	resolving    map[funcPath]bool
 	impls        map[*types.Func][]*types.Func
 	unregistered map[string]bool
@@ -422,7 +433,7 @@ func loadProducers(t *testing.T) *producers {
 		stack:        map[summaryKey]bool{},
 		parent:       map[ast.Node]ast.Node{},
 		guardLists:   map[string]*guardList{},
-		evaluating:   map[*types.Var]bool{},
+		evaluating:   map[evalKey]bool{},
 		resolving:    map[funcPath]bool{},
 		impls:        map[*types.Func][]*types.Func{},
 		unregistered: map[string]bool{},
@@ -810,13 +821,14 @@ func (p *producers) evalObj(obj types.Object) errValue {
 }
 
 // evalLocal is what local or parameter v holds where ref reads it: the
-// definitions before ref from the last one in a block enclosing ref, or,
-// when none precedes it, every definition and the parameter's own value.
+// definitions before ref, but the one whose right side holds ref, from the
+// last one in a block enclosing ref, or, when none precedes it, every
+// definition and the parameter's own value.
 func (p *producers) evalLocal(v *types.Var, ref ast.Node) errValue {
 	var before []varDef
 	kill := -1
 	for _, d := range p.defs[v] {
-		if d.at.Pos() >= ref.Pos() {
+		if d.at.Pos() >= ref.Pos() || d.rhs != nil && p.encloses(d.rhs, ref) {
 			continue
 		}
 		if p.encloses(p.block(d.at), ref) {
@@ -856,11 +868,15 @@ func (p *producers) encloses(outer, n ast.Node) bool {
 func (p *producers) evalVar(v *types.Var) errValue { return p.evalDefs(v, p.defs[v]) }
 
 func (p *producers) evalDefs(v *types.Var, defs []varDef) errValue {
-	if p.evaluating[v] {
+	key := evalKey{v: v, n: len(defs)}
+	if len(defs) > 0 {
+		key.first = defs[0].at
+	}
+	if p.evaluating[key] {
 		return nil
 	}
-	p.evaluating[v] = true
-	defer delete(p.evaluating, v)
+	p.evaluating[key] = true
+	defer delete(p.evaluating, key)
 	var out errValue
 	for _, d := range defs {
 		switch {

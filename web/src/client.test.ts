@@ -2,7 +2,7 @@ import { createFetch } from "@cplieger/reactive/fetch";
 import type { ApiResult } from "@cplieger/reactive/fetch";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { createAuthClient } from "./client.js";
-import type { AuthReason, CodeRequest, StepUpCodeRequest } from "./wire.js";
+import type { AuthReason, CodeRequest, SetPasswordRequest, StepUpCodeRequest } from "./wire.js";
 import { authReason } from "./wire.js";
 import type { AuthClient, PublicKeyCredentialJSON } from "./client.js";
 import { fakeServer } from "./test-helpers/server.js";
@@ -100,6 +100,19 @@ const bindings: Readonly<Record<string, Binding>> = {
   authLoginRecoveryCode: {
     method: "loginRecoveryCode",
     call: (c, b: CodeRequest) => c.loginRecoveryCode(b.ticket, b.code),
+  },
+  authLoginSetPassword: {
+    method: "loginSetPassword",
+    call: (c, b: SetPasswordRequest) => c.loginSetPassword(b.ticket, b.password),
+  },
+  authLoginSetPasskeyBegin: {
+    method: "loginSetPasskeyBegin",
+    call: (c, b) => c.loginSetPasskeyBegin(b),
+  },
+  authLoginSetPasskeyFinish: {
+    method: "loginSetPasskeyFinish",
+    call: (c) => c.loginSetPasskeyFinish(CEREMONY, credential),
+    credential: true,
   },
   authPendingTOTPBegin: { method: "pendingTOTPBegin", call: (c, b) => c.pendingTOTPBegin(b) },
   authPendingTOTPFinish: {
@@ -301,8 +314,8 @@ describe("the route table", () => {
     const methods = Object.keys(client).filter(
       (k) => typeof client[k as keyof AuthClient] === "function",
     );
-    expect(methods).toHaveLength(66);
-    expect(jsonRoutes).toHaveLength(66);
+    expect(methods).toHaveLength(69);
+    expect(jsonRoutes).toHaveLength(69);
     expect(Object.keys(bindings).sort()).toEqual(jsonRoutes.map((r) => r.name).sort());
     expect(
       Object.values(bindings)

@@ -44,6 +44,11 @@ export type SecondPasskeyOutcome =
   | { readonly kind: "answered"; readonly result: SignInOutcome }
   | Exclude<PasskeySignInOutcome, { kind: "signed-in" }>;
 
+/** A set_credential passkey's answer: the sign-in step's, or why no passkey was registered. */
+export type SetPasskeyOutcome =
+  | { readonly kind: "answered"; readonly result: SignInOutcome }
+  | Exclude<RegisterOutcome, { kind: "registered" }>;
+
 /** A pending enrolment's passkey answer: the sign-in it completed, or why no passkey was bound. */
 export type PendingPasskeyOutcome =
   | { readonly kind: "answered"; readonly result: EnrolmentOutcome }
@@ -418,6 +423,16 @@ export async function loginSecondPasskey(
   }
   const res = await c.loginSecondPasskeyFinish(got.ceremony, got.json);
   return res.ok ? { kind: "answered", result: res.data } : assertionRefused(res, got);
+}
+
+/** Registers a passkey in place of the temporary password that minted ticket, signing in. */
+export async function loginSetPasskey(c: AuthClient, ticket: string): Promise<SetPasskeyOutcome> {
+  const made = await create(await c.loginSetPasskeyBegin({ ticket }));
+  if (made.kind !== "credential") {
+    return made;
+  }
+  const res = await c.loginSetPasskeyFinish(made.ceremony, made.json);
+  return res.ok ? { kind: "answered", result: res.data } : registrationRefused(res);
 }
 
 /** Registers a passkey as a pending sign-in's enrolment for ticket, completing the sign-in. */

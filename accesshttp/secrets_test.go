@@ -56,6 +56,11 @@ func (a *recordingAccount) PasswordLogin(_ context.Context, _ account.Client, in
 	return account.LoginResult{SignedIn: signedIn}, nil
 }
 
+func (a *recordingAccount) SetCredentialPassword(_ context.Context, _ account.Client, ticket, password access.Secret) (account.LoginResult, error) {
+	a.record("authLoginSetPassword", ticket, password)
+	return account.LoginResult{SignedIn: signedIn}, nil
+}
+
 func (a *recordingAccount) AcceptInvitePassword(_ context.Context, _ account.Client, in account.AcceptInvite) (account.LoginResult, error) {
 	a.record("authInviteAcceptPassword", in.Token, in.Password)
 	return account.LoginResult{SignedIn: signedIn}, nil
@@ -174,6 +179,7 @@ func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler,
 		"authSetupPassword":        {body: map[string]string{"token": "tok-setup", "username": "bob", "password": "pw-setup"}, want: []string{"tok-setup", "pw-setup"}, required: []string{"password"}},
 		"authSetupPasskeyBegin":    {body: map[string]string{"token": "tok-passkey", "username": "bob"}, want: []string{"tok-passkey"}},
 		"authLoginPassword":        {body: map[string]string{"username": "bob", "password": "pw-login"}, want: []string{"pw-login"}, required: []string{"password"}},
+		"authLoginSetPassword":     {body: map[string]string{"ticket": "tk-set", "password": "pw-set"}, want: []string{"tk-set", "pw-set"}, required: []string{"ticket", "password"}},
 		"authInviteAcceptPassword": {body: map[string]string{"token": "tok-invite", "username": "carol", "password": "pw-invite"}, want: []string{"tok-invite", "pw-invite"}, required: []string{"token", "password"}},
 		"authInviteAcceptOIDC":     {body: map[string]string{"token": "tok-invite-oidc"}, want: []string{"tok-invite-oidc"}, required: []string{"token"}},
 		"authStepUpPassword":       {cookie: session, body: map[string]string{"password": "pw-stepup"}, want: []string{"pw-stepup"}, required: []string{"password"}},

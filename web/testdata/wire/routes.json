@@ -90,6 +90,36 @@
     "doc": "Checks a recovery code on a pending sign-in and answers the step that enrols a new second factor."
   },
   {
+    "request": "SetPasswordRequest",
+    "response": "SignInOutcome",
+    "name": "authLoginSetPassword",
+    "method": "POST",
+    "path": "{prefix}/login/set-password",
+    "kind": "json",
+    "array": false,
+    "doc": "Sets the password chosen after a temporary password and answers a session or a pending sign-in."
+  },
+  {
+    "request": "TicketRequest",
+    "response": "CeremonyResponse",
+    "name": "authLoginSetPasskeyBegin",
+    "method": "POST",
+    "path": "{prefix}/login/set-passkey/begin",
+    "kind": "json",
+    "array": false,
+    "doc": "Starts the passkey registration that replaces a temporary password."
+  },
+  {
+    "request": null,
+    "response": "SignInOutcome",
+    "name": "authLoginSetPasskeyFinish",
+    "method": "POST",
+    "path": "{prefix}/login/set-passkey/finish",
+    "kind": "json",
+    "array": false,
+    "doc": "Finishes the passkey registration that replaces a temporary password and signs in."
+  },
+  {
     "request": "TicketRequest",
     "response": "PendingTOTPBeginResponse",
     "name": "authPendingTOTPBegin",

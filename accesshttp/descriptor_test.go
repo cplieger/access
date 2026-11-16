@@ -29,6 +29,7 @@ var designClasses = map[string]struct {
 	"authPasswordRemove":    {open: ClassRecentAuth},
 	"authLoginRecoveryCode": {open: ClassPublic}, "authPendingTOTPBegin": {open: ClassPublic}, "authPendingTOTPFinish": {open: ClassPublic},
 	"authPendingPasskeyBegin": {open: ClassPublic}, "authPendingPasskeyFinish": {open: ClassPublic},
+	"authLoginSetPassword": {open: ClassPublic}, "authLoginSetPasskeyBegin": {open: ClassPublic}, "authLoginSetPasskeyFinish": {open: ClassPublic},
 	"authLoginCode": {open: ClassPublic}, "authLoginSecondPasskeyBegin": {open: ClassPublic}, "authLoginSecondPasskeyFinish": {open: ClassPublic},
 	"authStepUpCode": {open: ClassSession}, "authTOTPBegin": {open: ClassRecentAuth}, "authTOTPFinish": {open: ClassRecentAuth}, "authRecoveryCodeRegenerate": {open: ClassRecentAuth},
 	"authTOTPRemove": {open: ClassSession}, "authPasskeys": {open: ClassSession}, "authPasskeyRegisterBegin": {open: ClassRecentAuth},
