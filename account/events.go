@@ -43,6 +43,8 @@ const (
 	// EventTemporaryPasswordWithdrawn is a dormant temporary password a
 	// change that brings the user's methods back deleted.
 	EventTemporaryPasswordWithdrawn EventKind = "temporary_password_withdrawn"
+	// EventTemporaryPasswordSet is SetTemporaryPassword's issue.
+	EventTemporaryPasswordSet EventKind = "temporary_password_set"
 	// EventOIDCNotAdmitted is a token Rules.OIDCAdmission refused; its
 	// UserID is zero at an invite acceptance and for an identity no account
 	// is linked to.
@@ -103,6 +105,7 @@ var eventKinds = [...]struct {
 	{EventOwnerRemoved, LogClassChange},
 	{EventSSOModeChanged, LogClassChange},
 	{EventTemporaryPasswordWithdrawn, LogClassChange},
+	{EventTemporaryPasswordSet, LogClassChange},
 	{EventOIDCNotAdmitted, LogClassSession},
 	{EventRoleSynced, LogClassChange},
 	{EventRoleSyncSkipped, LogClassChange},

@@ -19,7 +19,7 @@ const (
 	// maxEnrolments bounds the TOTP enrolments begun from a session.
 	maxEnrolments = 10000
 	// maxDrafts bounds the drafts of setup and invite acceptance, which
-	// only a token holder creates (design 4.4's cache table).
+	// only a token holder creates.
 	maxDrafts = 1000
 	// ticketLifetime is a pending sign-in's and an enrolment's life; it
 	// covers installing an authenticator app.

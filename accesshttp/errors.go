@@ -102,6 +102,7 @@ var sentinelCodes = []struct {
 	{account.ErrTOTPDisabled, access.CodeTOTPDisabled, ""},
 	{account.ErrRegistrationClosed, access.CodeRegistrationClosed, ""},
 	{account.ErrRegistrationFull, access.CodeRegistrationFull, ""},
+	{account.ErrSSOLinked, access.CodeSSOOnly, ReasonLinked},
 	{account.ErrSSOOnly, access.CodeSSOOnly, ""},
 	{account.ErrUnknownSSOMode, access.CodeBadRequest, ""},
 }

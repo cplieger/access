@@ -552,6 +552,14 @@ func TestTicketsEnd(t *testing.T) {
 		}
 		gone(t, f, p)
 	})
+	t.Run("temporary_password", func(t *testing.T) {
+		t.Parallel()
+		f, u, p := setup(t)
+		if _, err := f.svc.SetTemporaryPassword(t.Context(), account.OutOfBand("test"), u.ID, account.TemporaryPasswordOptions{}); err != nil {
+			t.Fatalf("SetTemporaryPassword: %v", err)
+		}
+		gone(t, f, p)
+	})
 	t.Run("admin_unlink", func(t *testing.T) {
 		t.Parallel()
 		f, u, p := setup(t)

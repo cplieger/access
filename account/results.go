@@ -46,6 +46,11 @@ type State struct {
 	Secure bool
 	// TOTP is whether the app offers TOTP: wired, and Rules.DisableTOTP off.
 	TOTP bool
+	// TemporaryPasswordHTTPSOnly is set on a plain request under
+	// RequireSecondFactor, DisablePasswordLogin or the stored mode SSOOnly,
+	// where a plain sign-in burns a temporary password, so the plain form
+	// sends none.
+	TemporaryPasswordHTTPSOnly bool
 }
 
 // HTTPSFeature is a sign-in feature a plain request is refused.
@@ -220,6 +225,9 @@ type Me struct {
 
 // ListedUser is one row of the admin user list.
 type ListedUser struct {
+	// TemporaryPasswordExpiresAt is the expiry of the user's live temporary
+	// password; zero when they hold none or it has expired.
+	TemporaryPasswordExpiresAt time.Time
 	// KeyLineage is the KeyLineage of the user's most recent KeyAttribution
 	// that the filter matched (of its most recent one, unfiltered), derived
 	// at read; nil when no key has acted on the user.
@@ -235,6 +243,8 @@ type ListedUser struct {
 	// RoleFromProvider is whether Rules.Provisioning.SyncRole, read once for
 	// the list, sets the user's role at each OIDC sign-in.
 	RoleFromProvider bool
+	// TOTP is whether the user holds a TOTP record.
+	TOTP bool
 }
 
 // ListedKey is one row of the admin key list.

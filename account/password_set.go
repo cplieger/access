@@ -11,12 +11,10 @@ import (
 // (plain c or p under PostureSecure: access.ErrHTTPSRequired); a dormant
 // user is ErrSSOOnly. A user holding a password gives it as current (zero:
 // ErrCurrentPasswordRequired before any limiter call), counted like
-// StepUpPassword's attempt; one holding none has current ignored, committing
-// while it still holds none. One Update writes the hash, rotates p's session
-// into Issued, revokes the other sessions and, under
-// RevokeKeysOnCredentialChange, the user's keys and tokens; a first
-// password's Update also runs the recovery code's issue rule
-// (issueRecoveryIn).
+// StepUpPassword's attempt; for one holding none current is ignored. One
+// Update writes the hash, rotates p's session into Issued, revokes the other
+// sessions and, under RevokeKeysOnCredentialChange, the user's keys and
+// tokens; a first password's Update runs issueRecoveryIn.
 func (s *Service) SetPassword(ctx context.Context, c Client, p access.Principal, current, password access.Secret) (PasswordSet, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
 	r, err := s.beginRecentSession(plainPerRequest, c.Secure && p.Secure, p)
 	if err != nil {

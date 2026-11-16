@@ -29,14 +29,13 @@ type recoveryMatch struct {
 	methods []access.Method
 }
 
-// SignInWithRecoveryCode spends nothing but a count: a recovery code that
-// matches replaces the pending sign-in ticket names with a NextEnrol one
-// marked Recovered, whose enrolment finish spends the code (design 4.6).
-// Its refusals, in order: stepTicket's under a secure-only rule; no live
-// ticket listing recovery_code, access.ErrTokenInvalid; a code that is not
-// 16 Crockford symbols after normalising, a *MalformedError; the limiter's
-// and the hasher's; then the count's, where a code or user gone ends the
-// ticket. A wrong code keeps the ticket, the first journalling
+// SignInWithRecoveryCode spends nothing but a count: a matching recovery
+// code replaces ticket's pending sign-in with a NextEnrol one marked
+// Recovered, whose enrolment finish spends the code. Its refusals, in order:
+// stepTicket's; no live ticket listing recovery_code, access.ErrTokenInvalid;
+// a code not 16 Crockford symbols once normalised, a *MalformedError; the
+// limiter's and the hasher's; then the count's, where a code or user gone
+// ends the ticket. A wrong code keeps the ticket, the first journalling
 // EventSecondFactorFailed; an empty enrolment set is ErrNoUsableMethod.
 func (s *Service) SignInWithRecoveryCode(ctx context.Context, c Client, ticket access.Secret, code string) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	r, entry, found, err := s.stepTicket(ticket, c, plainRefused)
@@ -202,13 +201,12 @@ func (s *Service) PendingTOTPBegin(ctx context.Context, c Client, ticket access.
 	return PendingTOTP{URI: access.NewSecret(totp.URI(s.totp.Issuer, u.Username, secret)), Text: access.NewSecret(totp.Text(secret))}, nil
 }
 
-// PendingTOTPFinish completes the pending sign-in ticket names by binding
-// the secret PendingTOTPBegin drew once code matches it, with its step
-// spent, as a session of MethodPassword with the recovery code it issued
-// (issueRecoveryIn). Its refusals: totpEnrolTicket's; no secret drawn,
-// access.ErrTokenInvalid; a malformed code, a *MalformedError, and one that
-// does not match, code_invalid keeping the ticket, both before the limiter,
-// since the secret was just shown; the limiter's; the hasher's; and
+// PendingTOTPFinish completes ticket's pending sign-in by binding the
+// secret PendingTOTPBegin drew once code matches it, its step spent, as a
+// MethodPassword session carrying the recovery code issueRecoveryIn issued.
+// Its refusals: totpEnrolTicket's; no secret drawn, access.ErrTokenInvalid;
+// a malformed code (*MalformedError) or a wrong one (code_invalid, the ticket
+// kept), both before the limiter; the limiter's; the hasher's; and
 // enrolAccountIn's, ending the ticket. A Recovered ticket's finish spends
 // the matched recovery code and deletes the lost TOTP in the same Update.
 func (s *Service) PendingTOTPFinish(ctx context.Context, c Client, ticket access.Secret, code string) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client, read once

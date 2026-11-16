@@ -13,6 +13,13 @@ const (
 	markerError = "auth_error"
 )
 
+// markerOIDC's values, one per callback outcome that redirects with one.
+const (
+	oidcLinked    = "linked"
+	oidcSteppedUp = "stepped_up"
+	oidcNotLinked = "not_linked"
+)
+
 // withMarker is target with key=value as its only oidc or auth_error pair,
 // built on target's bytes: url.URL.String would rebuild a non-canonical path
 // such as /%2Fevil.com/| as //evil.com/%7C, which leaves the origin. The

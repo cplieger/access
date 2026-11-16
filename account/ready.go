@@ -7,7 +7,7 @@ import (
 )
 
 // CheckSecondFactorReady is the check an app runs before it saves
-// Rules.RequireSecondFactor on (design 4.8): it answers nil only for a full
+// Rules.RequireSecondFactor on: it answers nil only for a full
 // session p on a secure c whose user holds a usable TOTP or a usable
 // passkey by the current Rules, and ErrEnableWithoutSecondFactor for any
 // other p, a dormant factor counting for nothing. It writes nothing.

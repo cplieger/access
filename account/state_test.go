@@ -98,6 +98,7 @@ func TestStateTransport(t *testing.T) {
 			want: account.State{
 				SetupRequired: true, PasswordLogin: true, PlainSession: defaultPlain,
 				HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSPasskeys}, HTTPSOrigin: stateOrigin,
+				TemporaryPasswordHTTPSOnly: true,
 			},
 		},
 		"per_request_plain_oidc_unconfigured": {
@@ -115,6 +116,7 @@ func TestStateTransport(t *testing.T) {
 			config: stateConfig{posture: access.PosturePerRequest, noPassword: true, passkeys: true, setupDone: true}, client: plain,
 			want: account.State{
 				PlainSession: defaultPlain, HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys}, HTTPSOrigin: stateOrigin,
+				TemporaryPasswordHTTPSOnly: true,
 			},
 		},
 		"per_request_plain_15_minute_idle": {
@@ -145,11 +147,11 @@ func TestStateTransport(t *testing.T) {
 		},
 		"posture_secure_plain_password_off": {
 			config: stateConfig{posture: access.PostureSecure, setupDone: true, noPassword: true, passkeys: true}, client: plain,
-			want: account.State{HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys}, HTTPSOrigin: stateOrigin},
+			want: account.State{HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys}, HTTPSOrigin: stateOrigin, TemporaryPasswordHTTPSOnly: true},
 		},
 		"posture_secure_plain_setup_password_off": {
 			config: stateConfig{posture: access.PostureSecure, noPassword: true}, client: plain,
-			want: account.State{SetupRequired: true, HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup}, HTTPSOrigin: stateOrigin},
+			want: account.State{SetupRequired: true, HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup}, HTTPSOrigin: stateOrigin, TemporaryPasswordHTTPSOnly: true},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -126,6 +126,10 @@ var (
 	// ErrSSOOnly is a local-method operation the stored SSO mode forbids
 	// for the user.
 	ErrSSOOnly = errors.New("account: the identity provider is this account's only sign-in")
+	// ErrSSOLinked is a temporary password for a linked user whose local
+	// methods the stored mode keeps dormant, which could neither sign in nor
+	// link; it matches ErrSSOOnly.
+	ErrSSOLinked = fmt.Errorf("account: a linked account signs in only by single sign-on: %w", ErrSSOOnly)
 )
 
 // The PolicyError Reasons, in PolicyReasons order. RolePolicy and
@@ -144,6 +148,7 @@ const (
 	ReasonExpiryAfterParent  = "expiry_after_parent"
 	ReasonLineageTooDeep     = "lineage_too_deep"
 	ReasonPermissionNotAdmin = "permission_not_admin"
+	ReasonSelfRecovery       = "self_recovery" // an issue or reset of a principal's own factors
 	ReasonOtherUser          = "other_user"
 	ReasonTargetNotEligible  = "target_not_eligible"
 	ReasonUnknownOperation   = "unknown_operation"
@@ -175,6 +180,7 @@ func PolicyReasons() []string {
 		ReasonExpiryAfterParent,
 		ReasonLineageTooDeep,
 		ReasonPermissionNotAdmin,
+		ReasonSelfRecovery,
 		ReasonOtherUser,
 		ReasonTargetNotEligible,
 		ReasonUnknownOperation,

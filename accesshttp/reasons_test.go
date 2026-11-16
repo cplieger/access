@@ -34,6 +34,7 @@ var designOwnReasons = []string{
 	// Design 4.31, 4.48 and 4.49.
 	"second_factor_proof_required", "last_second_factor", "second_factor_held", "totp_needs_password",
 	"enable_without_second_factor",
+	"linked",
 }
 
 // wireReasons is every Reason classify gives for the fixed-reason

@@ -22,7 +22,7 @@ func TestReasonLists(t *testing.T) {
 	}{
 		{"PolicyReasons", account.PolicyReasons(), []string{
 			"out_of_band_only", "key_not_current", "key_retiring", "key_expired", "admin_target", "scopes_not_subset", "expiry_after_parent",
-			"lineage_too_deep", "permission_not_admin", "other_user", "target_not_eligible",
+			"lineage_too_deep", "permission_not_admin", "self_recovery", "other_user", "target_not_eligible",
 			"unknown_operation", "not_enabled_user", "not_admin", "self_delete",
 			"single_owner", "not_owner", "unknown_via", "via_with_actor", "owner_target", "owner_role", "last_owner", "owner_needs_local_method",
 		}},

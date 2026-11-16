@@ -45,6 +45,7 @@ const (
 	// ReasonEnableWithoutSecondFactor is auth_second_factor_required: an
 	// admin turning the rule on holds no usable second factor.
 	ReasonEnableWithoutSecondFactor = "enable_without_second_factor"
+	ReasonLinked                    = "linked" // auth_sso_only: a temporary password for a linked account
 )
 
 // ownReasons is accesshttp's part of Reasons.
@@ -56,7 +57,7 @@ var ownReasons = []string{
 	ReasonReenableNeedsOtherMethod, ReasonTrailingData, ReasonMalformedJSON, ReasonContentType, ReasonBody,
 	ReasonUnknownField, ReasonTokenInQuery, ReasonEnrolNeedsKnownDevice, ReasonNoUsableMethod,
 	ReasonSecondFactorProofRequired, ReasonLastSecondFactor, ReasonSecondFactorHeld, ReasonTOTPNeedsPassword,
-	ReasonEnableWithoutSecondFactor,
+	ReasonEnableWithoutSecondFactor, ReasonLinked,
 }
 
 // providerErrorPrefix starts the Reason of an IdP's own error answer, which

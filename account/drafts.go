@@ -22,8 +22,8 @@ func (s *Service) newAccount(username string, role access.Role) access.User {
 }
 
 // passwordDraft is a password setup's or invite acceptance's answer under
-// Rules.RequireSecondFactor: a new account holds no second factor, so 4.4's
-// table pends it at NextEnrol (design 4.8). checks are the operation's own
+// Rules.RequireSecondFactor: a new account holds no second factor, so
+// pendAt's rule pends it at NextEnrol. checks are the operation's own
 // refusals and answer the would-be user and its creation; then the ticket's
 // methods, read through the Store; then c's IP attempt and the hash. The
 // ticket holds the account, created only by its enrolment finish, so
@@ -72,7 +72,7 @@ func (s *Service) enrolAccountIn(ctx context.Context, tx Tx, entry *pending, acc
 }
 
 // draftAccountIn creates a draft's account inside its finish's Update,
-// running the draft's admission again (design 4.4 step 3): a setup's
+// running the draft's admission again: a setup's
 // createFirstUser (no user yet, the token spent, the Policy), or an
 // invite's stored mode, Policy and acceptIn. An invite spent or whose
 // issuer is refused since step 1 sets acc.spent and creates no one.

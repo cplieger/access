@@ -50,13 +50,13 @@ func requireHeld(ctx context.Context, tx Tx, u *access.User, c credential) error
 }
 
 // UsableMethods counts what userID can sign in with under st, read through
-// tx (the Store itself, or the app's own Update) as the last-method guard
-// counts: a password held, allowed, usable and unlocked in both trust
-// contexts, passkeys under st.RPID and an OIDC link of st.OIDCIssuer, each
-// while st.Rules.MethodUsable allows it; a dormant user's local methods and
-// an owner's link never count. The app decides with access.CanDisableMethod.
-// ErrServiceClosed after Shutdown, ErrRulesInvalid for an invalid st.Rules,
-// ErrNotFound for an unknown user; a store error is returned as it is.
+// tx (the Store, or the app's own Update) as the last-method guard counts:
+// a password held, allowed and unlocked in a trust context, or a live
+// temporary password; passkeys under st.RPID and an OIDC link of
+// st.OIDCIssuer, each while st.Rules.MethodUsable allows it. A dormant
+// user's local methods and an owner's link never count. The app decides with
+// access.CanDisableMethod. ErrServiceClosed, ErrRulesInvalid for an invalid
+// st.Rules, ErrNotFound for an unknown user, or the store's error.
 func (s *Service) UsableMethods(ctx context.Context, tx Tx, userID int64, st MethodState) (access.MethodAvailability, error) { //nolint:gocritic // hugeParam: the caller's one MethodState value
 	if s.closed.Load() {
 		return access.MethodAvailability{}, ErrServiceClosed
@@ -97,7 +97,8 @@ func (s *Service) guardLastMethod(ctx context.Context, tx Tx, r Rules, u *access
 // signInAvailability is the one count of UsableMethods and
 // guardLastMethod: availability under the stored mode as it applies once
 // gone is gone. An owner keeps local access whatever its link, so its link
-// counts for nothing; a user the mode keeps dormant keeps no local method.
+// counts for nothing; a user the mode keeps dormant keeps no local method;
+// a live temporary password is a password.
 func (s *Service) signInAvailability(ctx context.Context, tx Tx, st MethodState, u *access.User, gone credential) (access.MethodAvailability, error) { //nolint:gocritic // hugeParam: the operation's one MethodState value
 	avail, err := s.availability(ctx, tx, st, u, gone)
 	if err != nil {
@@ -114,7 +115,21 @@ func (s *Service) signInAvailability(ctx context.Context, tx Tx, st MethodState,
 	if mode.dormant(owner, !u.OIDC.IsZero() && gone.method != access.MethodOIDC) {
 		avail.HasPassword, avail.PasskeyCount = false, 0
 	}
+	if !avail.HasPassword {
+		if avail.HasPassword, err = s.liveTemporaryPassword(ctx, tx, u.ID); err != nil {
+			return access.MethodAvailability{}, err
+		}
+	}
 	return avail, nil
+}
+
+// liveTemporaryPassword reports whether userID holds an unexpired
+// temporary password, which counts as a password whatever
+// DisablePasswordLogin or the mode says: it is the way back in the guard
+// exists to keep.
+func (s *Service) liveTemporaryPassword(ctx context.Context, tx Tx, userID int64) (bool, error) {
+	rec, found, err := tx.TemporaryPasswordByUserID(ctx, userID)
+	return found && rec.ExpiresAt.After(s.now()), err
 }
 
 // availability is what u, as tx read it, holds and signs in with under st,

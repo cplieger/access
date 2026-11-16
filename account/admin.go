@@ -117,16 +117,38 @@ func (s *Service) Users(ctx context.Context, p access.Principal, f UserFilter) (
 		if f.AttributedToKey != 0 && !attributed {
 			continue
 		}
-		passkeys, err := s.store.PasskeysByUserID(ctx, users[i].ID)
-		if err != nil {
+		row := ListedUser{
+			User: users[i], KeyLineage: slices.Clone(path),
+			LocalMethodsDormant: mode.dormantFor(&users[i]), RoleFromProvider: r.Provisioning.syncs(&users[i]),
+		}
+		if err := s.secondFactorRow(ctx, &row); err != nil {
 			return nil, storeErr(err)
 		}
-		listed = append(listed, ListedUser{
-			User: users[i], KeyLineage: slices.Clone(path), PasskeyCount: len(passkeys),
-			LocalMethodsDormant: mode.dormantFor(&users[i]), RoleFromProvider: r.Provisioning.syncs(&users[i]),
-		})
+		listed = append(listed, row)
 	}
 	return listed, nil
+}
+
+// secondFactorRow reads row.User's passkey count, TOTP record and live
+// temporary password into row.
+func (s *Service) secondFactorRow(ctx context.Context, row *ListedUser) error {
+	id := row.User.ID
+	passkeys, err := s.store.PasskeysByUserID(ctx, id)
+	if err != nil {
+		return err
+	}
+	row.PasskeyCount = len(passkeys)
+	if _, row.TOTP, err = s.store.TOTPByUserID(ctx, id); err != nil {
+		return err
+	}
+	temp, found, err := s.store.TemporaryPasswordByUserID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if found && temp.ExpiresAt.After(s.now()) {
+		row.TemporaryPasswordExpiresAt = temp.ExpiresAt
+	}
+	return nil
 }
 
 // lineageByUser is each user's KeyLineage of its most recent record f

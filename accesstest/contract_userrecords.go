@@ -12,7 +12,7 @@ import (
 	"github.com/cplieger/access/account"
 )
 
-// userRecords: rule 24, the per-user records of design 4.3.
+// userRecords: rule 24, the per-user records.
 func (c *contract) userRecords(t *testing.T) {
 	t.Run("totp", func(t *testing.T) { checkPerUser(t, c.store(t), totpKind) })
 	t.Run("recovery_code", func(t *testing.T) { checkPerUser(t, c.store(t), recoveryKind) })
@@ -76,7 +76,7 @@ func newTemporaryPassword(userID int64, n int) access.TemporaryPassword {
 }
 
 // checkPerUser: one record per user, written whole over the last, read by
-// its user alone, and deleted idempotently (design 4.3 "Store contract").
+// its user alone, and deleted idempotently.
 func checkPerUser[T any](t *testing.T, s account.Store, k perUser[T]) {
 	ctx := t.Context()
 	u, other := mustUser(t, s, "holder"), mustUser(t, s, "bystander")
@@ -116,8 +116,8 @@ func checkPerUser[T any](t *testing.T, s account.Store, k perUser[T]) {
 	}
 }
 
-// listTOTP: ListTOTP pages by UserID, so ResealTOTP's walk (design 4.3
-// "Re-sealing") meets every record once.
+// listTOTP: ListTOTP pages by UserID, so ResealTOTP's walk meets every record
+// once.
 func (c *contract) listTOTP(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
 	users := make([]*access.User, 6)
@@ -170,7 +170,7 @@ func walkTOTP(t *testing.T, s account.Store, size, pages int) []access.TOTP {
 	return all
 }
 
-// waitingUsers: rule 25, design 4.17 "Bounds on waiting accounts".
+// waitingUsers: rule 25, the waiting accounts oldest first.
 func (c *contract) waitingUsers(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
 	waiting := func(name string, created time.Time) *access.User {
@@ -213,7 +213,7 @@ func (c *contract) waitingUsers(t *testing.T) {
 	}
 }
 
-// ssoMode: rule 26, design 5.3 "The store holds the mode".
+// ssoMode: rule 26, the stored SSO mode and its set bit.
 func (c *contract) ssoMode(t *testing.T) {
 	read := func(t *testing.T, s account.SSOModeStore, when string, want account.SSOMode, wantSet bool) {
 		t.Helper()

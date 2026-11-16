@@ -210,7 +210,7 @@ func (s *Service) secondFactors(ctx context.Context, tx Tx, r Rules, u *access.U
 }
 
 // pendAt is step 1's decision, in its change, for u whose password
-// verified, by 4.4's table: nil and nil sign in; else the pending sign-in to
+// verified: nil and nil sign in; else the pending sign-in to
 // mint, or the refusal that answers instead. known is whether step 1
 // presented a known device.
 func (s *Service) pendAt(ctx context.Context, tx Tx, r Rules, c Client, u *access.User, known bool) (entry *pending, refused, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client

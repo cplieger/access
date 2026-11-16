@@ -71,15 +71,14 @@ func (s *Service) CreateInvite(ctx context.Context, p access.Principal, role acc
 	return IssuedToken{Plaintext: plaintext, ExpiresAt: rec.ExpiresAt}, nil
 }
 
-// AcceptInvitePassword creates the invited account with a password and signs it
-// in; a plain c is access.ErrHTTPSRequired. Under Rules.RequireSecondFactor
-// it answers a Pending NextEnrol instead (passwordDraft), whose finish
-// consumes the invite. The username, password and Policy (ViaInvite) checks
-// and the IP limiter run before the hash; a refusal there, a taken name or a
-// backend error leaves the invite usable. One Update consumes the invite and
-// creates the user and session, re-checking a key-issued invite's issuer: a
-// refused issuer deletes the invite and answers access.ErrTokenInvalid, an
-// accepted one appends an invite_accepted attribution.
+// AcceptInvitePassword creates the invited account with a password and signs
+// it in, or under Rules.RequireSecondFactor answers a Pending NextEnrol whose
+// finish consumes the invite; a plain c is access.ErrHTTPSRequired. The
+// username, password and Policy (ViaInvite) checks and the IP limiter run
+// before the hash; a refusal, a taken name or a backend error leaves the
+// invite usable. One Update consumes the invite and creates the user and
+// session; a key-issued invite's refused issuer deletes it and answers
+// access.ErrTokenInvalid, an accepted one appends an invite_accepted record.
 func (s *Service) AcceptInvitePassword(ctx context.Context, c Client, in AcceptInvite) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
 	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {

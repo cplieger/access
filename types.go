@@ -414,6 +414,8 @@ const (
 	AttributionInviteAccepted AttributionAction = "invite_accepted" // a key-issued invite created the user
 	AttributionEnabled        AttributionAction = "enabled"         // UpdateUser by a key re-enabled the user
 	AttributionDisabled       AttributionAction = "disabled"        // UpdateUser by a key disabled the user
+	// AttributionTemporaryPasswordSet is SetTemporaryPassword by a key.
+	AttributionTemporaryPasswordSet AttributionAction = "temporary_password_set"
 )
 
 // KeyAttribution is one append-only record that a key acted on a user. It

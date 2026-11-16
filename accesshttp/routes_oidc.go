@@ -159,16 +159,16 @@ func (h *Handler) land(c *call, out *account.OIDCOutcome) error {
 		redirect(c.w, out.Redirect)
 	case account.OutcomeLinked:
 		h.setIssued(c.w, c.client.Secure, out.Issued)
-		redirect(c.w, withMarker(out.Redirect, markerOIDC, "linked"))
+		redirect(c.w, withMarker(out.Redirect, markerOIDC, oidcLinked))
 	case account.OutcomeSteppedUp:
 		h.setIssued(c.w, c.client.Secure, out.Issued)
 		h.auditSuccess(c, nil, out.Issued.Session)
-		redirect(c.w, withMarker(out.Redirect, markerOIDC, "stepped_up"))
+		redirect(c.w, withMarker(out.Redirect, markerOIDC, oidcSteppedUp))
 	case account.OutcomeNotLinked:
 		if err := h.setPendingLink(c, &out.Pending); err != nil {
 			return err
 		}
-		redirect(c.w, withMarker(h.signIn, markerOIDC, "not_linked"))
+		redirect(c.w, withMarker(h.signIn, markerOIDC, oidcNotLinked))
 	default:
 		return fmt.Errorf("accesshttp: unknown OIDC outcome %d", out.Kind)
 	}

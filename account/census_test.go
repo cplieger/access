@@ -176,6 +176,10 @@ func censusUserNaming(t *testing.T) {
 		{name: "DeleteUser", call: func(t *testing.T, w *opWorld, p access.Principal, id int64) error {
 			return w.svc.DeleteUser(t.Context(), p, id)
 		}},
+		{name: "SetTemporaryPassword", call: func(t *testing.T, w *opWorld, p access.Principal, id int64) error {
+			_, err := w.svc.SetTemporaryPassword(t.Context(), account.As(p), id, account.TemporaryPasswordOptions{})
+			return err
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -212,7 +216,7 @@ func censusUserNaming(t *testing.T) {
 
 func TestKeyAuthorityEveryWrite(t *testing.T) {
 	t.Parallel()
-	want := []string{"AdminUnlinkOIDC", "CreateAPIKey", "CreateInvite", "CreateUser", "DeleteUser", "RevokeAnyAPIKey", "UpdateUser"}
+	want := []string{"AdminUnlinkOIDC", "CreateAPIKey", "CreateInvite", "CreateUser", "DeleteUser", "RevokeAnyAPIKey", "SetTemporaryPassword", "UpdateUser"}
 	var (
 		mu      sync.Mutex
 		reached []string

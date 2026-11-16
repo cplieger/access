@@ -75,6 +75,7 @@ func (s *Service) State(ctx context.Context, c Client) (State, error) { //nolint
 	st.OIDC = admit(s.provider() != nil, HTTPSOIDC, plainRefused)
 	if !c.Secure {
 		st.HTTPSOrigin = r.HTTPSOrigin
+		st.TemporaryPasswordHTTPSOnly = r.RequireSecondFactor || r.DisablePasswordLogin || mode == SSOOnly
 		if s.transport(plainPerRequest, false) == nil { // a plain password sign-in is admitted
 			t := s.authn.Timeouts()
 			st.PlainSession = &access.SessionTimeouts{Idle: min(access.PlainSessionIdle, t.Idle), Absolute: min(access.PlainSessionAbsolute, t.Absolute)}
@@ -124,15 +125,13 @@ func (s *Service) IssueSetupToken(ctx context.Context, a Actor, ttl time.Duratio
 }
 
 // SetupWithPassword creates the first account, an admin and an owner, and
-// signs it in; under Rules.RequireSecondFactor it answers a Pending
-// NextEnrol instead (passwordDraft), whose finish creates the account. Every
-// check that can refuse runs before the hash: access.ErrHTTPSRequired for a
-// plain c that setupRule refuses, the user count, the token when
-// Rules.SetupTokenRequired asks for one (nil: always), the username and
-// password rules, then the IP limiter. One Update then consumes the token,
-// asks the Policy (OpCreateUser, ViaSetup), creates the user and the
-// session; a concurrent setup that won makes it ErrSetupComplete or
-// access.ErrTokenInvalid, and a backend error leaves the token usable.
+// signs it in, or under Rules.RequireSecondFactor answers a Pending
+// NextEnrol whose finish creates it. Every refusal but the Policy's
+// (OpCreateUser, ViaSetup) runs before the hash: access.ErrHTTPSRequired
+// where setupRule refuses c, the user count, the token SetupTokenRequired
+// asks for (nil: always), the username and password rules, the IP limiter.
+// A concurrent setup that won is ErrSetupComplete or access.ErrTokenInvalid,
+// and a backend error leaves the token usable.
 func (s *Service) SetupWithPassword(ctx context.Context, c Client, in SetupPassword) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
 	r, err := s.begin()
 	if err != nil {
@@ -183,7 +182,7 @@ func (s *Service) SetupWithPassword(ctx context.Context, c Client, in SetupPassw
 
 // setupRule is password setup's plain rule under r: per request, but
 // refused under Rules.RequireSecondFactor, where setup enrols a second
-// factor, which needs HTTPS (design 4.8).
+// factor, which needs HTTPS.
 func setupRule(r Rules) plainRule { //nolint:gocritic // hugeParam: the operation's one Rules value
 	if r.RequireSecondFactor {
 		return plainRefused
