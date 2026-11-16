@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/webauthn"
 )
 
@@ -97,13 +98,59 @@ func (p pathID) typ() reflect.Type {
 	}
 }
 
+// reasonSet is the Reason values one code can carry on a route: each of
+// listed, "" being the answer with none, and, when open, one the route
+// does not fix (design 4.56): a refused field's name on auth_bad_request,
+// an IdP's error code on auth_oidc_failed, the Policy's on auth_forbidden.
+type reasonSet struct {
+	listed []string
+	open   bool
+}
+
+// answer is one code a part of a route can answer, with its reasons there.
+type answer struct {
+	code access.Code
+	reasonSet
+}
+
+// answers is what one part of a route can answer, each code once.
+type answers []answer
+
+// none is codes, each answered with no Reason.
+func none(codes ...access.Code) answers {
+	as := make(answers, len(codes))
+	for i, c := range codes {
+		as[i] = answer{code: c, listed: []string{""}}
+	}
+	return as
+}
+
+// with adds code, answered with one of reasons, "" for none.
+func (as answers) with(code access.Code, reasons ...string) answers {
+	return append(as, answer{code: code, listed: reasons})
+}
+
+// open adds code marked open, beside the reasons it carries fixed.
+func (as answers) open(code access.Code, reasons ...string) answers {
+	return append(as, answer{code: code, listed: reasons, open: true})
+}
+
+// codes is as's codes, deduped, in access.Codes order.
+func (as answers) codes() []access.Code {
+	codes := make([]access.Code, len(as))
+	for i := range as {
+		codes[i] = as[i].code
+	}
+	return inCodesOrder(codes)
+}
+
 // routeSpec is one route's static facts; descriptor derives its Descriptor
 // under a DescriptorConfig.
 type routeSpec struct {
 	request, query, response reflect.Type
 	serve                    serveFunc
 	name, method, path, doc  string
-	op                       string // the account operation, a key of opCodes
+	op                       string // the account operation, a key of opAnswers
 	audit                    string // the access.AuditEvent kind prefix; "" audits nothing
 	class                    Class
 	scope                    scopeRule
@@ -213,131 +260,286 @@ var specs = []routeSpec{
 	{name: "authAdminSecurityLog", method: http.MethodGet, path: "/security-log", doc: "Answers a page of the security log.", success: http.StatusOK, scope: scopeAdmin, query: typeOf[AdminSecurityLogQuery](), response: typeOf[SecurityLogView](), op: "SecurityLog", serve: serveAdminSecurityLog},
 }
 
-// opCodes is the codes each account operation's errors map to, the third
-// part of a route's Codes; the class guard and the transport add theirs.
-// An operation that rereads its caller's session or user answers
-// ErrSessionGone, which maps to CodeSessionExpired.
-var opCodes = map[string][]access.Code{
-	"State":                      {access.CodeUnavailable},
-	"SetupWithPassword":          {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeSetupComplete, access.CodeSetupTokenRequired, access.CodeTokenInvalid},
-	"SetupPasskeyBegin":          {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeSetupComplete, access.CodeSetupTokenRequired, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeOriginRefused},
-	"SetupPasskeyFinish":         {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeUnavailable, access.CodeSetupComplete, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed},
-	"PasswordLogin":              {access.CodeHTTPSRequired, access.CodeInvalidCredentials, access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeSecondFactorRequired},
-	"SignInWithCode":             {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeBadRequest, access.CodeTokenInvalid, access.CodeCodeInvalid, access.CodeSecondFactorUnavailable, access.CodeTOTPDisabled},
-	"SecondFactorPasskeyBegin":   {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeOriginRefused},
-	"SecondFactorPasskeyFinish":  {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeUnknownCredential, access.CodeAssertionFailed},
-	"SignInWithRecoveryCode":     {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeBadRequest, access.CodeTokenInvalid, access.CodeCodeInvalid},
-	"SetCredentialPassword":      {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeTokenInvalid, access.CodePasswordLoginDisabled, access.CodePasswordRejected, access.CodeBreachCheckUnavailable},
-	"SetCredentialPasskeyBegin":  {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeOriginRefused},
-	"SetCredentialPasskeyFinish": {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed, access.CodeDuplicateCredential},
-	"PendingTOTPBegin":           {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodeTOTPDisabled},
-	"PendingTOTPFinish":          {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeBadRequest, access.CodeTokenInvalid, access.CodeCodeInvalid, access.CodeTOTPDisabled, access.CodeSetupComplete, access.CodeUsernameTaken, access.CodeSSOOnly, access.CodeRegistrationClosed, access.CodeRegistrationFull},
-	"PendingPasskeyBegin":        {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeOriginRefused},
-	"PendingPasskeyFinish":       {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed, access.CodeDuplicateCredential, access.CodeSetupComplete, access.CodeUsernameTaken, access.CodeSSOOnly, access.CodeRegistrationClosed, access.CodeRegistrationFull},
-	"RegisterPassword":           {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeUsernameTaken, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeSSOOnly, access.CodeRegistrationClosed, access.CodeRegistrationFull},
-	"RegisterPasskeyBegin":       {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodePasskeysUnavailable, access.CodeOriginRefused, access.CodeSSOOnly, access.CodeRegistrationClosed, access.CodeRegistrationFull},
-	"RegisterPasskeyFinish":      {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeUnavailable, access.CodeUsernameTaken, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed, access.CodeSSOOnly, access.CodeRegistrationClosed, access.CodeRegistrationFull},
-	"StepUpCode":                 {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeRateLimited, access.CodeUnavailable, access.CodeBadRequest, access.CodeCodeInvalid, access.CodeSecondFactorUnavailable, access.CodeTOTPDisabled, access.CodeSSOOnly},
-	"BeginTOTP":                  {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeTOTPDisabled, access.CodeSSOOnly},
-	"FinishTOTP":                 {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeBadRequest, access.CodeTokenInvalid, access.CodeCodeInvalid, access.CodeSecondFactorUnavailable, access.CodeTOTPDisabled, access.CodeSSOOnly},
-	"RegenerateRecoveryCode":     {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeSSOOnly, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeBadRequest, access.CodeCodeInvalid, access.CodeCeremonyInvalid, access.CodeAssertionFailed, access.CodeUnknownCredential, access.CodePasskeysUnavailable, access.CodeSecondFactorUnavailable, access.CodeTOTPDisabled, access.CodeNotFound},
-	"RemoveTOTP":                 {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeRecentAuthRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeBadRequest, access.CodeCodeInvalid, access.CodeCeremonyInvalid, access.CodeAssertionFailed, access.CodeUnknownCredential, access.CodePasskeysUnavailable, access.CodeSecondFactorUnavailable, access.CodeLastMethod, access.CodeNotFound},
-	"PasskeyLoginBegin":          {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused},
-	"PasskeyLoginFinish":         {access.CodeHTTPSRequired, access.CodeInvalidCredentials, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeUnknownCredential, access.CodeAssertionFailed},
-	"Logout":                     {access.CodeUnavailable},
-	"AcceptInvitePassword":       {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeUsernameTaken, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeTokenInvalid, access.CodeSSOOnly},
-	"AdmitOIDC":                  {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeOIDCUnavailable},
-	"AcceptInviteOIDCBegin":      {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodeOIDCUnavailable},
-	opOIDCBegin:                  {access.CodeHTTPSRequired, access.CodeUnavailable, access.CodeBadRequest, access.CodeCrossOrigin, access.CodeOIDCUnavailable},
-	"OIDCComplete":               {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeRecentAuthRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodeIdentityTaken, access.CodeAlreadyLinked, access.CodeOIDCUnavailable, access.CodeOIDCFailed},
-	"CreatePendingOIDC":          {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeRateLimited, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeUsernameTaken, access.CodeTokenInvalid, access.CodeIdentityTaken, access.CodeOIDCUnavailable, access.CodeNotFound},
-	"LinkPendingOIDCByAdmin":     {access.CodeHTTPSRequired, access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeIdentityTaken, access.CodeAlreadyLinked, access.CodeOIDCUnavailable, access.CodeNotFound},
-	"OIDCPending":                {access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeOIDCUnavailable, access.CodeNotFound},
-	"LinkPendingOIDC":            {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeUnavailable, access.CodeIdentityTaken, access.CodeAlreadyLinked, access.CodeOIDCUnavailable, access.CodeNotFound},
-	"UnlinkOIDC":                 {access.CodeSessionExpired, access.CodeUnavailable, access.CodeLastMethod, access.CodeNotFound},
-	"StepUpPassword":             {access.CodeHTTPSRequired, access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodePasswordLoginDisabled, access.CodeSessionExpired, access.CodeSSOOnly, access.CodeSecondFactorRequired},
-	"SetPassword":                {access.CodeInvalidCredentials, access.CodeSSOOnly, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeBadRequest, access.CodePasswordRejected, access.CodeBreachCheckUnavailable, access.CodeSessionExpired},
-	"RemovePassword":             {access.CodeHTTPSRequired, access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeBadRequest, access.CodeLastMethod, access.CodeNotFound, access.CodeSessionExpired},
-	"Me":                         {access.CodeSessionExpired, access.CodeUnavailable},
-	"UpdateProfile":              {access.CodeSessionExpired, access.CodeUnavailable, access.CodeBadRequest},
-	"ReenableMethod":             {access.CodeRecentAuthRequired, access.CodeUnavailable, access.CodeMethodNotLocked},
-	"StepUpPasskeyBegin":         {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused, access.CodeNotFound, access.CodeSSOOnly},
-	"StepUpPasskeyFinish":        {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeUnknownCredential, access.CodeAssertionFailed, access.CodeSSOOnly},
-	"Passkeys":                   {access.CodeSessionExpired, access.CodeUnavailable},
-	"PasskeyRegisterBegin":       {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeSSOOnly, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeOriginRefused, access.CodeBadRequest, access.CodeCodeInvalid, access.CodeRateLimited, access.CodeCeremonyInvalid, access.CodeAssertionFailed, access.CodeUnknownCredential, access.CodePasskeysUnavailable, access.CodeSecondFactorUnavailable, access.CodeTOTPDisabled},
-	"PasskeyRegisterFinish":      {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeSSOOnly, access.CodeBusy, access.CodeUnavailable, access.CodeDuplicateCredential, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed},
-	"RenamePasskey":              {access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
-	"RemovePasskey":              {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeUnavailable, access.CodeLastMethod, access.CodeNotFound, access.CodeBadRequest, access.CodeCodeInvalid, access.CodeRateLimited, access.CodeCeremonyInvalid, access.CodeAssertionFailed, access.CodeUnknownCredential, access.CodePasskeysUnavailable, access.CodeSecondFactorUnavailable, access.CodeTOTPDisabled},
-	"WebAuthnSignals":            {access.CodeSessionExpired, access.CodeUnavailable, access.CodePasskeysUnavailable},
-	"Sessions":                   {access.CodeUnavailable},
-	"RenameSession":              {access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
-	"RevokeSession":              {access.CodeUnavailable, access.CodeNotFound},
-	"RevokeOtherSessions":        {access.CodeUnavailable},
-	"APIKeys":                    {access.CodeForbidden, access.CodeUnavailable},
-	"CreateAPIKey":               {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeUnknownScope, access.CodeKeyLabelTaken},
-	"RenameAPIKey":               {access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound, access.CodeKeyLabelTaken},
-	"RotateAPIKey":               {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
-	"RevokeAPIKey":               {access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
-	"Users":                      {access.CodeForbidden, access.CodeUnavailable},
-	"CreateUser":                 {access.CodeForbidden, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeUsernameTaken, access.CodePasswordRejected, access.CodeBreachCheckUnavailable},
-	"UpdateUser":                 {access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
-	"DeleteUser":                 {access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
-	"SetOwner":                   {access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
-	"AdminUnlinkOIDC":            {access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
-	"AdminRelinkOIDC":            {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeBusy, access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
-	"SetTemporaryPassword":       {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeBusy, access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound, access.CodeSSOOnly},
-	"ResetSecondFactor":          {access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
-	"SSOReadiness":               {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeUnavailable, access.CodeOIDCUnavailable},
-	"ApplySSO":                   {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeUnavailable, access.CodeOIDCUnavailable},
-	"CreateInvite":               {access.CodeHTTPSRequired, access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest},
-	"AllAPIKeys":                 {access.CodeForbidden, access.CodeUnavailable},
-	"RevokeAnyAPIKey":            {access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
-	"Tokens":                     {access.CodeForbidden, access.CodeUnavailable},
-	"SecurityLog":                {access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest},
+// The reasons each of these codes carries wherever it is answered, read
+// from the lists their owners publish.
+var (
+	originReasons   = reasonStrings(webauthn.OriginRejections())
+	usernameReasons = account.UsernameReasons()
+	// passwordReasons is a chosen password's refusals; only the password
+	// replacing a temporary one is also refused as that temporary password.
+	passwordReasons = []string{
+		string(access.PasswordTooShort), string(access.PasswordTooLong), string(access.PasswordContainsUsername),
+		string(access.PasswordContainsForbiddenWord), string(access.PasswordCommon), string(access.PasswordBreached),
+	}
+)
+
+func reasonStrings[R ~string](rs []R) []string {
+	out := make([]string, len(rs))
+	for i, r := range rs {
+		out[i] = string(r)
+	}
+	return out
 }
 
-// guardCodes is what a class's guard can answer: the Authenticator's
+// opAnswers is the codes each account operation's errors map to, with
+// their reasons, the third part of a route's answers; the class guard and
+// the transport add theirs. An operation that rereads its caller's session
+// or user answers ErrSessionGone, which maps to CodeSessionExpired.
+var opAnswers = map[string]answers{
+	"State": none(access.CodeUnavailable),
+	"SetupWithPassword": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeBreachCheckUnavailable, access.CodeSetupComplete, access.CodeSetupTokenRequired, access.CodeTokenInvalid).
+		open(access.CodeForbidden, ReasonNoUsableMethod).
+		with(access.CodeUsernameInvalid, usernameReasons...).
+		with(access.CodePasswordRejected, passwordReasons...),
+	"SetupPasskeyBegin": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeSetupComplete, access.CodeSetupTokenRequired, access.CodeTokenInvalid, access.CodePasskeysUnavailable).
+		with(access.CodeUsernameInvalid, usernameReasons...).
+		with(access.CodeOriginRefused, originReasons...),
+	"SetupPasskeyFinish": none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodeSetupComplete, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed).
+		open(access.CodeForbidden),
+	"PasswordLogin": none(access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable).
+		with(access.CodeHTTPSRequired, "", ReasonTemporaryPasswordExposed).
+		with(access.CodeForbidden, ReasonNoUsableMethod).
+		with(access.CodeUsernameInvalid, usernameReasons...).
+		with(access.CodeSecondFactorRequired, ReasonEnrolNeedsKnownDevice),
+	"SignInWithCode": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodeSecondFactorUnavailable, access.CodeTOTPDisabled).
+		open(access.CodeBadRequest).
+		with(access.CodeCodeInvalid, account.ReasonCodeInvalid, account.ReasonCodeReused, account.ReasonMethodLocked),
+	"SecondFactorPasskeyBegin": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodePasskeysUnavailable).
+		with(access.CodeOriginRefused, originReasons...),
+	"SecondFactorPasskeyFinish": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeUnknownCredential, access.CodeAssertionFailed),
+	"SignInWithRecoveryCode": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeTokenInvalid).
+		with(access.CodeForbidden, ReasonNoUsableMethod).
+		open(access.CodeBadRequest).
+		with(access.CodeCodeInvalid, account.ReasonCodeInvalid, account.ReasonMethodLocked),
+	"SetCredentialPassword": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeTokenInvalid, access.CodePasswordLoginDisabled, access.CodeBreachCheckUnavailable).
+		with(access.CodeForbidden, ReasonNoUsableMethod).
+		with(access.CodePasswordRejected, slices.Concat(passwordReasons, []string{string(access.PasswordIsTemporary)})...),
+	"SetCredentialPasskeyBegin": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodePasskeysUnavailable).
+		with(access.CodeOriginRefused, originReasons...),
+	"SetCredentialPasskeyFinish": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed, access.CodeDuplicateCredential),
+	"PendingTOTPBegin":           none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodeTOTPDisabled),
+	"PendingTOTPFinish": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeTokenInvalid, access.CodeTOTPDisabled, access.CodeSetupComplete, access.CodeUsernameTaken, access.CodeSSOOnly, access.CodeRegistrationClosed, access.CodeRegistrationFull).
+		open(access.CodeForbidden, account.ReasonSingleOwner).
+		open(access.CodeBadRequest).
+		with(access.CodeCodeInvalid, account.ReasonCodeInvalid),
+	"PendingPasskeyBegin": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodePasskeysUnavailable).
+		with(access.CodeOriginRefused, originReasons...),
+	"PendingPasskeyFinish": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeTokenInvalid, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed, access.CodeDuplicateCredential, access.CodeSetupComplete, access.CodeUsernameTaken, access.CodeSSOOnly, access.CodeRegistrationClosed, access.CodeRegistrationFull).
+		open(access.CodeForbidden, account.ReasonSingleOwner),
+	"RegisterPassword": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameTaken, access.CodeBreachCheckUnavailable, access.CodeSSOOnly, access.CodeRegistrationClosed, access.CodeRegistrationFull).
+		open(access.CodeForbidden, ReasonNoUsableMethod).
+		with(access.CodeUsernameInvalid, usernameReasons...).
+		with(access.CodePasswordRejected, passwordReasons...),
+	"RegisterPasskeyBegin": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeSSOOnly, access.CodeRegistrationClosed, access.CodeRegistrationFull).
+		open(access.CodeForbidden).
+		with(access.CodeUsernameInvalid, usernameReasons...).
+		with(access.CodeOriginRefused, originReasons...),
+	"RegisterPasskeyFinish": none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodeUsernameTaken, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed, access.CodeSSOOnly, access.CodeRegistrationClosed, access.CodeRegistrationFull).
+		open(access.CodeForbidden),
+	"StepUpCode": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeSecondFactorUnavailable, access.CodeTOTPDisabled, access.CodeSSOOnly).
+		with(access.CodeSessionExpired, ReasonSessionGone).
+		open(access.CodeBadRequest).
+		with(access.CodeCodeInvalid, account.ReasonCodeInvalid, account.ReasonCodeReused, account.ReasonMethodLocked),
+	"BeginTOTP": none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodeTOTPDisabled, access.CodeSSOOnly).
+		with(access.CodeSessionExpired, ReasonSessionGone).
+		with(access.CodeForbidden, ReasonTOTPNeedsPassword),
+	"FinishTOTP": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeTokenInvalid, access.CodeSecondFactorUnavailable, access.CodeTOTPDisabled, access.CodeSSOOnly).
+		with(access.CodeSessionExpired, ReasonSessionGone).
+		with(access.CodeForbidden, ReasonTOTPNeedsPassword).
+		open(access.CodeBadRequest, ReasonSecondFactorProofRequired).
+		with(access.CodeCodeInvalid, account.ReasonCodeInvalid, account.ReasonCodeReused, account.ReasonMethodLocked, account.ReasonCurrentCodeInvalid),
+	"RegenerateRecoveryCode": none(access.CodeHTTPSRequired, access.CodeSSOOnly, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeCeremonyInvalid, access.CodeAssertionFailed, access.CodeUnknownCredential, access.CodePasskeysUnavailable, access.CodeSecondFactorUnavailable, access.CodeTOTPDisabled, access.CodeNotFound).
+		with(access.CodeSessionExpired, ReasonSessionGone).
+		open(access.CodeBadRequest, ReasonSecondFactorProofRequired).
+		with(access.CodeCodeInvalid, account.ReasonCodeInvalid, account.ReasonCodeReused, account.ReasonMethodLocked),
+	"RemoveTOTP": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeCeremonyInvalid, access.CodeAssertionFailed, access.CodeUnknownCredential, access.CodePasskeysUnavailable, access.CodeSecondFactorUnavailable, access.CodeNotFound).
+		with(access.CodeSessionExpired, ReasonSessionGone).
+		with(access.CodeRecentAuthRequired, "", access.ReasonSignInAgain).
+		open(access.CodeBadRequest, ReasonSecondFactorProofRequired).
+		with(access.CodeCodeInvalid, account.ReasonCodeInvalid, account.ReasonCodeReused, account.ReasonMethodLocked).
+		with(access.CodeLastMethod, ReasonLastSecondFactor),
+	"PasskeyLoginBegin": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodePasskeysUnavailable).
+		with(access.CodeOriginRefused, originReasons...),
+	"PasskeyLoginFinish": none(access.CodeHTTPSRequired, access.CodeInvalidCredentials, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeUnknownCredential, access.CodeAssertionFailed),
+	"Logout":             none(access.CodeUnavailable),
+	"AcceptInvitePassword": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameTaken, access.CodeBreachCheckUnavailable, access.CodeTokenInvalid, access.CodeSSOOnly).
+		open(access.CodeForbidden, ReasonNoUsableMethod, account.ReasonSingleOwner).
+		with(access.CodeUsernameInvalid, usernameReasons...).
+		with(access.CodePasswordRejected, passwordReasons...),
+	"AdmitOIDC": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeOIDCUnavailable),
+	"AcceptInviteOIDCBegin": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodeOIDCUnavailable).
+		open(access.CodeForbidden, account.ReasonSingleOwner),
+	opOIDCBegin: none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodeCrossOrigin, access.CodeOIDCUnavailable).
+		with(access.CodeBadRequest, ReasonRedirectTooLong),
+	"OIDCComplete": none(access.CodeHTTPSRequired, access.CodeInvalidCredentials, access.CodeRecentAuthRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTokenInvalid, access.CodeIdentityTaken, access.CodeAlreadyLinked, access.CodeOIDCUnavailable).
+		with(access.CodeSessionExpired, ReasonSessionGone).
+		open(access.CodeForbidden, ReasonNotAdmitted, account.ReasonSingleOwner).
+		open(access.CodeOIDCFailed, ReasonExchangeFailed, ReasonFlowInvalid, ReasonNonceMismatch, ReasonPendingTooLarge, ReasonStaleAuthentication, ReasonTokenInvalid),
+	"CreatePendingOIDC": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeUsernameTaken, access.CodeTokenInvalid, access.CodeIdentityTaken, access.CodeOIDCUnavailable, access.CodeNotFound).
+		open(access.CodeForbidden, ReasonProvisioningDisabled, account.ReasonSingleOwner).
+		with(access.CodeUsernameInvalid, usernameReasons...),
+	"LinkPendingOIDCByAdmin": none(access.CodeHTTPSRequired, access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeIdentityTaken, access.CodeAlreadyLinked, access.CodeOIDCUnavailable, access.CodeNotFound),
+	"OIDCPending":            none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeOIDCUnavailable, access.CodeNotFound),
+	"LinkPendingOIDC": none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodeIdentityTaken, access.CodeAlreadyLinked, access.CodeOIDCUnavailable, access.CodeNotFound).
+		with(access.CodeSessionExpired, ReasonSessionGone),
+	"UnlinkOIDC": none(access.CodeUnavailable, access.CodeLastMethod, access.CodeNotFound).
+		with(access.CodeSessionExpired, ReasonSessionGone),
+	"StepUpPassword": none(access.CodeHTTPSRequired, access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodePasswordLoginDisabled, access.CodeSSOOnly).
+		with(access.CodeSessionExpired, ReasonSessionGone).
+		with(access.CodeSecondFactorRequired, ReasonSecondFactorHeld),
+	"SetPassword": none(access.CodeInvalidCredentials, access.CodeSSOOnly, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeBreachCheckUnavailable).
+		with(access.CodeBadRequest, ReasonCurrentPasswordRequired).
+		with(access.CodePasswordRejected, passwordReasons...).
+		with(access.CodeSessionExpired, ReasonSessionGone),
+	"RemovePassword": none(access.CodeHTTPSRequired, access.CodeInvalidCredentials, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeLastMethod, access.CodeNotFound).
+		with(access.CodeBadRequest, ReasonCurrentPasswordRequired).
+		with(access.CodeSessionExpired, ReasonSessionGone),
+	"Me": none(access.CodeUnavailable).
+		with(access.CodeSessionExpired, ReasonSessionGone),
+	"UpdateProfile": none(access.CodeUnavailable).
+		with(access.CodeSessionExpired, ReasonSessionGone).
+		with(access.CodeBadRequest, textReason(account.TextFieldDisplayName, account.ReasonDisallowedCharacter), textReason(account.TextFieldDisplayName, account.ReasonTooLong)),
+	"ReenableMethod": none(access.CodeUnavailable, access.CodeMethodNotLocked).
+		with(access.CodeRecentAuthRequired, "", ReasonReenableNeedsOtherMethod, access.ReasonSignInAgain),
+	"StepUpPasskeyBegin": none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeNotFound, access.CodeSSOOnly).
+		with(access.CodeSessionExpired, ReasonSessionGone).
+		with(access.CodeOriginRefused, originReasons...),
+	"StepUpPasskeyFinish": none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeUnknownCredential, access.CodeAssertionFailed, access.CodeSSOOnly).
+		with(access.CodeSessionExpired, ReasonSessionGone),
+	"Passkeys": none(access.CodeUnavailable).
+		with(access.CodeSessionExpired, ReasonSessionGone),
+	"PasskeyRegisterBegin": none(access.CodeHTTPSRequired, access.CodeSSOOnly, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeRateLimited, access.CodeCeremonyInvalid, access.CodeAssertionFailed, access.CodeUnknownCredential, access.CodeSecondFactorUnavailable, access.CodeTOTPDisabled).
+		with(access.CodeSessionExpired, ReasonSessionGone).
+		with(access.CodeOriginRefused, originReasons...).
+		open(access.CodeBadRequest, ReasonSecondFactorProofRequired).
+		with(access.CodeCodeInvalid, account.ReasonCodeInvalid, account.ReasonCodeReused, account.ReasonMethodLocked),
+	"PasskeyRegisterFinish": none(access.CodeHTTPSRequired, access.CodeSSOOnly, access.CodeBusy, access.CodeUnavailable, access.CodeDuplicateCredential, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeNotDiscoverable, access.CodeRegistrationFailed).
+		with(access.CodeSessionExpired, ReasonSessionGone),
+	"RenamePasskey": none(access.CodeUnavailable, access.CodeNotFound).
+		with(access.CodeBadRequest, textReason(account.TextFieldLabel, account.ReasonDisallowedCharacter), textReason(account.TextFieldLabel, account.ReasonTooLong)),
+	"RemovePasskey": none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodeNotFound, access.CodeRateLimited, access.CodeCeremonyInvalid, access.CodeAssertionFailed, access.CodeUnknownCredential, access.CodePasskeysUnavailable, access.CodeSecondFactorUnavailable, access.CodeTOTPDisabled).
+		with(access.CodeSessionExpired, ReasonSessionGone).
+		with(access.CodeLastMethod, "", ReasonLastSecondFactor).
+		open(access.CodeBadRequest, ReasonSecondFactorProofRequired).
+		with(access.CodeCodeInvalid, account.ReasonCodeInvalid, account.ReasonCodeReused, account.ReasonMethodLocked),
+	"WebAuthnSignals": none(access.CodeUnavailable, access.CodePasskeysUnavailable).
+		with(access.CodeSessionExpired, ReasonSessionGone),
+	"Sessions": none(access.CodeUnavailable),
+	"RenameSession": none(access.CodeUnavailable, access.CodeNotFound).
+		with(access.CodeBadRequest, textReason(account.TextFieldLabel, account.ReasonDisallowedCharacter), textReason(account.TextFieldLabel, account.ReasonTooLong)),
+	"RevokeSession":       none(access.CodeUnavailable, access.CodeNotFound),
+	"RevokeOtherSessions": none(access.CodeUnavailable),
+	"APIKeys": none(access.CodeUnavailable).
+		open(access.CodeForbidden, account.ReasonKeyNotCurrent),
+	"CreateAPIKey": none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodeUnknownScope, access.CodeKeyLabelTaken).
+		with(access.CodeSessionExpired, ReasonSessionGone).
+		open(access.CodeForbidden, account.ReasonExpiryAfterParent, account.ReasonKeyNotCurrent, account.ReasonKeyRetiring, account.ReasonLineageTooDeep, account.ReasonOtherUser, account.ReasonPermissionNotAdmin, account.ReasonScopesNotSubset, account.ReasonTargetNotEligible).
+		with(access.CodeBadRequest, ReasonExpiryInvalid, textReason(account.TextFieldLabel, account.ReasonDisallowedCharacter), textReason(account.TextFieldLabel, account.ReasonEmpty), textReason(account.TextFieldLabel, account.ReasonTooLong)),
+	"RenameAPIKey": none(access.CodeUnavailable, access.CodeNotFound, access.CodeKeyLabelTaken).
+		open(access.CodeForbidden, account.ReasonKeyNotCurrent).
+		with(access.CodeBadRequest, textReason(account.TextFieldLabel, account.ReasonDisallowedCharacter), textReason(account.TextFieldLabel, account.ReasonEmpty), textReason(account.TextFieldLabel, account.ReasonTooLong)),
+	"RotateAPIKey": none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodeNotFound).
+		with(access.CodeSessionExpired, ReasonSessionGone).
+		open(access.CodeForbidden, account.ReasonKeyExpired),
+	"RevokeAPIKey": none(access.CodeUnavailable, access.CodeNotFound).
+		open(access.CodeForbidden, account.ReasonKeyNotCurrent),
+	"Users": none(access.CodeUnavailable).
+		open(access.CodeForbidden),
+	"CreateUser": none(access.CodeBusy, access.CodeUnavailable, access.CodeUsernameTaken, access.CodeBreachCheckUnavailable).
+		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonKeyRetiring, account.ReasonSingleOwner).
+		with(access.CodeUsernameInvalid, usernameReasons...).
+		with(access.CodePasswordRejected, passwordReasons...),
+	"UpdateUser": none(access.CodeUnavailable, access.CodeNotFound).
+		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonKeyRetiring, account.ReasonLastOwner, account.ReasonOwnerRole, account.ReasonOwnerTarget, account.ReasonSingleOwner).
+		with(access.CodeBadRequest, ReasonNoChange),
+	"DeleteUser": none(access.CodeUnavailable, access.CodeNotFound).
+		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonLastOwner, account.ReasonOwnerTarget),
+	"SetOwner": none(access.CodeUnavailable, access.CodeNotFound).
+		open(access.CodeForbidden, account.ReasonLastOwner, account.ReasonOwnerNeedsLocalMethod, account.ReasonOwnerTarget),
+	"AdminUnlinkOIDC": none(access.CodeUnavailable, access.CodeNotFound).
+		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonOwnerTarget),
+	"AdminRelinkOIDC": none(access.CodeHTTPSRequired, access.CodeBusy, access.CodeUnavailable, access.CodeNotFound).
+		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonOwnerTarget, account.ReasonSelfRecovery).
+		with(access.CodeBadRequest, ReasonTTLNegative, ReasonTTLTooLong),
+	"SetTemporaryPassword": none(access.CodeHTTPSRequired, access.CodeBusy, access.CodeUnavailable, access.CodeNotFound).
+		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonOwnerTarget, account.ReasonSelfRecovery).
+		with(access.CodeBadRequest, ReasonTTLNegative, ReasonTTLTooLong).
+		with(access.CodeSSOOnly, ReasonLinked),
+	"ResetSecondFactor": none(access.CodeUnavailable, access.CodeNotFound).
+		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonOwnerTarget, account.ReasonSelfRecovery),
+	"SSOReadiness": none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodeOIDCUnavailable).
+		open(access.CodeForbidden, account.ReasonKeyNotCurrent).
+		with(access.CodeBadRequest, ""),
+	"ApplySSO": none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodeOIDCUnavailable).
+		with(access.CodeForbidden, account.ReasonNotOwner, account.ReasonOwnerNeedsLocalMethod, account.ReasonRegistrationEnabled, account.ReasonSingleOwner).
+		with(access.CodeBadRequest, ""),
+	"CreateInvite": none(access.CodeHTTPSRequired, access.CodeUnavailable).
+		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonKeyRetiring, account.ReasonSingleOwner).
+		with(access.CodeBadRequest, ReasonTTLNegative, ReasonTTLTooLong),
+	"AllAPIKeys": none(access.CodeUnavailable).
+		open(access.CodeForbidden, account.ReasonKeyNotCurrent),
+	"RevokeAnyAPIKey": none(access.CodeUnavailable, access.CodeNotFound).
+		open(access.CodeForbidden, account.ReasonKeyNotCurrent),
+	"Tokens": none(access.CodeUnavailable).
+		open(access.CodeForbidden),
+	"SecurityLog": none(access.CodeUnavailable).
+		open(access.CodeForbidden).
+		with(access.CodeBadRequest, account.ReasonLogID, account.ReasonLogKind, account.ReasonLogLimit, account.ReasonLogRange),
+}
+
+// guardAnswers is what a class's guard can answer: the Authenticator's
 // refusals on every class that authenticates, auth_https_required among
 // them since a descriptor does not know the posture, then the class
 // predicate's. A key class has a scope set (classFor), so a non-key
 // principal there is refused for the scope, never for want of a session.
-func guardCodes(c Class) []access.Code {
+func guardAnswers(c Class) answers {
 	if c == ClassPublic {
 		return nil
 	}
-	codes := []access.Code{access.CodeAuthRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeKeyInvalid, access.CodeUnavailable, access.CodeHTTPSRequired}
+	as := none(access.CodeAuthRequired, access.CodeInvalidCredentials, access.CodeKeyInvalid, access.CodeUnavailable, access.CodeHTTPSRequired).
+		with(access.CodeSessionExpired, "", access.ReasonTransportChanged)
 	switch c {
 	case ClassSession:
-		codes = append(codes, access.CodeSessionRequired)
+		as = append(as, none(access.CodeSessionRequired)...)
 	case ClassRecentAuth:
-		codes = append(codes, access.CodeSessionRequired, access.CodeRecentAuthRequired)
+		as = append(as, none(access.CodeSessionRequired)...).with(access.CodeRecentAuthRequired, "", access.ReasonSignInAgain)
 	case ClassKeyScope:
-		codes = append(codes, access.CodeScopeRequired)
+		as = append(as, none(access.CodeScopeRequired)...)
 	case ClassKeyPermission:
-		codes = append(codes, access.CodeRecentAuthRequired, access.CodeScopeRequired)
+		as = append(as, none(access.CodeScopeRequired)...).with(access.CodeRecentAuthRequired, "", access.ReasonSignInAgain)
 	default:
 	}
-	return codes
+	return as
 }
 
-// transportCodes is what the transport can answer before or around the
+// transportAnswers is what the transport can answer before or around the
 // operation: method, origin, body, path, query and limiter refusals.
-func (s *routeSpec) transportCodes() []access.Code {
-	codes := []access.Code{access.CodeMethodNotAllowed}
+func (s *routeSpec) transportAnswers() answers {
+	as := none(access.CodeMethodNotAllowed)
 	if s.method != http.MethodGet {
-		codes = append(codes, access.CodeCrossOrigin)
+		as = append(as, none(access.CodeCrossOrigin)...)
 	}
-	body := s.request != nil || s.cer != ceremonyNone
-	if body {
-		codes = append(codes, access.CodeBodyTooLarge)
+	var refused []string // the body's own refusals; the decode of s.request also names fields
+	if s.request != nil || s.cer != ceremonyNone {
+		as = append(as, none(access.CodeBodyTooLarge)...)
+		refused = append(refused, ReasonContentType, ReasonBody)
 	}
-	if body || s.pathID != pathNone || s.tokenBody || (s.query != nil && !s.redirect) {
-		codes = append(codes, access.CodeBadRequest)
+	if s.request != nil {
+		refused = append(refused, ReasonMalformedJSON, ReasonTrailingData, ReasonUnknownField)
+	}
+	if s.tokenBody {
+		refused = append(refused, ReasonTokenInQuery)
+	}
+	switch {
+	case s.request != nil || s.pathID != pathNone || (s.query != nil && !s.redirect):
+		as = as.open(access.CodeBadRequest, refused...)
+	case len(refused) > 0:
+		as = as.with(access.CodeBadRequest, refused...)
 	}
 	if s.limited {
-		codes = append(codes, access.CodeRateLimited)
+		as = append(as, none(access.CodeRateLimited)...)
 	}
-	return codes
+	return as
 }
 
 // classFor resolves a spec's class and scope against dc's scopes.
@@ -390,6 +592,12 @@ func Descriptors(cfg DescriptorConfig) []Descriptor { //nolint:gocritic // hugeP
 	return out
 }
 
+// answers is every code the route can answer under class, with its
+// reasons: its guard's, its transport's and its operation's.
+func (s *routeSpec) answers(class Class) answers {
+	return slices.Concat(guardAnswers(class), s.transportAnswers(), opAnswers[s.op])
+}
+
 func (s *routeSpec) descriptor(dc *DescriptorConfig) Descriptor {
 	class, scope := s.classFor(dc)
 	path := dc.Prefix + s.path
@@ -400,7 +608,6 @@ func (s *routeSpec) descriptor(dc *DescriptorConfig) Descriptor {
 	if s.redirect {
 		kind = KindRedirect
 	}
-	parts := slices.Concat(guardCodes(class), s.transportCodes(), opCodes[s.op])
 	return Descriptor{
 		Name:     s.name,
 		Method:   s.method,
@@ -413,7 +620,7 @@ func (s *routeSpec) descriptor(dc *DescriptorConfig) Descriptor {
 		Query:    s.query,
 		Response: s.response,
 		Array:    s.array,
-		Codes:    inCodesOrder(parts),
+		Codes:    s.answers(class).codes(),
 		Doc:      s.doc,
 	}
 }

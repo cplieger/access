@@ -225,18 +225,36 @@ func accountSelector(e ast.Expr) (string, bool) {
 // ErrorWriter or a redirect's auth_error, and the contract breaks it logged.
 func (e *env) answer(t *testing.T, rt Route, r *http.Request) (code access.Code, breaks int) {
 	t.Helper()
+	got, _, breaks := e.refusalOf(t, rt, r)
+	return got.Code, breaks
+}
+
+// refusalOf serves r and returns the refusal it answered, whose Reason only
+// the ErrorWriter sees: a redirect carries the code alone.
+func (e *env) refusalOf(t *testing.T, rt Route, r *http.Request) (got access.Error, redirected bool, breaks int) {
+	t.Helper()
 	errsBefore, breaksBefore := len(e.errs.all()), e.logs.CountMsg("contract break")
 	w := do(rt, r)
 	errs := e.errs.all()[errsBefore:]
 	breaks = e.logs.CountMsg("contract break") - breaksBefore
 	switch {
 	case len(errs) == 1:
-		return errs[0].Code, breaks
+		return errs[0], false, breaks
 	case len(errs) == 0 && w.Code == http.StatusFound:
-		return redirectedCode(t, w), breaks
+		return access.Error{Code: redirectedCode(t, w)}, true, breaks
 	default:
 		t.Errorf("status %d with %d ErrorWriter calls, want one refusal", w.Code, len(errs))
-		return "", breaks
+		return access.Error{}, false, breaks
+	}
+}
+
+// checkReason fails t when e's Reason is not one rt's answers give its
+// code (design 4.56).
+func checkReason(t *testing.T, rt *Route, e access.Error) {
+	t.Helper()
+	rs := specNamed(t, rt.Name).answers(rt.Class).reasons()[e.Code]
+	if !rs.admits(e.Code, e.Reason) {
+		t.Errorf("answered %s with reason %q, which its answers (listed %q, open %t) do not give", e.Code, e.Reason, rs.listed, rs.open)
 	}
 }
 
@@ -250,11 +268,15 @@ type boundaryCase struct {
 }
 
 // run serves the case and returns the code it answered and the contract
-// breaks it logged.
+// breaks it logged, failing t on a Reason its route's answers do not give.
 func (bc *boundaryCase) run(t *testing.T) (got access.Code, breaks int) {
 	t.Helper()
 	e, rt, r := bc.build(t)
-	return e.answer(t, rt, r)
+	refusal, redirected, breaks := e.refusalOf(t, rt, r)
+	if !redirected && breaks == 0 {
+		checkReason(t, &rt, refusal)
+	}
+	return refusal.Code, breaks
 }
 
 // boundaryCases are rt's guard cases, one per census and fault principal
@@ -504,7 +526,7 @@ func TestDescriptorCodesReached(t *testing.T) {
 		}
 		for i := range specs {
 			route := specs[i].name
-			if got, want := inCodesOrder(byRoute[route]), inCodesOrder(opCodes[specs[i].op]); !slices.Equal(got, want) {
+			if got, want := inCodesOrder(byRoute[route]), opAnswers[specs[i].op].codes(); !slices.Equal(got, want) {
 				t.Errorf("%s: scenario codes %v, operation codes %v", route, got, want)
 			}
 			delete(byRoute, route)
@@ -540,6 +562,9 @@ func runScenario(t *testing.T, route string, code access.Code, sc scenario) {
 		}
 	} else if len(errs) != 1 || errs[0].Code != code || w.Code != access.NewError(code, "", nil).Status {
 		t.Errorf("status %d, errors %+v, want one %s", w.Code, errs, code)
+	} else {
+		rt := e.route(t, route)
+		checkReason(t, &rt, errs[0])
 	}
 	if n := e.logs.CountMsg("contract break") - breaksBefore; n != 0 {
 		t.Errorf("%d contract-break logs, want none", n)

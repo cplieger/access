@@ -27,6 +27,13 @@ func ssoScenarios() map[scenarioKey]scenario {
 		out[scenarioKey{name, access.CodeUnavailable}] = closing(envOptions{}, byRoot(name, b))
 		out[scenarioKey{name, access.CodeOIDCUnavailable}] = scenario{opts: unwired, arrange: byRoot(name, b)}
 	}
+	// An unknown mode is account.ErrUnknownSSOMode, which carries no reason.
+	out[scenarioKey{readiness, access.CodeBadRequest}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		r := byRoot(readiness, "")(t, e)
+		r.URL.RawQuery = "mode=nope"
+		return r
+	}}
+	out[scenarioKey{apply, access.CodeBadRequest}] = scenario{arrange: byRoot(apply, `{"mode":"nope"}`)}
 	return out
 }
 

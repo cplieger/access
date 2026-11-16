@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"maps"
 	"net/http"
 	"path/filepath"
 	"reflect"
@@ -394,6 +395,65 @@ func TestRoutePathParams(t *testing.T) {
 		want := byCollection[collection]
 		if got := s.pathID.typ(); got == nil || got != want {
 			t.Errorf("%s parameter %s is typed %v, want %v", s.name, s.pathID.key(), got, want)
+		}
+	}
+}
+
+// reasons merges as by code: the union of the listed reasons, sorted, and
+// open when any part marks the code open.
+func (as answers) reasons() map[access.Code]reasonSet {
+	out := make(map[access.Code]reasonSet, len(as))
+	for _, a := range as {
+		rs := out[a.code]
+		rs.listed = append(rs.listed, a.listed...)
+		rs.open = rs.open || a.open
+		out[a.code] = rs
+	}
+	for code, rs := range out {
+		slices.Sort(rs.listed)
+		rs.listed = slices.Compact(rs.listed)
+		out[code] = rs
+	}
+	return out
+}
+
+// TestRouteReasons is design 4.56: under both key-scope settings, every
+// code a route answers carries a listed Reason ("" for none) or an open
+// mark, every listed one is a Reason access fixes (Reasons), and only the
+// three families a route cannot fix are open: auth_bad_request on a route
+// that names a refused field, path value or query key, auth_oidc_failed on
+// the callback, and auth_forbidden.
+func TestRouteReasons(t *testing.T) {
+	for _, dc := range scopeConfigs {
+		for i := range specs {
+			s := &specs[i]
+			class, _ := s.classFor(&dc)
+			d := s.descriptor(&dc)
+			reasons := s.answers(class).reasons()
+			if got := inCodesOrder(slices.Collect(maps.Keys(reasons))); !slices.Equal(got, d.Codes) {
+				t.Errorf("%s: reasons for %v, Codes %v", s.name, got, d.Codes)
+			}
+			for _, code := range d.Codes {
+				rs := reasons[code]
+				if len(rs.listed) == 0 && !rs.open {
+					t.Errorf("%s: %s has no listed reason and no open mark", s.name, code)
+				}
+				for _, r := range rs.listed {
+					if !fixedReasons[r] {
+						t.Errorf("%s: %s lists %q, which Reasons does not hold", s.name, code, r)
+					}
+				}
+			}
+			namesField := s.request != nil || s.pathID != pathNone || s.query != nil && !s.redirect
+			want := map[access.Code]bool{
+				access.CodeBadRequest: namesField,
+				access.CodeOIDCFailed: s.name == "authOIDCCallback",
+			}
+			for code, rs := range reasons {
+				if code != access.CodeForbidden && rs.open != want[code] {
+					t.Errorf("%s: %s open %t, want %t", s.name, code, rs.open, want[code])
+				}
+			}
 		}
 	}
 }

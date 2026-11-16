@@ -217,8 +217,8 @@ func TestSessionGoneCodes(t *testing.T) {
 	for _, name := range []string{"authStepUpPassword", "authPasswordSet", "authPasswordRemove", "authOIDCLinkPending", "authOIDCUnlink"} {
 		t.Run(name, func(t *testing.T) {
 			rt := e.route(t, name)
-			if !slices.Contains(opCodes[specNamed(t, name).op], access.CodeSessionExpired) {
-				t.Errorf("operation codes %v lack auth_session_expired", opCodes[specNamed(t, name).op])
+			if !slices.Contains(opAnswers[specNamed(t, name).op].codes(), access.CodeSessionExpired) {
+				t.Errorf("operation codes %v lack auth_session_expired", opAnswers[specNamed(t, name).op].codes())
 			}
 			if slices.Contains(rt.Codes, access.CodeOIDCFailed) {
 				t.Errorf("Codes %v hold auth_oidc_failed", rt.Codes)
