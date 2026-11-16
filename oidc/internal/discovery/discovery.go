@@ -18,12 +18,12 @@ import (
 )
 
 var (
-	// ErrFetch is the error Fetch wraps when the document could not be
-	// fetched: a transport error, a redirect, an answer other than 200 or a
-	// body read error.
+	// ErrFetch is the error Fetch and NewKeySet wrap when the provider could
+	// not be reached: a transport error, a redirect, an answer other than
+	// 200 or a body read error other than the body cap.
 	ErrFetch = errors.New("discovery: fetch failed")
 	// ErrDocument is the error Parse and Fetch wrap when they refuse a
-	// document.
+	// document, one past the body cap included.
 	ErrDocument = errors.New("discovery: document refused")
 )
 
@@ -42,7 +42,7 @@ type Document struct {
 func Fetch(ctx context.Context, client *http.Client, issuer string) (Document, error) {
 	body, err := get(ctx, client, strings.TrimSuffix(issuer, "/")+"/.well-known/openid-configuration")
 	if err != nil {
-		return Document{}, err
+		return Document{}, refusedPastCap(ErrDocument, err)
 	}
 	return Parse(issuer, body)
 }

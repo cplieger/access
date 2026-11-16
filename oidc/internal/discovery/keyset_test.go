@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"reflect"
 	"runtime"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/cplieger/access/oidc/internal/bodycap"
 	"github.com/cplieger/access/oidc/internal/discovery"
 	"github.com/cplieger/access/oidc/internal/jwk"
 	"github.com/cplieger/access/oidc/internal/jws"
@@ -56,10 +58,35 @@ func TestNewKeySet_Refusals(t *testing.T) {
 			if ks != nil || !errors.Is(err, tc.want) {
 				t.Fatalf("NewKeySet = %v, %v; want nil, %v", ks, err, tc.want)
 			}
+			if errors.Is(err, discovery.ErrFetch) == errors.Is(err, discovery.ErrKeys) || errors.Is(err, discovery.ErrDocument) {
+				t.Errorf("NewKeySet = %v, want exactly one of ErrFetch and ErrKeys", err)
+			}
 			if got := idp.requests(); got != 1 {
 				t.Errorf("the JWKS saw %d requests, want 1: a redirect is never followed", got)
 			}
 		})
+	}
+}
+
+// Design 6.16: a JWK Set over the body cap is one the provider published
+// and access refuses, so it is a refused set, never a failed fetch, while
+// one at the cap is read whole.
+func TestNewKeySet_BodyPastCap(t *testing.T) {
+	t.Parallel()
+	set := jsonText(map[string]any{"keys": []any{ecSigner(t, "a").jwk(t)}})
+	build := func(size int) error {
+		idp := &jwksIdP{}
+		idp.serve(reply{status: http.StatusOK, body: string(padded([]byte(set), size))})
+		client := &http.Client{Transport: bodycap.Transport{Next: idp}, Timeout: 10 * time.Second}
+		_, err := discovery.NewKeySet(t.Context(), client, discovery.Document{JWKSURI: jwksURI, Algs: testAlgs}, newClock().now, slog.New(&logSink{}))
+		return err
+	}
+	if err := build(bodycap.MaxBytes); err != nil {
+		t.Errorf("a set of exactly the cap: NewKeySet = %v, want nil", err)
+	}
+	err := build(bodycap.MaxBytes + 1)
+	if !errors.Is(err, discovery.ErrKeys) || errors.Is(err, discovery.ErrFetch) || !errors.Is(err, bodycap.ErrTooLarge) {
+		t.Errorf("a set one byte past the cap: NewKeySet = %v, want ErrKeys alone, wrapping bodycap.ErrTooLarge", err)
 	}
 }
 

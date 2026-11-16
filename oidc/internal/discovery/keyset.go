@@ -26,8 +26,8 @@ const (
 	gateInterval = time.Minute
 )
 
-// ErrKeys is the error NewKeySet wraps when the fetched JWK Set is refused
-// or holds no usable key.
+// ErrKeys is the error NewKeySet wraps when the fetched JWK Set is refused,
+// past the body cap included, or holds no usable key.
 var ErrKeys = errors.New("discovery: JWK Set refused")
 
 // KeySet is a provider's JWK Set, fetched from its jwks_uri and cached. A
@@ -169,7 +169,7 @@ func (k *KeySet) refetch(ctx context.Context, done chan struct{}) {
 func (k *KeySet) fetch(ctx context.Context) (*snapshot, error) {
 	body, err := get(ctx, k.client, k.uri)
 	if err != nil {
-		return nil, err
+		return nil, refusedPastCap(ErrKeys, err)
 	}
 	keys, err := jwk.Parse(body)
 	if err != nil {

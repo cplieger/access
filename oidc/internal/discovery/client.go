@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+
+	"github.com/cplieger/access/oidc/internal/bodycap"
 )
 
 // noRedirect copies c with a CheckRedirect that hands back every redirect
@@ -20,8 +22,9 @@ func noRedirect(c *http.Client) *http.Client {
 }
 
 // get fetches target through a no-redirect copy of c. Only a 200 answer's
-// body is read (Discovery 1.0 §4.2); every error wraps ErrFetch and never
-// carries target, whose query may hold a secret.
+// body is read (Discovery 1.0 §4.2). Every error but c's body cap,
+// bodycap.ErrTooLarge returned as is, wraps ErrFetch, and none carries
+// target, whose query may hold a secret.
 func get(ctx context.Context, c *http.Client, target string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, http.NoBody)
 	if err != nil {
@@ -42,8 +45,20 @@ func get(ctx context.Context, c *http.Client, target string) ([]byte, error) {
 		return nil, fmt.Errorf("%w: answer %d, want 200", ErrFetch, resp.StatusCode)
 	}
 	body, err := io.ReadAll(resp.Body)
-	if err != nil {
+	switch {
+	case errors.Is(err, bodycap.ErrTooLarge):
+		return nil, err
+	case err != nil:
 		return nil, fmt.Errorf("%w: %w", ErrFetch, err)
 	}
 	return body, nil
+}
+
+// refusedPastCap wraps a get error that is c's body cap in refused, the
+// error of a provider that answered with more than access reads.
+func refusedPastCap(refused, err error) error {
+	if errors.Is(err, bodycap.ErrTooLarge) {
+		return fmt.Errorf("%w: %w", refused, err)
+	}
+	return err
 }

@@ -198,14 +198,6 @@ func (w *opWorld) otherSessions(t *testing.T, u *access.User, except string) []s
 	return slices.DeleteFunc(sessionIDsOf(t, w.fixture, u.ID), func(id string) bool { return id == except })
 }
 
-// keysOfUser are u's stored key IDs, ascending.
-func (w *opWorld) keysOfUser(t *testing.T, u *access.User) []int64 {
-	t.Helper()
-	ids := keyIDs(keysOf(t, w.mem, u.ID))
-	slices.Sort(ids)
-	return ids
-}
-
 // pendingTicket gives alice a TOTP record and answers her pending sign-in
 // from w.client, or from localClient where w.client's step 1 is refused,
 // with the record's secret.

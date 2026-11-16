@@ -331,16 +331,6 @@ func limitedPaths() []limitedPath {
 	}
 }
 
-// setEnabled stores userID's Enabled as enabled.
-func setEnabled(t *testing.T, s account.Store, userID int64, enabled bool) {
-	t.Helper()
-	u := storedUser(t, s, userID)
-	u.Enabled = enabled
-	if err := s.UpdateUser(t.Context(), u); err != nil {
-		t.Fatalf("UpdateUser: %v", err)
-	}
-}
-
 func TestRefusalsBeforeLimitEveryPath(t *testing.T) {
 	t.Parallel()
 	one := ratelimit.Rate{Limit: 1, Window: time.Hour}

@@ -4,17 +4,22 @@ The `oidc` package signs a user in with an OpenID Connect provider. It verifies 
 
 ## The provider
 
-`oidc.NewProvider` takes an `oidc.Config`, runs discovery and fetches the provider's key set. `Config.Validate` requires a client ID and an `https` issuer and redirect URL. It also accepts `http` on a loopback host, such as a local test provider. `Scopes` defaults to `openid`, `profile` and `email`, and a list you set must include `openid`.
+`oidc.NewProvider` takes an `oidc.Config`, runs discovery and fetches the provider's key set. `Config.Validate` requires a client ID and an `https` issuer and redirect URL. It also accepts `http` on a loopback host, such as a local test provider. `Scopes` defaults to `openid`, `profile` and `email`, and a list you set must include `openid`. `Validate` also checks that the largest flow cookie fits, as "The flow cookie" describes. It makes no request, and `NewProvider` calls it first, so every `ErrConfigInvalid` a configuration can earn comes from `Validate`: call it when an owner saves the settings, and show its error on the field it names.
 
 Discovery reads the issuer with one trailing `/` removed, followed by `/.well-known/openid-configuration`, so an issuer such as `https://tenant.auth0.com/` works. The document's `issuer` must equal `Config.IssuerURL` exactly, trailing slash included.
 
-`NewProvider` fails with `ErrDiscovery` in each of these cases, and the error never names a URL:
+A failed `NewProvider` matches exactly one of two errors, and neither names a URL.
 
-- the document or the key set cannot be fetched, redirects, or answers with a status other than 200
-- the document's `issuer` is another issuer
-- the document's `authorization_endpoint`, `token_endpoint` or `jwks_uri` is not an absolute `https` URL with a host and no user information. The error names the field. A loopback `http` endpoint is accepted only while the issuer is itself a loopback `http` URL.
-- the document's `id_token_signing_alg_values_supported` shares no algorithm with the table below. When the field is absent, the provider's set is `RS256`, the OpenID Connect default.
-- the key set holds no usable key
+`ErrDiscovery` means the provider could not be reached: the connection or TLS handshake failed, the client timed out, or the document or the key set redirected or answered with a status other than 200. A retry can succeed, so an app may retry on a short interval.
+
+`ErrProviderInvalid` means the provider answered with something access will not use. Retrying soon cannot help: show the error on the issuer field, and retry when the settings are saved or on a long interval, since the provider's administrator can fix their side. It covers:
+
+- a document or key set over 1 MiB
+- a document that is not one JSON object, or holds a duplicate member
+- a document whose `issuer` is another issuer. Check the issuer URL, trailing slash included.
+- a document whose `authorization_endpoint`, `token_endpoint` or `jwks_uri` is not an absolute `https` URL with a host and no user information. The error names the field. A loopback `http` endpoint is accepted only while the issuer is itself a loopback `http` URL.
+- a document whose `id_token_signing_alg_values_supported` shares no algorithm with the table below. When the field is absent, the provider's set is `RS256`, the OpenID Connect default.
+- a key set that is not a JWK Set, or holds no usable key
 
 `Config.Logger` receives the key set's warnings, described in "The key cache". When it is nil, each warning goes to `slog.Default()` as it is at that moment.
 
@@ -26,7 +31,7 @@ A `Provider` does not change after `NewProvider` returns. When the settings chan
 
 `Config.FlowSealer` seals the cookie. When you leave it nil, each `Provider` gets its own ephemeral sealer, and a flow begun under one provider value cannot finish under a rebuilt one. If you rebuild providers while flows are in flight, pass one sealer that outlives them.
 
-`NewProvider` sizes the cookie before discovery. It refuses with `ErrConfigInvalid` a configuration whose largest flow the sealer refuses as too large, which also matches `access.ErrSealTooLarge`. It also refuses a configuration whose largest sealed flow plus the longest flow-cookie name a valid session cookie config gives passes 4096 bytes, the most a browser keeps. A long issuer, client ID or redirect URL is what pushes a flow past these limits, so `Begin` never refuses a flow for its size.
+`Config.Validate` sizes the cookie, with the sealer and clock the provider will use, or an ephemeral sealer and the current time when they are unset: a sealed value's length depends only on what it seals. It refuses with `ErrConfigInvalid` a configuration whose largest flow the sealer refuses as too large, which also matches `access.ErrSealTooLarge`. It also refuses a configuration whose largest sealed flow plus the longest flow-cookie name a valid session cookie config gives passes 4096 bytes, the most a browser keeps. A long issuer, client ID or redirect URL is what pushes a flow past these limits, so `Begin` never refuses a flow for its size.
 
 `Begin` refuses each of these before it sets any cookie:
 
@@ -164,6 +169,8 @@ Under `account.SSOOnly` an unlinked account other than an owner's has no local s
 Earlier versions verified tokens with `coreos/go-oidc`, and these behaviours changed:
 
 - `NewProvider` also fails when the key set cannot be fetched or holds no usable key, and when the provider's algorithms share nothing with the table above.
+- A provider that answers with a document or key set access refuses fails `NewProvider` with `ErrProviderInvalid`, where it failed with `ErrDiscovery`, which now means only that the provider could not be reached.
+- `Config.Validate` refuses a configuration whose largest flow cookie does not fit, which only `NewProvider` refused before.
 - A provider that signs outside the table, with `HS256` or EdDSA on Ed448, while it lists an accepted algorithm, now fails at `Finish` with `ErrTokenInvalid`.
 - `exp` gains 5 minutes of grace, and an `iat` that is missing or more than 5 minutes ahead is now refused. `nbf` keeps its 5 minutes.
 - A `sub` that is not 1 to 255 ASCII characters is refused. A provider set to send a username as `sub`, such as Authentik's mode based on the user's username, can produce one.
@@ -171,7 +178,7 @@ Earlier versions verified tokens with `coreos/go-oidc`, and these behaviours cha
 - Discovery and key-set redirects are refused, and a status other than 200 is a failed fetch.
 - PS256, PS384 and PS512 accept only a salt the size of the hash, where any salt length passed before.
 - A key set that holds a key access cannot use, such as an `oct` key or a malformed RSA, EC or Ed25519 key, now verifies with that key skipped, where it failed the whole set before.
-- An RSA key with a modulus under 2048 bits is now skipped (RFC 7518 §3.3). A provider that signs only with one fails `NewProvider` with `ErrDiscovery`, so rotate it to a key of 2048 bits or more.
+- An RSA key with a modulus under 2048 bits is now skipped (RFC 7518 §3.3). A provider that signs only with one fails `NewProvider` with `ErrProviderInvalid`, so rotate it to a key of 2048 bits or more.
 - An RSA key with the CVE-2017-15361 fingerprint, and an Ed25519 key of small order, are now skipped.
 - A key whose `alg` names another algorithm than the token's header no longer verifies it, where any key of the right type did before (RFC 8725 §3.1). Publish the key with the algorithm the provider signs with, or without an `alg`.
 - An ID token over 64 KiB is refused with `ErrTokenInvalid`.

@@ -1,11 +1,9 @@
 package oidc
 
 import (
-	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -64,6 +62,10 @@ func TestConfigValidate(t *testing.T) {
 		"scopes without openid":      func(c *Config) { c.Scopes = []string{"email"} },
 		"empty scopes":               func(c *Config) { c.Scopes = []string{} },
 		"negative timeout":           func(c *Config) { c.HTTPClient = &http.Client{Timeout: -time.Second} },
+		// Design 6.17: the largest flow cookie must fit (RFC 6265bis §5.6).
+		"client ID past the flow cookie":    func(c *Config) { c.ClientID = strings.Repeat("c", 4096) },
+		"redirect URL past the flow cookie": func(c *Config) { c.RedirectURL = "https://app.example/" + strings.Repeat("a", 3000) },
+		"issuer past the flow cookie":       func(c *Config) { c.IssuerURL = "https://idp.example/" + strings.Repeat("i", 3000) },
 	}
 	for name, mod := range refused {
 		c := valid
@@ -189,136 +191,6 @@ func version1Frame(s *flowState) []byte {
 	return b
 }
 
-// stubTransport answers every request with its body and declared length.
-type stubTransport struct {
-	body   []byte
-	length int64
-}
-
-func (s stubTransport) RoundTrip(*http.Request) (*http.Response, error) {
-	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(s.body)), ContentLength: s.length}, nil
-}
-
-type stalledTransport struct{}
-
-func (stalledTransport) RoundTrip(*http.Request) (*http.Response, error) {
-	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(&stalledBody{left: maxResponseBytes}), ContentLength: -1}, nil
-}
-
-type stalledBody struct{ left int }
-
-func (s *stalledBody) Read(p []byte) (int, error) {
-	n := min(len(p), s.left)
-	s.left -= n
-	return n, nil
-}
-
-// countingBody counts the bytes read through the cap from the body below it.
-type countingBody struct {
-	io.ReadCloser
-	n *int64
-}
-
-func (c countingBody) Read(p []byte) (int, error) {
-	n, err := c.ReadCloser.Read(p)
-	*c.n += int64(n)
-	return n, err
-}
-
-func TestCappedTransport(t *testing.T) {
-	t.Parallel()
-	// open returns a body through the cap and the count of bytes the cap has
-	// pulled from the body below it.
-	open := func(t *testing.T, body []byte, length int64) (io.ReadCloser, *int64) {
-		t.Helper()
-		resp, err := cappedTransport{next: stubTransport{body: body, length: length}}.RoundTrip(&http.Request{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = resp.Body.Close() })
-		pulled := new(int64)
-		capped := resp.Body.(*cappedBody)
-		capped.rc = countingBody{ReadCloser: capped.rc, n: pulled}
-		return capped, pulled
-	}
-	// get reads a body through the cap, under a consumer's own 1 MiB limit
-	// when limited (cappedBody.Read).
-	get := func(t *testing.T, body []byte, length int64, limited bool) (got []byte, pulled int64, err error) {
-		t.Helper()
-		rc, n := open(t, body, length)
-		var r io.Reader = rc
-		if limited {
-			r = io.LimitReader(r, maxResponseBytes)
-		}
-		got, err = io.ReadAll(r)
-		return got, *n, err
-	}
-	big := bytes.Repeat([]byte{'x'}, 2<<20)
-	for _, tc := range []struct {
-		name    string
-		length  int64
-		limited bool
-	}{
-		{name: "declared_over_cap", length: int64(len(big))},
-		{name: "undeclared_over_cap", length: -1},
-		{name: "declared_over_cap_under_consumer_limit", length: int64(len(big)), limited: true},
-		{name: "undeclared_over_cap_under_consumer_limit", length: -1, limited: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got, pulled, err := get(t, big, tc.length, tc.limited)
-			if !errors.Is(err, errResponseTooLarge) {
-				t.Errorf("reading a 2 MiB body = %v, want errResponseTooLarge", err)
-			}
-			if len(got) > maxResponseBytes {
-				t.Errorf("handed out %d bytes, want at most %d", len(got), maxResponseBytes)
-			}
-			if pulled > maxResponseBytes+1 {
-				t.Errorf("pulled %d bytes from the transport, want at most %d", pulled, maxResponseBytes+1)
-			}
-		})
-	}
-	t.Run("empty_reads_at_cap_under_consumer_limit", func(t *testing.T) {
-		t.Parallel()
-		resp, err := cappedTransport{next: stalledTransport{}}.RoundTrip(&http.Request{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		if _, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes)); !errors.Is(err, io.ErrNoProgress) {
-			t.Errorf("a body that answers nothing at the cap = %v, want io.ErrNoProgress", err)
-		}
-	})
-	t.Run("verdict_sticky", func(t *testing.T) {
-		t.Parallel()
-		for _, size := range []int{maxResponseBytes + 1, maxResponseBytes + 3} {
-			body, pulled := open(t, big[:size], -1)
-			if _, err := io.ReadAll(body); !errors.Is(err, errResponseTooLarge) {
-				t.Fatalf("reading a %d-byte body = %v, want errResponseTooLarge", size, err)
-			}
-			for i := range 3 {
-				if n, err := body.Read(make([]byte, 8)); n != 0 || !errors.Is(err, errResponseTooLarge) {
-					t.Errorf("a %d-byte body, read %d after the refusal = %d, %v; want 0, errResponseTooLarge", size, i+1, n, err)
-				}
-			}
-			if *pulled != maxResponseBytes+1 {
-				t.Errorf("a %d-byte body: pulled %d bytes from the transport, want %d", size, *pulled, maxResponseBytes+1)
-			}
-		}
-	})
-	t.Run("at_cap", func(t *testing.T) {
-		t.Parallel()
-		for _, length := range []int64{maxResponseBytes, -1} {
-			for _, limited := range []bool{false, true} {
-				got, _, err := get(t, big[:maxResponseBytes], length, limited)
-				if err != nil || len(got) != maxResponseBytes {
-					t.Errorf("a 1 MiB body declared %d, limited %t: read %d bytes, %v; want all of it", length, limited, len(got), err)
-				}
-			}
-		}
-	})
-}
-
 func TestClaimsStrings(t *testing.T) {
 	t.Parallel()
 	c := Claims{Raw: map[string]json.RawMessage{
@@ -398,7 +270,7 @@ func TestNewProviderRefusesAFlowThatCannotFit(t *testing.T) {
 		_, err := NewProvider(t.Context(), Config{IssuerURL: "http://127.0.0.1:1", ClientID: clientID, RedirectURL: "http://127.0.0.1:1/cb"})
 		return err
 	}
-	if err := newWith("client"); !errors.Is(err, ErrDiscovery) {
+	if err := newWith("client"); !errors.Is(err, ErrDiscovery) || errors.Is(err, ErrProviderInvalid) {
 		t.Errorf("NewProvider with a short client ID = %v, want ErrDiscovery from the unreachable issuer", err)
 	}
 	if err := newWith(strings.Repeat("c", access.MaxSealPayload)); !errors.Is(err, ErrConfigInvalid) || !errors.Is(err, access.ErrSealTooLarge) {
@@ -409,6 +281,52 @@ func TestNewProviderRefusesAFlowThatCannotFit(t *testing.T) {
 	}) - 1
 	if err := newWith(strings.Repeat("c", longest)); !errors.Is(err, ErrConfigInvalid) || errors.Is(err, access.ErrSealTooLarge) {
 		t.Errorf("NewProvider with the longest client ID that seals (%d bytes) = %v, want ErrConfigInvalid for the cookie", longest, err)
+	}
+}
+
+// TestValidateSizesTheFlow is design 6.17: Validate refuses, with no
+// network, every config whose largest flow cookie would not fit, so
+// NewProvider refuses nothing Validate accepted on the cookie's account. The
+// size is the same with the ephemeral sealer Validate fills in and with an
+// app's own, since a sealed value's length depends only on the payload's.
+func TestValidateSizesTheFlow(t *testing.T) {
+	t.Parallel()
+	appSealer, err := access.NewSealer(access.GenerateSealerKey(), access.GenerateSealerKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := func() time.Time { return time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC) }
+	configWith := func(clientID string, own bool) Config {
+		c := Config{IssuerURL: "http://127.0.0.1:1", ClientID: clientID, RedirectURL: "http://127.0.0.1:1/cb"}
+		if own {
+			c.FlowSealer, c.Now = appSealer, clock
+		}
+		return c
+	}
+	longest := func(own bool) int {
+		return sort.Search(access.MaxSealPayload, func(n int) bool {
+			return configWith(strings.Repeat("c", n), own).Validate() != nil
+		}) - 1
+	}
+	filled, own := longest(false), longest(true)
+	if filled != own {
+		t.Errorf("the longest client ID Validate accepts is %d bytes with the ephemeral sealer and %d with the app's, want them equal", filled, own)
+	}
+	for _, withOwn := range []bool{false, true} {
+		fits := configWith(strings.Repeat("c", filled), withOwn)
+		if err := fits.Validate(); err != nil {
+			t.Errorf("own sealer %t: Validate of the longest that fits = %v, want nil", withOwn, err)
+		}
+		if _, err := NewProvider(t.Context(), fits); !errors.Is(err, ErrDiscovery) {
+			t.Errorf("own sealer %t: NewProvider of the longest that fits = %v, want ErrDiscovery from the unreachable issuer", withOwn, err)
+		}
+		over := configWith(strings.Repeat("c", filled+1), withOwn)
+		if err := over.Validate(); !errors.Is(err, ErrConfigInvalid) {
+			t.Errorf("own sealer %t: Validate one byte past the longest = %v, want ErrConfigInvalid", withOwn, err)
+		}
+		if _, err := NewProvider(t.Context(), over); !errors.Is(err, ErrConfigInvalid) {
+			t.Errorf("own sealer %t: NewProvider one byte past the longest = %v, want ErrConfigInvalid", withOwn, err)
+		}
 	}
 }
 

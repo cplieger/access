@@ -100,7 +100,7 @@ func (p pathID) typ() reflect.Type {
 
 // reasonSet is the Reason values one code can carry on a route: each of
 // listed, "" being the answer with none, and, when open, one the route
-// does not fix (design 4.56): a refused field's name on auth_bad_request,
+// does not fix: a refused field's name on auth_bad_request,
 // an IdP's error code on auth_oidc_failed, the Policy's on auth_forbidden.
 type reasonSet struct {
 	listed []string

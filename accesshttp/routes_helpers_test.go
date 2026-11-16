@@ -169,12 +169,6 @@ func (e *env) cookie(token access.Secret) *http.Cookie {
 	return &http.Cookie{Name: cfg.CookieName(true), Value: token.Reveal()}
 }
 
-// keyScopes configures ManageUsersScope as "manage_users" and lists it.
-var keyScopes = envOptions{
-	rules: func(r *account.Rules) { r.Scopes = []string{"manage_users"} },
-	edit:  func(c *account.Config) { c.ManageUsersScope = "manage_users" },
-}
-
 // invite is an invite link for a RoleUser, issued by admin root, which it
 // stores first.
 func (e *env) invite(t testing.TB) access.Secret {
@@ -402,7 +396,7 @@ func (e *env) requireSignedIn(t testing.TB, w *httptest.ResponseRecorder, name s
 
 // requireLoggedIn is requireSignedIn for a sign-in step's SignInOutcome,
 // which must be its signed_in arm.
-func (e *env) requireLoggedIn(t testing.TB, w *httptest.ResponseRecorder, name string) *http.Cookie {
+func (e *env) requireLoggedIn(t testing.TB, w *httptest.ResponseRecorder, name string) {
 	t.Helper()
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d, errors %+v, want 200", w.Code, e.errs.all())
@@ -411,7 +405,7 @@ func (e *env) requireLoggedIn(t testing.TB, w *httptest.ResponseRecorder, name s
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || out.SignedIn == nil || out.Pending != nil {
 		t.Fatalf("decode %q = %v, want the signed_in arm alone", w.Body.String(), err)
 	}
-	return e.checkSignedIn(t, w, out.SignedIn, name)
+	e.checkSignedIn(t, w, out.SignedIn, name)
 }
 
 // checkSignedIn is the check of requireSignedIn and requireLoggedIn.

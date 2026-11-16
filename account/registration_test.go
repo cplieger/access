@@ -309,7 +309,7 @@ func TestRegistrationRefusals(t *testing.T) {
 		if _, err := registerPasskey(t, f, localClient, "other", accesstest.NewPasskeyDevice(t)); err != nil {
 			t.Fatalf("the passkey registration filling the cap = %v", err)
 		}
-		if _, _, err := pendingEnrolTOTPRaw(t, f, localClient, p.Ticket); !errors.Is(err, account.ErrRegistrationFull) {
+		if err := pendingEnrolTOTPRaw(t, f, localClient, p.Ticket); !errors.Is(err, account.ErrRegistrationFull) {
 			t.Errorf("the draft's finish at the cap = %v, want ErrRegistrationFull (design 4.17: the cap is re-checked there)", err)
 		}
 		if usernameTakenIn(t, f.mem, "drafted") || live(f, p.Ticket) {
@@ -322,7 +322,7 @@ func TestRegistrationRefusals(t *testing.T) {
 		out, err := f.svc.RegisterPassword(t.Context(), localClient, newcomer("drafted"))
 		p := pending(t, account.LoginResult{Pending: out.Pending}, err, account.NextEnrol, access.MethodTOTP, access.MethodPasskey)
 		f.set(regRules(account.RegistrationOff, true))
-		if _, _, err := pendingEnrolTOTPRaw(t, f, localClient, p.Ticket); !errors.Is(err, account.ErrRegistrationClosed) {
+		if err := pendingEnrolTOTPRaw(t, f, localClient, p.Ticket); !errors.Is(err, account.ErrRegistrationClosed) {
 			t.Errorf("the draft's finish after the mode went off = %v, want ErrRegistrationClosed (design 4.17)", err)
 		}
 		requireNoUsers(t, f.mem)
@@ -354,16 +354,17 @@ func (p refuseRegistration) Authorize(ctx context.Context, d account.Decision) e
 	return p.RolePolicy.Authorize(ctx, d)
 }
 
-// pendingEnrolTOTPRaw is pendingEnrolTOTP answering the finish as it is.
-func pendingEnrolTOTPRaw(t *testing.T, f *sfFixture, c account.Client, ticket access.Secret) (account.EnrolmentResult, []byte, error) {
+// pendingEnrolTOTPRaw is pendingEnrolTOTP answering the finish's error as
+// it is.
+func pendingEnrolTOTPRaw(t *testing.T, f *sfFixture, c account.Client, ticket access.Secret) error {
 	t.Helper()
 	e, err := f.svc.PendingTOTPBegin(t.Context(), c, ticket)
 	if err != nil {
 		t.Fatalf("PendingTOTPBegin = %v", err)
 	}
 	secret := secretOf(t, account.TOTPEnrolment{URI: e.URI, Text: e.Text})
-	out, err := f.svc.PendingTOTPFinish(t.Context(), c, ticket, codeNow(secret))
-	return out, secret, err
+	_, err = f.svc.PendingTOTPFinish(t.Context(), c, ticket, codeNow(secret))
+	return err
 }
 
 // pendingEnrolPasskeyRaw is pendingEnrolPasskey answering the finish as it

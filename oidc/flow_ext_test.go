@@ -748,8 +748,9 @@ func flowOutbound(t *testing.T) {
 			start := time.Now()
 			_, err := oidc.NewProvider(ctx, cfg)
 			cancel()
-			if elapsed := time.Since(start); !errors.Is(err, oidc.ErrDiscovery) || elapsed > 10*time.Second {
-				t.Errorf("%s: NewProvider over a hung JWKS = %v after %v, want ErrDiscovery within the client timeout", name, err, elapsed)
+			unreached(t, name+": a hung JWKS", err)
+			if elapsed := time.Since(start); elapsed > 10*time.Second {
+				t.Errorf("%s: NewProvider over a hung JWKS took %v, want the client timeout", name, elapsed)
 			}
 		}
 	})
@@ -834,8 +835,10 @@ func outboundBodyCap(t *testing.T, mk func() (*http.Client, *recordingTransport)
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, cfg := newCfg(t, opts)
-			if _, err := oidc.NewProvider(t.Context(), cfg); !errors.Is(err, oidc.ErrDiscovery) || !errors.Is(err, oidc.ErrResponseTooLarge) {
-				t.Errorf("NewProvider over a 2 MiB %s body = %v, want ErrDiscovery from the cap", name, err)
+			_, err := oidc.NewProvider(t.Context(), cfg)
+			refusedProvider(t, "a 2 MiB "+name+" body", err)
+			if !errors.Is(err, oidc.ErrResponseTooLarge) {
+				t.Errorf("NewProvider over a 2 MiB %s body = %v, want the cap's error", name, err)
 			}
 		})
 	}
@@ -914,9 +917,8 @@ func outboundRedirect(t *testing.T) {
 		if check != nil {
 			cfg.HTTPClient = &http.Client{CheckRedirect: check}
 		}
-		if _, err := oidc.NewProvider(t.Context(), cfg); !errors.Is(err, oidc.ErrDiscovery) {
-			t.Errorf("%s: NewProvider through a redirect = %v, want ErrDiscovery", name, err)
-		}
+		_, err := oidc.NewProvider(t.Context(), cfg)
+		unreached(t, name+": a redirect", err)
 	}
 	if asked.Load() != 0 || moved.Load() != 0 {
 		t.Errorf("CheckRedirect asked %d times and the target served %d times, want 0 and 0", asked.Load(), moved.Load())
@@ -947,13 +949,13 @@ func writeDiscovery(t *testing.T, w http.ResponseWriter, idp *accesstest.IdP, is
 	_ = json.NewEncoder(w).Encode(doc)
 }
 
-// outboundJWKS: NewProvider reads the JWK Set and refuses with ErrDiscovery
-// a set it cannot use: an answer other than 200, whose body is never
-// decoded (OpenID Connect Discovery 1.0 §4.2's rule, which the JWKS fetch
-// follows), a redirect, followed for no CheckRedirect and asking none
-// (PyJWT CVE-2026-102267), a body that is not a JWK Set (RFC 7517 §5), and
-// a set with no key of an accepted type (RFC 7517 §5: other keys are
-// skipped).
+// outboundJWKS: NewProvider reads the JWK Set. It fails with ErrDiscovery
+// on an answer other than 200, whose body is never decoded (OpenID Connect
+// Discovery 1.0 §4.2's rule, which the JWKS fetch follows), and on a
+// redirect, followed for no CheckRedirect and asking none (PyJWT
+// CVE-2026-102267). It refuses with ErrProviderInvalid a body that is not
+// a JWK Set (RFC 7517 §5) and a set with no key of an accepted type (RFC
+// 7517 §5: other keys are skipped), design 6.16.
 func outboundJWKS(t *testing.T) {
 	idp := accesstest.NewIdP(t, accesstest.IdPOptions{})
 	resp, err := idp.Client().Get(idp.Issuer() + "/jwks")
@@ -998,10 +1000,13 @@ func outboundJWKS(t *testing.T) {
 	if _, err := oidc.NewProvider(t.Context(), newCfg("/ok")); err != nil {
 		t.Fatalf("NewProvider over the IdP's own set from the test server = %v, want nil", err)
 	}
-	for _, path := range []string{"/status_500", "/status_203", "/redirect", "/not_a_set", "/empty", "/oct_only"} {
-		if _, err := oidc.NewProvider(t.Context(), newCfg(path)); !errors.Is(err, oidc.ErrDiscovery) {
-			t.Errorf("NewProvider over the JWKS at %s = %v, want ErrDiscovery", path, err)
-		}
+	for _, path := range []string{"/status_500", "/status_203", "/redirect"} {
+		_, err := oidc.NewProvider(t.Context(), newCfg(path))
+		unreached(t, "the JWKS at "+path, err)
+	}
+	for _, path := range []string{"/not_a_set", "/empty", "/oct_only"} {
+		_, err := oidc.NewProvider(t.Context(), newCfg(path))
+		refusedProvider(t, "the JWKS at "+path, err)
 	}
 	var asked atomic.Int32
 	cfg := newCfg("/redirect")
@@ -1009,9 +1014,8 @@ func outboundJWKS(t *testing.T) {
 		asked.Add(1)
 		return nil
 	}}
-	if _, err := oidc.NewProvider(t.Context(), cfg); !errors.Is(err, oidc.ErrDiscovery) {
-		t.Errorf("NewProvider over a redirecting JWKS under an allowing CheckRedirect = %v, want ErrDiscovery", err)
-	}
+	_, err = oidc.NewProvider(t.Context(), cfg)
+	unreached(t, "a redirecting JWKS under an allowing CheckRedirect", err)
 	if asked.Load() != 0 || moved.Load() != 0 {
 		t.Errorf("CheckRedirect asked %d times and the target served %d times, want 0 and 0", asked.Load(), moved.Load())
 	}
@@ -1245,15 +1249,18 @@ func flowDiscovery(t *testing.T) {
 				cfg := configFor(idp)
 				cfg.HTTPClient = idp.Client()
 				_, err := oidc.NewProvider(t.Context(), cfg)
-				if !errors.Is(err, oidc.ErrDiscovery) || !strings.Contains(fmt.Sprint(err), field) || strings.Contains(fmt.Sprint(err), secret) {
-					t.Errorf("%s %s under an https issuer: NewProvider = %v, want ErrDiscovery naming the field without the URL", name, field, err)
+				refusedProvider(t, name+" "+field+" under an https issuer", err)
+				if !strings.Contains(fmt.Sprint(err), field) || strings.Contains(fmt.Sprint(err), secret) {
+					t.Errorf("%s %s under an https issuer: NewProvider = %v, want it to name the field without the URL", name, field, err)
 				}
 			}
 			opts := accesstest.IdPOptions{}
 			set(&opts, field, "http://idp.example/x")
 			idp := accesstest.NewIdP(t, opts)
-			if _, err := oidc.NewProvider(t.Context(), configFor(idp)); !errors.Is(err, oidc.ErrDiscovery) || !strings.Contains(fmt.Sprint(err), field) {
-				t.Errorf("a non-loopback http %s under a loopback issuer: NewProvider = %v, want ErrDiscovery naming it", field, err)
+			_, err := oidc.NewProvider(t.Context(), configFor(idp))
+			refusedProvider(t, "a non-loopback http "+field+" under a loopback issuer", err)
+			if !strings.Contains(fmt.Sprint(err), field) {
+				t.Errorf("a non-loopback http %s under a loopback issuer: NewProvider = %v, want it to name the field", field, err)
 			}
 		})
 	}
@@ -1276,7 +1283,7 @@ func flowDiscovery(t *testing.T) {
 // discoveryAlgorithms: the provider's set is its
 // id_token_signing_alg_values_supported (OpenID Connect Discovery 1.0 §3)
 // less every algorithm RFC 7518 §3 and RFC 8037 do not accept here, and
-// NewProvider refuses one with nothing left with ErrDiscovery; an absent
+// NewProvider refuses one with nothing left with ErrProviderInvalid; an absent
 // list is RS256 (OpenID Connect Core 1.0 §3.1.3.7 step 7). An ES256 token
 // verifies only under a set that holds ES256 (RFC 8725 §3.1).
 func discoveryAlgorithms(t *testing.T) {
@@ -1313,9 +1320,7 @@ func discoveryAlgorithms(t *testing.T) {
 			cfg.IssuerURL = front.URL
 			p, err := oidc.NewProvider(t.Context(), cfg)
 			if tc.refused {
-				if !errors.Is(err, oidc.ErrDiscovery) {
-					t.Errorf("NewProvider = %v, want ErrDiscovery", err)
-				}
+				refusedProvider(t, "no accepted algorithm", err)
 				return
 			}
 			if err != nil {

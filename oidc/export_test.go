@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/cplieger/access/oidc/internal/bodycap"
 )
 
 // SetDefaultHTTPTimeout shortens the timeout a client without one gets, until
@@ -19,4 +21,4 @@ func SetDefaultHTTPTimeout(t testing.TB, d time.Duration) {
 func ProviderHTTPClient(p *Provider) *http.Client { return p.cfg.HTTPClient }
 
 // ErrResponseTooLarge is the body cap's error.
-var ErrResponseTooLarge = errResponseTooLarge
+var ErrResponseTooLarge = bodycap.ErrTooLarge
