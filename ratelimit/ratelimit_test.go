@@ -504,6 +504,50 @@ func TestAccountKeySpellings(t *testing.T) {
 	})
 }
 
+// TestIdentityKey: OpenID Connect Core 1.0 §5.7 makes iss and sub together
+// the only stable identifier, so the key is the pair's and nothing else's.
+func TestIdentityKey(t *testing.T) {
+	t.Parallel()
+	id := func(iss, sub string) access.OIDCIdentity { return access.OIDCIdentity{Issuer: iss, Subject: sub} }
+	t.Run("one identity, one key", func(t *testing.T) {
+		t.Parallel()
+		once, again := IdentityKey(id("https://idp.example.com", "alice")), IdentityKey(id("https://idp.example.com", "alice"))
+		if once != again {
+			t.Error("one identity keyed twice apart")
+		}
+		if IdentityKey(id("https://idp.example.com", "alice")).isZero() {
+			t.Error("an identity keyed as the zero Account, an IP-only attempt")
+		}
+	})
+	t.Run("the pair, never its concatenation", func(t *testing.T) {
+		t.Parallel()
+		if IdentityKey(id("https://a.example", "bc")) == IdentityKey(id("https://a.example/b", "c")) {
+			t.Error("two identities whose issuer and subject concatenate alike share a key")
+		}
+		if IdentityKey(id("https://idp.example.com", "alice")) == IdentityKey(id("https://other.example.com", "alice")) {
+			t.Error("one subject at two issuers shares a key")
+		}
+	})
+	t.Run("never a username's key", func(t *testing.T) {
+		t.Parallel()
+		k := IdentityKey(id("https://idp.example.com", "alice"))
+		for _, name := range []string{"alice", "https://idp.example.com", "https://idp.example.comalice", "https://idp.example.com alice"} {
+			if AccountKey(name) == k {
+				t.Errorf("AccountKey(%q) equals the identity's key", name)
+			}
+		}
+	})
+	t.Run("counted apart from the username", func(t *testing.T) {
+		t.Parallel()
+		cfg := testConfig()
+		cfg.Account = Rate{Limit: 1, Window: time.Hour}
+		l, _ := newTest(t, cfg)
+		admit(t, l, Attempt{IP: ipOf("192.0.2.1"), Account: IdentityKey(id("https://idp.example.com", "alice"))}).Fail()
+		admit(t, l, Attempt{IP: ipOf("192.0.2.2"), Account: AccountKey("alice")})
+		refuseIn(t, l, Attempt{IP: ipOf("192.0.2.3"), Account: IdentityKey(id("https://idp.example.com", "alice"))}, "account")
+	})
+}
+
 // TestLongNameCostsOneFixedEntry is not parallel: it reads the heap, which
 // a concurrent test's allocations would move.
 func TestLongNameCostsOneFixedEntry(t *testing.T) {

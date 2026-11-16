@@ -648,24 +648,30 @@ func (s *Service) AdminUnlinkOIDC(ctx context.Context, a Actor, userID int64) er
 		if targetErr != nil {
 			return targetErr
 		}
-		target.OIDC, target.UpdatedAt = access.OIDCIdentity{}, s.now()
-		if writeErr := tx.UpdateUser(ctx, target); writeErr != nil {
-			return writeErr
-		}
-		sessions, deleteErr := tx.DeleteUserSessions(ctx, userID, "")
-		if deleteErr != nil {
-			return deleteErr
-		}
-		slices.Sort(sessions)
-		actor := eventActor(a)
-		j.add(Event{Kind: EventOIDCUnlinked, At: s.now(), UserID: userID, Actor: actor})
-		s.addRevoked(j, userID, sessions, actor)
-		return nil
+		return s.unlinkWriteIn(ctx, tx, j, a, target)
 	})
 	if err == nil {
 		s.pending.dropUser(userID)
 	}
 	return err
+}
+
+// unlinkWriteIn removes target's link and ends every session of it, each
+// journalled.
+func (s *Service) unlinkWriteIn(ctx context.Context, tx Tx, j *journal, a Actor, target *access.User) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
+	target.OIDC, target.UpdatedAt = access.OIDCIdentity{}, s.now()
+	if err := tx.UpdateUser(ctx, target); err != nil {
+		return err
+	}
+	sessions, err := tx.DeleteUserSessions(ctx, target.ID, "")
+	if err != nil {
+		return err
+	}
+	slices.Sort(sessions)
+	actor := eventActor(a)
+	j.add(Event{Kind: EventOIDCUnlinked, At: s.now(), UserID: target.ID, Actor: actor})
+	s.addRevoked(j, target.ID, sessions, actor)
+	return nil
 }
 
 // unlinkTargetIn is AdminUnlinkOIDC's authority inside tx: the Policy and

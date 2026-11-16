@@ -62,7 +62,7 @@ func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (
 		in: func(tx Tx) (*access.User, error) {
 			reenabled = false
 			if a.viaTemporary {
-				u, rec, err := s.commitTemporary(ctx, tx, a)
+				u, rec, err := s.liveTemporaryIn(ctx, tx, a.user.ID, a.verified)
 				temporary = rec
 				return u, err
 			}

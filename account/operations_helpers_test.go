@@ -646,6 +646,27 @@ func publicOperations() []operation {
 				},
 			}
 		}},
+		{name: "LinkPendingOIDCByAdmin", class: classPublic, transport: plainRefused, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			target := w.user(t)
+			if err := w.mem.SetSSOMode(t.Context(), account.SSOOnly); err != nil {
+				t.Fatalf("SetSSOMode: %v", err)
+			}
+			issued, err := w.svc.SetTemporaryPassword(t.Context(), account.OutOfBand("socket"), target.ID, account.TemporaryPasswordOptions{})
+			if err != nil {
+				t.Fatalf("SetTemporaryPassword = %v", err)
+			}
+			pending := account.PendingLink{Identity: access.OIDCIdentity{Issuer: oidcIssuer, Subject: w.name("admin-link-")}}
+			var in account.SignedIn
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					in, err = w.svc.LinkPendingOIDCByAdmin(ctx, w.client, pending, target.Username, issued.Password)
+					return err
+				},
+				want: func() []account.Event {
+					return []account.Event{{Kind: account.EventOIDCLinked, UserID: target.ID}, signedIn(in, access.MethodOIDC)}
+				},
+			}
+		}},
 		{name: "Logout", class: classPublic, transport: plainAllowed, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
 			sess := putSession(t, w.mem, liveSession(t, w.alice))
 			return opCall{
@@ -1032,6 +1053,21 @@ func adminOperations() []operation {
 				actor: actorOf(p), target: target.ID,
 				run:  func(ctx context.Context) error { return w.svc.AdminUnlinkOIDC(ctx, account.As(p), target.ID) },
 				want: events(account.Event{Kind: account.EventOIDCUnlinked, UserID: target.ID, Actor: actorOf(p)}),
+			}
+		}},
+		{name: "AdminRelinkOIDC", class: classManageUsers, transport: plainRefused, asks: []account.Operation{account.OpUnlinkOIDC, account.OpSetTemporaryPassword}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			target := w.user(t)
+			linkIdentity(t, w.mem, target, access.OIDCIdentity{Issuer: oidcIssuer, Subject: w.name("relinked-")})
+			return opCall{
+				actor: actorOf(p), target: target.ID,
+				run: func(ctx context.Context) error {
+					_, err := w.svc.AdminRelinkOIDC(ctx, account.As(p), target.ID, account.TemporaryPasswordOptions{})
+					return err
+				},
+				want: events(
+					account.Event{Kind: account.EventOIDCUnlinked, UserID: target.ID, Actor: actorOf(p)},
+					account.Event{Kind: account.EventTemporaryPasswordSet, UserID: target.ID, Actor: actorOf(p)},
+				),
 			}
 		}},
 		{name: "SetTemporaryPassword", class: classManageUsers, transport: plainRefused, asks: []account.Operation{account.OpSetTemporaryPassword}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {

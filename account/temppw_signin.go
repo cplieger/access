@@ -6,13 +6,13 @@ import (
 	"github.com/cplieger/access"
 )
 
-// commitTemporary is the head of the success Update of a step 1 that
-// verified a's temporary password: it goes on only while the user is
-// stored and enabled and the verified record is still live, else it
-// answers ErrInvalidCredentials and writes nothing. It returns the user and
-// the record as stored.
-func (s *Service) commitTemporary(ctx context.Context, tx Tx, a *passwordAttempt) (*access.User, access.TemporaryPassword, error) {
-	u, found, err := tx.UserByID(ctx, a.user.ID)
+// liveTemporaryIn is the head of every write after a temporary password
+// verified, step 1's and the admin link's: it goes on only while userID is
+// stored and enabled and its record is live and holds the verified hash,
+// else it answers ErrInvalidCredentials and writes nothing. It returns the
+// user and the record as stored.
+func (s *Service) liveTemporaryIn(ctx context.Context, tx Tx, userID int64, verified access.Hash) (*access.User, access.TemporaryPassword, error) {
+	u, found, err := tx.UserByID(ctx, userID)
 	switch {
 	case err != nil:
 		return nil, access.TemporaryPassword{}, err
@@ -23,7 +23,7 @@ func (s *Service) commitTemporary(ctx context.Context, tx Tx, a *passwordAttempt
 	switch {
 	case err != nil:
 		return nil, access.TemporaryPassword{}, err
-	case !held || !rec.ExpiresAt.After(s.now()) || !rec.Hash.Equal(a.verified):
+	case !held || !rec.ExpiresAt.After(s.now()) || !rec.Hash.Equal(verified):
 		return nil, access.TemporaryPassword{}, refuse(ErrInvalidCredentials)
 	}
 	return u, rec, nil

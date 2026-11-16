@@ -529,7 +529,8 @@ type LogEntryView struct {
 	UserID          int64               `json:"user_id,omitempty"`
 	KeyID           int64               `json:"key_id,omitempty"`
 	PasskeyID       int64               `json:"passkey_id,omitempty"`
-	// IssuerUserID is the issuing user of a withdrawn temporary password.
+	// IssuerUserID is the issuing user of a withdrawn temporary password or
+	// of one an admin link spent.
 	IssuerUserID int64 `json:"issuer_user_id,omitempty"`
 	Trusted      bool  `json:"trusted,omitempty"`
 	// Plain is a temporary_password_used entry whose secret crossed plain

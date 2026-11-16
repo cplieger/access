@@ -154,9 +154,9 @@ func TestDirectCensusMatrix(t *testing.T) {
 	t.Run("user_naming", censusUserNaming)
 }
 
-// censusUserNaming holds the cells of the three operations that name a
-// user: a non-admin's recent session is refused alike for an existing and
-// a missing user, and a manage_users key acts on a RoleUser target only.
+// censusUserNaming holds the cells of the operations that name a user: a
+// non-admin's recent session is refused alike for an existing and a
+// missing user, and a manage_users key acts on a RoleUser target only.
 func censusUserNaming(t *testing.T) {
 	t.Parallel()
 	const missing = int64(1) << 40
@@ -178,6 +178,13 @@ func censusUserNaming(t *testing.T) {
 		}},
 		{name: "SetTemporaryPassword", call: func(t *testing.T, w *opWorld, p access.Principal, id int64) error {
 			_, err := w.svc.SetTemporaryPassword(t.Context(), account.As(p), id, account.TemporaryPasswordOptions{})
+			return err
+		}},
+		{name: "AdminRelinkOIDC", call: func(t *testing.T, w *opWorld, p access.Principal, id int64) error {
+			if u, found, err := w.mem.UserByID(t.Context(), id); err == nil && found {
+				linkIdentity(t, w.mem, u, access.OIDCIdentity{Issuer: oidcIssuer, Subject: w.name("relinked-")})
+			}
+			_, err := w.svc.AdminRelinkOIDC(t.Context(), account.As(p), id, account.TemporaryPasswordOptions{})
 			return err
 		}},
 		{name: "ResetSecondFactor", call: func(t *testing.T, w *opWorld, p access.Principal, id int64) error {
@@ -222,7 +229,7 @@ func censusUserNaming(t *testing.T) {
 
 func TestKeyAuthorityEveryWrite(t *testing.T) {
 	t.Parallel()
-	want := []string{"AdminUnlinkOIDC", "CreateAPIKey", "CreateInvite", "CreateUser", "DeleteUser", "ResetSecondFactor", "RevokeAnyAPIKey", "SetTemporaryPassword", "UpdateUser"}
+	want := []string{"AdminRelinkOIDC", "AdminUnlinkOIDC", "CreateAPIKey", "CreateInvite", "CreateUser", "DeleteUser", "ResetSecondFactor", "RevokeAnyAPIKey", "SetTemporaryPassword", "UpdateUser"}
 	var (
 		mu      sync.Mutex
 		reached []string

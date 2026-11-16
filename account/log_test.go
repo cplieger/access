@@ -609,7 +609,7 @@ func mustPrincipal(t *testing.T, f *fixture, token access.Secret) access.Princip
 // clientOperations take a Client, whose IP their entries record.
 var clientOperations = []string{
 	"SetupWithPassword", "SetupPasskeyFinish", "PasswordLogin", "PasskeyLoginFinish", "OIDCComplete",
-	"AcceptInvitePassword", "CreatePendingOIDC", "StepUpPassword", "StepUpPasskeyFinish", "SetPassword", "RemovePassword",
+	"AcceptInvitePassword", "CreatePendingOIDC", "LinkPendingOIDCByAdmin", "StepUpPassword", "StepUpPasskeyFinish", "SetPassword", "RemovePassword",
 	"SignInWithCode", "SecondFactorPasskeyFinish", "StepUpCode", "SignInWithRecoveryCode", "PendingTOTPFinish", "PendingPasskeyFinish",
 	"SetCredentialPassword", "SetCredentialPasskeyFinish",
 }

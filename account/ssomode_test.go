@@ -863,6 +863,95 @@ func TestSetOwnerFalseUnderMode(t *testing.T) {
 	}
 }
 
+// Design 5.2's owner transitions under a forbidding mode, and the owner's
+// break-glass when admission refuses it.
+func TestSetOwnerUnderMode(t *testing.T) {
+	t.Parallel()
+	// 5.2: a linked admin's dormant passkey qualifies under SSOOnly, and
+	// becomes usable with the flag.
+	t.Run("dormant_passkey_qualifies", func(t *testing.T) {
+		t.Parallel()
+		f, root := modeFixture(t, pwOptions{})
+		bob := mustUser(t, f.mem, "bob", access.RoleAdmin)
+		dev := accesstest.NewPasskeyDevice(t)
+		f.enrol(t, bob, dev)
+		linkIdentity(t, f.mem, storedUser(t, f.mem, bob.ID), access.OIDCIdentity{Issuer: oidcIssuer, Subject: "bob"})
+		storeMode(t, f.mem, account.SSOOnly)
+		if _, err := f.signIn(t.Context(), t, localClient, account.LoginModal, dev); !errors.Is(err, account.ErrInvalidCredentials) {
+			t.Fatalf("bob's passkey before the flag = %v, want ErrInvalidCredentials", err)
+		}
+		pr, _ := f.signedInVia(t, root, access.MethodPassword)
+		if _, err := f.svc.SetOwner(t.Context(), account.As(pr), bob.ID, true); err != nil {
+			t.Fatalf("SetOwner(bob, true) under SSOOnly = %v, want nil", err)
+		}
+		in, err := f.signIn(t.Context(), t, localClient, account.LoginModal, dev)
+		if err != nil || in.User == nil || in.User.ID != bob.ID {
+			t.Errorf("bob's passkey after the flag = %+v, %v; want bob signed in", in.User, err)
+		}
+	})
+	// 5.10: "SetOwner(false) on a linked owner with a live password
+	// session: the session ends, and an SSO sign-in still works".
+	t.Run("false_keeps_sso", func(t *testing.T) {
+		t.Parallel()
+		f, root := modeFixture(t, pwOptions{})
+		other := passwordOwner(t, f.pwFixture, "other")
+		linkIdentity(t, f.mem, storedUser(t, f.mem, other.ID), f.rig.identity())
+		putSession(t, f.mem, liveSession(t, other))
+		storeMode(t, f.mem, account.SSOForLinked)
+		pr, _ := f.signedInVia(t, root, access.MethodPassword)
+		if _, err := f.svc.SetOwner(t.Context(), account.As(pr), other.ID, false); err != nil {
+			t.Fatalf("SetOwner(false) = %v", err)
+		}
+		if n := len(sessionsOf(t, f.mem, other.ID)); n != 0 {
+			t.Errorf("the ex-owner holds %d sessions, want none", n)
+		}
+		flow, claims := f.rig.signInFlow(t)
+		out, err := f.complete(t, localClient, flow, claims)
+		if err != nil || out.Kind != account.OutcomeSignedIn || out.SignedIn.User.ID != other.ID {
+			t.Errorf("the ex-owner's SSO sign-in = %+v, %v; want signed in", out, err)
+		}
+	})
+	// 5.10: "SetOwner(false) of an unlinked owner under SSOOnly ends their
+	// sessions".
+	t.Run("false_unlinked_under_sso_only", func(t *testing.T) {
+		t.Parallel()
+		f, root := modeFixture(t, pwOptions{})
+		other := passwordOwner(t, f.pwFixture, "other")
+		putSession(t, f.mem, liveSession(t, other))
+		storeMode(t, f.mem, account.SSOOnly)
+		pr, _ := f.signedInVia(t, root, access.MethodPassword)
+		if _, err := f.svc.SetOwner(t.Context(), account.As(pr), other.ID, false); err != nil {
+			t.Fatalf("SetOwner(false) = %v", err)
+		}
+		if n := len(sessionsOf(t, f.mem, other.ID)); n != 0 {
+			t.Errorf("the ex-owner holds %d sessions, want none", n)
+		}
+	})
+	// 5.2 and 5.10: "a methodless owner refused by admission recovers
+	// through an OutOfBand temporary password".
+	t.Run("methodless_owner_recovers", func(t *testing.T) {
+		t.Parallel()
+		f, _ := modeFixture(t, pwOptions{rules: rulesWith(staffAdmission)})
+		boss := mustOwner(t, f.mem, "boss")
+		linkIdentity(t, f.mem, boss, f.rig.identity())
+		storeMode(t, f.mem, account.SSOOnly)
+		flow, claims := f.rig.signInFlow(t)
+		if _, err := f.complete(t, localClient, flow, claims); !errors.Is(err, account.ErrNotAdmitted) {
+			t.Fatalf("the owner's SSO sign-in outside the group = %v, want ErrNotAdmitted", err)
+		}
+		issued, err := f.svc.SetTemporaryPassword(t.Context(), socket, boss.ID, account.TemporaryPasswordOptions{})
+		if err != nil {
+			t.Fatalf("SetTemporaryPassword(socket) = %v", err)
+		}
+		out, err := f.step1(t.Context(), localClient, "boss", issued.Password.Reveal())
+		p := pending(t, out, err, account.NextSetCredential, access.MethodPassword, access.MethodPasskey)
+		in, err := f.svc.SetCredentialPassword(t.Context(), localClient, p.Ticket, access.NewSecret(newPassword))
+		if err != nil || in.SignedIn.User == nil || in.SignedIn.User.ID != boss.ID {
+			t.Errorf("SetCredentialPassword = %+v, %v; want boss signed in", in, err)
+		}
+	})
+}
+
 // Design 5.2 and 5.3: the last-method guard counts only local methods for
 // an owner, and none the mode keeps dormant for a non-owner.
 func TestLastMethodUnderMode(t *testing.T) {

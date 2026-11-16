@@ -1028,7 +1028,7 @@ export interface LogEntryView {
   readonly session_ids?: readonly string[];
   readonly key_id?: number;
   readonly passkey_id?: number;
-  /** The issuing user of a withdrawn temporary password. */
+  /** The issuing user of a withdrawn temporary password or of one an admin link spent. */
   readonly issuer_user_id?: number;
   /** An sso_mode_changed entry's new and old mode. */
   readonly sso_mode?: SSOMode;

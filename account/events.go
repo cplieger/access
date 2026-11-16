@@ -161,13 +161,14 @@ type Event struct {
 	Actor      EventActor
 	UserID     int64 // the account the event is about (target)
 	// KeyID is the key of a key event, the issuing key of an
-	// invite-accepting EventUserCreated whose token a key issued, and of an
-	// EventTemporaryPasswordWithdrawn whose record a key issued.
+	// invite-accepting EventUserCreated whose token a key issued, and of a
+	// temporary password an EventTemporaryPasswordWithdrawn withdrew or an
+	// admin link's EventOIDCLinked spent.
 	KeyID     int64
 	PasskeyID int64 // passkey events
-	// IssuerUserID is the user whose session issued the record of an
-	// EventTemporaryPasswordWithdrawn; it and KeyID are zero for one issued
-	// out of band.
+	// IssuerUserID is the user whose session issued the temporary password
+	// of an EventTemporaryPasswordWithdrawn or an admin link's
+	// EventOIDCLinked; it and KeyID are zero for one issued out of band.
 	IssuerUserID int64
 	// SSOMode and PreviousSSOMode are an EventSSOModeChanged's new and old
 	// stored mode.

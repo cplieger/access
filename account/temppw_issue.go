@@ -55,37 +55,53 @@ type IssuedTemporaryPassword struct {
 // them, marking the record Dormant, for a dormant user), deletes passkeys
 // under RevokePasskeys and keys unless KeepKeys, and ends sessions and locks.
 func (s *Service) SetTemporaryPassword(ctx context.Context, a Actor, userID int64, in TemporaryPasswordOptions) (IssuedTemporaryPassword, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
-	r, err := s.begin()
+	r, iss, err := s.prepareIssue(ctx, a, userID, in)
 	if err != nil {
 		return IssuedTemporaryPassword{}, err
+	}
+	err = s.change(ctx, by(a), func(tx Tx, j *journal) error { return s.issueTemporaryIn(ctx, tx, j, a, userID, iss) })
+	if err != nil {
+		return IssuedTemporaryPassword{}, err
+	}
+	return s.issuedTo(&r, userID, iss), nil
+}
+
+// prepareIssue is an issue's checks before its Update, in order: the
+// transport, the actor's admission, ReasonSelfRecovery and the lifetime;
+// then the secret, drawn and hashed.
+func (s *Service) prepareIssue(ctx context.Context, a Actor, userID int64, in TemporaryPasswordOptions) (Rules, *tempIssue, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
+	r, err := s.begin()
+	if err != nil {
+		return Rules{}, nil, err
 	}
 	p, isPrincipal := a.Principal()
 	if isPrincipal && !p.Secure {
-		return IssuedTemporaryPassword{}, access.ErrHTTPSRequired
+		return Rules{}, nil, access.ErrHTTPSRequired
 	}
 	if admitErr := s.admitUserAdmin(r, a); admitErr != nil {
-		return IssuedTemporaryPassword{}, admitErr
+		return Rules{}, nil, admitErr
 	}
 	if isPrincipal && p.User != nil && p.User.ID == userID {
-		return IssuedTemporaryPassword{}, &PolicyError{Op: OpSetTemporaryPassword, Reason: ReasonSelfRecovery}
+		return Rules{}, nil, &PolicyError{Op: OpSetTemporaryPassword, Reason: ReasonSelfRecovery}
 	}
 	ttl, err := tokenTTL(in.TTL, defaultTemporaryPasswordTTL)
 	if err != nil {
-		return IssuedTemporaryPassword{}, err
+		return Rules{}, nil, err
 	}
 	shown, canonical := newTemporaryPassword()
 	hash, err := s.hasher.Hash(ctx, canonical)
 	if err != nil {
-		return IssuedTemporaryPassword{}, err
+		return Rules{}, nil, err
 	}
-	iss := tempIssue{opts: in, ttl: ttl, shown: shown, hash: hash}
-	err = s.change(ctx, by(a), func(tx Tx, j *journal) error { return s.issueTemporaryIn(ctx, tx, j, a, userID, &iss) })
-	if err != nil {
-		return IssuedTemporaryPassword{}, err
-	}
+	return r, &tempIssue{opts: in, ttl: ttl, shown: shown, hash: hash}, nil
+}
+
+// issuedTo is a committed issue's answer for userID, whose pending
+// sign-ins it drops.
+func (s *Service) issuedTo(r *Rules, userID int64, iss *tempIssue) IssuedTemporaryPassword {
 	s.pending.dropUser(userID)
 	iss.out.Password, iss.out.HTTPSOrigin = iss.shown, r.HTTPSOrigin
-	return iss.out, nil
+	return iss.out
 }
 
 // tempIssue is one SetTemporaryPassword: its options, the secret drawn and
@@ -98,27 +114,43 @@ type tempIssue struct {
 	ttl   time.Duration
 }
 
-// issueTemporaryIn is SetTemporaryPassword's change: the actor's authority,
-// the Policy and owner protections, existence, admin_target and the mode's
-// refusal, then the record and its arm's writes.
+// issueTemporaryIn is SetTemporaryPassword's change: issueTargetIn, then
+// issueWriteIn.
 func (s *Service) issueTemporaryIn(ctx context.Context, tx Tx, j *journal, a Actor, userID int64, iss *tempIssue) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
-	ua, err := s.userAdminIn(ctx, tx, j, OpSetTemporaryPassword, a)
+	ua, target, err := s.issueTargetIn(ctx, tx, j, a, userID)
 	if err != nil {
 		return err
+	}
+	return s.issueWriteIn(ctx, tx, j, a, &ua, target, iss)
+}
+
+// issueTargetIn is an issue's authority inside tx, before any write: the
+// actor's, the Policy and owner protections, existence and admin_target.
+// It returns the actor's authority and the target.
+func (s *Service) issueTargetIn(ctx context.Context, tx Tx, j *journal, a Actor, userID int64) (userAdmin, *access.User, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
+	ua, err := s.userAdminIn(ctx, tx, j, OpSetTemporaryPassword, a)
+	if err != nil {
+		return userAdmin{}, nil, err
 	}
 	target, found, users, err := targetIn(ctx, tx, userID)
 	if err != nil {
-		return err
+		return userAdmin{}, nil, err
 	}
 	if polErr := s.authorizeOwned(ctx, &Decision{Op: OpSetTemporaryPassword, Actor: ua.actor, Target: target, Users: users}); polErr != nil {
-		return refuse(polErr)
+		return userAdmin{}, nil, refuse(polErr)
 	}
 	if !found {
-		return refuse(ErrNotFound)
+		return userAdmin{}, nil, refuse(ErrNotFound)
 	}
 	if ruleErr := ua.target(OpSetTemporaryPassword, target.Role); ruleErr != nil {
-		return ruleErr
+		return userAdmin{}, nil, ruleErr
 	}
+	return ua, target, nil
+}
+
+// issueWriteIn is an issue's writes for target as tx holds it: the mode's
+// refusal of a linked dormant user, then the record and its arm's writes.
+func (s *Service) issueWriteIn(ctx context.Context, tx Tx, j *journal, a Actor, ua *userAdmin, target *access.User, iss *tempIssue) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	mode, err := storedMode(ctx, tx)
 	if err != nil {
 		return err
@@ -127,7 +159,7 @@ func (s *Service) issueTemporaryIn(ctx context.Context, tx Tx, j *journal, a Act
 	if dormant && !target.OIDC.IsZero() {
 		return refuse(ErrSSOLinked)
 	}
-	rec := s.temporaryRecord(&ua, a, target.ID, iss, dormant)
+	rec := s.temporaryRecord(ua, a, target.ID, iss, dormant)
 	if err := tx.SetTemporaryPassword(ctx, rec); err != nil {
 		return err
 	}
