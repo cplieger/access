@@ -480,6 +480,24 @@ describe("StateResponse", () => {
     ).toBeUndefined();
   });
 
+  // Design 4.51: the password bounds are data, so a form words its own limit.
+  it("reads password_length's bounds", () => {
+    expect(parseStateResponse(state)?.password_length).toEqual({ min: 15, max: 128 });
+  });
+
+  it.each([
+    undefined,
+    null,
+    { min: 15 },
+    { min: -1, max: 128 },
+    { min: 15, max: 1.5 },
+    { min: 15, max: 128, unit: "runes" },
+  ])("refuses the password_length %j", (bounds) => {
+    expect(
+      parseStateResponse({ ...without(state, "password_length"), password_length: bounds }),
+    ).toBeUndefined();
+  });
+
   it.each([null, "passkeys", [null]])("refuses the https_required %j", (list) => {
     expect(
       parseStateResponse({ ...without(state, "https_required"), https_required: list }),

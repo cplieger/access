@@ -158,18 +158,19 @@ func TestErrorCodeTable(t *testing.T) {
 			}
 		}
 	})
-	t.Run("password_length_detail", func(t *testing.T) {
+	// Design 4.51: the bounds are StateResponse.password_length; a length
+	// refusal keeps its reason and Detail stays the code's own diagnostic.
+	t.Run("password_length_not_in_detail", func(t *testing.T) {
 		for _, err := range []error{
+			&access.PasswordError{Reason: access.PasswordTooShort, Min: 15, Max: 128},
+			wrapped(&access.PasswordError{Reason: access.PasswordTooLong, Min: 15, Max: 128}),
 			&access.PasswordError{Reason: access.PasswordCommon},
-			wrapped(&access.PasswordError{Reason: access.PasswordBreached}),
 		} {
-			if e, _ := classify(err, ceremonyNone); strings.ContainsAny(e.Detail, "0123456789") {
-				t.Errorf("classify(%v).Detail = %q, want no length bounds for an error with none", err, e.Detail)
+			pe, _ := errors.AsType[*access.PasswordError](err)
+			want := access.NewError(access.CodePasswordRejected, string(pe.Reason), err)
+			if e, _ := classify(err, ceremonyNone); e.Detail != want.Detail || e.Reason != string(pe.Reason) || strings.ContainsAny(e.Detail, "0123456789") {
+				t.Errorf("classify(%v) = detail %q reason %q, want the code's detail %q with no bounds and reason %q", err, e.Detail, e.Reason, want.Detail, pe.Reason)
 			}
-		}
-		err := &access.PasswordError{Reason: access.PasswordTooShort, Min: 15, Max: 128}
-		if e, _ := classify(err, ceremonyNone); e.Detail != "The password is not allowed. Length: 15 to 128 characters." {
-			t.Errorf("classify(%v).Detail = %q, want the code's detail followed by both bounds 15 and 128", err, e.Detail)
 		}
 	})
 }

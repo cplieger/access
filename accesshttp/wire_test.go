@@ -210,7 +210,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 		SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSOrigin: "https://app.example.com",
 		PlainSession:  &PlainSessionView{IdleSeconds: 900, AbsoluteSeconds: 43200},
 		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC}, SSO: account.SSONameOnly, TOTP: true, TemporaryPasswordHTTPSOnly: true,
-		Registration: account.RegistrationNameApproval,
+		Registration: account.RegistrationNameApproval, PasswordLength: passwordBounds,
 	}
 	key := access.Key{
 		ID: 5, UserID: 7, Label: "ci", KeyPrefix: "ak_7", KeySuffix: "wxyz", Scopes: []string{"read"},

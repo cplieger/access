@@ -49,7 +49,7 @@ const out = await withStepUp(auth, () => auth.setPassword(change), {
 
 The OIDC branch navigates to the identity provider and never returns to the action, so the app continues from its own redirect path.
 
-`state()` answers what the sign-in screen can offer over the request's transport: `secure`, the methods it admits, `https_required` (what HTTPS would add), `plain_session` (a plain session's limits, on a plain request the server serves) and `https_origin` (where to link for HTTPS). `me()` and `sessions()` mark each session's transport with `secure`. [Plain HTTP](https://github.com/cplieger/access/blob/main/docs/plain-http.md#what-the-screens-learn) gives the screens' states.
+`state()` answers what the sign-in screen can offer over the request's transport: `secure`, the methods it admits, `https_required` (what HTTPS would add), `plain_session` (a plain session's limits, on a plain request the server serves), `https_origin` (where to link for HTTPS) and `password_length` (the `min` and `max` a password form states and checks before sending). `me()` and `sessions()` mark each session's transport with `secure`. [Plain HTTP](https://github.com/cplieger/access/blob/main/docs/plain-http.md#what-the-screens-learn) gives the screens' states.
 
 ## What it exports
 

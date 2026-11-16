@@ -3,9 +3,11 @@ package accesshttp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,11 +20,49 @@ import (
 )
 
 // secureState is want as a secure request reads it: Secure, nothing HTTPS
-// would add, and registration off.
+// would add, registration off and the password bounds.
 func secureState(want StateResponse) StateResponse {
 	want.Secure, want.HTTPSRequired, want.SSO = true, []account.HTTPSFeature{}, account.SSONameAlongside
-	want.Registration = account.RegistrationNameOff
+	want.Registration, want.PasswordLength = account.RegistrationNameOff, passwordBounds
 	return want
+}
+
+// passwordBounds is the length every password route enforces, which every
+// state answer publishes whatever the posture or transport.
+var passwordBounds = PasswordLengthView{Min: access.PasswordMinLength, Max: access.PasswordMaxLength}
+
+// TestStatePasswordLength: design 4.51 publishes the bounds a form checks
+// early. They are read from the rule itself: the shortest and longest
+// passwords it accepts (NIST SP 800-63B-4 §3.1.1.2 counts each Unicode code
+// point as one character), so a state that drifted from the check is caught.
+func TestStatePasswordLength(t *testing.T) {
+	for _, plain := range []bool{false, true} {
+		e := newEnv(t, envOptions{})
+		origin := testOrigin
+		if plain {
+			origin = plainOrigin
+		}
+		rt := e.route(t, "authState")
+		w := do(rt, requestAt(origin, rt.Path, rt, ""))
+		var got StateResponse
+		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &got) != nil {
+			t.Fatalf("plain %v: status %d body %q, want 200 StateResponse", plain, w.Code, w.Body.String())
+		}
+		b := got.PasswordLength
+		if b.Min < 1 || b.Max < b.Min {
+			t.Fatalf("plain %v: password_length %+v, want 1 <= min <= max", plain, b)
+		}
+		for _, tc := range []struct {
+			runes int
+			want  access.PasswordRejection
+		}{{b.Min - 1, access.PasswordTooShort}, {b.Min, ""}, {b.Max, ""}, {b.Max + 1, access.PasswordTooLong}} {
+			err := access.ValidatePasswordLength(strings.Repeat("é", tc.runes))
+			pe, _ := errors.AsType[*access.PasswordError](err)
+			if (tc.want == "") != (err == nil) || (pe != nil && pe.Reason != tc.want) {
+				t.Errorf("plain %v: %d code points against password_length %+v = %v, want rejection %q", plain, tc.runes, b, err, tc.want)
+			}
+		}
+	}
 }
 
 func TestRouteAuthState(t *testing.T) {

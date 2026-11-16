@@ -1398,6 +1398,17 @@
       ]
     },
     {
+      "name": "password_length",
+      "fields": [
+        {
+          "name": "min"
+        },
+        {
+          "name": "max"
+        }
+      ]
+    },
+    {
       "name": "setup_required"
     },
     {

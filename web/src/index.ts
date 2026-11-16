@@ -135,6 +135,7 @@ export type {
   OwnerRequest,
   PasskeyView,
   PasswordChangeRequest,
+  PasswordLengthView,
   PasswordRemoveRequest,
   PasswordRequest,
   Pending,

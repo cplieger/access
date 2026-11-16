@@ -447,6 +447,12 @@ export interface PlainSessionView {
   readonly absolute_seconds: number;
 }
 
+/** A password's least and greatest length, in Unicode code points after NFC. */
+export interface PasswordLengthView {
+  readonly min: number;
+  readonly max: number;
+}
+
 /**
  * password_login, passkeys and oidc are each offered and admitted over this request's
  * transport. https_required lists what HTTPS would add; plain_session is set only on a plain
@@ -461,6 +467,8 @@ export interface StateResponse {
   readonly plain_session?: PlainSessionView;
   readonly https_required: readonly HTTPSFeature[];
   readonly https_origin?: string;
+  /** The bounds the server checks every password against, so a form words its limit. */
+  readonly password_length: PasswordLengthView;
   /** The stored SSO mode. */
   readonly sso: SSOMode;
   /** The app offers TOTP (an authenticator app). */
@@ -481,6 +489,7 @@ export const parseStateResponse: Validator<StateResponse> = object({
   ),
   https_required: req(list(oneOf(...HTTPS_FEATURES))),
   https_origin: opt(str),
+  password_length: req(object<PasswordLengthView>({ min: req(count), max: req(count) })),
   sso: req(ssoMode),
   totp: req(bool),
   registration: req(oneOf(...REGISTRATION_MODES)),

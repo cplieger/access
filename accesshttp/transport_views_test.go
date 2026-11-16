@@ -86,6 +86,7 @@ func TestStateRoute(t *testing.T) {
 			if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &got) != nil {
 				t.Fatalf("status %d body %q, want 200 StateResponse", w.Code, w.Body.String())
 			}
+			tc.want.PasswordLength = passwordBounds // the same on every posture and transport
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("state %+v (plain session %v), want %+v (plain session %v)", got, got.PlainSession, tc.want, tc.want.PlainSession)
 			}

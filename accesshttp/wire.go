@@ -200,7 +200,8 @@ type InviteRequest struct {
 	Hours int         `json:"hours,omitempty"`
 }
 
-// StateResponse is authState's answer, account.State on the wire.
+// StateResponse is authState's answer: account.State on the wire, and the
+// password length bounds.
 type StateResponse struct {
 	PlainSession *PlainSessionView   `json:"plain_session,omitempty"`
 	HTTPSOrigin  string              `json:"https_origin,omitempty"`
@@ -209,12 +210,14 @@ type StateResponse struct {
 	// under the stored mode SSOOnly.
 	Registration  account.RegistrationModeName `json:"registration"`
 	HTTPSRequired []account.HTTPSFeature       `json:"https_required"`
-	SetupRequired bool                         `json:"setup_required"`
-	PasswordLogin bool                         `json:"password_login"`
-	Passkeys      bool                         `json:"passkeys"`
-	OIDC          bool                         `json:"oidc"`
-	Secure        bool                         `json:"secure"`
-	TOTP          bool                         `json:"totp"` // the app offers TOTP
+	// PasswordLength is the bounds [access.ValidatePasswordLength] enforces.
+	PasswordLength PasswordLengthView `json:"password_length"`
+	SetupRequired  bool               `json:"setup_required"`
+	PasswordLogin  bool               `json:"password_login"`
+	Passkeys       bool               `json:"passkeys"`
+	OIDC           bool               `json:"oidc"`
+	Secure         bool               `json:"secure"`
+	TOTP           bool               `json:"totp"` // the app offers TOTP
 	// TemporaryPasswordHTTPSOnly is account.State's; absent when false, as
 	// on every secure request.
 	TemporaryPasswordHTTPSOnly bool `json:"temporary_password_https_only,omitempty"`
@@ -224,6 +227,13 @@ type StateResponse struct {
 type PlainSessionView struct {
 	IdleSeconds     int64 `json:"idle_seconds"`
 	AbsoluteSeconds int64 `json:"absolute_seconds"`
+}
+
+// PasswordLengthView is a password's least and greatest length in Unicode
+// code points after NFC.
+type PasswordLengthView struct {
+	Min int `json:"min"`
+	Max int `json:"max"`
 }
 
 // UserView is one user.
@@ -702,6 +712,7 @@ func stateResponse(st *account.State) StateResponse {
 		SetupRequired: st.SetupRequired, PasswordLogin: st.PasswordLogin, Passkeys: st.Passkeys, OIDC: st.OIDC, Secure: st.Secure,
 		HTTPSRequired: append([]account.HTTPSFeature{}, st.HTTPSRequired...), HTTPSOrigin: st.HTTPSOrigin, SSO: st.SSO.Name(),
 		TOTP: st.TOTP, TemporaryPasswordHTTPSOnly: st.TemporaryPasswordHTTPSOnly, Registration: st.Registration.Name(),
+		PasswordLength: PasswordLengthView{Min: access.PasswordMinLength, Max: access.PasswordMaxLength},
 	}
 	if p := st.PlainSession; p != nil {
 		v.PlainSession = &PlainSessionView{IdleSeconds: int64(p.Idle / time.Second), AbsoluteSeconds: int64(p.Absolute / time.Second)}

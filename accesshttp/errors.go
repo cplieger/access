@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"slices"
-	"strconv"
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
@@ -133,9 +132,6 @@ func classify(err error, cer ceremony) (access.Error, bool) {
 	e := access.NewError(code, reason, err)
 	if refused, isRefused := errors.AsType[*ratelimit.RefusedError](err); isRefused {
 		e.RetryAfter = refused.RetryAfter
-	}
-	if pe, isPassword := errors.AsType[*access.PasswordError](err); isPassword && (pe.Min != 0 || pe.Max != 0) {
-		e.Detail += " Length: " + strconv.Itoa(pe.Min) + " to " + strconv.Itoa(pe.Max) + " characters."
 	}
 	return e, true
 }

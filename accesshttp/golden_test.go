@@ -130,6 +130,7 @@ func fixtures() []fixture {
 			SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, PlainSession: &PlainSessionView{IdleSeconds: 1800, AbsoluteSeconds: 43200},
 			HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys, account.HTTPSOIDC}, HTTPSOrigin: "https://app.example.com",
 			SSO: account.SSONameForLinked, TOTP: true, TemporaryPasswordHTTPSOnly: true, Registration: account.RegistrationNameApproval,
+			PasswordLength: PasswordLengthView{Min: 15, Max: 128},
 		}},
 		{name: "Readiness", value: Readiness{
 			Refusal:   &ReadinessRefusal{Code: access.CodeForbidden, Reason: account.ReasonOwnerNeedsLocalMethod},
