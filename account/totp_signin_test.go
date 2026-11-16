@@ -357,6 +357,49 @@ func TestSignInWithCode(t *testing.T) {
 			t.Errorf("the fourth wrong code from one IP under a limit of three = %v, want a *ratelimit.RefusedError", err)
 		}
 	})
+	// Listmonk GHSA-p42g-4rv2-xg2f: each new password step 1 reset the code
+	// step's count, so every sign-in bought fresh guesses.
+	t.Run("count_survives_a_new_step_one", func(t *testing.T) {
+		t.Parallel()
+		f := newSF(t, account.Rules{}, pwOptions{})
+		_, ticket, secret := codeTicket(t, f, clientAt(1))
+		wrong := codeAt(secret, time.Now().Add(-10*totp.Period))
+		for i := range 2 {
+			if _, err := f.svc.SignInWithCode(t.Context(), clientAt(1), ticket, wrong); codeReason(err) != account.ReasonCodeInvalid {
+				t.Fatalf("wrong code %d = %v, want code_invalid", i+1, err)
+			}
+			ticket = again(t, f, clientAt(1))
+		}
+		if rec, found := totpFailures(t, f.mem, f.svc, "alice", false); !found || rec.Count != 2 {
+			t.Errorf("the code step's record after two wrong codes, each followed by a new step 1 = %+v, want a count of 2", rec)
+		}
+	})
+	// Vault GHSA-w8f3-r2q9-xr6w: a pending sign-in completed past its
+	// lifetime. Design 4.4: a ticket lives ten minutes on the Service clock.
+	for name, tc := range map[string]struct {
+		after time.Duration
+		live  bool
+	}{
+		"ticket_within_its_lifetime": {10*time.Minute - time.Second, true},
+		"ticket_past_its_lifetime":   {10 * time.Minute, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newSF(t, account.Rules{}, pwOptions{})
+			start := time.Now()
+			f.at.Store(&start)
+			_, ticket, secret := codeTicket(t, f, clientAt(1))
+			late := start.Add(tc.after)
+			f.at.Store(&late)
+			_, err := f.svc.SignInWithCode(t.Context(), clientAt(1), ticket, codeAt(secret, late))
+			if tc.live && err != nil {
+				t.Errorf("the right code %v after step 1 = %v, want a sign-in", tc.after, err)
+			}
+			if !tc.live && !errors.Is(err, access.ErrTokenInvalid) {
+				t.Errorf("the right code %v after step 1 = %v, want access.ErrTokenInvalid", tc.after, err)
+			}
+		})
+	}
 	// Gitea GHSA-gx3v-q759-g323: two parallel submissions of one code.
 	t.Run("parallel_steps_pass_once", func(t *testing.T) {
 		t.Parallel()
@@ -550,6 +593,23 @@ func TestSecondFactorPasskey(t *testing.T) {
 		}
 		if _, err := f.svc.SecondFactorPasskeyFinish(t.Context(), clientAt(1), pc.ID, bytes.NewReader(body)); !errors.Is(err, account.ErrCeremonyInvalid) {
 			t.Errorf("the finish replayed = %v, want ErrCeremonyInvalid", err)
+		}
+	})
+	// Logto GHSA-f78f-ghjf-hrx2: a passkey verified for another account
+	// completed the sign-in. Bob's registered passkey on alice's step signs
+	// no one in.
+	t.Run("another_users_passkey", func(t *testing.T) {
+		t.Parallel()
+		f, alice, _, ticket := setup(t)
+		bob := passwordUser(t, f.mem, f.hasher, "bob", goodPassword)
+		bobs := accesstest.NewPasskeyDevice(t)
+		f.enrol(t, bob, bobs)
+		before := len(sessionsOf(t, f.mem, alice.ID)) + len(sessionsOf(t, f.mem, bob.ID))
+		if out, err := finish(t, f, ticket, bobs); err == nil || out.SignedIn.User != nil {
+			t.Fatalf("bob's passkey on alice's second step = %v, signed in %t, want a refusal", err, out.SignedIn.User != nil)
+		}
+		if after := len(sessionsOf(t, f.mem, alice.ID)) + len(sessionsOf(t, f.mem, bob.ID)); after != before {
+			t.Errorf("sessions of alice and bob = %d after the refusal, want the %d before it", after, before)
 		}
 	})
 	// Design 4.4: the passkey step needs HTTPS, and a secure ticket sent in

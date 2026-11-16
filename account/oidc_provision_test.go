@@ -76,6 +76,34 @@ func TestRoleSync(t *testing.T) {
 	}
 }
 
+// TestRoleSyncReachesLiveSessions is FileRise GHSA-92g3-h8h2-p4wq's
+// regression: a provider demotion applies to the user's existing session at
+// its next request.
+func TestRoleSyncReachesLiveSessions(t *testing.T) {
+	t.Parallel()
+	f := newOIDCFixture(t, newOIDCRig(t, accesstest.IdPOptions{}), pwOptions{rules: opsAdmin(true)})
+	mustOwner(t, f.mem, "root")
+	u := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
+	u.Role = access.RoleAdmin
+	linkIdentity(t, f.mem, u, f.rig.identity())
+	sess := liveSession(t, u)
+	before, token := f.principalOf(t, &sess)
+	if before.User.Role != access.RoleAdmin {
+		t.Fatalf("alice's session before the sync has role %s, want admin", before.User.Role)
+	}
+	flow, claims := f.rig.signInFlow(t)
+	if out, err := f.complete(t, localClient, flow, withClaim(claims, "groups", `"staff"`)); err != nil || out.Kind != account.OutcomeSignedIn {
+		t.Fatalf("OIDCComplete = %+v, %v; want SignedIn", out, err)
+	}
+	after, err := f.authenticate(t.Context(), token)
+	if err != nil {
+		t.Fatalf("alice's earlier session after the demotion = %v, want it to authenticate", err)
+	}
+	if after.User.Role != access.RoleUser {
+		t.Errorf("alice's earlier session answers role %s after the demotion, want user", after.User.Role)
+	}
+}
+
 // TestUsersRoleFromProvider: design 5.25, the admin list marks a role the
 // provider syncs: a linked non-owner under SyncRole.
 func TestUsersRoleFromProvider(t *testing.T) {
