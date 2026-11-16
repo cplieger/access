@@ -92,6 +92,22 @@ func adminScenarios() map[scenarioKey]scenario {
 	out[scenarioKey{unlinkOIDC, access.CodeUnavailable}] = closing(envOptions{}, byRoot(unlinkOIDC, aliceID, ""))
 	out[scenarioKey{unlinkOIDC, access.CodeNotFound}] = scenario{arrange: byRoot(unlinkOIDC, aliceID, "")}
 
+	const temp = "authAdminTemporaryPassword"
+	out[scenarioKey{temp, access.CodeForbidden}] = byAlice(temp, `{}`)
+	out[scenarioKey{temp, access.CodeBusy}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		r := byRoot(temp, aliceID, `{}`)(t, e)
+		e.holdBudget(t)
+		return r
+	}}
+	out[scenarioKey{temp, access.CodeUnavailable}] = closing(envOptions{}, byRoot(temp, aliceID, `{}`))
+	out[scenarioKey{temp, access.CodeBadRequest}] = scenario{arrange: byRoot(temp, aliceID, `{"ttl_hours":169}`)}
+	out[scenarioKey{temp, access.CodeNotFound}] = scenario{arrange: byRoot(temp, missing, `{}`)}
+	out[scenarioKey{temp, access.CodeSSOOnly}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		r := byRoot(temp, aliceID, `{}`)(t, e)
+		e.keepDormant(t, "alice")
+		return r
+	}}
+
 	const invite = "authAdminInvite"
 	inviteBody := func(n int) string { return `{"role":"user","hours":` + strconv.Itoa(n) + `}` }
 	out[scenarioKey{invite, access.CodeForbidden}] = byAlice(invite, inviteBody(0))

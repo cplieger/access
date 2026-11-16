@@ -36,6 +36,15 @@
               "name": "methods",
               "fields": [
                 {
+                  "name": "temporary_password",
+                  "fields": [
+                    {
+                      "name": "expires_at"
+                    }
+                  ],
+                  "optional": true
+                },
+                {
                   "name": "passkey_count"
                 },
                 {
@@ -46,6 +55,9 @@
                 },
                 {
                   "name": "role_from_provider"
+                },
+                {
+                  "name": "totp"
                 }
               ],
               "optional": true
@@ -335,6 +347,15 @@
           "name": "methods",
           "fields": [
             {
+              "name": "temporary_password",
+              "fields": [
+                {
+                  "name": "expires_at"
+                }
+              ],
+              "optional": true
+            },
+            {
               "name": "passkey_count"
             },
             {
@@ -345,6 +366,9 @@
             },
             {
               "name": "role_from_provider"
+            },
+            {
+              "name": "totp"
             }
           ],
           "optional": true
@@ -932,6 +956,15 @@
               "name": "methods",
               "fields": [
                 {
+                  "name": "temporary_password",
+                  "fields": [
+                    {
+                      "name": "expires_at"
+                    }
+                  ],
+                  "optional": true
+                },
+                {
                   "name": "passkey_count"
                 },
                 {
@@ -942,6 +975,9 @@
                 },
                 {
                   "name": "role_from_provider"
+                },
+                {
+                  "name": "totp"
                 }
               ],
               "optional": true
@@ -1070,6 +1106,15 @@
           "name": "methods",
           "fields": [
             {
+              "name": "temporary_password",
+              "fields": [
+                {
+                  "name": "expires_at"
+                }
+              ],
+              "optional": true
+            },
+            {
               "name": "passkey_count"
             },
             {
@@ -1080,6 +1125,9 @@
             },
             {
               "name": "role_from_provider"
+            },
+            {
+              "name": "totp"
             }
           ],
           "optional": true
@@ -1173,6 +1221,10 @@
     },
     {
       "name": "totp"
+    },
+    {
+      "name": "temporary_password_https_only",
+      "optional": true
     }
   ],
   "StepUpCodeRequest": [
@@ -1201,6 +1253,41 @@
     {
       "name": "current_code",
       "optional": true
+    }
+  ],
+  "TemporaryPasswordOptions": [
+    {
+      "name": "ttl_hours",
+      "optional": true
+    },
+    {
+      "name": "revoke_passkeys",
+      "optional": true
+    },
+    {
+      "name": "keep_keys",
+      "optional": true
+    }
+  ],
+  "TemporaryPasswordResponse": [
+    {
+      "name": "expires_at"
+    },
+    {
+      "name": "password"
+    },
+    {
+      "name": "https_origin",
+      "optional": true
+    },
+    {
+      "name": "https_only"
+    },
+    {
+      "name": "dormant"
+    },
+    {
+      "name": "password_kept"
     }
   ],
   "TicketRequest": [
@@ -1277,6 +1364,15 @@
       "name": "methods",
       "fields": [
         {
+          "name": "temporary_password",
+          "fields": [
+            {
+              "name": "expires_at"
+            }
+          ],
+          "optional": true
+        },
+        {
           "name": "passkey_count"
         },
         {
@@ -1287,6 +1383,9 @@
         },
         {
           "name": "role_from_provider"
+        },
+        {
+          "name": "totp"
         }
       ],
       "optional": true

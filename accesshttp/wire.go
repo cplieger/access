@@ -187,6 +187,9 @@ type StateResponse struct {
 	OIDC          bool                   `json:"oidc"`
 	Secure        bool                   `json:"secure"`
 	TOTP          bool                   `json:"totp"` // the app offers TOTP
+	// TemporaryPasswordHTTPSOnly is account.State's; absent when false, as
+	// on every secure request.
+	TemporaryPasswordHTTPSOnly bool `json:"temporary_password_https_only,omitempty"`
 }
 
 // PlainSessionView is account.State.PlainSession in whole seconds.
@@ -214,10 +217,40 @@ type UserView struct {
 // UserMethodsView is a listed user's sign-in methods and the facts about
 // them the admin list reads with the page.
 type UserMethodsView struct {
-	PasskeyCount        int  `json:"passkey_count"`
-	Password            bool `json:"password"`
-	LocalMethodsDormant bool `json:"local_methods_dormant"`
-	RoleFromProvider    bool `json:"role_from_provider"`
+	// TemporaryPassword is the user's live temporary password; absent when
+	// they hold none.
+	TemporaryPassword   *TemporaryPasswordView `json:"temporary_password,omitempty"`
+	PasskeyCount        int                    `json:"passkey_count"`
+	Password            bool                   `json:"password"`
+	LocalMethodsDormant bool                   `json:"local_methods_dormant"`
+	RoleFromProvider    bool                   `json:"role_from_provider"`
+	TOTP                bool                   `json:"totp"` // the user holds a TOTP record
+}
+
+// TemporaryPasswordView is a listed user's live temporary password.
+type TemporaryPasswordView struct {
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// TemporaryPasswordOptions is authAdminTemporaryPassword's body,
+// account.TemporaryPasswordOptions on the wire.
+type TemporaryPasswordOptions struct {
+	TTLHours       int  `json:"ttl_hours,omitempty"` // 0 is 24 hours; at most 168
+	RevokePasskeys bool `json:"revoke_passkeys,omitempty"`
+	KeepKeys       bool `json:"keep_keys,omitempty"`
+}
+
+// TemporaryPasswordResponse is account.IssuedTemporaryPassword on the wire.
+// Only writeShownOnce fills Password.
+type TemporaryPasswordResponse struct {
+	ExpiresAt   time.Time `json:"expires_at"`
+	Password    string    `json:"password"` // XXXX-XXXX-XXXX-XXXX, shown once
+	HTTPSOrigin string    `json:"https_origin,omitempty"`
+	// HTTPSOnly is account.Service.TemporaryPasswordHTTPSOnly, read after
+	// the issue committed.
+	HTTPSOnly    bool `json:"https_only"`
+	Dormant      bool `json:"dormant"`
+	PasswordKept bool `json:"password_kept"`
 }
 
 // SignInOutcome is a sign-in step's answer, in which exactly one arm is set.
@@ -548,7 +581,7 @@ type AdminSecurityLogQuery struct {
 
 // shownOnce is a response that carries one plaintext.
 type shownOnce interface {
-	KeyCreatedResponse | TokenResponse
+	KeyCreatedResponse | TokenResponse | TemporaryPasswordResponse
 }
 
 // writeShownOnce reveals resp's one plaintext: it enters resp inside this
@@ -559,6 +592,8 @@ func writeShownOnce[R shownOnce](w http.ResponseWriter, status int, resp R, plai
 		v.Key = plaintext.Reveal()
 	case *TokenResponse:
 		v.Token = plaintext.Reveal()
+	case *TemporaryPasswordResponse:
+		v.Password = plaintext.Reveal()
 	}
 	writeJSON(w, status, resp)
 }
@@ -589,7 +624,13 @@ func userView(u *access.User) UserView {
 func listedUserView(l *account.ListedUser) UserView {
 	v := userView(&l.User)
 	v.KeyLineage = l.KeyLineage
-	v.Methods = &UserMethodsView{Password: !l.User.PasswordHash.IsZero(), PasskeyCount: l.PasskeyCount, LocalMethodsDormant: l.LocalMethodsDormant, RoleFromProvider: l.RoleFromProvider}
+	v.Methods = &UserMethodsView{
+		Password: !l.User.PasswordHash.IsZero(), PasskeyCount: l.PasskeyCount, TOTP: l.TOTP,
+		LocalMethodsDormant: l.LocalMethodsDormant, RoleFromProvider: l.RoleFromProvider,
+	}
+	if !l.TemporaryPasswordExpiresAt.IsZero() {
+		v.Methods.TemporaryPassword = &TemporaryPasswordView{ExpiresAt: l.TemporaryPasswordExpiresAt}
+	}
 	return v
 }
 
@@ -606,7 +647,7 @@ func stateResponse(st *account.State) StateResponse {
 	v := StateResponse{
 		SetupRequired: st.SetupRequired, PasswordLogin: st.PasswordLogin, Passkeys: st.Passkeys, OIDC: st.OIDC, Secure: st.Secure,
 		HTTPSRequired: append([]account.HTTPSFeature{}, st.HTTPSRequired...), HTTPSOrigin: st.HTTPSOrigin, SSO: st.SSO.Name(),
-		TOTP: st.TOTP,
+		TOTP: st.TOTP, TemporaryPasswordHTTPSOnly: st.TemporaryPasswordHTTPSOnly,
 	}
 	if p := st.PlainSession; p != nil {
 		v.PlainSession = &PlainSessionView{IdleSeconds: int64(p.Idle / time.Second), AbsoluteSeconds: int64(p.Absolute / time.Second)}

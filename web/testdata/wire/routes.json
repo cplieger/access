@@ -620,6 +620,16 @@
     "doc": "Unlinks an account's single sign-on identity."
   },
   {
+    "request": "TemporaryPasswordOptions",
+    "response": "TemporaryPasswordResponse",
+    "name": "authAdminTemporaryPassword",
+    "method": "POST",
+    "path": "{prefix}/users/{id}/temporary-password",
+    "kind": "json",
+    "array": false,
+    "doc": "Issues an account a temporary password and answers it once."
+  },
+  {
     "request": "InviteRequest",
     "response": "TokenResponse",
     "name": "authAdminInvite",

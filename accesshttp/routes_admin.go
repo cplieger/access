@@ -128,6 +128,25 @@ func serveAdminOIDCUnlink(h *Handler, c *call) error {
 	return nil
 }
 
+// serveAdminTemporaryPassword issues a temporary password and answers it
+// once, https_only read after the issue commits (account owns why).
+func serveAdminTemporaryPassword(h *Handler, c *call) error {
+	req, err := decodeJSON[TemporaryPasswordOptions](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	in := account.TemporaryPasswordOptions{TTL: units(req.TTLHours, time.Hour), RevokePasskeys: req.RevokePasskeys, KeepKeys: req.KeepKeys}
+	issued, err := h.acct.SetTemporaryPassword(c.r.Context(), account.As(c.p), c.id, in)
+	if err != nil {
+		return err
+	}
+	writeShownOnce(c.w, http.StatusOK, TemporaryPasswordResponse{
+		ExpiresAt: issued.ExpiresAt, HTTPSOrigin: issued.HTTPSOrigin, HTTPSOnly: h.acct.TemporaryPasswordHTTPSOnly(issued),
+		Dormant: issued.Dormant, PasswordKept: issued.PasswordKept,
+	}, issued.Password)
+	return nil
+}
+
 func serveAdminInvite(h *Handler, c *call) error {
 	req, err := decodeJSON[InviteRequest](c.w, c.r)
 	if err != nil {

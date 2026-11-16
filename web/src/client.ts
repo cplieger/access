@@ -26,6 +26,7 @@ import {
   parseRecoveryCodeResponse,
   parsePasskeyRegisteredResponse,
   parseTokenResponse,
+  parseTemporaryPasswordResponse,
   parseTokenView,
   parseUserView,
   parseWebAuthnSignals,
@@ -34,6 +35,8 @@ import type {
   CeremonyResponse,
   InviteAcceptRequest,
   InviteRequest,
+  TemporaryPasswordOptions,
+  TemporaryPasswordResponse,
   KeyCreatedResponse,
   KeyView,
   LoginRequest,
@@ -243,6 +246,10 @@ export interface AuthClient {
   adminDeleteUser(id: number): Promise<ApiResult<void>>;
   /** Removes the user's identity-provider link and ends all their sessions. */
   adminUnlinkOIDC(id: number): Promise<ApiResult<void>>;
+  adminTemporaryPassword(
+    id: number,
+    options: TemporaryPasswordOptions,
+  ): Promise<ApiResult<TemporaryPasswordResponse>>;
   adminInvite(r: InviteRequest): Promise<ApiResult<TokenResponse>>;
   adminTokens(): Promise<ApiResult<readonly TokenView[]>>;
   adminKeys(): Promise<ApiResult<readonly KeyView[]>>;
@@ -416,6 +423,10 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     adminApplySSO: (mode) => empty("PUT", p("/sso"), { mode }),
     adminDeleteUser: (id) => empty("DELETE", p(`/users/${String(id)}`)),
     adminUnlinkOIDC: (id) => empty("DELETE", p(`/users/${String(id)}/oidc`)),
+    adminTemporaryPassword: (id, options) =>
+      json("POST", p(`/users/${String(id)}/temporary-password`), parseTemporaryPasswordResponse, {
+        body: options,
+      }),
     adminInvite: (r) => json("POST", p("/invites"), parseTokenResponse, { body: r }),
     adminTokens: () => json("GET", p("/tokens"), tokenList),
     adminKeys: () => json("GET", p("/admin/apikeys"), keyList),

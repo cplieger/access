@@ -100,6 +100,12 @@ func (s stubAccount) AdminUnlinkOIDC(ctx context.Context, a account.Actor, userI
 	return stubbedErr(s, "AdminUnlinkOIDC", func() error { return s.accountAPI.AdminUnlinkOIDC(ctx, a, userID) })
 }
 
+func (s stubAccount) SetTemporaryPassword(ctx context.Context, a account.Actor, userID int64, in account.TemporaryPasswordOptions) (account.IssuedTemporaryPassword, error) {
+	return stubbed(s, "SetTemporaryPassword", func() (account.IssuedTemporaryPassword, error) {
+		return s.accountAPI.SetTemporaryPassword(ctx, a, userID, in)
+	})
+}
+
 func (s stubAccount) UnlinkOIDC(ctx context.Context, p access.Principal) error {
 	return stubbedErr(s, "UnlinkOIDC", func() error { return s.accountAPI.UnlinkOIDC(ctx, p) })
 }

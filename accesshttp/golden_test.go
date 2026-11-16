@@ -55,7 +55,10 @@ var (
 func goldenUser() UserView {
 	return UserView{
 		ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleAdmin, Enabled: true, OIDCLinked: true, Owner: true,
-		CreatedAt: goldenTime, KeyLineage: []int64{3, 5}, Methods: &UserMethodsView{Password: true, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true},
+		CreatedAt: goldenTime, KeyLineage: []int64{3, 5}, Methods: &UserMethodsView{
+			Password: true, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true, TOTP: true,
+			TemporaryPassword: &TemporaryPasswordView{ExpiresAt: goldenLater},
+		},
 	}
 }
 
@@ -119,11 +122,12 @@ func fixtures() []fixture {
 		{name: "TokenRequest", request: true, value: TokenRequest{Token: "fixture-invite-token"}},
 		{name: "SSORequest", request: true, value: SSORequest{Mode: account.SSONameForLinked}},
 		{name: "InviteRequest", request: true, value: InviteRequest{Role: access.RoleUser, Hours: 72}},
+		{name: "TemporaryPasswordOptions", request: true, value: TemporaryPasswordOptions{TTLHours: 48, RevokePasskeys: true, KeepKeys: true}},
 
 		{name: "StateResponse", value: StateResponse{
 			SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, PlainSession: &PlainSessionView{IdleSeconds: 1800, AbsoluteSeconds: 43200},
 			HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys, account.HTTPSOIDC}, HTTPSOrigin: "https://app.example.com",
-			SSO: account.SSONameForLinked, TOTP: true,
+			SSO: account.SSONameForLinked, TOTP: true, TemporaryPasswordHTTPSOnly: true,
 		}},
 		{name: "Readiness", value: Readiness{
 			Refusal:   &ReadinessRefusal{Code: access.CodeForbidden, Reason: account.ReasonOwnerNeedsLocalMethod},
@@ -169,6 +173,10 @@ func fixtures() []fixture {
 		{name: "KeyCreatedResponse", value: KeyCreatedResponse{Details: goldenKey()}, shown: access.NewSecret("fixture-api-key")},
 		{name: "UserView", value: goldenUser()},
 		{name: "TokenResponse", value: TokenResponse{ExpiresAt: goldenLater}, shown: access.NewSecret("fixture-token")},
+		{name: "TemporaryPasswordResponse", value: TemporaryPasswordResponse{
+			ExpiresAt: goldenLater, HTTPSOrigin: "https://app.example.com", HTTPSOnly: true, Dormant: true, PasswordKept: true,
+		}, shown: access.NewSecret("ABCD-EFGH-JKMN-PQRS")},
+		{name: "TemporaryPasswordResponse.noOrigin", absent: "https_origin", value: TemporaryPasswordResponse{ExpiresAt: goldenLater}, shown: access.NewSecret("ABCD-EFGH-JKMN-PQRS")},
 		{name: "TokenView", value: TokenView{
 			CreatedAt: goldenTime, ExpiresAt: goldenLater, Purpose: access.PurposeInvite, Role: access.RoleUser,
 			IssuerLineage: []int64{3, 5}, IssuedByKey: 5,
@@ -209,6 +217,8 @@ func fixtureBytes(t *testing.T, f *fixture) []byte {
 		writeShownOnce(w, http.StatusCreated, v, f.shown)
 	case TokenResponse:
 		writeShownOnce(w, http.StatusCreated, v, f.shown)
+	case TemporaryPasswordResponse:
+		writeShownOnce(w, http.StatusOK, v, f.shown)
 	default:
 		writeJSON(w, http.StatusOK, v)
 	}

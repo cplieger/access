@@ -177,10 +177,10 @@ func TestViewsCarryEveryField(t *testing.T) {
 		Session: CurrentSessionView{ID: "sess", Method: access.MethodPasskey, AuthTime: at(1), IdleDeadline: at(2), AbsoluteDeadline: at(3), Secure: true},
 	}
 	wantSignedIn := SignedInResponse{User: wantUser, SessionID: "sess", RecoveryCode: "ABCD-EFGH-JKMN-PQRS", CloneWarning: true}
-	listed := account.ListedUser{User: *user, KeyLineage: []int64{3, 5}, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true}
+	listed := account.ListedUser{User: *user, KeyLineage: []int64{3, 5}, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true, TOTP: true, TemporaryPasswordExpiresAt: at(4)}
 	listed.User.PasswordHash = access.NewHash("$argon2id$stored")
 	wantListed := wantUser
-	wantListed.Methods = &UserMethodsView{Password: true, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true}
+	wantListed.Methods = &UserMethodsView{Password: true, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true, TOTP: true, TemporaryPassword: &TemporaryPasswordView{ExpiresAt: at(4)}}
 	wantListed.KeyLineage = []int64{3, 5}
 	passkey := account.Passkey{Credential: access.PasskeyCredential{
 		ID: 2, Name: "laptop", RPID: testRPID, CreatedAt: at(1), LastUsedAt: at(2),
@@ -202,12 +202,12 @@ func TestViewsCarryEveryField(t *testing.T) {
 	state := account.State{
 		SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSOrigin: "https://app.example.com",
 		PlainSession:  &access.SessionTimeouts{Idle: 15*time.Minute + 999*time.Millisecond, Absolute: 12 * time.Hour},
-		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC}, SSO: account.SSOOnly, TOTP: true,
+		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC}, SSO: account.SSOOnly, TOTP: true, TemporaryPasswordHTTPSOnly: true,
 	}
 	wantState := StateResponse{
 		SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSOrigin: "https://app.example.com",
 		PlainSession:  &PlainSessionView{IdleSeconds: 900, AbsoluteSeconds: 43200},
-		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC}, SSO: account.SSONameOnly, TOTP: true,
+		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC}, SSO: account.SSONameOnly, TOTP: true, TemporaryPasswordHTTPSOnly: true,
 	}
 	key := access.Key{
 		ID: 5, UserID: 7, Label: "ci", KeyPrefix: "ak_7", KeySuffix: "wxyz", Scopes: []string{"read"},

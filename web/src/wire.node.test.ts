@@ -215,6 +215,7 @@ describe("wire fixtures", () => {
       "SignInOutcome.pending",
       "SignedInResponse.noCode",
       "TOTPFinishRequest.noCurrent",
+      "TemporaryPasswordResponse.noOrigin",
     ]);
   });
 

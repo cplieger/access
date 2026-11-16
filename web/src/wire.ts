@@ -380,6 +380,20 @@ export const parseInviteRequest: Validator<InviteRequest> = object({
   hours: opt(int),
 });
 
+export interface TemporaryPasswordOptions {
+  /** Its lifetime: 24 hours when absent, at most 168. */
+  readonly ttl_hours?: number;
+  /** Also delete the user's passkeys, for a lost device that held them. */
+  readonly revoke_passkeys?: boolean;
+  /** Keep the user's API keys, which the issue otherwise revokes. */
+  readonly keep_keys?: boolean;
+}
+export const parseTemporaryPasswordOptions: Validator<TemporaryPasswordOptions> = object({
+  ttl_hours: opt(int),
+  revoke_passkeys: opt(bool),
+  keep_keys: opt(bool),
+});
+
 // Responses.
 
 /** @internal Go's account.HTTPSFeature constants, in https_required's order. */
@@ -411,6 +425,8 @@ export interface StateResponse {
   readonly sso: SSOMode;
   /** The app offers TOTP (an authenticator app). */
   readonly totp: boolean;
+  /** Set on a plain request where a temporary password cannot finish: the plain form must not send one. */
+  readonly temporary_password_https_only?: boolean;
 }
 export const parseStateResponse: Validator<StateResponse> = object({
   setup_required: req(bool),
@@ -425,11 +441,24 @@ export const parseStateResponse: Validator<StateResponse> = object({
   https_origin: opt(str),
   sso: req(ssoMode),
   totp: req(bool),
+  temporary_password_https_only: opt(bool),
+});
+
+/** A listed user's live temporary password. */
+export interface TemporaryPasswordView {
+  readonly expires_at: string;
+}
+export const parseTemporaryPasswordView: Validator<TemporaryPasswordView> = object({
+  expires_at: req(time),
 });
 
 export interface UserMethodsView {
   readonly password: boolean;
   readonly passkey_count: number;
+  /** The user holds a TOTP record. */
+  readonly totp: boolean;
+  /** Absent when the user holds no live temporary password. */
+  readonly temporary_password?: TemporaryPasswordView;
   /** The SSO mode keeps this user's password and passkeys dormant. */
   readonly local_methods_dormant: boolean;
   /** The role syncs from the identity provider: an in-app change lasts until the next sign-in. */
@@ -438,6 +467,8 @@ export interface UserMethodsView {
 export const parseUserMethodsView: Validator<UserMethodsView> = object({
   password: req(bool),
   passkey_count: req(count),
+  totp: req(bool),
+  temporary_password: opt(parseTemporaryPasswordView),
   local_methods_dormant: req(bool),
   role_from_provider: req(bool),
 });
@@ -907,6 +938,28 @@ export interface TokenResponse {
 export const parseTokenResponse: Validator<TokenResponse> = object({
   token: req(str),
   expires_at: req(time),
+});
+
+/** password is the secret, XXXX-XXXX-XXXX-XXXX, shown once. */
+export interface TemporaryPasswordResponse {
+  readonly password: string;
+  readonly expires_at: string;
+  /** Add the HTTPS sentence: the plain address will not accept it. */
+  readonly https_only: boolean;
+  /** The address to name; else the admin's own origin. */
+  readonly https_origin?: string;
+  /** Single sign-on only keeps the user's methods: the copy is the admin link's. */
+  readonly dormant: boolean;
+  /** The user's own password was kept beside it (dormant only). */
+  readonly password_kept: boolean;
+}
+export const parseTemporaryPasswordResponse: Validator<TemporaryPasswordResponse> = object({
+  password: req(str),
+  expires_at: req(time),
+  https_only: req(bool),
+  https_origin: opt(str),
+  dormant: req(bool),
+  password_kept: req(bool),
 });
 
 /** One live invite; it carries neither the token nor its hash. */

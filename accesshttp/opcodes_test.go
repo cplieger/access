@@ -153,6 +153,7 @@ var producerErrors = map[string]error{
 	modulePath + "/account.ErrSessionRequired":           account.ErrSessionRequired,
 	modulePath + "/account.ErrScopeRequired":             account.ErrScopeRequired,
 	modulePath + "/account.ErrSSOOnly":                   account.ErrSSOOnly,
+	modulePath + "/account.ErrSSOLinked":                 account.ErrSSOLinked,
 	modulePath + "/account.ErrNotAdmitted":               account.ErrNotAdmitted,
 	modulePath + "/account.ErrNoUsableMethod":            account.ErrNoUsableMethod,
 	modulePath + "/account.ErrEnrolNeedsKnownDevice":     account.ErrEnrolNeedsKnownDevice,

@@ -39,6 +39,8 @@
   "StepUpCodeRequest",
   "TOTPBeginResponse",
   "TOTPFinishRequest",
+  "TemporaryPasswordOptions",
+  "TemporaryPasswordResponse",
   "TicketRequest",
   "TokenRequest",
   "TokenResponse",

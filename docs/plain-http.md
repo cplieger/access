@@ -24,7 +24,7 @@ Under `PosturePerRequest`, a plain request may sign in and set up the first acco
 | `authSessions`, `authSessionRename`, `authSessionRevoke`, `authSessionsRevokeOthers` | `authPasskeyRegisterBegin`, `authPasskeyRegisterFinish` |
 | `authKeys`, `authKeyRename`, `authKeyRevoke`, `authAdminKeys`, `authAdminKeyRevoke` | `authInviteAcceptPassword` |
 | `authAdminUsers`, `authAdminUserCreate`, `authAdminUserUpdate`, `authAdminOwner`, `authAdminUserDelete`, `authAdminOIDCUnlink`, `authAdminTokens`, `authAdminSecurityLog` | `authAdminSSOReadiness`, `authAdminSSOApply` |
-| every route of yours on the gate, by its class, except a row marked `HTTPS` | `authKeyCreate`, `authKeyRotate`, `authAdminInvite` |
+| every route of yours on the gate, by its class, except a row marked `HTTPS` | `authKeyCreate`, `authKeyRotate`, `authAdminInvite`, `authAdminTemporaryPassword` (an admin socket's recovery verb is the plain-only path) |
 
 Four rows need a reason:
 

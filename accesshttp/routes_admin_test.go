@@ -410,6 +410,7 @@ func TestKeyAdminTargetRoutes(t *testing.T) {
 			{"invite_admin", "authAdminInvite", "", `{"role":"admin"}`},
 			{"update_admin", "authAdminUserUpdate", rootID, `{"enabled":false}`},
 			{"delete_admin", "authAdminUserDelete", rootID, ""},
+			{"temporary_password_admin", "authAdminTemporaryPassword", rootID, `{}`},
 		} {
 			t.Run(c.label, func(t *testing.T) {
 				e.requireRefused(t, send(c.name, c.id, c.body), access.CodeForbidden)
@@ -552,6 +553,11 @@ func TestShownOnceRoutes(t *testing.T) {
 		if p := e.keyPrincipal(t, access.NewSecret(resp.Key)); p.KeyID != resp.Details.ID {
 			t.Errorf("the key authenticates as key %d, want %d", p.KeyID, resp.Details.ID)
 		}
+	})
+	t.Run("authAdminTemporaryPassword", func(t *testing.T) {
+		w := do(e.route(t, "authAdminTemporaryPassword"), e.at(t, "authAdminTemporaryPassword", e.userID(t, "alice"), `{}`, root))
+		resp := decoded[TemporaryPasswordResponse](t, e, w, http.StatusOK)
+		once(t, w.Body.String(), resp.Password)
 	})
 	t.Run("authAdminInvite", func(t *testing.T) {
 		w := do(e.route(t, "authAdminInvite"), e.post(t, "authAdminInvite", `{"role":"user"}`, root))
