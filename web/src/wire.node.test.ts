@@ -21,13 +21,16 @@ import {
   PENDING_METHODS,
   REASONS,
   SSO_MODES,
+  REGISTRATION_MODES,
   ROLES,
   TOKEN_PURPOSES,
   authCode,
   authReason,
   errorReason,
   parseCeremonyResponse,
+  parseEnrolmentOutcome,
   parseKeyView,
+  parseRegistrationOutcome,
   parseSecurityLogView,
   parseStateResponse,
   parseUserView,
@@ -204,11 +207,14 @@ describe("wire fixtures", () => {
 
   it("has the absent-optional variants and one variant per further union arm", () => {
     expect(variants.sort()).toEqual([
+      "EnrolmentOutcome.waiting",
       "NewUserRequest.noPassword",
       "PasskeyRegisteredResponse.none",
       "PasswordChangeRequest.noCurrent",
       "PendingLinkResponse.noCreate",
       "RecoveryCodeIssuedResponse.none",
+      "RegistrationOutcome.pending",
+      "RegistrationOutcome.waiting",
       "SecondFactorProof.passkey",
       "SetupPasskeyBeginRequest.noToken",
       "SetupPasswordRequest.noToken",
@@ -219,8 +225,13 @@ describe("wire fixtures", () => {
     ]);
   });
 
-  it("SecondFactorProof and SignInOutcome are the unions", () => {
-    expect(unions).toEqual(["SecondFactorProof", "SignInOutcome"]);
+  it("these are the unions", () => {
+    expect([...unions].sort()).toEqual([
+      "EnrolmentOutcome",
+      "RegistrationOutcome",
+      "SecondFactorProof",
+      "SignInOutcome",
+    ]);
   });
 
   it.each(unions)("%s: every arm has a fixture, and two arms or none are refused", (type) => {
@@ -347,6 +358,7 @@ describe("value sets", () => {
     LOG_CLASSES,
     HTTPS_FEATURES,
     SSO_MODES,
+    REGISTRATION_MODES,
     NEXT_STEPS,
     PENDING_METHODS,
     CODES,
@@ -657,5 +669,31 @@ describe("AuthReason", () => {
     expect(errorReason(err(400, "auth_bad_request", { reason: "constructor" }))).toBe(
       "constructor",
     );
+  });
+});
+
+// Design 4.31: a completion that creates an account waiting for approval answers
+// { waiting_approval: true, recovery_code? }; a password registration binds no second factor,
+// so its waiting answer carries no code.
+describe("WaitingApproval", () => {
+  it("decodes the waiting arm with and without its recovery code", () => {
+    expect(parseEnrolmentOutcome({ waiting_approval: true })).toEqual({ waiting_approval: true });
+    expect(parseEnrolmentOutcome({ waiting_approval: true, recovery_code: "C" })).toEqual({
+      waiting_approval: true,
+      recovery_code: "C",
+    });
+    expect(parseRegistrationOutcome({ waiting_approval: true })).toEqual({
+      waiting_approval: true,
+    });
+  });
+
+  it("refuses waiting_approval other than true, and a code on a password registration", () => {
+    for (const v of [false, "true", 1, null]) {
+      expect(parseEnrolmentOutcome({ waiting_approval: v }), String(v)).toBeUndefined();
+      expect(parseRegistrationOutcome({ waiting_approval: v }), String(v)).toBeUndefined();
+    }
+    expect(
+      parseRegistrationOutcome({ waiting_approval: true, recovery_code: "C" }),
+    ).toBeUndefined();
   });
 });

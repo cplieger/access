@@ -5,6 +5,7 @@ import type {
   CeremonyResponse,
   EnrolmentOutcome,
   PasskeyView,
+  RegisterPasskeyBeginRequest,
   SecondFactorProof,
   SignInOutcome,
   SignedInResponse,
@@ -49,8 +50,11 @@ export type SetPasskeyOutcome =
   | { readonly kind: "answered"; readonly result: SignInOutcome }
   | Exclude<RegisterOutcome, { kind: "registered" }>;
 
-/** A pending enrolment's passkey answer: the sign-in it completed, or why no passkey was bound. */
-export type PendingPasskeyOutcome =
+/**
+ * A passkey enrolment's answer, pendingPasskey's and signUpWithPasskey's: the sign-in it
+ * completed or the account it made wait for approval, or why no passkey was bound.
+ */
+export type PasskeyEnrolmentOutcome =
   | { readonly kind: "answered"; readonly result: EnrolmentOutcome }
   | Exclude<RegisterOutcome, { kind: "registered" }>;
 
@@ -439,7 +443,7 @@ export async function loginSetPasskey(c: AuthClient, ticket: string): Promise<Se
 export async function pendingPasskey(
   c: AuthClient,
   ticket: string,
-): Promise<PendingPasskeyOutcome> {
+): Promise<PasskeyEnrolmentOutcome> {
   const made = await create(await c.pendingPasskeyBegin({ ticket }));
   if (made.kind !== "credential") {
     return made;
@@ -488,6 +492,19 @@ export async function registerPasskey(
   return recovery_code === undefined
     ? { kind: "registered", passkey }
     : { kind: "registered", passkey, recovery_code };
+}
+
+/** Creates an account with a passkey while state().registration is not "off". */
+export async function signUpWithPasskey(
+  c: AuthClient,
+  r: RegisterPasskeyBeginRequest,
+): Promise<PasskeyEnrolmentOutcome> {
+  const made = await create(await c.registerPasskeyBegin(r));
+  if (made.kind !== "credential") {
+    return made;
+  }
+  const res = await c.registerPasskeyFinish(made.ceremony, made.json);
+  return res.ok ? { kind: "answered", result: res.data } : registrationRefused(res);
 }
 
 /** Creates the first user with a passkey; a create-leg duplicate is a failed InvalidStateError here. */

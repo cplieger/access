@@ -176,6 +176,23 @@ export const parseLoginRequest: Validator<LoginRequest> = object({
   password: req(str),
 });
 
+/** registerPassword's body: the password is checked against the username too. */
+export interface RegisterPasswordRequest {
+  readonly username: string;
+  readonly password: string;
+}
+export const parseRegisterPasswordRequest: Validator<RegisterPasswordRequest> = object({
+  username: req(str),
+  password: req(str),
+});
+
+export interface RegisterPasskeyBeginRequest {
+  readonly username: string;
+}
+export const parseRegisterPasskeyBeginRequest: Validator<RegisterPasskeyBeginRequest> = object({
+  username: req(str),
+});
+
 export interface RedirectRequest {
   readonly redirect?: string;
 }
@@ -383,6 +400,10 @@ export const SSO_MODES = ["alongside", "for_linked", "only"] as const;
 export type SSOMode = (typeof SSO_MODES)[number];
 const ssoMode = oneOf(...SSO_MODES);
 
+export const REGISTRATION_MODES = ["off", "open", "approval"] as const;
+/** Who may create their own account: no one, anyone, or anyone an admin then approves. */
+export type RegistrationMode = (typeof REGISTRATION_MODES)[number];
+
 export interface SSORequest {
   readonly mode: SSOMode;
 }
@@ -444,6 +465,8 @@ export interface StateResponse {
   readonly sso: SSOMode;
   /** The app offers TOTP (an authenticator app). */
   readonly totp: boolean;
+  /** "Create an account" shows unless "off": always "off" in a single-user app and under sso "only". */
+  readonly registration: RegistrationMode;
   /** Set on a plain request where a temporary password cannot finish: the plain form must not send one. */
   readonly temporary_password_https_only?: boolean;
 }
@@ -460,6 +483,7 @@ export const parseStateResponse: Validator<StateResponse> = object({
   https_origin: opt(str),
   sso: req(ssoMode),
   totp: req(bool),
+  registration: req(oneOf(...REGISTRATION_MODES)),
   temporary_password_https_only: opt(bool),
 });
 
@@ -482,6 +506,8 @@ export interface UserMethodsView {
   readonly local_methods_dormant: boolean;
   /** The role syncs from the identity provider: an in-app change lasts until the next sign-in. */
   readonly role_from_provider: boolean;
+  /** A registration no admin has approved: "Approve" enables the user, "Delete" deletes it. */
+  readonly waiting_approval: boolean;
 }
 export const parseUserMethodsView: Validator<UserMethodsView> = object({
   password: req(bool),
@@ -490,6 +516,7 @@ export const parseUserMethodsView: Validator<UserMethodsView> = object({
   temporary_password: opt(parseTemporaryPasswordView),
   local_methods_dormant: req(bool),
   role_from_provider: req(bool),
+  waiting_approval: req(bool),
 });
 
 /** key_lineage and methods are set on the admin list only. */
@@ -567,13 +594,29 @@ export const parseSignInOutcome: Validator<SignInOutcome> = anyOf<SignInOutcome>
   object<{ readonly pending: Pending }>({ pending: req(parsePending) }),
 );
 
-/** A pending enrolment finish's answer: pendingTOTPFinish and pendingPasskey. */
-export interface EnrolmentOutcome {
-  readonly signed_in: SignedInResponse;
+/**
+ * An account a registration created that waits for an admin's approval, with no session: show
+ * recovery_code once when set, then that the account is waiting.
+ */
+export interface WaitingApproval {
+  readonly waiting_approval: true;
+  readonly recovery_code?: string;
 }
-export const parseEnrolmentOutcome: Validator<EnrolmentOutcome> = object({
-  signed_in: req(parseSignedInResponse),
-});
+const waitingApproval = (v: unknown): true | undefined => (v === true ? true : undefined);
+
+/** A pending enrolment finish's and signUpWithPasskey's answer. */
+export type EnrolmentOutcome = { readonly signed_in: SignedInResponse } | WaitingApproval;
+export const parseEnrolmentOutcome: Validator<EnrolmentOutcome> = anyOf<EnrolmentOutcome>(
+  object<{ readonly signed_in: SignedInResponse }>({ signed_in: req(parseSignedInResponse) }),
+  object<WaitingApproval>({ waiting_approval: req(waitingApproval), recovery_code: opt(str) }),
+);
+
+/** registerPassword's answer; its waiting answer never carries a recovery code. */
+export type RegistrationOutcome = SignInOutcome | WaitingApproval;
+export const parseRegistrationOutcome: Validator<RegistrationOutcome> = anyOf<RegistrationOutcome>(
+  parseSignInOutcome,
+  object<{ readonly waiting_approval: true }>({ waiting_approval: req(waitingApproval) }),
+);
 
 /** The WebAuthn options of a begin route, in the browser's JSON shape. */
 export type CeremonyOptions =
@@ -1247,6 +1290,7 @@ export const REASONS = [
   "owner_role",
   "last_owner",
   "owner_needs_local_method",
+  "registration_enabled",
   "code_invalid",
   "code_reused",
   "method_locked",

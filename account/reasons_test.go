@@ -25,6 +25,7 @@ func TestReasonLists(t *testing.T) {
 			"lineage_too_deep", "permission_not_admin", "self_recovery", "other_user", "target_not_eligible",
 			"unknown_operation", "not_enabled_user", "not_admin", "self_delete",
 			"single_owner", "not_owner", "unknown_via", "via_with_actor", "owner_target", "owner_role", "last_owner", "owner_needs_local_method",
+			"registration_enabled",
 		}},
 		{"UsernameReasons", account.UsernameReasons(), []string{"empty", "disallowed_character", "too_long"}},
 		{"TextErrorReasons", account.TextErrorReasons(), []string{"empty", "disallowed_character", "too_long"}},

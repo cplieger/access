@@ -58,6 +58,9 @@
                 },
                 {
                   "name": "totp"
+                },
+                {
+                  "name": "waiting_approval"
                 }
               ],
               "optional": true
@@ -99,7 +102,19 @@
           "name": "clone_warning",
           "optional": true
         }
-      ]
+      ],
+      "optional": true,
+      "arm": "signed_in"
+    },
+    {
+      "name": "recovery_code",
+      "optional": true,
+      "arm": "waiting_approval"
+    },
+    {
+      "name": "waiting_approval",
+      "optional": true,
+      "arm": "waiting_approval"
     }
   ],
   "InviteAcceptRequest": [
@@ -369,6 +384,9 @@
             },
             {
               "name": "totp"
+            },
+            {
+              "name": "waiting_approval"
             }
           ],
           "optional": true
@@ -694,6 +712,147 @@
       "optional": true
     }
   ],
+  "RegisterPasskeyBeginRequest": [
+    {
+      "name": "username"
+    }
+  ],
+  "RegisterPasswordRequest": [
+    {
+      "name": "username"
+    },
+    {
+      "name": "password"
+    }
+  ],
+  "RegistrationOutcome": [
+    {
+      "name": "signed_in",
+      "fields": [
+        {
+          "name": "session_id"
+        },
+        {
+          "name": "recovery_code",
+          "optional": true
+        },
+        {
+          "name": "user",
+          "fields": [
+            {
+              "name": "created_at"
+            },
+            {
+              "name": "methods",
+              "fields": [
+                {
+                  "name": "temporary_password",
+                  "fields": [
+                    {
+                      "name": "expires_at"
+                    }
+                  ],
+                  "optional": true
+                },
+                {
+                  "name": "passkey_count"
+                },
+                {
+                  "name": "password"
+                },
+                {
+                  "name": "local_methods_dormant"
+                },
+                {
+                  "name": "role_from_provider"
+                },
+                {
+                  "name": "totp"
+                },
+                {
+                  "name": "waiting_approval"
+                }
+              ],
+              "optional": true
+            },
+            {
+              "name": "username"
+            },
+            {
+              "name": "display_name",
+              "optional": true
+            },
+            {
+              "name": "role",
+              "values": [
+                "admin",
+                "user"
+              ],
+              "open": true
+            },
+            {
+              "name": "key_lineage",
+              "optional": true
+            },
+            {
+              "name": "id"
+            },
+            {
+              "name": "enabled"
+            },
+            {
+              "name": "oidc_linked"
+            },
+            {
+              "name": "owner"
+            }
+          ]
+        },
+        {
+          "name": "clone_warning",
+          "optional": true
+        }
+      ],
+      "optional": true,
+      "arm": "signed_in"
+    },
+    {
+      "name": "pending",
+      "fields": [
+        {
+          "name": "ticket"
+        },
+        {
+          "name": "next",
+          "values": [
+            "second_factor",
+            "set_credential",
+            "enrol"
+          ]
+        },
+        {
+          "name": "methods",
+          "values": [
+            "totp",
+            "passkey",
+            "recovery_code",
+            "password"
+          ]
+        },
+        {
+          "name": "recovered",
+          "optional": true
+        }
+      ],
+      "optional": true,
+      "arm": "pending"
+    },
+    {
+      "name": "waiting_approval",
+      "optional": true,
+      "arm": "waiting_approval"
+    }
+  ],
   "SSORequest": [
     {
       "name": "mode",
@@ -998,6 +1157,9 @@
                 },
                 {
                   "name": "totp"
+                },
+                {
+                  "name": "waiting_approval"
                 }
               ],
               "optional": true
@@ -1148,6 +1310,9 @@
             },
             {
               "name": "totp"
+            },
+            {
+              "name": "waiting_approval"
             }
           ],
           "optional": true
@@ -1213,6 +1378,14 @@
         "alongside",
         "for_linked",
         "only"
+      ]
+    },
+    {
+      "name": "registration",
+      "values": [
+        "off",
+        "open",
+        "approval"
       ]
     },
     {
@@ -1406,6 +1579,9 @@
         },
         {
           "name": "totp"
+        },
+        {
+          "name": "waiting_approval"
         }
       ],
       "optional": true

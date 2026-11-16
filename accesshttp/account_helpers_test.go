@@ -222,8 +222,8 @@ func (s stubAccount) PendingTOTPBegin(ctx context.Context, c account.Client, tic
 	return stubbed(s, "PendingTOTPBegin", func() (account.PendingTOTP, error) { return s.accountAPI.PendingTOTPBegin(ctx, c, ticket) })
 }
 
-func (s stubAccount) PendingTOTPFinish(ctx context.Context, c account.Client, ticket access.Secret, code string) (account.SignedIn, error) {
-	return stubbed(s, "PendingTOTPFinish", func() (account.SignedIn, error) { return s.accountAPI.PendingTOTPFinish(ctx, c, ticket, code) })
+func (s stubAccount) PendingTOTPFinish(ctx context.Context, c account.Client, ticket access.Secret, code string) (account.EnrolmentResult, error) {
+	return stubbed(s, "PendingTOTPFinish", func() (account.EnrolmentResult, error) { return s.accountAPI.PendingTOTPFinish(ctx, c, ticket, code) })
 }
 
 func (s stubAccount) PendingPasskeyBegin(ctx context.Context, c account.Client, ticket access.Secret, origin webauthn.Origin) (account.PendingCeremony, error) {
@@ -232,9 +232,23 @@ func (s stubAccount) PendingPasskeyBegin(ctx context.Context, c account.Client, 
 	})
 }
 
-func (s stubAccount) PendingPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.SignedIn, error) {
-	return stubbed(s, "PendingPasskeyFinish", func() (account.SignedIn, error) {
+func (s stubAccount) PendingPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.EnrolmentResult, error) {
+	return stubbed(s, "PendingPasskeyFinish", func() (account.EnrolmentResult, error) {
 		return s.accountAPI.PendingPasskeyFinish(ctx, c, ceremonyID, body)
+	})
+}
+
+func (s stubAccount) RegisterPassword(ctx context.Context, c account.Client, in account.Registration) (account.RegistrationResult, error) {
+	return stubbed(s, "RegisterPassword", func() (account.RegistrationResult, error) { return s.accountAPI.RegisterPassword(ctx, c, in) })
+}
+
+func (s stubAccount) RegisterPasskeyBegin(ctx context.Context, c account.Client, in account.RegistrationPasskey) (account.PendingCeremony, error) {
+	return stubbed(s, "RegisterPasskeyBegin", func() (account.PendingCeremony, error) { return s.accountAPI.RegisterPasskeyBegin(ctx, c, in) })
+}
+
+func (s stubAccount) RegisterPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.EnrolmentResult, error) {
+	return stubbed(s, "RegisterPasskeyFinish", func() (account.EnrolmentResult, error) {
+		return s.accountAPI.RegisterPasskeyFinish(ctx, c, ceremonyID, body)
 	})
 }
 

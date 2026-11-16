@@ -91,6 +91,17 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+// RegisterPasswordRequest is authRegisterPassword's body.
+type RegisterPasswordRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// RegisterPasskeyBeginRequest is authRegisterPasskeyBegin's body.
+type RegisterPasskeyBeginRequest struct {
+	Username string `json:"username"`
+}
+
 // RedirectRequest is the OIDC link and step-up starts' body.
 type RedirectRequest struct {
 	Redirect string `json:"redirect,omitempty"` // the app's return path, at most oidc.MaxRedirectBytes
@@ -191,16 +202,19 @@ type InviteRequest struct {
 
 // StateResponse is authState's answer, account.State on the wire.
 type StateResponse struct {
-	PlainSession  *PlainSessionView      `json:"plain_session,omitempty"`
-	HTTPSOrigin   string                 `json:"https_origin,omitempty"`
-	SSO           account.SSOModeName    `json:"sso"` // the stored SSO mode
-	HTTPSRequired []account.HTTPSFeature `json:"https_required"`
-	SetupRequired bool                   `json:"setup_required"`
-	PasswordLogin bool                   `json:"password_login"`
-	Passkeys      bool                   `json:"passkeys"`
-	OIDC          bool                   `json:"oidc"`
-	Secure        bool                   `json:"secure"`
-	TOTP          bool                   `json:"totp"` // the app offers TOTP
+	PlainSession *PlainSessionView   `json:"plain_session,omitempty"`
+	HTTPSOrigin  string              `json:"https_origin,omitempty"`
+	SSO          account.SSOModeName `json:"sso"` // the stored SSO mode
+	// Registration is account.State's: "off" in a single-user app and
+	// under the stored mode SSOOnly.
+	Registration  account.RegistrationModeName `json:"registration"`
+	HTTPSRequired []account.HTTPSFeature       `json:"https_required"`
+	SetupRequired bool                         `json:"setup_required"`
+	PasswordLogin bool                         `json:"password_login"`
+	Passkeys      bool                         `json:"passkeys"`
+	OIDC          bool                         `json:"oidc"`
+	Secure        bool                         `json:"secure"`
+	TOTP          bool                         `json:"totp"` // the app offers TOTP
 	// TemporaryPasswordHTTPSOnly is account.State's; absent when false, as
 	// on every secure request.
 	TemporaryPasswordHTTPSOnly bool `json:"temporary_password_https_only,omitempty"`
@@ -239,6 +253,9 @@ type UserMethodsView struct {
 	LocalMethodsDormant bool                   `json:"local_methods_dormant"`
 	RoleFromProvider    bool                   `json:"role_from_provider"`
 	TOTP                bool                   `json:"totp"` // the user holds a TOTP record
+	// WaitingApproval marks a registration no admin has approved; enabling
+	// the user approves it.
+	WaitingApproval bool `json:"waiting_approval"`
 }
 
 // TemporaryPasswordView is a listed user's live temporary password.
@@ -304,9 +321,28 @@ type SignedInResponse struct {
 	CloneWarning bool     `json:"clone_warning,omitempty"`
 }
 
-// EnrolmentOutcome is a pending enrolment finish's answer.
+// EnrolmentOutcome is a pending enrolment finish's and a passkey
+// registration's answer, in which exactly one arm is set: signed_in, or
+// waiting_approval for an account a registration made wait for approval,
+// which holds no session.
 type EnrolmentOutcome struct {
-	SignedIn SignedInResponse `json:"signed_in"`
+	SignedIn *SignedInResponse `json:"signed_in,omitempty"`
+	// RecoveryCode is the recovery code the waiting account's binding
+	// issued, shown once; absent when it issued none.
+	RecoveryCode string `json:"recovery_code,omitempty" arm:"waiting_approval"`
+	// WaitingApproval is always true in its arm.
+	WaitingApproval bool `json:"waiting_approval,omitempty" arm:"waiting_approval"`
+}
+
+// RegistrationOutcome is a password registration's answer, in which exactly
+// one arm is set: signed_in, pending under Rules.RequireSecondFactor, or
+// waiting_approval, true, for an account that waits for approval with no
+// session. A recovery code needs a second factor, which this answer never
+// binds, so its waiting arm carries none.
+type RegistrationOutcome struct {
+	SignedIn        *SignedInResponse `json:"signed_in,omitempty"`
+	Pending         *Pending          `json:"pending,omitempty"`
+	WaitingApproval bool              `json:"waiting_approval,omitempty" arm:"waiting_approval"`
 }
 
 // CeremonyResponse is a begun WebAuthn ceremony.
@@ -644,7 +680,7 @@ func listedUserView(l *account.ListedUser) UserView {
 	v.KeyLineage = l.KeyLineage
 	v.Methods = &UserMethodsView{
 		Password: !l.User.PasswordHash.IsZero(), PasskeyCount: l.PasskeyCount, TOTP: l.TOTP,
-		LocalMethodsDormant: l.LocalMethodsDormant, RoleFromProvider: l.RoleFromProvider,
+		LocalMethodsDormant: l.LocalMethodsDormant, RoleFromProvider: l.RoleFromProvider, WaitingApproval: l.User.WaitingApproval,
 	}
 	if !l.TemporaryPasswordExpiresAt.IsZero() {
 		v.Methods.TemporaryPassword = &TemporaryPasswordView{ExpiresAt: l.TemporaryPasswordExpiresAt}
@@ -665,7 +701,7 @@ func stateResponse(st *account.State) StateResponse {
 	v := StateResponse{
 		SetupRequired: st.SetupRequired, PasswordLogin: st.PasswordLogin, Passkeys: st.Passkeys, OIDC: st.OIDC, Secure: st.Secure,
 		HTTPSRequired: append([]account.HTTPSFeature{}, st.HTTPSRequired...), HTTPSOrigin: st.HTTPSOrigin, SSO: st.SSO.Name(),
-		TOTP: st.TOTP, TemporaryPasswordHTTPSOnly: st.TemporaryPasswordHTTPSOnly,
+		TOTP: st.TOTP, TemporaryPasswordHTTPSOnly: st.TemporaryPasswordHTTPSOnly, Registration: st.Registration.Name(),
 	}
 	if p := st.PlainSession; p != nil {
 		v.PlainSession = &PlainSessionView{IdleSeconds: int64(p.Idle / time.Second), AbsoluteSeconds: int64(p.Absolute / time.Second)}

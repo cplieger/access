@@ -300,6 +300,36 @@
     "doc": "Accepts an invite with a password and answers a session or a pending sign-in."
   },
   {
+    "request": "RegisterPasswordRequest",
+    "response": "RegistrationOutcome",
+    "name": "authRegisterPassword",
+    "method": "POST",
+    "path": "{prefix}/register/password",
+    "kind": "json",
+    "array": false,
+    "doc": "Creates an account with a password where sign-ups are open and answers a session, a pending sign-in or that the account waits for approval."
+  },
+  {
+    "request": "RegisterPasskeyBeginRequest",
+    "response": "CeremonyResponse",
+    "name": "authRegisterPasskeyBegin",
+    "method": "POST",
+    "path": "{prefix}/register/passkey/begin",
+    "kind": "json",
+    "array": false,
+    "doc": "Starts the passkey registration that creates an account where sign-ups are open."
+  },
+  {
+    "request": null,
+    "response": "EnrolmentOutcome",
+    "name": "authRegisterPasskeyFinish",
+    "method": "POST",
+    "path": "{prefix}/register/passkey/finish",
+    "kind": "json",
+    "array": false,
+    "doc": "Finishes the passkey registration that creates an account and answers a session or that the account waits for approval."
+  },
+  {
     "request": null,
     "response": "MeResponse",
     "name": "authMe",

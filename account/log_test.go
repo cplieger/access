@@ -80,6 +80,21 @@ func stateVariants() []operation {
 				want: events(account.Event{Kind: account.EventUserEnabled, UserID: target.ID, Actor: actorOf(p)}),
 			}
 		}},
+		// Design 4.17: enabling a waiting registration approves it.
+		{name: "UpdateUser_approve", class: classManageUsers, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			target := w.user(t)
+			target.Enabled, target.WaitingApproval = false, true
+			if err := w.mem.UpdateUser(t.Context(), target); err != nil {
+				t.Fatalf("UpdateUser: %v", err)
+			}
+			return opCall{
+				run: func(ctx context.Context) error {
+					_, err := w.svc.UpdateUser(ctx, p, target.ID, account.UserChange{Enabled: new(true)})
+					return err
+				},
+				want: events(account.Event{Kind: account.EventUserApproved, UserID: target.ID, Actor: actorOf(p)}),
+			}
+		}},
 		// Design 4.5: a replacement journals totp_replaced.
 		{name: "FinishTOTP_replace", class: classRecentAuth, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			old := sealTOTP(t, w.mem, w.sealer, w.owner(t, p))
@@ -611,7 +626,7 @@ var clientOperations = []string{
 	"SetupWithPassword", "SetupPasskeyFinish", "PasswordLogin", "PasskeyLoginFinish", "OIDCComplete",
 	"AcceptInvitePassword", "CreatePendingOIDC", "LinkPendingOIDCByAdmin", "StepUpPassword", "StepUpPasskeyFinish", "SetPassword", "RemovePassword",
 	"SignInWithCode", "SecondFactorPasskeyFinish", "StepUpCode", "SignInWithRecoveryCode", "PendingTOTPFinish", "PendingPasskeyFinish",
-	"SetCredentialPassword", "SetCredentialPasskeyFinish",
+	"SetCredentialPassword", "SetCredentialPasskeyFinish", "RegisterPassword", "RegisterPasskeyFinish",
 }
 
 func TestLogIP(t *testing.T) {
@@ -918,6 +933,19 @@ func TestEveryLoggedKindHasAProducer(t *testing.T) {
 			passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
 			p.failN(t, clientAt(1), "alice", account.FailureCap)
 			sweepFailures(t, p.svc)
+			note(logOf(t, p.mem))
+		})
+		t.Run("registration_sweep", func(t *testing.T) {
+			t.Parallel()
+			p := newPW(t, pwOptions{})
+			u := passwordUser(t, p.mem, p.hasher, "waiting", goodPassword)
+			u.Enabled, u.WaitingApproval, u.CreatedAt = false, true, time.Now().Add(-account.WaitingRegistrationLifetime-time.Hour)
+			if err := p.mem.UpdateUser(t.Context(), u); err != nil {
+				t.Fatalf("UpdateUser: %v", err)
+			}
+			if n := account.SweepRegistrations(t.Context(), p.svc); n != 1 {
+				t.Fatalf("SweepRegistrations = %d, want 1", n)
+			}
 			note(logOf(t, p.mem))
 		})
 	})

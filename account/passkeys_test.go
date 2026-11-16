@@ -332,7 +332,7 @@ func TestCeremonyBeginRecordsItsUser(t *testing.T) {
 		name    string
 		purpose account.PendingPurpose
 	}{
-		{name: "register", purpose: account.PurposeRegister, begin: func(t *testing.T) (account.PendingCeremony, error) {
+		{name: "register", purpose: account.PurposeAddPasskey, begin: func(t *testing.T) (account.PendingCeremony, error) {
 			return w.svc.PasskeyRegisterBegin(t.Context(), localClient, session, w.origin, account.SecondFactorProof{})
 		}},
 		{name: "step_up", purpose: account.PurposeStepUp, begin: func(t *testing.T) (account.PendingCeremony, error) {

@@ -105,15 +105,20 @@ func serveLoginPassword(h *Handler, c *call) error {
 // session's cookies, or its pending with no cookie, since the ticket rides
 // the body only.
 func (h *Handler) loginOutcome(c *call, out account.LoginResult) { //nolint:gocritic // hugeParam: account's own result, read once
+	signed, pending := h.signInArms(c, out)
+	writeJSON(c.w, http.StatusOK, SignInOutcome{SignedIn: signed, Pending: pending})
+}
+
+// signInArms sets out's cookies and audits it, and returns its one arm.
+func (h *Handler) signInArms(c *call, out account.LoginResult) (*SignedInResponse, *Pending) { //nolint:gocritic // hugeParam: account's own result, read once
 	if p := out.Pending; p != nil {
 		h.emit(c, access.AuditEvent{Kind: "pending", Username: c.username, Method: access.MethodPassword})
-		writeJSON(c.w, http.StatusOK, SignInOutcome{Pending: pendingView(p)})
-		return
+		return nil, pendingView(p)
 	}
 	h.setSignedIn(c.w, c.client.Secure, out.SignedIn)
 	h.auditSuccess(c, out.SignedIn.User, out.SignedIn.Session)
 	signed := signedInResponse(out.SignedIn)
-	writeJSON(c.w, http.StatusOK, SignInOutcome{SignedIn: &signed})
+	return &signed, nil
 }
 
 func serveLoginPasskeyBegin(h *Handler, c *call) error {

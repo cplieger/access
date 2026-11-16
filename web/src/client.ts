@@ -22,6 +22,7 @@ import {
   parseTOTPBeginResponse,
   parsePendingTOTPBeginResponse,
   parseEnrolmentOutcome,
+  parseRegistrationOutcome,
   parseRecoveryCodeIssuedResponse,
   parseRecoveryCodeResponse,
   parsePasskeyRegisteredResponse,
@@ -56,6 +57,9 @@ import type {
   ProfileRequest,
   Readiness,
   RedirectRequest,
+  RegisterPasskeyBeginRequest,
+  RegisterPasswordRequest,
+  RegistrationOutcome,
   SecondFactorProof,
   SecurityLogView,
   SessionView,
@@ -188,6 +192,14 @@ export interface AuthClient {
   oidcUnlink(): Promise<ApiResult<void>>;
   /** pending enrol under "Require a second factor", with the invite not yet spent. */
   inviteAcceptPassword(r: InviteAcceptRequest): Promise<ApiResult<SignInOutcome>>;
+  /** Only while state().registration is not "off": signed in, pending enrol under the rule, or waiting. */
+  registerPassword(r: RegisterPasswordRequest): Promise<ApiResult<RegistrationOutcome>>;
+  /** signUpWithPasskey's begin. */
+  registerPasskeyBegin(r: RegisterPasskeyBeginRequest): Promise<ApiResult<CeremonyResponse>>;
+  registerPasskeyFinish(
+    ceremony: string,
+    credential: PublicKeyCredentialJSON,
+  ): Promise<ApiResult<EnrolmentOutcome>>;
   me(): Promise<ApiResult<MeResponse>>;
   updateProfile(r: ProfileRequest): Promise<ApiResult<MeResponse>>;
   reenableMethod(method: string): Promise<ApiResult<void>>;
@@ -399,6 +411,12 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     oidcUnlink: () => empty("DELETE", p("/oidc/link")),
     inviteAcceptPassword: (r) =>
       json("POST", p("/invite/password"), parseSignInOutcome, { body: r }),
+    registerPassword: (r) =>
+      json("POST", p("/register/password"), parseRegistrationOutcome, { body: r }),
+    registerPasskeyBegin: (r) =>
+      json("POST", p("/register/passkey/begin"), parseCeremonyResponse, { body: r }),
+    registerPasskeyFinish: (c, cred) =>
+      json("POST", p("/register/passkey/finish"), parseEnrolmentOutcome, finish(c, cred)),
     me: () => json("GET", p("/me"), parseMeResponse),
     updateProfile: (r) => json("PUT", p("/profile"), parseMeResponse, { body: r }),
     reenableMethod: (m) => empty("POST", p(`/methods/${seg(m)}/reenable`)),

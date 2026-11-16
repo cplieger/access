@@ -56,7 +56,7 @@ func goldenUser() UserView {
 	return UserView{
 		ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleAdmin, Enabled: true, OIDCLinked: true, Owner: true,
 		CreatedAt: goldenTime, KeyLineage: []int64{3, 5}, Methods: &UserMethodsView{
-			Password: true, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true, TOTP: true,
+			Password: true, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true, TOTP: true, WaitingApproval: true,
 			TemporaryPassword: &TemporaryPasswordView{ExpiresAt: goldenLater},
 		},
 	}
@@ -129,7 +129,7 @@ func fixtures() []fixture {
 		{name: "StateResponse", value: StateResponse{
 			SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, PlainSession: &PlainSessionView{IdleSeconds: 1800, AbsoluteSeconds: 43200},
 			HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys, account.HTTPSOIDC}, HTTPSOrigin: "https://app.example.com",
-			SSO: account.SSONameForLinked, TOTP: true, TemporaryPasswordHTTPSOnly: true,
+			SSO: account.SSONameForLinked, TOTP: true, TemporaryPasswordHTTPSOnly: true, Registration: account.RegistrationNameApproval,
 		}},
 		{name: "Readiness", value: Readiness{
 			Refusal:   &ReadinessRefusal{Code: access.CodeForbidden, Reason: account.ReasonOwnerNeedsLocalMethod},
@@ -141,7 +141,15 @@ func fixtures() []fixture {
 		{name: "SignInOutcome.pending", value: SignInOutcome{Pending: &Pending{
 			Ticket: "fixture-ticket", Next: account.NextEnrol, Methods: []PendingMethod{PendingTOTP, PendingPasskey, PendingRecoveryCode, PendingPassword}, Recovered: true,
 		}}},
-		{name: "EnrolmentOutcome", value: EnrolmentOutcome{SignedIn: SignedInResponse{SessionID: "s1", User: goldenUser(), RecoveryCode: "ABCD-EFGH-JKMN-PQRS", CloneWarning: true}}},
+		{name: "EnrolmentOutcome", value: EnrolmentOutcome{SignedIn: &SignedInResponse{SessionID: "s1", User: goldenUser(), RecoveryCode: "ABCD-EFGH-JKMN-PQRS", CloneWarning: true}}},
+		{name: "EnrolmentOutcome.waiting", value: EnrolmentOutcome{WaitingApproval: true, RecoveryCode: "ABCD-EFGH-JKMN-PQRS"}},
+		{name: "RegistrationOutcome", value: RegistrationOutcome{SignedIn: &SignedInResponse{SessionID: "s1", User: goldenUser(), RecoveryCode: "ABCD-EFGH-JKMN-PQRS", CloneWarning: true}}},
+		{name: "RegistrationOutcome.pending", value: RegistrationOutcome{Pending: &Pending{
+			Ticket: "fixture-ticket", Next: account.NextEnrol, Methods: []PendingMethod{PendingTOTP, PendingPasskey, PendingRecoveryCode, PendingPassword}, Recovered: true,
+		}}},
+		{name: "RegistrationOutcome.waiting", value: RegistrationOutcome{WaitingApproval: true}},
+		{name: "RegisterPasswordRequest", value: RegisterPasswordRequest{Username: "alice", Password: "correct horse battery"}},
+		{name: "RegisterPasskeyBeginRequest", value: RegisterPasskeyBeginRequest{Username: "alice"}},
 		{name: "PendingTOTPBeginResponse", value: PendingTOTPBeginResponse{URI: "otpauth://totp/Example:alice?secret=GEZDGNBVGY3TQOJQ&issuer=Example&algorithm=SHA1&digits=6&period=30", Text: "GEZDGNBVGY3TQOJQ"}},
 		{name: "CeremonyResponse", value: CeremonyResponse{Ceremony: "c1", PublicKey: json.RawMessage(`{"publicKey":{"challenge":"Y2hhbGxlbmdl"},"mediation":"conditional"}`)}},
 		{name: "TOTPBeginResponse", value: TOTPBeginResponse{URI: "otpauth://totp/Example:alice?secret=GEZDGNBVGY3TQOJQ&issuer=Example&algorithm=SHA1&digits=6&period=30", Text: "GEZDGNBVGY3TQOJQ", Ticket: "fixture-ticket"}},

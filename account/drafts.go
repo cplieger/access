@@ -7,21 +7,22 @@ import (
 )
 
 // draftOf is a draft's creation: the path its enrolment finish creates the
-// account by, and the hash of the token it spends there, zero for a setup
-// that asked for none.
+// account by, and the hash of the token it spends there, zero for a
+// registration and for a setup that asked for none.
 type draftOf struct {
 	token access.Hash
-	via   CreateVia // ViaSetup or ViaInvite
+	via   CreateVia // ViaSetup, ViaInvite or ViaRegistration
 }
 
-// newAccount is the enabled user a setup or an invite creates for username,
-// with a fresh WebAuthn handle.
+// newAccount is the enabled user a setup, an invite or a registration
+// creates for username, with a fresh WebAuthn handle.
 func (s *Service) newAccount(username string, role access.Role) access.User {
 	now := s.now()
 	return access.User{Username: username, Role: role, Enabled: true, WebAuthnHandle: access.GenerateWebAuthnHandle(), CreatedAt: now, UpdatedAt: now}
 }
 
-// passwordDraft is a password setup's or invite acceptance's answer under
+// passwordDraft is a password setup's, invite acceptance's or
+// registration's answer under
 // Rules.RequireSecondFactor: a new account holds no second factor, so
 // pendAt's rule pends it at NextEnrol. checks are the operation's own
 // refusals and answer the would-be user and its creation; then the ticket's
@@ -61,28 +62,32 @@ func (s *Service) passwordDraft(ctx context.Context, r Rules, c Client, password
 	return LoginResult{Pending: s.mintTicket(&entry)}, nil
 }
 
-// enrolAccountIn is a pending enrolment finish's user inside tx: the
-// ticket's user re-checked (ticketUserIn), or a draft's new account
-// (draftAccountIn), with acc what its creation did.
-func (s *Service) enrolAccountIn(ctx context.Context, tx Tx, entry *pending, acc *accepted) (*access.User, error) {
+// enrolAccountIn is a pending enrolment finish's user inside tx under the
+// finish's r: the ticket's user re-checked (ticketUserIn), or a draft's new
+// account (draftAccountIn), with acc what its creation did.
+func (s *Service) enrolAccountIn(ctx context.Context, tx Tx, r Rules, entry *pending, acc *accepted) (*access.User, error) { //nolint:gocritic // hugeParam: the operation's one Rules value
 	if entry.ticket.draft == nil {
 		return s.ticketUserIn(ctx, tx, entry)
 	}
-	return s.draftAccountIn(ctx, tx, entry, acc)
+	return s.draftAccountIn(ctx, tx, r, entry, acc)
 }
 
 // draftAccountIn creates a draft's account inside its finish's Update,
 // running the draft's admission again: a setup's
-// createFirstUser (no user yet, the token spent, the Policy), or an
+// createFirstUser (no user yet, the token spent, the Policy), a
+// registration's admitRegistrantIn under the finish's r, or an
 // invite's stored mode, Policy and acceptIn. An invite spent or whose
 // issuer is refused since step 1 sets acc.spent and creates no one.
-func (s *Service) draftAccountIn(ctx context.Context, tx Tx, entry *pending, acc *accepted) (*access.User, error) {
+func (s *Service) draftAccountIn(ctx context.Context, tx Tx, r Rules, entry *pending, acc *accepted) (*access.User, error) { //nolint:gocritic // hugeParam: the operation's one Rules value
 	now := s.now()
 	*acc = accepted{user: entry.user}
 	acc.user.CreatedAt, acc.user.UpdatedAt = now, now
 	d := entry.ticket.draft
-	if d.via == ViaSetup {
+	switch d.via {
+	case ViaSetup:
 		return &acc.user, s.createFirstUser(ctx, tx, d.token, &acc.user)
+	case ViaRegistration:
+		return &acc.user, s.admitRegistrantIn(ctx, tx, r, &acc.user)
 	}
 	if err := requireLocal(ctx, tx, &acc.user, ErrSSOOnly); err != nil {
 		return nil, err

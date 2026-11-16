@@ -169,7 +169,7 @@ type accepted struct {
 // announce adds the acceptance's EventUserCreated, naming a key-issued
 // invite's issuer.
 func (acc *accepted) announce(j *journal, u *access.User, sess *access.Session) {
-	created := Event{Kind: EventUserCreated, At: sess.CreatedAt, UserID: u.ID, Role: u.Role}
+	created := Event{Kind: EventUserCreated, At: createdAt(u, sess), UserID: u.ID, Role: u.Role}
 	if acc.issuer != nil {
 		created.KeyID = acc.issuer.ID
 	}

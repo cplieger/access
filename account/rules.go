@@ -26,6 +26,64 @@ const (
 	BreachFailClosed
 )
 
+// RegistrationMode is who may create their own account. It is an app
+// setting, read from Rules on every operation.
+type RegistrationMode int
+
+const (
+	// RegistrationOff lets no one sign up.
+	RegistrationOff RegistrationMode = iota
+	// RegistrationOpen creates an enabled regular account.
+	RegistrationOpen
+	// RegistrationApproval creates a regular account that waits, disabled,
+	// until an admin enables it.
+	RegistrationApproval
+)
+
+// RegistrationModeName is a RegistrationMode's wire name.
+type RegistrationModeName string
+
+// The wire names, in RegistrationMode order.
+const (
+	RegistrationNameOff      RegistrationModeName = "off"
+	RegistrationNameOpen     RegistrationModeName = "open"
+	RegistrationNameApproval RegistrationModeName = "approval"
+)
+
+var registrationModeNames = [...]RegistrationModeName{
+	RegistrationOff: RegistrationNameOff, RegistrationOpen: RegistrationNameOpen, RegistrationApproval: RegistrationNameApproval,
+}
+
+// Name is the mode's wire name; empty for a value outside the modes.
+func (m RegistrationMode) Name() RegistrationModeName {
+	if m.valid() {
+		return registrationModeNames[m]
+	}
+	return ""
+}
+
+// String is the mode's wire name, and "RegistrationMode(n)" for a value
+// outside the modes.
+func (m RegistrationMode) String() string {
+	if m.valid() {
+		return string(registrationModeNames[m])
+	}
+	return fmt.Sprintf("RegistrationMode(%d)", int(m))
+}
+
+// ParseRegistrationMode is the mode a wire name names; false for any other
+// name.
+func ParseRegistrationMode(name RegistrationModeName) (RegistrationMode, bool) {
+	for m, n := range registrationModeNames {
+		if n == name {
+			return RegistrationMode(m), true
+		}
+	}
+	return 0, false
+}
+
+func (m RegistrationMode) valid() bool { return m >= RegistrationOff && m <= RegistrationApproval }
+
 // Rules is the app's policy as data. Config.Rules is read once per
 // operation, so a reloaded value applies from the next operation on.
 //
@@ -82,6 +140,14 @@ type Rules struct {
 	KeyRotationOverlap time.Duration
 	// Breach is the breached-password check's mode; the zero value is off.
 	Breach BreachMode
+	// Registration is who may create their own account; the zero value is
+	// off. A single-user Policy refuses it on, and so does
+	// CheckRules while the stored SSO mode is SSOOnly.
+	Registration RegistrationMode
+	// MaxWaitingRegistrations bounds the accounts waiting for approval: at
+	// it, a registration under RegistrationApproval is ErrRegistrationFull.
+	// Zero means DefaultMaxWaitingRegistrations; negative is invalid.
+	MaxWaitingRegistrations int
 	// MaxSessionsPerUser bounds each user's sessions; creating one past it
 	// ends the user's least recently active. Zero is unlimited.
 	MaxSessionsPerUser int
@@ -135,8 +201,9 @@ const (
 	// MaxSweepBatch is the most sessions one CleanupExpiredSessions call
 	// deletes, and so the most IDs one call's EventSessionsExpired events
 	// carry together, the most keys one ClearRetiredAPIKeySecrets call
-	// clears, and the most entries one PruneLog call of New's log drain or
-	// the sweep removes; each calls again until a call removes fewer.
+	// clears, the most entries one PruneLog call of New's log drain or
+	// the sweep removes, and the most waiting accounts one UsersWaiting call
+	// of the sweep reads; each calls again until a call removes fewer.
 	MaxSweepBatch = 1000
 	// DefaultLogMaxAge is Config.LogMaxAge's default.
 	DefaultLogMaxAge = 365 * 24 * time.Hour
@@ -144,6 +211,12 @@ const (
 	DefaultLogMaxChanges = 10000
 	// DefaultLogMaxSessions is Config.LogMaxSessions's default.
 	DefaultLogMaxSessions = 10000
+	// DefaultMaxWaitingRegistrations is Rules.MaxWaitingRegistrations's
+	// default.
+	DefaultMaxWaitingRegistrations = 50
+	// WaitingRegistrationLifetime is how long an account waits for
+	// approval before the sweep deletes it, freeing its name.
+	WaitingRegistrationLifetime = 30 * 24 * time.Hour
 )
 
 const (
@@ -155,8 +228,8 @@ const (
 )
 
 // Validate checks every bounded field, KeyPrefix, Scopes, OIDCAdmission,
-// Provisioning and HTTPSOrigin. The error is a *RulesError naming the field, which matches
-// ErrRulesInvalid.
+// Provisioning, Registration and HTTPSOrigin. The error is a *RulesError
+// naming the field, which matches ErrRulesInvalid.
 func (r Rules) Validate() error { //nolint:gocritic // hugeParam: Rules is the value Config.Rules returns
 	switch {
 	case r.RecentAuth != 0 && r.RecentAuth < minRecentAuth:
@@ -181,6 +254,14 @@ func (r Rules) Validate() error { //nolint:gocritic // hugeParam: Rules is the v
 	if err := r.validateOIDC(); err != nil {
 		return err
 	}
+	if err := r.validateRegistration(); err != nil {
+		return err
+	}
+	return r.validateOrigin()
+}
+
+// validateOrigin is Validate's HTTPSOrigin check.
+func (r *Rules) validateOrigin() error {
 	if r.HTTPSOrigin != "" && !isHTTPSOrigin(r.HTTPSOrigin) {
 		return &RulesError{Field: "HTTPSOrigin", Reason: fmt.Sprintf("%q is not an https origin in its canonical form, https://host or https://host:port", r.HTTPSOrigin)}
 	}
@@ -194,6 +275,21 @@ func (r *Rules) validateOIDC() error {
 	}
 	if err := r.Provisioning.Validate(); err != nil {
 		return &RulesError{Field: "Provisioning", Reason: err.Error(), Err: err}
+	}
+	return nil
+}
+
+// fieldRegistration is the RulesError Field of every Registration refusal.
+const fieldRegistration = "Registration"
+
+// validateRegistration is Validate's Registration and
+// MaxWaitingRegistrations checks.
+func (r *Rules) validateRegistration() error {
+	switch {
+	case !r.Registration.valid():
+		return &RulesError{Field: fieldRegistration, Reason: "unknown mode"}
+	case r.MaxWaitingRegistrations < 0:
+		return &RulesError{Field: "MaxWaitingRegistrations", Reason: "negative"}
 	}
 	return nil
 }
@@ -213,6 +309,9 @@ func (r Rules) withDefaults() Rules { //nolint:gocritic // hugeParam: Rules is t
 	}
 	if r.KeyRotationOverlap == 0 {
 		r.KeyRotationOverlap = defaultKeyRotationOverlap
+	}
+	if r.MaxWaitingRegistrations == 0 {
+		r.MaxWaitingRegistrations = DefaultMaxWaitingRegistrations
 	}
 	return r
 }

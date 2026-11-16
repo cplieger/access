@@ -75,6 +75,7 @@ func newOpWorld(t *testing.T, o worldOptions) *opWorld {
 		r := keyRules()
 		r.SetupTokenRequired = tokenless
 		r.Provisioning = account.Provisioning{Enabled: true}
+		r.Registration = account.RegistrationOpen
 		if o.rules != nil {
 			o.rules(&r)
 		}
@@ -406,6 +407,39 @@ func publicOperations() []operation {
 				want: func() []account.Event { return setupEvents(in, access.MethodPasskey) },
 			}
 		}},
+		{name: "RegisterPassword", class: classPublic, transport: plainRefused, asks: []account.Operation{account.OpCreateUser}, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
+			var in account.SignedIn
+			return opCall{
+				run: func(ctx context.Context) error {
+					out, err := w.svc.RegisterPassword(ctx, w.client, account.Registration{Username: w.name("newcomer"), Password: access.NewSecret(goodPassword)})
+					in = out.SignedIn
+					return err
+				},
+				want: func() []account.Event { return registeredEvents(in, access.MethodPassword) },
+			}
+		}},
+		{name: "RegisterPasskeyBegin", class: classPublic, transport: plainRefused, readOnly: true, asks: []account.Operation{account.OpCreateUser}, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.RegisterPasskeyBegin(ctx, w.client, account.RegistrationPasskey{Username: w.name("newcomer"), Origin: w.origin})
+				return err
+			}, want: none}
+		}},
+		{name: "RegisterPasskeyFinish", class: classPublic, transport: plainRefused, asks: []account.Operation{account.OpCreateUser}, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			pc, err := w.svc.RegisterPasskeyBegin(t.Context(), localClient, account.RegistrationPasskey{Username: w.name("newcomer"), Origin: w.origin})
+			if err != nil {
+				t.Fatalf("RegisterPasskeyBegin = %v", err)
+			}
+			body := accesstest.NewPasskeyDevice(t).Register(browserJSON(t, pc.Creation))
+			var in account.SignedIn
+			return opCall{
+				run: func(ctx context.Context) error {
+					out, err := w.svc.RegisterPasskeyFinish(ctx, w.client, pc.ID, bytes.NewReader(body))
+					in = out.SignedIn
+					return err
+				},
+				want: func() []account.Event { return registeredEvents(in, access.MethodPasskey) },
+			}
+		}},
 		{name: "PasswordLogin", class: classPublic, transport: plainPerRequest, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
 			var in account.SignedIn
 			return opCall{
@@ -473,7 +507,9 @@ func publicOperations() []operation {
 			var in account.SignedIn
 			return opCall{
 				run: func(ctx context.Context) (err error) {
-					in, err = w.svc.PendingTOTPFinish(ctx, w.client, ticket, code)
+					var out account.EnrolmentResult
+					out, err = w.svc.PendingTOTPFinish(ctx, w.client, ticket, code)
+					in = out.SignedIn
 					return err
 				},
 				want: func() []account.Event {
@@ -501,7 +537,9 @@ func publicOperations() []operation {
 			var in account.SignedIn
 			return opCall{
 				run: func(ctx context.Context) (err error) {
-					in, err = w.svc.PendingPasskeyFinish(ctx, w.client, pc.ID, bytes.NewReader(body))
+					var out account.EnrolmentResult
+					out, err = w.svc.PendingPasskeyFinish(ctx, w.client, pc.ID, bytes.NewReader(body))
+					in = out.SignedIn
 					return err
 				},
 				want: func() []account.Event {
@@ -684,6 +722,16 @@ func publicOperations() []operation {
 // its EventSignedIn.
 func setupEvents(in account.SignedIn, m access.Method) []account.Event {
 	created := account.Event{Kind: account.EventUserCreated, Role: access.RoleAdmin}
+	if in.User != nil {
+		created.UserID = in.User.ID
+	}
+	return []account.Event{created, signedIn(in, m)}
+}
+
+// registeredEvents are a registration's EventUserCreated of the regular
+// user it created, then its EventSignedIn.
+func registeredEvents(in account.SignedIn, m access.Method) []account.Event {
+	created := account.Event{Kind: account.EventUserCreated, Role: access.RoleUser}
 	if in.User != nil {
 		created.UserID = in.User.ID
 	}

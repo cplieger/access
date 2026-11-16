@@ -243,7 +243,11 @@ func (s *Service) pendAt(ctx context.Context, tx Tx, r Rules, c Client, u *acces
 // mintTicket puts entry, a pending sign-in, in the cache and answers it.
 func (s *Service) mintTicket(entry *pending) *Pending {
 	purpose := purposeSignIn
-	if entry.ticket.draft != nil {
+	switch d := entry.ticket.draft; {
+	case d == nil:
+	case d.via == ViaRegistration:
+		purpose = purposeRegistrationDraft
+	default:
 		purpose = purposeDraft
 	}
 	id := s.pending.put(purpose, *entry, s.now())

@@ -40,6 +40,7 @@ func operationScenarios() map[scenarioKey]scenario {
 	maps.Copy(out, totpScenarios())
 	maps.Copy(out, enrolScenarios())
 	maps.Copy(out, setCredentialScenarios())
+	maps.Copy(out, registerScenarios())
 	maps.Copy(out, plainScenarios())
 	return out
 }
@@ -54,6 +55,7 @@ func plainScenarios() map[scenarioKey]scenario {
 	anonymous := []string{
 		"authSetupPassword", "authSetupPasskeyBegin", "authSetupPasskeyFinish", "authLoginPassword", "authLoginPasskeyBegin",
 		"authLoginPasskeyFinish", "authLoginCode", "authLoginSetPassword", "authLoginSecondPasskeyBegin", "authLoginSecondPasskeyFinish", "authInviteAcceptPassword", "authInviteAcceptOIDC", "authOIDCStartSignIn", "authOIDCCallback", "authOIDCPending", "authOIDCCreatePending", "authOIDCLinkByAdmin",
+		"authRegisterPassword", "authRegisterPasskeyBegin", "authRegisterPasskeyFinish",
 	}
 	for _, route := range anonymous {
 		out[scenarioKey{route, access.CodeHTTPSRequired}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {

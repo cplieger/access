@@ -159,7 +159,7 @@ type sessionOp struct {
 	pend func(tx Tx, j *journal, u *access.User) (entry *pending, refused, err error)
 	// bind, when set, runs after pend lets the sign-in complete and writes
 	// what the sign-in binds to its user, sess being the session the Update
-	// then writes.
+	// then writes, nil for a user who waits for approval.
 	bind func(tx Tx, j *journal, u *access.User, sess *access.Session) error
 	// fill sets the session fields op.in decided, after each run of it.
 	fill func(sess *access.Session)
@@ -176,17 +176,31 @@ func (s *Service) createSession(ctx context.Context, r Rules, c Client, op *sess
 	return out.SignedIn, err
 }
 
-// signIn runs op in order: the admission, prepare, Rules.SessionCaps once
-// with c, then one change holding op.in, op.pend, op.bind, op.fill and the
-// session write (draft.store) with its entries. A completed sign-in succeeds
-// the reservation and gets deviceCookie's cookie; one pend held back cancels
-// it, or fails it for a refusal that answers as a wrong secret, and answers
-// the refusal or the minted Pending. A prepare error cancels it; an Update
-// error, or a commit whose op.in gave no user (the zero LoginResult), fails it.
+// completion is complete's answer: a LoginResult, or the account op.in
+// created that waits for approval, which holds no session.
+type completion struct {
+	waiting *access.User
+	LoginResult
+}
+
+// signIn is complete for an op whose in creates no account that waits for
+// approval.
 func (s *Service) signIn(ctx context.Context, r Rules, c Client, op *sessionOp) (LoginResult, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
+	out, err := s.complete(ctx, r, c, op)
+	return out.LoginResult, err
+}
+
+// complete runs op: the admission, prepare, Rules.SessionCaps once with c,
+// then one change holding op.in, op.pend, op.bind, op.fill and the session
+// write (draft.store). A completed sign-in succeeds the reservation and gets
+// deviceCookie's cookie. A sign-in pend holds back, and one whose user waits
+// for approval and so gets no session, cancel it; a pend refusal answering as
+// a wrong secret fails it. A prepare error cancels it; an Update error, or a
+// commit whose op.in gave no user (the zero completion), fails it.
+func (s *Service) complete(ctx context.Context, r Rules, c Client, op *sessionOp) (completion, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
 	res, err := op.admitAndPrepare()
 	if err != nil {
-		return LoginResult{}, err
+		return completion{}, err
 	}
 	d := s.newDraft(ctx, r, c, op)
 	user, entry, refused, err := s.writeSession(ctx, r, c, op, &d)
@@ -195,7 +209,7 @@ func (s *Service) signIn(ctx context.Context, r Rules, c Client, op *sessionOp) 
 		if res != nil {
 			res.Fail()
 		}
-		return LoginResult{}, err
+		return completion{}, err
 	case refused != nil:
 		switch {
 		case res == nil:
@@ -204,17 +218,20 @@ func (s *Service) signIn(ctx context.Context, r Rules, c Client, op *sessionOp) 
 		default:
 			res.Cancel()
 		}
-		return LoginResult{}, refused
-	case entry != nil:
+		return completion{}, refused
+	case entry != nil || user.WaitingApproval:
 		if res != nil {
 			res.Cancel()
 		}
-		return LoginResult{Pending: s.mintTicket(entry)}, nil
+		if entry == nil {
+			return completion{waiting: user.Clone()}, nil
+		}
+		return completion{Pending: s.mintTicket(entry)}, nil
 	}
 	if res != nil {
 		res.Succeed()
 	}
-	return LoginResult{SignedIn: SignedIn{User: user.Clone(), Session: d.session, Token: d.token, DeviceCookie: s.deviceCookie(user.Username, c)}}, nil
+	return completion{SignedIn: SignedIn{User: user.Clone(), Session: d.session, Token: d.token, DeviceCookie: s.deviceCookie(user.Username, c)}}, nil
 }
 
 // deviceCookie is the device cookie a completed sign-in or step-up of
@@ -239,10 +256,11 @@ func (op *sessionOp) admitAndPrepare() (*ratelimit.Reservation, error) {
 	return res, nil
 }
 
-// writeSession is signIn's change, from c's address: op.in, op.pend,
+// writeSession is complete's change, from c's address: op.in, op.pend,
 // op.bind and op.fill, then d's session for the user op.in returned, with the
 // replacement, the evictions and the entries; or, when op.pend holds the
-// sign-in back, its answer and op.announce's entries with no session.
+// sign-in back or the user waits for approval, op.announce's entries with no
+// session.
 func (s *Service) writeSession(ctx context.Context, r Rules, c Client, op *sessionOp, d *draft) (user *access.User, entry *pending, refused, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
 	err = s.change(ctx, byClient(Actor{}, c), func(tx Tx, j *journal) error {
 		user, entry, refused = nil, nil, nil
@@ -254,18 +272,35 @@ func (s *Service) writeSession(ctx context.Context, r Rules, c Client, op *sessi
 		if entry, refused, holdErr = op.hold(tx, j, u); holdErr != nil || entry != nil || refused != nil {
 			return holdErr
 		}
-		if op.bind != nil {
-			if bindErr := op.bind(tx, j, u, &d.session); bindErr != nil {
-				return bindErr
-			}
-		}
-		if writeErr := s.storeSession(ctx, tx, j, r, op, d, u); writeErr != nil {
-			return writeErr
+		if completeErr := s.completeIn(ctx, tx, j, r, op, d, u); completeErr != nil {
+			return completeErr
 		}
 		user = u
 		return nil
 	})
 	return user, entry, refused, err
+}
+
+// completeIn is writeSession's part after op.pend let u's sign-in complete:
+// op.bind, then d's session (storeSession), or for a user who waits for
+// approval op.announce's entries alone.
+func (s *Service) completeIn(ctx context.Context, tx Tx, j *journal, r Rules, op *sessionOp, d *draft, u *access.User) error { //nolint:gocritic // hugeParam: the operation's one Rules value
+	sess := &d.session
+	if u.WaitingApproval {
+		sess = nil
+	}
+	if op.bind != nil {
+		if err := op.bind(tx, j, u, sess); err != nil {
+			return err
+		}
+	}
+	if sess != nil {
+		return s.storeSession(ctx, tx, j, r, op, d, u)
+	}
+	if op.announce != nil {
+		op.announce(j, u, nil)
+	}
+	return nil
 }
 
 // hold runs op.pend for u, when set, and journals op.announce's entries for

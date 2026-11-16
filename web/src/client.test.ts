@@ -150,6 +150,16 @@ const bindings: Readonly<Record<string, Binding>> = {
     method: "inviteAcceptPassword",
     call: (c, b) => c.inviteAcceptPassword(b),
   },
+  authRegisterPassword: { method: "registerPassword", call: (c, b) => c.registerPassword(b) },
+  authRegisterPasskeyBegin: {
+    method: "registerPasskeyBegin",
+    call: (c, b) => c.registerPasskeyBegin(b),
+  },
+  authRegisterPasskeyFinish: {
+    method: "registerPasskeyFinish",
+    call: (c) => c.registerPasskeyFinish(CEREMONY, credential),
+    credential: true,
+  },
   authMe: { method: "me", call: (c) => c.me() },
   authProfile: { method: "updateProfile", call: (c, b) => c.updateProfile(b) },
   authMethodReenable: { method: "reenableMethod", call: (c) => c.reenableMethod("password") },
@@ -320,8 +330,8 @@ describe("the route table", () => {
     const methods = Object.keys(client).filter(
       (k) => typeof client[k as keyof AuthClient] === "function",
     );
-    expect(methods).toHaveLength(72);
-    expect(jsonRoutes).toHaveLength(72);
+    expect(methods).toHaveLength(75);
+    expect(jsonRoutes).toHaveLength(75);
     expect(Object.keys(bindings).sort()).toEqual(jsonRoutes.map((r) => r.name).sort());
     expect(
       Object.values(bindings)

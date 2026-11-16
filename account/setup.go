@@ -42,7 +42,8 @@ func tokenHash(token access.Secret) access.Hash {
 	return access.NewHash(access.HexSHA256(token.Reveal()))
 }
 
-// State reports whether setup is needed, the stored SSO mode, which sign-in
+// State reports whether setup is needed, the stored SSO mode, the
+// registration mode a registration would meet, which sign-in
 // methods c's transport admits, and what HTTPS would add (docs/plain-http.md owns the table). It
 // checks no transport, so it answers a plain c under both postures, and it
 // writes nothing.
@@ -59,7 +60,10 @@ func (s *Service) State(ctx context.Context, c Client) (State, error) { //nolint
 	if err != nil {
 		return State{}, storeErr(err)
 	}
-	st := State{SetupRequired: n == 0, Secure: c.Secure, SSO: mode, TOTP: s.totpOn(r)}
+	st := State{SetupRequired: n == 0, Secure: c.Secure, SSO: mode, TOTP: s.totpOn(r), Registration: r.Registration}
+	if mode == SSOOnly {
+		st.Registration = RegistrationOff
+	}
 	// Each feature answers its sign-in operations' own plainRule, so the
 	// screen and the operations read one table.
 	admit := func(offered bool, f HTTPSFeature, rule plainRule) bool {
@@ -199,9 +203,19 @@ func (s *Service) firstAccount(username string) access.User {
 }
 
 // announceCreated adds the EventUserCreated, with the user's role, of a
-// creation that signs the new user in.
+// creation that signs the new user in, or makes it wait for approval (sess
+// nil).
 func announceCreated(j *journal, u *access.User, sess *access.Session) {
-	j.add(Event{Kind: EventUserCreated, At: sess.CreatedAt, UserID: u.ID, Role: u.Role})
+	j.add(Event{Kind: EventUserCreated, At: createdAt(u, sess), UserID: u.ID, Role: u.Role})
+}
+
+// createdAt is when a creation's sign-in made sess, or made u for one with
+// no session.
+func createdAt(u *access.User, sess *access.Session) time.Time {
+	if sess == nil {
+		return u.CreatedAt
+	}
+	return sess.CreatedAt
 }
 
 // setupChecks runs setup steps 1 to 3, the refusals that need neither a

@@ -22,7 +22,7 @@ Under `PosturePerRequest`, a plain request may sign in and set up the first acco
 | `authPasswordSet`, whose recent auth is the sign-in's time | `authStepUpPassword`, `authStepUpCode`, `authStepUpPasskeyBegin`, `authStepUpPasskeyFinish` |
 | `authPasskeys`, `authPasskeyRename`, `authPasskeyRemove` with a code as its proof, `authTOTPRemove`, `authWebAuthnSignals`, `authOIDCUnlink` | `authPasswordRemove`, `authTOTPBegin`, `authTOTPFinish`, `authRecoveryCodeRegenerate` |
 | `authSessions`, `authSessionRename`, `authSessionRevoke`, `authSessionsRevokeOthers` | `authPasskeyRegisterBegin`, `authPasskeyRegisterFinish` |
-| `authKeys`, `authKeyRename`, `authKeyRevoke`, `authAdminKeys`, `authAdminKeyRevoke` | `authInviteAcceptPassword` |
+| `authKeys`, `authKeyRename`, `authKeyRevoke`, `authAdminKeys`, `authAdminKeyRevoke` | `authInviteAcceptPassword`, `authRegisterPassword`, `authRegisterPasskeyBegin`, `authRegisterPasskeyFinish` |
 | `authAdminUsers`, `authAdminUserCreate`, `authAdminUserUpdate`, `authAdminOwner`, `authAdminUserDelete`, `authAdminOIDCUnlink`, `authAdminSecondFactorReset`, `authAdminTokens`, `authAdminSecurityLog` | `authAdminSSOReadiness`, `authAdminSSOApply` |
 | every route of yours on the gate, by its class, except a row marked `HTTPS` | `authKeyCreate`, `authKeyRotate`, `authAdminInvite`, `authAdminTemporaryPassword`, `authAdminOIDCRelink` (an admin socket's recovery verb is the plain-only path) |
 

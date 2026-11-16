@@ -75,6 +75,12 @@ const (
 	// EventSecondFactorReset is ResetSecondFactor's deletion of a user's
 	// TOTP record and recovery code.
 	EventSecondFactorReset EventKind = "second_factor_reset"
+	// EventUserApproved is the enable of an account waiting for approval,
+	// in place of EventUserEnabled.
+	EventUserApproved EventKind = "user_approved"
+	// EventRegistrationExpired is the sweep's deletion of an account that
+	// waited for approval longer than WaitingRegistrationLifetime.
+	EventRegistrationExpired EventKind = "registration_expired"
 )
 
 // eventKinds is every EventKind in declaration order, with the class its
@@ -125,6 +131,8 @@ var eventKinds = [...]struct {
 	{EventRecoveryCodeReplaced, LogClassChange},
 	{EventSecondFactorFailed, LogClassSession},
 	{EventSecondFactorReset, LogClassChange},
+	{EventUserApproved, LogClassChange},
+	{EventRegistrationExpired, LogClassChange},
 }
 
 // EventKinds returns every EventKind, in declaration order.

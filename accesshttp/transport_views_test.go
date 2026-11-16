@@ -27,7 +27,7 @@ func TestStateRoute(t *testing.T) {
 	}{
 		{
 			name: "posture_secure_secure", origin: testOrigin,
-			want:   StateResponse{SSO: account.SSONameAlongside, SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSRequired: []account.HTTPSFeature{}},
+			want:   StateResponse{SSO: account.SSONameAlongside, Registration: account.RegistrationNameOff, SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSRequired: []account.HTTPSFeature{}},
 			raw:    []string{`"https_required":[]`},
 			absent: []string{`"plain_session"`, `"https_origin"`},
 		},
@@ -35,6 +35,7 @@ func TestStateRoute(t *testing.T) {
 			name: "posture_secure_plain", origin: plainOrigin,
 			want: StateResponse{
 				SSO:           account.SSONameAlongside,
+				Registration:  account.RegistrationNameOff,
 				SetupRequired: true, HTTPSOrigin: origin,
 				HTTPSRequired: []account.HTTPSFeature{account.HTTPSPassword, account.HTTPSSetup, account.HTTPSPasskeys, account.HTTPSOIDC},
 			},
@@ -43,7 +44,7 @@ func TestStateRoute(t *testing.T) {
 		},
 		{
 			name: "per_request_secure", opts: perRequest, origin: testOrigin,
-			want:   StateResponse{SSO: account.SSONameAlongside, SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSRequired: []account.HTTPSFeature{}},
+			want:   StateResponse{SSO: account.SSONameAlongside, Registration: account.RegistrationNameOff, SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSRequired: []account.HTTPSFeature{}},
 			raw:    []string{`"https_required":[]`},
 			absent: []string{`"plain_session"`, `"https_origin"`},
 		},
@@ -51,6 +52,7 @@ func TestStateRoute(t *testing.T) {
 			name: "per_request_plain", opts: perRequest, origin: plainOrigin,
 			want: StateResponse{
 				SSO:           account.SSONameAlongside,
+				Registration:  account.RegistrationNameOff,
 				SetupRequired: true, PasswordLogin: true, PlainSession: plainSession, HTTPSOrigin: origin,
 				HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys, account.HTTPSOIDC},
 			},
@@ -63,6 +65,7 @@ func TestStateRoute(t *testing.T) {
 			name: "per_request_plain_password_login_off", opts: with(perRequest, envOptions{rules: func(r *account.Rules) { r.DisablePasswordLogin = true }}), origin: plainOrigin,
 			want: StateResponse{
 				SSO:           account.SSONameAlongside,
+				Registration:  account.RegistrationNameOff,
 				SetupRequired: true, PlainSession: plainSession, HTTPSOrigin: origin, TemporaryPasswordHTTPSOnly: true,
 				HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys, account.HTTPSOIDC},
 			},
@@ -70,7 +73,7 @@ func TestStateRoute(t *testing.T) {
 		},
 		{
 			name: "per_request_secure_password_login_off", opts: with(perRequest, envOptions{rules: func(r *account.Rules) { r.DisablePasswordLogin = true }}), origin: testOrigin,
-			want:   StateResponse{SSO: account.SSONameAlongside, SetupRequired: true, Passkeys: true, OIDC: true, Secure: true, HTTPSRequired: []account.HTTPSFeature{}},
+			want:   StateResponse{SSO: account.SSONameAlongside, Registration: account.RegistrationNameOff, SetupRequired: true, Passkeys: true, OIDC: true, Secure: true, HTTPSRequired: []account.HTTPSFeature{}},
 			absent: []string{`"temporary_password_https_only"`},
 		},
 	} {

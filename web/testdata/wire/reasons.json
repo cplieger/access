@@ -66,6 +66,7 @@
   "owner_role",
   "last_owner",
   "owner_needs_local_method",
+  "registration_enabled",
   "code_invalid",
   "code_reused",
   "method_locked",

@@ -165,13 +165,13 @@ func lineageByUser(records []access.KeyAttribution, f UserFilter) map[int64][]in
 }
 
 // UpdateUser changes a user's role, enabled state or both (neither is
-// ErrNoChange; the Policy decides self-changes) for an admin principal or a
-// ManageUsersScope key, and returns the user as committed. One Update asks
-// OpSetRole, then OpSetEnabled with the role applied, for each set field, so
-// a refusal answers before existence (ErrNotFound after). A key sets and acts
-// on RoleUser only (admin_target) and enables only with its current secret
-// (key_retiring). A role change revokes the sessions; a disable, every
-// session, key and token those keys issued, and re-enabling restores none.
+// ErrNoChange) for an admin principal or a ManageUsersScope key, returning
+// the user as committed. One Update asks OpSetRole, then OpSetEnabled with
+// the role applied, so a refusal answers before ErrNotFound. A key acts on
+// RoleUser only (admin_target) and enables only with its current secret
+// (key_retiring). A role change revokes the sessions, a disable every session
+// and key and the tokens those keys issued; an enable restores none, and of a
+// user waiting for approval approves it, clearing WaitingApproval.
 func (s *Service) UpdateUser(ctx context.Context, p access.Principal, userID int64, ch UserChange) (*access.User, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	r, err := s.begin()
 	if err != nil {
@@ -211,6 +211,7 @@ type userUpdate struct {
 	sessions                  []string
 	keys                      []int64
 	roleChanged, enabledMoved bool
+	approved                  bool // the enable approved a waiting registration
 }
 
 func (s *Service) updateUser(ctx context.Context, tx Tx, j *journal, op Operation, a Actor, userID int64, ch UserChange, res *userUpdate) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
@@ -291,6 +292,8 @@ func (s *Service) applyUserChange(ctx context.Context, tx Tx, ua *userAdmin, tar
 	}
 	if res.enabledMoved {
 		target.Enabled = *ch.Enabled
+		res.approved = target.Enabled && target.WaitingApproval
+		target.WaitingApproval = false
 	}
 	target.UpdatedAt = s.now()
 	if err := tx.UpdateUser(ctx, target); err != nil {
@@ -344,6 +347,8 @@ func (s *Service) addUserUpdate(j *journal, userID int64, actor EventActor, res 
 	case disabled:
 		j.add(Event{Kind: EventUserDisabled, At: at, UserID: userID, SessionIDs: res.sessions, Actor: actor})
 		s.addKeysRevoked(j, userID, res.keys, actor)
+	case res.approved:
+		j.add(Event{Kind: EventUserApproved, At: at, UserID: userID, Actor: actor})
 	case res.enabledMoved:
 		j.add(Event{Kind: EventUserEnabled, At: at, UserID: userID, Actor: actor})
 	}

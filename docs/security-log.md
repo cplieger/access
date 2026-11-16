@@ -21,7 +21,7 @@ Each operation appends its entries in the order it reports its events to `OnEven
 
 | Kind | Class | Appended by |
 | --- | --- | --- |
-| `user_created` | change | first-user setup (with the admin role), `CreateUser`, `AcceptInvitePassword`, and an OIDC sign-in, an invite accepted by OIDC or `CreatePendingOIDC` that creates the account, which is linked from the start and gets no `oidc_linked` |
+| `user_created` | change | first-user setup (with the admin role), `CreateUser`, `AcceptInvitePassword`, a registration (`RegisterPassword`, `RegisterPasskeyFinish`, or the enrolment finish of a registration's pending sign-in), with no session when the account waits for approval, and an OIDC sign-in, an invite accepted by OIDC or `CreatePendingOIDC` that creates the account, which is linked from the start and gets no `oidc_linked` |
 | `signed_in` | session | every full sign-in: password, the second step of a pending password sign-in (with `Method` password), passkey, OIDC (an invite accepted by OIDC included), `CreatePendingOIDC`, `LinkPendingOIDCByAdmin` (with `Method` oidc), first-user setup and `AcceptInvitePassword` |
 | `stepped_up` | session | `StepUpPassword`, `StepUpCode`, a passkey step-up and an OIDC step-up |
 | `second_factor_failed` | session | the first refused proof of a pending sign-in's second step, a code (`SignInWithCode`), a passkey (`SecondFactorPasskeyFinish`) or a recovery code (`SignInWithRecoveryCode`), with `Method` the factor and, for a code or a recovery code, `Detail` the refusal's reason (`code_invalid`, `code_reused`, `method_locked`). Later refusals on the same ticket add nothing: the failure record counts them. A refusal after a correct password means someone else may hold it |
@@ -43,6 +43,8 @@ Each operation appends its entries in the order it reports its events to `OnEven
 | `key_rotated` | change | `RotateAPIKey`, naming the key and its owner. The end of the overlap appends nothing: it happens when a request verifies the new secret, and the key list shows it |
 | `key_revoked` | change | one per key: `RevokeAPIKey` and `RevokeAnyAPIKey`, with the keys minted below the revoked key. A `RevokeAnyAPIKey` by `account.OutOfBand(channel)` names that channel in `Event.Actor.OutOfBand`; a disable through `UpdateUser`; `DeleteUser`; `SetTemporaryPassword` and `AdminRelinkOIDC` unless `KeepKeys`; and, only when `Rules.RevokeKeysOnCredentialChange` is set, `SetPassword`. Removing a password and adding or removing a passkey revoke no key |
 | `role_changed`, `user_disabled`, `user_enabled` | change | `UpdateUser` |
+| `user_approved` | change | `UpdateUser` enabling an account that waits for approval, in place of `user_enabled` |
+| `registration_expired` | change | the sweep, for each account that waited for approval longer than 30 days (`account.WaitingRegistrationLifetime`), which it deletes with everything `DeleteUser` deletes, freeing its name |
 | `user_deleted` | change | `DeleteUser` |
 | `invite_issued` | change | `CreateInvite` |
 | `setup_token_issued` | change | `IssueSetupToken` |

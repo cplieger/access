@@ -36,6 +36,12 @@ func NewWithHooks(ctx context.Context, cfg Config, h Hooks) (*Service, error) {
 // SweepFailures runs the failure-record leg once, as the sweep does.
 func SweepFailures(ctx context.Context, s *Service) error { return s.sweepFailures(ctx) }
 
+// SweepRegistrations runs the waiting-registration leg once at
+// Config.Now, as the sweep does, and returns how many it deleted.
+func SweepRegistrations(ctx context.Context, s *Service) int {
+	return s.sweepRegistrations(ctx, s.now())
+}
+
 // SweepLog runs the log leg once at Config.Now, as the sweep does.
 func SweepLog(ctx context.Context, s *Service) { s.sweepLog(ctx, s.now()) }
 
@@ -107,12 +113,12 @@ type PendingCache struct{ c *pendingCache }
 type PendingPurpose = pendingPurpose
 
 const (
-	PurposeLogin    = purposeLogin
-	PurposeSetup    = purposeSetup
-	PurposeRegister = purposeRegister
-	PurposeStepUp   = purposeStepUp
-	PurposeSignIn   = purposeSignIn
-	PurposeDraft    = purposeDraft
+	PurposeLogin      = purposeLogin
+	PurposeSetup      = purposeSetup
+	PurposeAddPasskey = purposeAddPasskey
+	PurposeStepUp     = purposeStepUp
+	PurposeSignIn     = purposeSignIn
+	PurposeDraft      = purposeDraft
 )
 
 // DropUser drops userID's pending sign-in.

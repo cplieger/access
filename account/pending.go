@@ -21,6 +21,9 @@ const (
 	// maxDrafts bounds the drafts of setup and invite acceptance, which
 	// only a token holder creates.
 	maxDrafts = 1000
+	// maxRegistrationDrafts bounds the drafts of registration, which anyone
+	// creates, in a list of their own so they evict no token holder's.
+	maxRegistrationDrafts = 1000
 	// ticketLifetime is a pending sign-in's and an enrolment's life; it
 	// covers installing an authenticator app.
 	ticketLifetime = 10 * time.Minute
@@ -33,7 +36,7 @@ type pendingPurpose int
 const (
 	purposeLogin pendingPurpose = iota + 1
 	purposeSetup
-	purposeRegister
+	purposeAddPasskey
 	purposeStepUp
 	purposeSignIn       // a pending sign-in of an existing user
 	purposeSecondFactor // a passkey assertion as a pending sign-in's second step
@@ -41,6 +44,11 @@ const (
 	purposeEnrolPasskey // a passkey registration as a pending sign-in's enrolment
 	purposeDraft        // a pending sign-in of an account setup or an invite creates at its finish
 	purposeSetPasskey   // a passkey registration as a NextSetCredential step
+	// purposeRegistration is the passkey ceremony of a registration.
+	purposeRegistration
+	// purposeRegistrationDraft is a pending sign-in of an account a
+	// registration creates at its finish.
+	purposeRegistrationDraft
 )
 
 // pendingList is one of the cache's lists. Each has one lifetime, so its
@@ -53,6 +61,7 @@ const (
 	listSignIn
 	listEnrolment
 	listDraft
+	listRegistrationDraft
 	numLists
 )
 
@@ -64,6 +73,8 @@ func (p pendingPurpose) list() pendingList {
 		return listEnrolment
 	case purposeDraft:
 		return listDraft
+	case purposeRegistrationDraft:
+		return listRegistrationDraft
 	default:
 		return listCeremony
 	}
@@ -71,7 +82,9 @@ func (p pendingPurpose) list() pendingList {
 
 // isTicket reports whether p's entries are pending sign-ins, which a
 // ticket names and every step reads.
-func (p pendingPurpose) isTicket() bool { return p == purposeSignIn || p == purposeDraft }
+func (p pendingPurpose) isTicket() bool {
+	return p == purposeSignIn || p == purposeDraft || p == purposeRegistrationDraft
+}
 
 // pending is what a begin call or a step leaves for the next.
 type pending struct {
@@ -125,6 +138,7 @@ func newPendingCache(maxCeremonies int) *pendingCache {
 	c.lists[listSignIn] = entryList{lifetime: ticketLifetime, max: maxPendingSignIns}
 	c.lists[listEnrolment] = entryList{lifetime: ticketLifetime, max: maxEnrolments}
 	c.lists[listDraft] = entryList{lifetime: ticketLifetime, max: maxDrafts}
+	c.lists[listRegistrationDraft] = entryList{lifetime: ticketLifetime, max: maxRegistrationDrafts}
 	return c
 }
 

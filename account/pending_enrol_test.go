@@ -63,8 +63,8 @@ func pendingEnrolTOTP(t *testing.T, f *sfFixture, c account.Client, ticket acces
 		t.Fatalf("PendingTOTPBegin = %v", err)
 	}
 	secret := secretOf(t, account.TOTPEnrolment{URI: e.URI, Text: e.Text})
-	in, err := f.svc.PendingTOTPFinish(t.Context(), c, ticket, codeNow(secret))
-	return in, secret, err
+	out, err := f.svc.PendingTOTPFinish(t.Context(), c, ticket, codeNow(secret))
+	return signedInOf(t, out), secret, err
 }
 
 // pendingEnrolPasskey registers dev on ticket's pending enrolment from c and
@@ -75,7 +75,18 @@ func pendingEnrolPasskey(t *testing.T, f *sfFixture, c account.Client, ticket ac
 	if err != nil {
 		t.Fatalf("PendingPasskeyBegin = %v", err)
 	}
-	return f.svc.PendingPasskeyFinish(t.Context(), c, pc.ID, bytes.NewReader(dev.Register(browserJSON(t, pc.Creation))))
+	out, err := f.svc.PendingPasskeyFinish(t.Context(), c, pc.ID, bytes.NewReader(dev.Register(browserJSON(t, pc.Creation))))
+	return signedInOf(t, out), err
+}
+
+// signedInOf is out's sign-in; a finish that made its account wait fails
+// the test.
+func signedInOf(t testing.TB, out account.EnrolmentResult) account.SignedIn {
+	t.Helper()
+	if out.Waiting != nil {
+		t.Fatalf("the finish made %q wait for approval, want a sign-in", out.Waiting.User.Username)
+	}
+	return out.SignedIn
 }
 
 // recoveryFailures is u's recovery-code failure record in one trust context.

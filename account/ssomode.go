@@ -131,7 +131,8 @@ func (s *Service) SSO(ctx context.Context) (mode SSOMode, set bool, err error) {
 type Readiness struct {
 	// Refusal is the state refusal the change would answer, nil when it
 	// would be made: ErrOIDCUnavailable for a provider that is off now, or a
-	// *PolicyError with ReasonSingleOwner or ReasonOwnerNeedsLocalMethod.
+	// *PolicyError with ReasonSingleOwner, ReasonRegistrationEnabled or
+	// ReasonOwnerNeedsLocalMethod.
 	Refusal error
 	// LockedOut counts the enabled non-owners the mode would leave with no
 	// sign-in: under SSOOnly, those not linked.
@@ -363,6 +364,8 @@ func (s *Service) stateRefusal(ctx context.Context, tx Tx, r Rules, actor *acces
 		return &PolicyError{Op: OpApplySSO, Reason: ReasonSingleOwner}, nil
 	case to != SSOOnly:
 		return nil, nil
+	case r.Registration != RegistrationOff:
+		return &PolicyError{Op: OpApplySSO, Reason: ReasonRegistrationEnabled}, nil
 	}
 	for i := range users {
 		u := &users[i]
@@ -416,13 +419,25 @@ func holdsLocal(ctx context.Context, tx Tx, u *access.User) (bool, error) {
 	return len(passkeys) > 0, err
 }
 
-// CheckRules reports whether r would pass every operation's Rules check, so
-// an app calls it before it publishes a settings write or a reload.
-func (s *Service) CheckRules(_ context.Context, r Rules) error { //nolint:gocritic // hugeParam: as Rules.Validate
+// CheckRules reports whether r would pass every operation's Rules check,
+// and refuses a registration mode while the stored SSO mode is SSOOnly,
+// where registration is refused at use. An app calls it before it
+// publishes a settings write or a reload.
+func (s *Service) CheckRules(ctx context.Context, r Rules) error { //nolint:gocritic // hugeParam: as Rules.Validate
 	if s.closed.Load() {
 		return ErrServiceClosed
 	}
-	return s.checkRules(r)
+	if err := s.checkRules(r); err != nil || r.Registration == RegistrationOff {
+		return err
+	}
+	mode, err := storedMode(ctx, s.store)
+	switch {
+	case err != nil:
+		return storeErr(err)
+	case mode == SSOOnly:
+		return &RulesError{Field: fieldRegistration, Reason: "the stored SSO mode only admits no local registration; people join through the identity provider"}
+	}
+	return nil
 }
 
 // checkStoredMode is New's check of the stored mode: one other than

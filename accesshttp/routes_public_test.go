@@ -17,10 +17,11 @@ import (
 	"github.com/cplieger/access/webauthn"
 )
 
-// secureState is want as a secure request reads it: Secure, and nothing
-// HTTPS would add.
+// secureState is want as a secure request reads it: Secure, nothing HTTPS
+// would add, and registration off.
 func secureState(want StateResponse) StateResponse {
 	want.Secure, want.HTTPSRequired, want.SSO = true, []account.HTTPSFeature{}, account.SSONameAlongside
+	want.Registration = account.RegistrationNameOff
 	return want
 }
 

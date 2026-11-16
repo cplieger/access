@@ -370,7 +370,7 @@ func (s *Service) begin() (Rules, error) {
 // checkRules is Rules.Validate plus the rules Validate cannot see: a
 // breach mode needs Config.Breach, RequireSecondFactor a wired second
 // factor (Config.TOTP or Config.RP set), and the kept single-user
-// declaration refuses provisioning.
+// declaration refuses provisioning and registration.
 func (s *Service) checkRules(r Rules) error { //nolint:gocritic // hugeParam: as Rules.Validate
 	if err := r.Validate(); err != nil {
 		return err
@@ -382,6 +382,8 @@ func (s *Service) checkRules(r Rules) error { //nolint:gocritic // hugeParam: as
 		return &RulesError{Field: "RequireSecondFactor", Reason: "no second factor is wired: set Config.TOTP or Config.RP"}
 	case r.Provisioning.Enabled && s.singleUser:
 		return &RulesError{Field: "Provisioning", Reason: "a single-user Policy admits no provisioned account"}
+	case r.Registration != RegistrationOff && s.singleUser:
+		return &RulesError{Field: fieldRegistration, Reason: "a single-user Policy admits no registration"}
 	}
 	return nil
 }

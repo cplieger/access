@@ -19,6 +19,32 @@ type SignedIn struct {
 	CloneWarning bool
 }
 
+// Waiting is an account a registration created under RegistrationApproval:
+// disabled with WaitingApproval set, and no session, until an admin enables
+// it.
+type Waiting struct {
+	User *access.User
+	// RecoveryCode is the recovery code the registration's binding issued,
+	// shown only here; zero when it issued none.
+	RecoveryCode access.Secret
+}
+
+// EnrolmentResult is a pending enrolment finish's answer: Waiting when it created
+// an account that waits for approval, else SignedIn.
+type EnrolmentResult struct {
+	Waiting  *Waiting
+	SignedIn SignedIn
+}
+
+// RegistrationResult is a password registration's answer: Pending under
+// Rules.RequireSecondFactor, Waiting under RegistrationApproval, else
+// SignedIn.
+type RegistrationResult struct {
+	Pending  *Pending
+	Waiting  *Waiting
+	SignedIn SignedIn
+}
+
 // Issued is a rotated or restricted session.
 type Issued struct {
 	Token        access.Secret
@@ -39,6 +65,9 @@ type State struct {
 	HTTPSRequired []HTTPSFeature
 	// SSO is the stored SSO mode.
 	SSO SSOMode
+	// Registration is Rules.Registration, and RegistrationOff under the
+	// stored mode SSOOnly, which refuses every registration.
+	Registration RegistrationMode
 	// PasswordLogin, Passkeys and OIDC are each offered and admitted over
 	// the request's transport.
 	SetupRequired, PasswordLogin, Passkeys, OIDC bool

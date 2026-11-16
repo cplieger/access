@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fakeServer, refusal } from "./test-helpers/server.js";
 import type { Answer } from "./test-helpers/server.js";
 import { fixture } from "./test-helpers/wire.js";
+import { authCode } from "./wire.js";
 import {
   passkeySupport,
   registerPasskey,
@@ -11,6 +12,7 @@ import {
   loginSecondPasskey,
   loginSetPasskey,
   pendingPasskey,
+  signUpWithPasskey,
   passkeyProof,
   stepUpWithPasskey,
   toCreationOptions,
@@ -348,6 +350,43 @@ describe("loginSecondPasskey", () => {
       "POST /api/auth/login/second-passkey/finish": refusal(401, "auth_assertion_failed"),
     });
     expect(await loginSecondPasskey(s.client, "t-1")).toEqual({ kind: "verification-failed" });
+  });
+});
+
+// Design 4.17, 4.31 and 4.54: an account created with a passkey where registration is open,
+// signed in, or waiting for approval with no session.
+describe("signUpWithPasskey", () => {
+  it.each(["EnrolmentOutcome", "EnrolmentOutcome.waiting"])(
+    "sends the username, then the registration, and answers %s",
+    async (answer) => {
+      bareplatform();
+      credentialsCreate(attests);
+      const s = fakeServer({
+        "POST /api/auth/register/passkey/begin": creation,
+        "POST /api/auth/register/passkey/finish": ok(answer),
+      });
+      expect(await signUpWithPasskey(s.client, { username: "carol" })).toEqual({
+        kind: "answered",
+        result: fixture(answer),
+      });
+      expect(s.sent[0]?.body).toEqual({ username: "carol" });
+      expect(s.sent[1]?.body).toEqual(attestationJSON);
+      expect(s.sent[1]?.headers.get("X-Auth-Ceremony")).toBe("c-create");
+    },
+  );
+
+  it("maps a refused registration as registerPasskey does", async () => {
+    bareplatform();
+    credentialsCreate(attests);
+    const s = fakeServer({
+      "POST /api/auth/register/passkey/begin": creation,
+      "POST /api/auth/register/passkey/finish": refusal(403, "auth_registration_closed"),
+    });
+    const out = await signUpWithPasskey(s.client, { username: "carol" });
+    expect(out.kind).toBe("failed");
+    expect(out.kind === "failed" && typeof out.error !== "string" && authCode(out.error)).toBe(
+      "auth_registration_closed",
+    );
   });
 });
 

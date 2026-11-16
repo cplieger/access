@@ -171,6 +171,9 @@ const (
 	ReasonOwnerRole             = "owner_role"               // a role change of an owner
 	ReasonLastOwner             = "last_owner"               // a change that leaves no enabled owner
 	ReasonOwnerNeedsLocalMethod = "owner_needs_local_method" // an owner must be an enabled admin with a usable password or passkey
+	// ReasonRegistrationEnabled is SSOOnly refused while Rules.Registration
+	// is on: under it, people join only through the identity provider.
+	ReasonRegistrationEnabled = "registration_enabled"
 )
 
 // PolicyReasons returns every Reason account's own rules and policies put
@@ -201,6 +204,7 @@ func PolicyReasons() []string {
 		ReasonOwnerRole,
 		ReasonLastOwner,
 		ReasonOwnerNeedsLocalMethod,
+		ReasonRegistrationEnabled,
 	}
 }
 

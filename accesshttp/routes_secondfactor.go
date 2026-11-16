@@ -194,11 +194,20 @@ func servePendingPasskeyFinish(h *Handler, c *call) error {
 	return nil
 }
 
-// enrolled answers a pending enrolment finish's sign-in.
-func (h *Handler) enrolled(c *call, s account.SignedIn) { //nolint:gocritic // hugeParam: account's own result, read once
+// enrolled answers a pending enrolment finish or a passkey registration:
+// EnrolmentOutcome's signed_in with the session's cookies, or its
+// waiting_approval with none.
+func (h *Handler) enrolled(c *call, out account.EnrolmentResult) { //nolint:gocritic // hugeParam: account's own result, read once
+	if wt := out.Waiting; wt != nil {
+		h.auditWaiting(c, wt.User)
+		writeJSON(c.w, http.StatusOK, EnrolmentOutcome{WaitingApproval: true, RecoveryCode: wt.RecoveryCode.Reveal()})
+		return
+	}
+	s := out.SignedIn
 	h.setSignedIn(c.w, c.client.Secure, s)
 	h.auditSuccess(c, s.User, s.Session)
-	writeJSON(c.w, http.StatusOK, EnrolmentOutcome{SignedIn: signedInResponse(s)})
+	signed := signedInResponse(s)
+	writeJSON(c.w, http.StatusOK, EnrolmentOutcome{SignedIn: &signed})
 }
 
 func serveTOTPBegin(h *Handler, c *call) error {

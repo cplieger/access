@@ -66,6 +66,11 @@ func (a *recordingAccount) AcceptInvitePassword(_ context.Context, _ account.Cli
 	return account.LoginResult{SignedIn: signedIn}, nil
 }
 
+func (a *recordingAccount) RegisterPassword(_ context.Context, _ account.Client, in account.Registration) (account.RegistrationResult, error) {
+	a.record("authRegisterPassword", in.Password)
+	return account.RegistrationResult{SignedIn: signedIn}, nil
+}
+
 // AdmitOIDC admits every request with the fixture's provider, so the
 // invite start reaches AcceptInviteOIDCBegin.
 func (a *recordingAccount) AdmitOIDC(account.Client) (*oidc.Provider, error) { return a.provider, nil }
@@ -182,6 +187,7 @@ func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler,
 		"authLoginSetPassword":     {body: map[string]string{"ticket": "tk-set", "password": "pw-set"}, want: []string{"tk-set", "pw-set"}, required: []string{"ticket", "password"}},
 		"authInviteAcceptPassword": {body: map[string]string{"token": "tok-invite", "username": "carol", "password": "pw-invite"}, want: []string{"tok-invite", "pw-invite"}, required: []string{"token", "password"}},
 		"authInviteAcceptOIDC":     {body: map[string]string{"token": "tok-invite-oidc"}, want: []string{"tok-invite-oidc"}, required: []string{"token"}},
+		"authRegisterPassword":     {body: map[string]string{"username": "carol", "password": "pw-register"}, want: []string{"pw-register"}, required: []string{"password"}},
 		"authStepUpPassword":       {cookie: session, body: map[string]string{"password": "pw-stepup"}, want: []string{"pw-stepup"}, required: []string{"password"}},
 		"authPasswordSet":          {cookie: session, body: map[string]string{"current_password": "pw-current", "password": "pw-next"}, want: []string{"pw-current", "pw-next"}, required: []string{"password"}},
 		"authPasswordRemove":       {cookie: session, body: map[string]string{"current_password": "pw-removed"}, want: []string{"pw-removed"}},

@@ -140,7 +140,7 @@ func (s *Service) PasskeyRegisterBegin(ctx context.Context, c Client, p access.P
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id := s.pending.put(purposeRegister, pending{user: *u, ceremony: ceremony}, s.now())
+	id := s.pending.put(purposeAddPasskey, pending{user: *u, ceremony: ceremony}, s.now())
 	return PendingCeremony{ID: id, Creation: cc}, nil
 }
 
@@ -178,7 +178,7 @@ func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal,
 	if rp == nil {
 		return Registered{}, ErrPasskeysUnavailable
 	}
-	entry, err := s.takeOwn(ceremonyID, purposeRegister, p)
+	entry, err := s.takeOwn(ceremonyID, purposeAddPasskey, p)
 	if err != nil {
 		return Registered{}, err
 	}
