@@ -46,6 +46,7 @@ var designClasses = map[string]struct {
 	"authAdminUserDelete":        {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
 	"authAdminOIDCUnlink":        {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
 	"authAdminTemporaryPassword": {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
+	"authAdminSecondFactorReset": {open: ClassRecentAuth, scoped: ClassKeyPermission, scope: "users"},
 	"authAdminOwner":             {open: ClassRecentAuth, scoped: ClassRecentAuth},
 	"authAdminSSOReadiness":      {open: ClassRecentAuth, scoped: ClassRecentAuth},
 	"authAdminSSOApply":          {open: ClassRecentAuth, scoped: ClassRecentAuth},
@@ -164,7 +165,7 @@ func TestCodesOrder(t *testing.T) {
 			}
 		}
 	}
-	noBody := []string{"authAdminUsers", "authLoginPasskeyBegin", "authMethodReenable", "authSessionRevoke", "authKeyRevoke", "authAdminUserDelete", "authAdminOIDCUnlink", "authAdminKeyRevoke", "authOIDCStartSignIn", "authOIDCCallback"}
+	noBody := []string{"authAdminUsers", "authLoginPasskeyBegin", "authMethodReenable", "authSessionRevoke", "authKeyRevoke", "authAdminUserDelete", "authAdminOIDCUnlink", "authAdminSecondFactorReset", "authAdminKeyRevoke", "authOIDCStartSignIn", "authOIDCCallback"}
 	for _, name := range noBody {
 		d := specNamed(t, name).descriptor(&DescriptorConfig{Prefix: "/p", OIDCPrefix: "/o"})
 		if slices.Contains(d.Codes, access.CodeBodyTooLarge) {

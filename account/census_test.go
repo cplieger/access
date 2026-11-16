@@ -180,6 +180,12 @@ func censusUserNaming(t *testing.T) {
 			_, err := w.svc.SetTemporaryPassword(t.Context(), account.As(p), id, account.TemporaryPasswordOptions{})
 			return err
 		}},
+		{name: "ResetSecondFactor", call: func(t *testing.T, w *opWorld, p access.Principal, id int64) error {
+			if u, found, err := w.mem.UserByID(t.Context(), id); err == nil && found {
+				storeTOTP(t, w.mem, u)
+			}
+			return w.svc.ResetSecondFactor(t.Context(), account.As(p), id)
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -216,7 +222,7 @@ func censusUserNaming(t *testing.T) {
 
 func TestKeyAuthorityEveryWrite(t *testing.T) {
 	t.Parallel()
-	want := []string{"AdminUnlinkOIDC", "CreateAPIKey", "CreateInvite", "CreateUser", "DeleteUser", "RevokeAnyAPIKey", "SetTemporaryPassword", "UpdateUser"}
+	want := []string{"AdminUnlinkOIDC", "CreateAPIKey", "CreateInvite", "CreateUser", "DeleteUser", "ResetSecondFactor", "RevokeAnyAPIKey", "SetTemporaryPassword", "UpdateUser"}
 	var (
 		mu      sync.Mutex
 		reached []string

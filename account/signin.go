@@ -24,7 +24,8 @@ const (
 // Pending is a sign-in whose first factor verified and that needs Next.
 // Ticket names it for ten minutes, held by the client in memory and sent in
 // a body only; a restart, the user's next password sign-in, SetPassword,
-// RemovePassword, disabling, deleting and AdminUnlinkOIDC drop it. Methods
+// RemovePassword, ResetSecondFactor, SetTemporaryPassword, disabling,
+// deleting and AdminUnlinkOIDC drop it. Methods
 // are what Next accepts on this request's transport, the only one it
 // finishes on. Recovered marks the NextEnrol a recovery code answered,
 // whose finish completes the recovery.

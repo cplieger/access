@@ -1045,6 +1045,15 @@ func adminOperations() []operation {
 				want: events(account.Event{Kind: account.EventTemporaryPasswordSet, UserID: target.ID, Actor: actorOf(p)}),
 			}
 		}},
+		{name: "ResetSecondFactor", class: classManageUsers, transport: plainAllowed, asks: []account.Operation{account.OpResetSecondFactor}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			target := w.user(t)
+			storeTOTP(t, w.mem, target)
+			return opCall{
+				actor: actorOf(p), target: target.ID,
+				run:  func(ctx context.Context) error { return w.svc.ResetSecondFactor(ctx, account.As(p), target.ID) },
+				want: events(account.Event{Kind: account.EventSecondFactorReset, UserID: target.ID, Actor: actorOf(p)}),
+			}
+		}},
 		{name: "CreateInvite", class: classManageUsers, transport: plainRefused, asks: []account.Operation{account.OpInvite}, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
 			return opCall{
 				run:   func(ctx context.Context) error { _, err := w.svc.CreateInvite(ctx, p, access.RoleUser, 0); return err },

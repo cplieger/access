@@ -660,6 +660,16 @@
     "doc": "Issues an account a temporary password and answers it once."
   },
   {
+    "request": null,
+    "response": null,
+    "name": "authAdminSecondFactorReset",
+    "method": "DELETE",
+    "path": "{prefix}/users/{id}/second-factor",
+    "kind": "json",
+    "array": false,
+    "doc": "Deletes an account's authenticator app and recovery code and ends its sessions."
+  },
+  {
     "request": "InviteRequest",
     "response": "TokenResponse",
     "name": "authAdminInvite",

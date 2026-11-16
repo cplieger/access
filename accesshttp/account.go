@@ -85,6 +85,7 @@ type accountAPI interface {
 	AdminUnlinkOIDC(ctx context.Context, a account.Actor, userID int64) error
 	SetTemporaryPassword(ctx context.Context, a account.Actor, userID int64, in account.TemporaryPasswordOptions) (account.IssuedTemporaryPassword, error)
 	TemporaryPasswordHTTPSOnly(issued account.IssuedTemporaryPassword) bool
+	ResetSecondFactor(ctx context.Context, a account.Actor, userID int64) error
 	SSOReadiness(ctx context.Context, a account.Actor, mode account.SSOMode) (account.Readiness, error)
 	ApplySSO(ctx context.Context, a account.Actor, mode account.SSOMode) error
 	CreateInvite(ctx context.Context, p access.Principal, role access.Role, ttl time.Duration) (account.IssuedToken, error)

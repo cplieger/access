@@ -128,6 +128,15 @@ func serveAdminOIDCUnlink(h *Handler, c *call) error {
 	return nil
 }
 
+// serveAdminSecondFactorReset deletes a user's TOTP and recovery code.
+func serveAdminSecondFactorReset(h *Handler, c *call) error {
+	if err := h.acct.ResetSecondFactor(c.r.Context(), account.As(c.p), c.id); err != nil {
+		return err
+	}
+	noContent(c.w)
+	return nil
+}
+
 // serveAdminTemporaryPassword issues a temporary password and answers it
 // once, https_only read after the issue commits (account owns why).
 func serveAdminTemporaryPassword(h *Handler, c *call) error {

@@ -258,6 +258,8 @@ export interface AuthClient {
     id: number,
     options: TemporaryPasswordOptions,
   ): Promise<ApiResult<TemporaryPasswordResponse>>;
+  /** Deletes the user's authenticator app and recovery code and ends their sessions; password and passkeys stay. */
+  adminResetSecondFactor(id: number): Promise<ApiResult<void>>;
   adminInvite(r: InviteRequest): Promise<ApiResult<TokenResponse>>;
   adminTokens(): Promise<ApiResult<readonly TokenView[]>>;
   adminKeys(): Promise<ApiResult<readonly KeyView[]>>;
@@ -441,6 +443,7 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
       json("POST", p(`/users/${String(id)}/temporary-password`), parseTemporaryPasswordResponse, {
         body: options,
       }),
+    adminResetSecondFactor: (id) => empty("DELETE", p(`/users/${String(id)}/second-factor`)),
     adminInvite: (r) => json("POST", p("/invites"), parseTokenResponse, { body: r }),
     adminTokens: () => json("GET", p("/tokens"), tokenList),
     adminKeys: () => json("GET", p("/admin/apikeys"), keyList),

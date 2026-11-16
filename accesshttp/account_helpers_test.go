@@ -106,6 +106,10 @@ func (s stubAccount) SetTemporaryPassword(ctx context.Context, a account.Actor, 
 	})
 }
 
+func (s stubAccount) ResetSecondFactor(ctx context.Context, a account.Actor, userID int64) error {
+	return stubbedErr(s, "ResetSecondFactor", func() error { return s.accountAPI.ResetSecondFactor(ctx, a, userID) })
+}
+
 func (s stubAccount) UnlinkOIDC(ctx context.Context, p access.Principal) error {
 	return stubbedErr(s, "UnlinkOIDC", func() error { return s.accountAPI.UnlinkOIDC(ctx, p) })
 }

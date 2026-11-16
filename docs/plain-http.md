@@ -23,7 +23,7 @@ Under `PosturePerRequest`, a plain request may sign in and set up the first acco
 | `authPasskeys`, `authPasskeyRename`, `authPasskeyRemove` with a code as its proof, `authTOTPRemove`, `authWebAuthnSignals`, `authOIDCUnlink` | `authPasswordRemove`, `authTOTPBegin`, `authTOTPFinish`, `authRecoveryCodeRegenerate` |
 | `authSessions`, `authSessionRename`, `authSessionRevoke`, `authSessionsRevokeOthers` | `authPasskeyRegisterBegin`, `authPasskeyRegisterFinish` |
 | `authKeys`, `authKeyRename`, `authKeyRevoke`, `authAdminKeys`, `authAdminKeyRevoke` | `authInviteAcceptPassword` |
-| `authAdminUsers`, `authAdminUserCreate`, `authAdminUserUpdate`, `authAdminOwner`, `authAdminUserDelete`, `authAdminOIDCUnlink`, `authAdminTokens`, `authAdminSecurityLog` | `authAdminSSOReadiness`, `authAdminSSOApply` |
+| `authAdminUsers`, `authAdminUserCreate`, `authAdminUserUpdate`, `authAdminOwner`, `authAdminUserDelete`, `authAdminOIDCUnlink`, `authAdminSecondFactorReset`, `authAdminTokens`, `authAdminSecurityLog` | `authAdminSSOReadiness`, `authAdminSSOApply` |
 | every route of yours on the gate, by its class, except a row marked `HTTPS` | `authKeyCreate`, `authKeyRotate`, `authAdminInvite`, `authAdminTemporaryPassword` (an admin socket's recovery verb is the plain-only path) |
 
 Four rows need a reason:

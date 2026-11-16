@@ -560,6 +560,14 @@ func TestTicketsEnd(t *testing.T) {
 		}
 		gone(t, f, p)
 	})
+	t.Run("second_factor_reset", func(t *testing.T) {
+		t.Parallel()
+		f, u, p := setup(t)
+		if err := f.svc.ResetSecondFactor(t.Context(), account.OutOfBand("test"), u.ID); err != nil {
+			t.Fatalf("ResetSecondFactor: %v", err)
+		}
+		gone(t, f, p)
+	})
 	t.Run("admin_unlink", func(t *testing.T) {
 		t.Parallel()
 		f, u, p := setup(t)

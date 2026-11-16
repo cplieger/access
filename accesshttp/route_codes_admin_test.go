@@ -108,6 +108,12 @@ func adminScenarios() map[scenarioKey]scenario {
 		return r
 	}}
 
+	const reset = "authAdminSecondFactorReset"
+	out[scenarioKey{reset, access.CodeForbidden}] = byAlice(reset, "")
+	out[scenarioKey{reset, access.CodeUnavailable}] = closing(envOptions{}, byRoot(reset, aliceID, ""))
+	// RULINGS Q16 (design 4.53): alice holds no TOTP and no recovery code.
+	out[scenarioKey{reset, access.CodeNotFound}] = scenario{arrange: byRoot(reset, aliceID, "")}
+
 	const invite = "authAdminInvite"
 	inviteBody := func(n int) string { return `{"role":"user","hours":` + strconv.Itoa(n) + `}` }
 	out[scenarioKey{invite, access.CodeForbidden}] = byAlice(invite, inviteBody(0))

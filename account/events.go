@@ -72,6 +72,9 @@ const (
 	// failure record counts them. A refused code's entry carries the
 	// CodeError Reason as its Detail.
 	EventSecondFactorFailed EventKind = "second_factor_failed"
+	// EventSecondFactorReset is ResetSecondFactor's deletion of a user's
+	// TOTP record and recovery code.
+	EventSecondFactorReset EventKind = "second_factor_reset"
 )
 
 // eventKinds is every EventKind in declaration order, with the class its
@@ -121,6 +124,7 @@ var eventKinds = [...]struct {
 	{EventRecoveryCodeUsed, LogClassChange},
 	{EventRecoveryCodeReplaced, LogClassChange},
 	{EventSecondFactorFailed, LogClassSession},
+	{EventSecondFactorReset, LogClassChange},
 }
 
 // EventKinds returns every EventKind, in declaration order.
