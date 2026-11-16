@@ -66,7 +66,7 @@ func (s *Service) passwordDraft(ctx context.Context, r Rules, c Client, password
 // (draftAccountIn), with acc what its creation did.
 func (s *Service) enrolAccountIn(ctx context.Context, tx Tx, entry *pending, acc *accepted) (*access.User, error) {
 	if entry.ticket.draft == nil {
-		return ticketUserIn(ctx, tx, entry)
+		return s.ticketUserIn(ctx, tx, entry)
 	}
 	return s.draftAccountIn(ctx, tx, entry, acc)
 }

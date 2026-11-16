@@ -48,11 +48,14 @@ type ticket struct {
 	// existing user's ticket.
 	draft *draftOf
 	// temporary is the hash of the temporary password that minted the
-	// ticket, which SetCredentialPassword refuses as the new password; zero
-	// for a ticket a password minted.
+	// ticket or its predecessor, which SetCredentialPassword refuses as the
+	// new password; zero for a ticket a password minted.
 	temporary access.Hash
-	next      Next
-	methods   []access.Method
+	// staged is the password SetCredentialPassword hashed under
+	// Rules.RequireSecondFactor, which the enrolment finish writes.
+	staged  access.Hash
+	next    Next
+	methods []access.Method
 	// digest is the PasswordHash step 1 left stored; the next step goes on
 	// only while the stored hash still matches it.
 	digest access.HashKey

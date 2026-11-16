@@ -611,6 +611,7 @@ var clientOperations = []string{
 	"SetupWithPassword", "SetupPasskeyFinish", "PasswordLogin", "PasskeyLoginFinish", "OIDCComplete",
 	"AcceptInvitePassword", "CreatePendingOIDC", "StepUpPassword", "StepUpPasskeyFinish", "SetPassword", "RemovePassword",
 	"SignInWithCode", "SecondFactorPasskeyFinish", "StepUpCode", "SignInWithRecoveryCode", "PendingTOTPFinish", "PendingPasskeyFinish",
+	"SetCredentialPassword", "SetCredentialPasskeyFinish",
 }
 
 func TestLogIP(t *testing.T) {

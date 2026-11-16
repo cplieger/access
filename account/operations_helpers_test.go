@@ -268,6 +268,25 @@ func (w *opWorld) recoveredTicket(t *testing.T) access.Secret {
 	return out.Pending.Ticket
 }
 
+// setCredentialTicket issues alice a temporary password out of band and
+// answers her NextSetCredential ticket, from c when its step 1 answers one,
+// else from localClient.
+func (w *opWorld) setCredentialTicket(t *testing.T, c account.Client) access.Secret {
+	t.Helper()
+	issued, err := w.svc.SetTemporaryPassword(t.Context(), account.OutOfBand("socket"), w.alice.ID, account.TemporaryPasswordOptions{})
+	if err != nil {
+		t.Fatalf("SetTemporaryPassword = %v", err)
+	}
+	for _, c := range []account.Client{c, localClient} {
+		out, err := w.step1(t.Context(), c, "alice", issued.Password.Reveal())
+		if err == nil && out.Pending != nil {
+			return out.Pending.Ticket
+		}
+	}
+	t.Fatal("alice's temporary password answered no pending sign-in")
+	return access.Secret{}
+}
+
 // recoveryEvents are a recovered enrolment's finish's entries before the
 // factor it binds, by alice in the session in made.
 func recoveryEvents(alice int64, in account.SignedIn) []account.Event {
@@ -495,6 +514,56 @@ func publicOperations() []operation {
 					return append(recoveryEvents(w.alice.ID, in),
 						account.Event{Kind: account.EventPasskeyAdded, UserID: w.alice.ID, PasskeyID: added, Actor: actor},
 						signedIn(in, access.MethodPassword))
+				},
+			}
+		}},
+		{name: "SetCredentialPassword", class: classPublic, transport: plainPerRequest, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket := w.setCredentialTicket(t, w.client)
+			var out account.LoginResult
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					out, err = w.svc.SetCredentialPassword(ctx, w.client, ticket, access.NewSecret("a-password-of-alices-own-9"))
+					return err
+				},
+				want: func() []account.Event {
+					actor := account.EventActor{UserID: w.alice.ID, SessionID: out.SignedIn.Session.ID}
+					return []account.Event{
+						{Kind: account.EventPasswordSet, UserID: w.alice.ID, Method: access.MethodPassword, Actor: actor},
+						signedIn(out.SignedIn, access.MethodPassword),
+					}
+				},
+			}
+		}},
+		{name: "SetCredentialPasskeyBegin", class: classPublic, transport: plainRefused, readOnly: true, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket := w.setCredentialTicket(t, w.client)
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.SetCredentialPasskeyBegin(ctx, w.client, ticket, w.origin)
+				return err
+			}, want: none}
+		}},
+		{name: "SetCredentialPasskeyFinish", class: classPublic, transport: plainRefused, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			pc, err := w.svc.SetCredentialPasskeyBegin(t.Context(), localClient, w.setCredentialTicket(t, localClient), w.origin)
+			if err != nil {
+				t.Fatalf("SetCredentialPasskeyBegin = %v", err)
+			}
+			body := accesstest.NewPasskeyDevice(t).Register(browserJSON(t, pc.Creation))
+			var in account.SignedIn
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					in, err = w.svc.SetCredentialPasskeyFinish(ctx, w.client, pc.ID, bytes.NewReader(body))
+					return err
+				},
+				want: func() []account.Event {
+					pks, _ := w.mem.PasskeysByUserID(t.Context(), w.alice.ID)
+					var added int64
+					for _, pk := range pks {
+						added = max(added, pk.ID)
+					}
+					actor := account.EventActor{UserID: w.alice.ID, SessionID: in.Session.ID}
+					return []account.Event{
+						{Kind: account.EventPasskeyAdded, UserID: w.alice.ID, PasskeyID: added, Actor: actor},
+						signedIn(in, access.MethodPassword),
+					}
 				},
 			}
 		}},

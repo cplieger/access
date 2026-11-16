@@ -40,6 +40,7 @@ const (
 	purposeEnrolTOTP    // a TOTP enrolment a session began
 	purposeEnrolPasskey // a passkey registration as a pending sign-in's enrolment
 	purposeDraft        // a pending sign-in of an account setup or an invite creates at its finish
+	purposeSetPasskey   // a passkey registration as a NextSetCredential step
 )
 
 // pendingList is one of the cache's lists. Each has one lifetime, so its

@@ -110,7 +110,7 @@ func (s *Service) matchRecoveryCode(ctx context.Context, r Rules, c Client, entr
 // set a match moves to, decided here so the match asks Rules.MethodUsable
 // nothing more.
 func (s *Service) countRecoveryIn(ctx context.Context, tx Tx, r Rules, c Client, entry *pending, ref FailureRef) (m recoveryMatch, refused, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
-	u, err := ticketUserIn(ctx, tx, entry)
+	u, err := s.ticketUserIn(ctx, tx, entry)
 	if err != nil {
 		return recoveryMatch{}, nil, err
 	}
@@ -171,7 +171,7 @@ func (s *Service) enrolUser(ctx context.Context, ticket access.Secret, entry *pe
 		u := entry.user
 		return &u, nil
 	}
-	u, err := ticketUserIn(ctx, s.store, entry)
+	u, err := s.ticketUserIn(ctx, s.store, entry)
 	if err = answer(err); errors.Is(err, access.ErrTokenInvalid) {
 		s.pending.drop(ticket.Reveal())
 	}
@@ -244,6 +244,9 @@ func (s *Service) PendingTOTPFinish(ctx context.Context, c Client, ticket access
 			actor := EventActor{UserID: u.ID, SessionID: sess.ID}
 			if spendErr := s.spendRecoveryIn(ctx, tx, j, &entry, u, actor); spendErr != nil {
 				return spendErr
+			}
+			if stagedErr := s.writeStagedIn(ctx, tx, j, &entry, u, actor); stagedErr != nil {
+				return stagedErr
 			}
 			if bindErr := s.bindTOTPIn(ctx, tx, j, u, secret, step, actor); bindErr != nil {
 				return bindErr
@@ -428,6 +431,9 @@ func (s *Service) PendingPasskeyFinish(ctx context.Context, c Client, ceremonyID
 			actor := EventActor{UserID: u.ID, SessionID: sess.ID}
 			if spendErr := s.spendRecoveryIn(ctx, tx, j, &entry, u, actor); spendErr != nil {
 				return spendErr
+			}
+			if stagedErr := s.writeStagedIn(ctx, tx, j, &entry, u, actor); stagedErr != nil {
+				return stagedErr
 			}
 			pk, addErr := s.addPasskey(ctx, tx, u.ID, cred, ErrDuplicateCredential)
 			if addErr != nil {

@@ -40,17 +40,28 @@ func lists(entry *pending, found bool, m access.Method) bool {
 	return found && entry.ticket.next == NextSecondFactor && slices.Contains(entry.ticket.methods, m)
 }
 
-// ticketUserIn is a second step's re-check, inside tx, of what step 1
+// ticketUserIn is a later step's re-check, inside tx, of what step 1
 // verified: the ticket's user still stored and enabled, its PasswordHash
 // still the one step 1 left, and the stored mode not keeping it dormant.
-// Any miss ends the ticket as a refused access.ErrTokenInvalid.
-func ticketUserIn(ctx context.Context, tx Tx, entry *pending) (*access.User, error) {
+// A ticket of temporary-password origin also needs PasswordHash zero and
+// no live temporary password, since step 1 spent it. Any miss ends the
+// ticket as a refused access.ErrTokenInvalid.
+func (s *Service) ticketUserIn(ctx context.Context, tx Tx, entry *pending) (*access.User, error) {
 	u, found, err := tx.UserByID(ctx, entry.user.ID)
 	switch {
 	case err != nil:
 		return nil, err
 	case !found || !u.Enabled || u.PasswordHash.Key() != entry.ticket.digest:
 		return nil, refuse(access.ErrTokenInvalid)
+	}
+	if !entry.ticket.temporary.IsZero() {
+		rec, held, err := tx.TemporaryPasswordByUserID(ctx, u.ID)
+		switch {
+		case err != nil:
+			return nil, err
+		case !u.PasswordHash.IsZero() || held && rec.ExpiresAt.After(s.now()):
+			return nil, refuse(access.ErrTokenInvalid)
+		}
 	}
 	return u, requireLocal(ctx, tx, u, access.ErrTokenInvalid)
 }
@@ -95,7 +106,7 @@ func (s *Service) SignInWithCode(ctx context.Context, c Client, ticket access.Se
 			return countErr
 		},
 		in: func(tx Tx) (*access.User, error) {
-			u, userErr := ticketUserIn(ctx, tx, &entry)
+			u, userErr := s.ticketUserIn(ctx, tx, &entry)
 			if userErr != nil {
 				return nil, userErr
 			}
@@ -237,7 +248,7 @@ func (s *Service) SecondFactorPasskeyFinish(ctx context.Context, c Client, cerem
 			}
 			return nil
 		},
-		in: func(tx Tx) (*access.User, error) { return ticketUserIn(ctx, tx, &entry) },
+		in: func(tx Tx) (*access.User, error) { return s.ticketUserIn(ctx, tx, &entry) },
 	})
 	return s.stepAnswered(ctx, c, ticket, &entry, access.MethodPasskey, out, err)
 }
