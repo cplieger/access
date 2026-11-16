@@ -16,6 +16,10 @@ const (
 	// SignInAgain is a recent-auth refusal of a plain session: nothing over
 	// plain HTTP refreshes its AuthTime, so only a fresh sign-in passes.
 	SignInAgain = "sign_in_again"
+	// TemporaryPasswordExposed is an HTTPS-required refusal of a temporary
+	// password sent over plain HTTP where it could not finish, which the
+	// refusal cancelled since it crossed in clear.
+	TemporaryPasswordExposed = "temporary_password_exposed"
 
 	// KeyUnknown is a Bearer value no stored key has as either secret. The
 	// verifiers' reasons are audit-only: the client sees the sentinel, so a

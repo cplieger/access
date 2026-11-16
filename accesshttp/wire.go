@@ -525,6 +525,9 @@ type LogEntryView struct {
 	// IssuerUserID is the issuing user of a withdrawn temporary password.
 	IssuerUserID int64 `json:"issuer_user_id,omitempty"`
 	Trusted      bool  `json:"trusted,omitempty"`
+	// Plain is a temporary_password_used entry whose secret crossed plain
+	// HTTP.
+	Plain bool `json:"plain,omitempty"`
 }
 
 // LogActorView is who made a logged change, with the display data the
@@ -705,7 +708,7 @@ func logEntryView(e *account.LogEntry) LogEntryView {
 	v := LogEntryView{
 		Seq: int64(ev.Seq), At: e.At, OccurredAt: ev.At, Class: e.Class, Kind: string(ev.Kind), //nolint:gosec // G115: rule 22 bounds Seq at 2^53 - 1
 		UserID: ev.UserID, SessionIDs: ev.SessionIDs, KeyID: ev.KeyID, PasskeyID: ev.PasskeyID,
-		Method: ev.Method, Role: ev.Role, Trusted: ev.Trusted, Detail: e.Detail, IssuerUserID: ev.IssuerUserID,
+		Method: ev.Method, Role: ev.Role, Trusted: ev.Trusted, Detail: e.Detail, IssuerUserID: ev.IssuerUserID, Plain: ev.Plain,
 		Actor: LogActorView{
 			UserID: ev.Actor.UserID, SessionID: ev.Actor.SessionID, KeyID: ev.Actor.KeyID, OutOfBand: ev.Actor.OutOfBand,
 			Label: e.ActorLabel, UserAgent: e.ActorUserAgent, KeySuffix: e.ActorKeySuffix,

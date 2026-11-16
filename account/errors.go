@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/internal/failreason"
 )
 
 // Errors a store returns for caller faults. An operation answers one only
@@ -126,6 +127,11 @@ var (
 	// ErrSSOOnly is a local-method operation the stored SSO mode forbids
 	// for the user.
 	ErrSSOOnly = errors.New("account: the identity provider is this account's only sign-in")
+	// ErrTemporaryPasswordExposed is a password sign-in that matched a
+	// temporary password over plain HTTP where its path cannot finish; the
+	// secret crossed in clear, so the sign-in deleted it. It matches
+	// access.ErrHTTPSRequired.
+	ErrTemporaryPasswordExposed = failreason.Wrap(fmt.Errorf("account: a temporary password sent over plain HTTP is cancelled: %w", access.ErrHTTPSRequired), failreason.TemporaryPasswordExposed)
 	// ErrSSOLinked is a temporary password for a linked user whose local
 	// methods the stored mode keeps dormant, which could neither sign in nor
 	// link; it matches ErrSSOOnly.

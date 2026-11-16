@@ -185,7 +185,7 @@ func fixtures() []fixture {
 			Entries: []LogEntryView{{
 				Seq: 42, At: goldenLater, OccurredAt: goldenTime, Class: account.LogClassChange, Kind: string(account.EventPasskeyAdded),
 				UserID: 7, IP: "192.0.2.1", SessionIDs: []string{"s1", "s2"}, KeyID: 5, PasskeyID: 2,
-				Method: access.MethodPasskey, Role: access.RoleUser, Trusted: true, Detail: "fixture-detail",
+				Method: access.MethodPasskey, Role: access.RoleUser, Trusted: true, Plain: true, Detail: "fixture-detail",
 				IssuerUserID: 8, SSOMode: account.SSONameOnly, PreviousSSOMode: account.SSONameAlongside,
 				Actor: LogActorView{
 					UserID: 7, SessionID: "s1", KeyID: 5, OutOfBand: "cli",

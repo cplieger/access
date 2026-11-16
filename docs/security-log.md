@@ -52,6 +52,7 @@ Each operation appends its entries in the order it reports its events to `OnEven
 | `owner_removed` | change | `SetOwner` removing an owner, and `account.New` clearing the flag under a single-user Policy from every account but the one enabled admin, with the actor `migration` |
 | `sso_mode_changed` | change | `ApplySSO` and `MigrateSSO`, with `Event.SSOMode` the new mode and `Event.PreviousSSOMode` the old one |
 | `temporary_password_set` | change | `SetTemporaryPassword`, before the `passkey_removed`, `key_revoked` and `user_sessions_revoked` entries of what the issue deleted and ended |
+| `temporary_password_used` | session | `PasswordLogin` matching a live temporary password and deleting it: spent into a pending sign-in, or cancelled where its path cannot finish. `Event.Plain` (`plain` on the wire) is set when the secret crossed plain HTTP, so a reader of that network may hold it: an app with a notification channel tells the account's holder |
 | `temporary_password_withdrawn` | change | `ApplySSO` and `MigrateSSO` bringing an account's local methods back, and `SetOwner` making an owner, each deleting the account's dormant temporary password; `Event.IssuerUserID` and `Event.KeyID` name its issuer, both zero for one issued out of band |
 | your app's kinds | change | `Service.AppendLog` ([App entries](#app-entries)) |
 
@@ -96,7 +97,7 @@ A refused entry is an `*account.AppEntryError` whose `Reason` is `app_kind`, `ap
 
 The log has two classes, counted separately so that sign-in churn never removes an account change:
 
-- `session`: `signed_in`, `stepped_up`, `session_revoked`, `oidc_not_admitted` and `second_factor_failed`;
+- `session`: `signed_in`, `stepped_up`, `session_revoked`, `oidc_not_admitted`, `second_factor_failed` and `temporary_password_used`;
 - `change`: every other kind, your app's included.
 
 | `account.Config` field | What it sets | Default |

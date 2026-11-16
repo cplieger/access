@@ -52,8 +52,8 @@ func logSince(t testing.TB, s account.Store, before []account.LogEntry) []accoun
 
 // sessionClass is the set of kinds in the session class: sign-ins, step-ups,
 // session revocations, refused OIDC admissions (design 5.7) and refused
-// second steps (design 4.11).
-var sessionClass = []account.EventKind{account.EventSignedIn, account.EventSteppedUp, account.EventSessionRevoked, account.EventOIDCNotAdmitted, account.EventSecondFactorFailed}
+// second steps and spent or cancelled temporary passwords (design 4.11).
+var sessionClass = []account.EventKind{account.EventSignedIn, account.EventSteppedUp, account.EventSessionRevoked, account.EventOIDCNotAdmitted, account.EventSecondFactorFailed, account.EventTemporaryPasswordUsed}
 
 func classOf(k account.EventKind) account.LogClass {
 	if slices.Contains(sessionClass, k) {
@@ -110,6 +110,27 @@ func stateVariants() []operation {
 					return fmt.Errorf("a wrong code = %v, want ErrCodeInvalid", err)
 				},
 				want: events(account.Event{Kind: account.EventSecondFactorFailed, UserID: w.alice.ID, Method: access.MethodTOTP}),
+			}
+		}},
+		// Design 4.9: a temporary password matched at step 1 is spent and
+		// journalled temporary_password_used with its transport.
+		{name: "PasswordLogin_temporary_password", class: classPublic, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			target := passwordUser(t, w.mem, nil, w.name("user"), "")
+			issued, err := w.svc.SetTemporaryPassword(t.Context(), account.OutOfBand("cli"), target.ID, account.TemporaryPasswordOptions{})
+			if err != nil {
+				t.Fatalf("SetTemporaryPassword = %v", err)
+			}
+			return opCall{
+				run: func(ctx context.Context) error {
+					out, err := w.svc.PasswordLogin(ctx, w.client, account.Credentials{Username: target.Username, Password: issued.Password})
+					if err == nil && out.Pending == nil {
+						return errors.New("a temporary password signed in, want a pending sign-in")
+					}
+					return err
+				},
+				want: func() []account.Event {
+					return []account.Event{{Kind: account.EventTemporaryPasswordUsed, UserID: target.ID, Plain: !w.client.Secure}}
+				},
 			}
 		}},
 		{name: "SetOwner_remove", class: classRecentAuth, ownerOnly: true, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {

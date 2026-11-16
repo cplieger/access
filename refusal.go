@@ -209,8 +209,9 @@ func ErrorReasons() []string { return []string{ReasonTransportChanged, ReasonSig
 // returned to its refusal. Its Reason is empty, so the answer names no
 // stored state, except [ReasonTransportChanged] for a session presented on
 // the other transport, which the verifier revokes when a [SessionRevoker] is
-// registered, and for [ErrRecentAuthRequired] the reason the refusal carries, such as
-// [ReasonSignInAgain]. It reports false for any other error.
+// registered, and for [ErrRecentAuthRequired] and [ErrHTTPSRequired] the
+// reason the refusal carries, such as [ReasonSignInAgain]. It reports false
+// for any other error.
 func ErrorFor(err error) (Error, bool) {
 	code, ok := authenticationCode(err)
 	if !ok {
@@ -222,7 +223,7 @@ func ErrorFor(err error) (Error, bool) {
 		if errors.Is(err, ErrSessionTransport) {
 			reason = ReasonTransportChanged
 		}
-	case CodeRecentAuthRequired:
+	case CodeRecentAuthRequired, CodeHTTPSRequired:
 		reason = failreason.Of(err)
 	default:
 	}

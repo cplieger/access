@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"slices"
 	"strings"
 	"unicode"
@@ -153,9 +154,9 @@ type sessionOp struct {
 	in func(tx Tx) (*access.User, error)
 	// pend, when set, runs after in for its user and decides whether the
 	// sign-in completes now: nil and nil do; a pending entry to mint, or a
-	// refusal to answer, commits the Update with no session, so a correct
-	// first factor's failure reset stands.
-	pend func(tx Tx, u *access.User) (entry *pending, refused, err error)
+	// refusal to answer, commits the Update with no session and pend's
+	// entries, so a correct first factor's failure reset stands.
+	pend func(tx Tx, j *journal, u *access.User) (entry *pending, refused, err error)
 	// bind, when set, runs after pend lets the sign-in complete and writes
 	// what the sign-in binds to its user, sess being the session the Update
 	// then writes.
@@ -176,12 +177,12 @@ func (s *Service) createSession(ctx context.Context, r Rules, c Client, op *sess
 }
 
 // signIn runs op in order: the admission, prepare, Rules.SessionCaps once
-// with c, then one change holding op.in, op.pend, op.bind, op.fill and the session
-// write (draft.store) with its entries. A completed sign-in succeeds the
-// reservation and gets deviceCookie's cookie; one pend held back cancels it
-// and answers pend's refusal or the minted Pending. A prepare error cancels
-// the reservation and an Update error fails it, as does a commit whose op.in
-// gave no user, which returns the zero LoginResult and nil.
+// with c, then one change holding op.in, op.pend, op.bind, op.fill and the
+// session write (draft.store) with its entries. A completed sign-in succeeds
+// the reservation and gets deviceCookie's cookie; one pend held back cancels
+// it, or fails it for a refusal that answers as a wrong secret, and answers
+// the refusal or the minted Pending. A prepare error cancels it; an Update
+// error, or a commit whose op.in gave no user (the zero LoginResult), fails it.
 func (s *Service) signIn(ctx context.Context, r Rules, c Client, op *sessionOp) (LoginResult, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
 	res, err := op.admitAndPrepare()
 	if err != nil {
@@ -196,7 +197,11 @@ func (s *Service) signIn(ctx context.Context, r Rules, c Client, op *sessionOp) 
 		}
 		return LoginResult{}, err
 	case refused != nil:
-		if res != nil {
+		switch {
+		case res == nil:
+		case errors.Is(refused, ErrInvalidCredentials):
+			res.Fail()
+		default:
 			res.Cancel()
 		}
 		return LoginResult{}, refused
@@ -269,7 +274,7 @@ func (op *sessionOp) hold(tx Tx, j *journal, u *access.User) (entry *pending, re
 	if op.pend == nil {
 		return nil, nil, nil
 	}
-	if entry, refused, err = op.pend(tx, u); err != nil || entry == nil && refused == nil {
+	if entry, refused, err = op.pend(tx, j, u); err != nil || entry == nil && refused == nil {
 		return nil, nil, err
 	}
 	if op.announce != nil {

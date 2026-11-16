@@ -85,8 +85,10 @@ type Rules struct {
 	// MaxSessionsPerUser bounds each user's sessions; creating one past it
 	// ends the user's least recently active. Zero is unlimited.
 	MaxSessionsPerUser int
-	// DisablePasswordLogin refuses password sign-in and step-up with
-	// ErrPasswordLoginDisabled. The zero value allows them.
+	// DisablePasswordLogin refuses password step-up with
+	// ErrPasswordLoginDisabled; a password sign-in then verifies only a live
+	// temporary password, answering any other value as a wrong password. The
+	// zero value allows them.
 	DisablePasswordLogin bool
 	// DisableTOTP turns TOTP enrolment and the code step off; a stored
 	// record is kept, reads as absent, and works again once this is off.

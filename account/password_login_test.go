@@ -141,12 +141,14 @@ func TestEqualWorkArms(t *testing.T) {
 			for _, c := range calls {
 				shape = append(shape, fmt.Sprintf("%s@%d", c.name, c.update))
 			}
-			want := []string{"Update" + count, "UserByUsername" + count, "SSOMode" + count, "AuthFailure" + count, "PutAuthFailure" + count}
+			// Design 4.9: every arm reads the name's temporary password, user
+			// ID 0 for an unknown name, so a record's absence costs the same.
+			want := []string{"Update" + count, "UserByUsername" + count, "TemporaryPasswordByUserID" + count, "SSOMode" + count, "AuthFailure" + count, "PutAuthFailure" + count}
 			if !slices.Equal(shape, want) {
 				t.Fatalf("store calls = %v, want %v and nothing after", shape, want)
 			}
-			if name := calls[3].arg; !isHexName(name) || calls[4].arg != name {
-				t.Errorf("record names = %q read, %q written; want one 64-hex name", name, calls[3].arg)
+			if name := calls[4].arg; !isHexName(name) || calls[5].arg != name {
+				t.Errorf("record names = %q read, %q written; want one 64-hex name", name, calls[4].arg)
 			}
 			if got := p.events.all(); len(got) != 0 {
 				t.Errorf("events = %v, want none", got)
@@ -232,7 +234,9 @@ func TestCapPerTrustContext(t *testing.T) {
 			if err := p.svc.ReenableMethod(ctx, pr, access.MethodPassword); err != nil {
 				t.Errorf("ReenableMethod between the count and the success = %v", err)
 			}
-			p.failN(t, clientAt(2), "alice", account.FailureCap)
+			// The sign-in holds alice's name lock here, so the failures
+			// that relock come from step-up, which counts the same record.
+			p.failStepUps(t, clientAt(2), pr, account.FailureCap)
 			relock, _ = record(t, p.mem, p.svc, "alice", false)
 		})
 		if _, err := p.login(t.Context(), clientAt(3), "alice", goodPassword); err != nil {
@@ -261,8 +265,8 @@ func TestCapPerTrustContext(t *testing.T) {
 			if err := p.svc.ReenableMethod(ctx, pr, access.MethodPassword); err != nil {
 				t.Errorf("ReenableMethod between the count and the success = %v", err)
 			}
-			p.failN(t, clientAt(2), "alice", account.FailureCap)
-			p.failN(t, trusted, "alice", account.FailureCap)
+			p.failStepUps(t, clientAt(2), pr, account.FailureCap)
+			p.failStepUps(t, trusted, pr, account.FailureCap)
 			relocked[0], _ = record(t, p.mem, p.svc, "alice", false)
 			relocked[1], _ = record(t, p.mem, p.svc, "alice", true)
 		})

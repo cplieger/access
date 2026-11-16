@@ -46,9 +46,13 @@ type LoginResult struct {
 type ticket struct {
 	// draft is the creation a draft's enrolment finish runs; nil for an
 	// existing user's ticket.
-	draft   *draftOf
-	next    Next
-	methods []access.Method
+	draft *draftOf
+	// temporary is the hash of the temporary password that minted the
+	// ticket, which SetCredentialPassword refuses as the new password; zero
+	// for a ticket a password minted.
+	temporary access.Hash
+	next      Next
+	methods   []access.Method
 	// digest is the PasswordHash step 1 left stored; the next step goes on
 	// only while the stored hash still matches it.
 	digest access.HashKey

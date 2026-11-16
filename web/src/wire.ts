@@ -1026,6 +1026,8 @@ export interface LogEntryView {
   readonly method?: Method;
   readonly role?: Role;
   readonly trusted?: boolean;
+  /** A temporary_password_used entry whose secret crossed plain HTTP. */
+  readonly plain?: boolean;
   readonly detail?: string;
 }
 export const parseLogEntryView: Validator<LogEntryView> = object({
@@ -1046,6 +1048,7 @@ export const parseLogEntryView: Validator<LogEntryView> = object({
   method: opt(method),
   role: opt(role),
   trusted: opt(bool),
+  plain: opt(bool),
   detail: opt(str),
 });
 
@@ -1191,6 +1194,7 @@ export const REASONS = [
   "totp_needs_password",
   "enable_without_second_factor",
   "linked",
+  "temporary_password_exposed",
   "transport_changed",
   "sign_in_again",
   "too_short",

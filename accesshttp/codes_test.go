@@ -97,6 +97,7 @@ var accountSentinels = []struct {
 	{name: "registration_full", err: account.ErrRegistrationFull, code: access.CodeRegistrationFull},
 	{name: "sso_only", err: account.ErrSSOOnly, code: access.CodeSSOOnly},
 	{name: "sso_linked", err: account.ErrSSOLinked, code: access.CodeSSOOnly},
+	{name: "temporary_password_exposed", err: account.ErrTemporaryPasswordExposed, code: access.CodeHTTPSRequired},
 	{name: "unknown_sso_mode", err: account.ErrUnknownSSOMode, code: access.CodeBadRequest},
 	{name: "not_admitted", err: account.ErrNotAdmitted, code: access.CodeForbidden},
 	{name: "provisioning_disabled", err: account.ErrProvisioningDisabled, code: access.CodeForbidden},

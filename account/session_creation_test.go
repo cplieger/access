@@ -166,8 +166,8 @@ func (p toggledPolicy) Authorize(ctx context.Context, d account.Decision) error 
 // request, with switches a refusal row flips and restores.
 type limitEnv struct {
 	*pkFixture
-	inviter                 *access.User // created by the first invite
-	passwordOff, invitesOff atomic.Bool
+	inviter    *access.User // created by the first invite
+	invitesOff atomic.Bool
 }
 
 func isUsernameError(err error) bool {
@@ -244,12 +244,6 @@ func limitedPaths() []limitedPath {
 				return err
 			},
 			refusals: []refusal{
-				{name: "disabled", want: is(account.ErrPasswordLoginDisabled), call: func(t *testing.T, e *limitEnv) error {
-					e.passwordOff.Store(true)
-					defer e.passwordOff.Store(false)
-					_, err := e.login(t.Context(), localClient, "alice", goodPassword)
-					return err
-				}},
 				{name: "refused_name", want: isUsernameError, call: func(t *testing.T, e *limitEnv) error {
 					_, err := e.login(t.Context(), localClient, "two words", goodPassword)
 					return err
@@ -359,10 +353,7 @@ func TestRefusalsBeforeLimitEveryPath(t *testing.T) {
 					e := &limitEnv{}
 					e.pkFixture = newPK(t, pwOptions{
 						limiter: func(c *ratelimit.Config) { c.IP, c.Request = one, one },
-						rules: func() account.Rules {
-							return account.Rules{DisablePasswordLogin: e.passwordOff.Load()}
-						},
-						edit: func(c *account.Config) { c.Policy = toggledPolicy{off: &e.invitesOff} },
+						edit:    func(c *account.Config) { c.Policy = toggledPolicy{off: &e.invitesOff} },
 					})
 					if err := r.call(t, e); !r.want(err) {
 						t.Fatalf("refused call = %v, want the %s refusal", err, r.name)

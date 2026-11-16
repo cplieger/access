@@ -35,13 +35,15 @@ var designOwnReasons = []string{
 	"second_factor_proof_required", "last_second_factor", "second_factor_held", "totp_needs_password",
 	"enable_without_second_factor",
 	"linked",
+	// Design 4.9's burn.
+	"temporary_password_exposed",
 }
 
 // wireReasons is every Reason classify gives for the fixed-reason
 // producers: each sentinel row, each typed error built from its owner's
 // list, account's re-enable refusal, the
 // session verifier's transport refusal, the recent-auth refusal of a plain
-// session and each fixed refusal of the body,
+// session, a temporary password's plain burn and each fixed refusal of the body,
 // path and query decoders.
 func wireReasons(t *testing.T) []string {
 	t.Helper()
@@ -50,6 +52,7 @@ func wireReasons(t *testing.T) []string {
 		&access.InvalidCredentialError{Method: access.MethodPassword, Err: access.ErrSessionTransport},
 		failreason.Wrap(access.ErrRecentAuthRequired, failreason.SignInAgain),
 		&oidc.UsernameError{},
+		account.ErrTemporaryPasswordExposed,
 	}
 	errs = append(errs, requestReasonErrors(t)...)
 	for _, row := range sentinelCodes {

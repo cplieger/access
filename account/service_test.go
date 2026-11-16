@@ -246,6 +246,9 @@ func TestServicePrinting(t *testing.T) {
 				// A session ID names a session, as Principal.SessionID does;
 				// only its token, which the store holds as a hash, signs in.
 				"account.enrolment.sessionID",
+				// The name lock's key, the SHA-256 of a username, as the
+				// limiter keys it.
+				"ratelimit.Account.digest",
 			},
 		}
 		for _, line := range printcheck.Unmasked(allow, reflect.TypeFor[*account.Service]()) {

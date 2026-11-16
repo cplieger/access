@@ -45,6 +45,10 @@ const (
 	EventTemporaryPasswordWithdrawn EventKind = "temporary_password_withdrawn"
 	// EventTemporaryPasswordSet is SetTemporaryPassword's issue.
 	EventTemporaryPasswordSet EventKind = "temporary_password_set"
+	// EventTemporaryPasswordUsed is a temporary password a password sign-in
+	// matched and deleted, spent or, over plain HTTP where it cannot finish,
+	// cancelled; Event.Plain names the transport it crossed.
+	EventTemporaryPasswordUsed EventKind = "temporary_password_used"
 	// EventOIDCNotAdmitted is a token Rules.OIDCAdmission refused; its
 	// UserID is zero at an invite acceptance and for an identity no account
 	// is linked to.
@@ -106,6 +110,7 @@ var eventKinds = [...]struct {
 	{EventSSOModeChanged, LogClassChange},
 	{EventTemporaryPasswordWithdrawn, LogClassChange},
 	{EventTemporaryPasswordSet, LogClassChange},
+	{EventTemporaryPasswordUsed, LogClassSession},
 	{EventOIDCNotAdmitted, LogClassSession},
 	{EventRoleSynced, LogClassChange},
 	{EventRoleSyncSkipped, LogClassChange},
@@ -167,6 +172,9 @@ type Event struct {
 	// EventSessionsExpired, which the log does not hold.
 	Seq     uint64
 	Trusted bool // EventMethodLocked: which context locked
+	// Plain is an EventTemporaryPasswordUsed whose secret crossed plain
+	// HTTP, so a reader of that network may hold it.
+	Plain bool
 }
 
 // EventActor is who caused an Event; the zero value is no actor (the

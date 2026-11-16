@@ -841,6 +841,10 @@
         {
           "name": "trusted",
           "optional": true
+        },
+        {
+          "name": "plain",
+          "optional": true
         }
       ]
     },

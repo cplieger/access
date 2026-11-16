@@ -183,3 +183,25 @@ func TestAdminUsersSecondFactorRows(t *testing.T) {
 		t.Errorf("body %s holds temporary_password %d times, want only alice's", w.Body.String(), n)
 	}
 }
+
+// TestLoginTemporaryPasswordExposed is design 4.9's burn on the wire and
+// ui-contract-part4 (b)'s fourth step-1 row: a temporary password posted to
+// authLoginPassword over plain HTTP where it cannot finish answers 403
+// auth_https_required with reason temporary_password_exposed.
+func TestLoginTemporaryPasswordExposed(t *testing.T) {
+	e := newEnv(t, with(perRequest, requireRule))
+	e.createUser(t, "root", access.RoleAdmin)
+	e.createUser(t, "alice", access.RoleUser)
+	issued, err := e.svc.SetTemporaryPassword(t.Context(), account.OutOfBand("cli"), e.user(t, "alice").ID, account.TemporaryPasswordOptions{})
+	if err != nil {
+		t.Fatalf("SetTemporaryPassword = %v", err)
+	}
+	rt := e.route(t, "authLoginPassword")
+	before := len(e.errs.all())
+	w := do(rt, requestAt(plainOrigin, rt.Path, rt, jsonBody(t, LoginRequest{Username: "alice", Password: issued.Password.Reveal()})))
+	e.requireStatus(t, w, http.StatusForbidden)
+	errs := e.errs.all()[before:]
+	if len(errs) != 1 || errs[0].Code != access.CodeHTTPSRequired || errs[0].Reason != ReasonTemporaryPasswordExposed {
+		t.Errorf("errors = %+v, want one auth_https_required with reason %s", errs, ReasonTemporaryPasswordExposed)
+	}
+}

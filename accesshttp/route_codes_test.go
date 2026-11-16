@@ -339,10 +339,6 @@ func publicScenarios() map[scenarioKey]scenario {
 			e.createUser(t, "alice", access.RoleUser)
 			return e.post(t, "authLoginPassword", signInBody(t, "alice"))
 		}},
-		{"authLoginPassword", access.CodePasswordLoginDisabled}: {opts: envOptions{rules: func(r *account.Rules) { r.DisablePasswordLogin = true }}, arrange: func(t *testing.T, e *env) *http.Request {
-			e.createUser(t, "alice", access.RoleUser)
-			return e.post(t, "authLoginPassword", signInBody(t, "alice"))
-		}},
 
 		{"authLoginPasskeyBegin", access.CodeRateLimited}: {opts: with(passkeys, limited), arrange: func(t *testing.T, e *env) *http.Request {
 			e.spendRequest(t)

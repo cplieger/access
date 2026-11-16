@@ -259,7 +259,8 @@ type credentialChange struct {
 	rot      rotated
 }
 
-// changeCredential writes u's new credential inside tx, then rotates p's
+// changeCredential writes u's new credential inside tx, deletes a live
+// temporary password, then rotates p's
 // session, revokes every other session of the user and, under
 // Rules.RevokeKeysOnCredentialChange, deletes the user's keys and their
 // tokens, all in the caller's Update. A u, as tx read it, that is a dormant
@@ -271,6 +272,9 @@ func (s *Service) changeCredential(ctx context.Context, tx Tx, r Rules, p access
 	}
 	u.UpdatedAt = s.now()
 	if err := tx.UpdateUser(ctx, u); err != nil {
+		return err
+	}
+	if err := tx.DeleteTemporaryPassword(ctx, u.ID); err != nil {
 		return err
 	}
 	var err error

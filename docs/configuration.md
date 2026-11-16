@@ -317,7 +317,7 @@ A dormant method is kept, never deleted, and a looser mode brings it back. A loc
 | `KeyRotationOverlap` | How long `RotateAPIKey` lets a key's superseded secret keep working while the new one is unused; below 1m or above 24h is invalid | 1h |
 | `Breach` | The breached-password check: `BreachOff`, `BreachFailOpen` or `BreachFailClosed` | `BreachOff` |
 | `MaxSessionsPerUser` | The most sessions per user; a new one past it ends the user's least recently active | 0: unlimited |
-| `DisablePasswordLogin` | Refuses password sign-in and step-up | false: allowed |
+| `DisablePasswordLogin` | Refuses password step-up; password sign-in then accepts only a live temporary password, and any other value fails as a wrong password | false: allowed |
 | `DisableTOTP` | Turns TOTP enrolment and the code step off. A stored TOTP record is kept, counts as absent, and works again once this is off | false: TOTP offered where `Config.TOTP` wires it |
 | `RequireSecondFactor` | Every password sign-in proves a second factor, or binds one first ([Pending sign-ins](#pending-sign-ins)); passkey and OIDC sign-ins meet it already. It needs `Config.TOTP` or `Config.RP` set: `New`, every operation and `CheckRules` refuse it otherwise, as a `*RulesError` for `RequireSecondFactor` | false |
 | `RevokeKeysOnCredentialChange` | Deletes the user's API keys, and the tokens they issued, when `SetPassword` sets or changes the password. Disabling and deleting a user always delete the keys | false |

@@ -33,6 +33,7 @@ type Service struct {
 	log     *slog.Logger
 	clock   func() time.Time
 	pending *pendingCache
+	names   *nameLocks
 	// allowance bounds the untrusted counted password attempts between two
 	// failure-record prunes.
 	allowance *allowance
@@ -114,6 +115,7 @@ func newService(ctx context.Context, cfg Config, hooks testHooks) (*Service, err
 		logSessions: cmp.Or(cfg.LogMaxSessions, DefaultLogMaxSessions),
 		done:        make(chan struct{}),
 		allowance:   newAllowance(),
+		names:       newNameLocks(),
 		singleUser:  cfg.Policy.SingleUser(),
 		totp:        cfg.TOTP,
 	}

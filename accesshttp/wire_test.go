@@ -235,7 +235,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 			ActorLabel: "laptop", ActorUserAgent: "Firefox", ActorKeySuffix: "wxyz", Detail: "d",
 			Event: account.Event{
 				At: at(1), Kind: account.EventSSOModeChanged, Method: access.MethodPasskey, Role: access.RoleUser,
-				SessionIDs: []string{"s1", "s2"}, UserID: 7, KeyID: 5, PasskeyID: 2, Seq: 11, Trusted: true,
+				SessionIDs: []string{"s1", "s2"}, UserID: 7, KeyID: 5, PasskeyID: 2, Seq: 11, Trusted: true, Plain: true,
 				IssuerUserID: 6, SSOMode: account.SSOOnly, PreviousSSOMode: account.SSOForLinked,
 				Actor: account.EventActor{SessionID: "sess", OutOfBand: "cli", UserID: 3, KeyID: 4},
 			},
@@ -247,7 +247,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 			Seq: 11, At: at(2), OccurredAt: at(1), Class: account.LogClassChange, Kind: "sso_mode_changed",
 			IssuerUserID: 6, SSOMode: account.SSONameOnly, PreviousSSOMode: account.SSONameForLinked,
 			IP: "192.0.2.9", Method: access.MethodPasskey, Role: access.RoleUser, Detail: "d",
-			SessionIDs: []string{"s1", "s2"}, UserID: 7, KeyID: 5, PasskeyID: 2, Trusted: true,
+			SessionIDs: []string{"s1", "s2"}, UserID: 7, KeyID: 5, PasskeyID: 2, Trusted: true, Plain: true,
 			Actor: LogActorView{SessionID: "sess", OutOfBand: "cli", Label: "laptop", UserAgent: "Firefox", KeySuffix: "wxyz", UserID: 3, KeyID: 4},
 		}},
 		Classes: []LogClassView{{Class: account.LogClassChange, Count: 6, Evicted: 8}},

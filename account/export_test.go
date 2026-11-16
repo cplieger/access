@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/ratelimit"
 )
 
 // Hooks are the test hooks of testHooks; each nil one is skipped.
@@ -170,6 +171,8 @@ type Ticket struct {
 	// account's name; "" for an existing user's ticket.
 	Draft    CreateVia
 	Username string
+	// Temporary is a ticket a temporary password minted.
+	Temporary bool
 }
 
 // TicketOf returns the live entry ticket names in s's cache, removing
@@ -182,7 +185,7 @@ func TicketOf(s *Service, ticket access.Secret) (Ticket, bool) {
 		return Ticket{}, false
 	}
 	v := e.value
-	out := Ticket{Next: v.ticket.next, Methods: v.ticket.methods, Digest: v.ticket.digest, UserID: v.user.ID, Secure: v.ticket.secure, Recovered: v.ticket.recovered != access.HashKey{}, Username: v.user.Username}
+	out := Ticket{Next: v.ticket.next, Methods: v.ticket.methods, Digest: v.ticket.digest, UserID: v.user.ID, Secure: v.ticket.secure, Recovered: v.ticket.recovered != access.HashKey{}, Username: v.user.Username, Temporary: !v.ticket.temporary.IsZero()}
 	if d := v.ticket.draft; d != nil {
 		out.Draft = d.via
 	}
@@ -202,3 +205,26 @@ func TemporaryPasswordFrom(random [temporaryPasswordRandomBytes]byte) string {
 
 // TemporaryPasswordForm is a presented value's canonical form, and whether it is one.
 func TemporaryPasswordForm(presented string) (string, bool) { return temporaryPasswordForm(presented) }
+
+// NameLocks is the number of names s's name lock holds an entry for.
+func NameLocks(s *Service) int { return s.names.held() }
+
+// NameLockRefs is the holder and waiters of username's name lock.
+func NameLockRefs(s *Service, username string) int {
+	return s.names.refs(ratelimit.AccountKey(username))
+}
+
+func (l *nameLocks) refs(key ratelimit.Account) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if e, ok := l.byKey[key]; ok {
+		return e.refs
+	}
+	return 0
+}
+
+func (l *nameLocks) held() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.byKey)
+}

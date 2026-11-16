@@ -32,6 +32,7 @@
   "totp_needs_password",
   "enable_without_second_factor",
   "linked",
+  "temporary_password_exposed",
   "transport_changed",
   "sign_in_again",
   "too_short",

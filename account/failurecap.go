@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/internal/crockford"
 	"github.com/cplieger/access/internal/failreason"
 	"github.com/cplieger/access/ratelimit"
 )
@@ -44,22 +45,30 @@ const untrustedRetry = time.Second
 // carries the durable count's result into the comparison and the success
 // Update.
 type passwordAttempt struct {
-	res *ratelimit.Reservation
+	// lockedAt is the LockedAt this attempt's own count set; zero when its
+	// count set no lock.
+	lockedAt time.Time
 	// user is the name's user as the count Update read it; nil when no user
 	// has the name.
 	user     *access.User
 	verified access.Hash // the stored hash the comparison verified
 	rehash   access.Hash // the new hash at the hasher's parameters; zero for none
-	// lockedAt is the LockedAt this attempt's own count set; zero when its
-	// count set no lock.
-	lockedAt time.Time
+	res      *ratelimit.Reservation
 	ref      FailureRef
+	// temporary is user's live temporary password as the count read it, and
+	// viaTemporary whether the compare verified it rather than PasswordHash.
+	temporary access.TemporaryPassword
 	// replaces is set when the success Update replaces or removes the hash,
 	// so a rehash of the verified password would be derived for nothing.
 	replaces bool
 	// dormant is the stored SSO mode keeping user's local methods dormant
 	// at the count, which refuses the success Update and so its rehash.
 	dormant bool
+	// signIn marks a password sign-in's step 1, which compares a live
+	// temporary password before PasswordHash, and under passwordOff only
+	// it; no other check reads the record.
+	signIn, passwordOff    bool
+	liveTemp, viaTemporary bool
 }
 
 // newAttempt names res's record for canonical: the password's record in
@@ -86,14 +95,10 @@ func (s *Service) verifyCounted(ctx context.Context, a *passwordAttempt, canonic
 		a.res.Fail()
 		return err
 	}
-	var hash access.Hash // the zero hash fails at full cost: every arm derives once
-	if u := a.user; u != nil && u.Enabled && !lockedBefore {
-		hash = u.PasswordHash
-	}
+	hash, text, viaTemporary := a.compared(lockedBefore, password)
 	if s.hooks.beforeVerify != nil {
 		s.hooks.beforeVerify(ctx)
 	}
-	text := password.Reveal()
 	ok, needsRehash, err := permit.Verify(text, hash)
 	switch {
 	case errors.Is(err, access.ErrHashBusy):
@@ -110,14 +115,32 @@ func (s *Service) verifyCounted(ctx context.Context, a *passwordAttempt, canonic
 		a.res.Fail()
 		return ErrInvalidCredentials
 	}
-	a.verified = hash
+	a.verified, a.viaTemporary = hash, viaTemporary
 	if s.hooks.afterVerify != nil {
 		s.hooks.afterVerify(ctx)
 	}
-	if needsRehash && !a.dormant {
+	if needsRehash && !a.dormant && !viaTemporary {
 		s.rehash(ctx, a, text)
 	}
 	return nil
+}
+
+// compared is the one hash a's compare verifies, with the text it
+// verifies: a live temporary password's, against password in its normalised
+// form; else PasswordHash unless passwordOff, password as typed; else the
+// zero hash, which fails at full cost so every arm derives once.
+func (a *passwordAttempt) compared(lockedBefore bool, password access.Secret) (hash access.Hash, text string, viaTemporary bool) {
+	text = password.Reveal()
+	u := a.user
+	switch {
+	case u == nil || !u.Enabled || lockedBefore:
+		return access.Hash{}, text, false
+	case a.liveTemp:
+		return a.temporary.Hash, crockford.Normalize(text), true
+	case a.passwordOff:
+		return access.Hash{}, text, false
+	}
+	return u.PasswordHash, text, false
 }
 
 // rehash derives a's verified password at the hasher's parameters for the
@@ -160,21 +183,29 @@ func (s *Service) admitCount(ctx context.Context, res *ratelimit.Reservation, sl
 		}
 		permit.Release()
 		res.Cancel()
-		return nil, fmt.Errorf("%w: %w", access.ErrHashBusy, ctxErr)
+		return nil, busy(ctxErr)
 	}
 	return permit, nil
 }
 
-// count is one Update reading the name's user, the stored SSO mode and a's
-// record, adding one, locking at FailureCap, and writing the record, the
-// same calls whether or not a user has the name. It reports whether the
-// record was already locked.
+// busy is a counted attempt ctx ended before its compare: access.ErrHashBusy
+// carrying ctx's error, as a wait for the hash budget answers.
+func busy(ctxErr error) error { return fmt.Errorf("%w: %w", access.ErrHashBusy, ctxErr) }
+
+// count is one Update reading the name's user, the stored SSO mode, at a
+// sign-in the user's temporary password, and a's record, adding one,
+// locking at FailureCap, and writing the record, the same calls whether or
+// not a user has the name. It reports whether the record was already locked.
 func (s *Service) count(ctx context.Context, a *passwordAttempt, canonical string) (lockedBefore bool, err error) {
 	err = s.update(ctx, func(tx Tx) error {
 		a.user, a.lockedAt, a.dormant, lockedBefore = nil, time.Time{}, false, false
+		a.temporary, a.liveTemp = access.TemporaryPassword{}, false
 		u, found, readErr := tx.UserByUsername(ctx, canonical)
 		if readErr != nil {
 			return readErr
+		}
+		if tempErr := s.readTemporary(ctx, tx, a, u, found); tempErr != nil {
+			return tempErr
 		}
 		mode, readErr := storedMode(ctx, tx)
 		if readErr != nil {
@@ -197,6 +228,25 @@ func (s *Service) count(ctx context.Context, a *passwordAttempt, canonical strin
 		return tx.PutAuthFailure(ctx, rec)
 	})
 	return lockedBefore, err
+}
+
+// readTemporary reads, at a sign-in, the live temporary password of the
+// name's user u, user ID 0 when found is false, so an unknown name costs the
+// same read.
+func (s *Service) readTemporary(ctx context.Context, tx Tx, a *passwordAttempt, u *access.User, found bool) error {
+	if !a.signIn {
+		return nil
+	}
+	var id int64
+	if found {
+		id = u.ID
+	}
+	rec, held, err := tx.TemporaryPasswordByUserID(ctx, id)
+	if err != nil {
+		return err
+	}
+	a.temporary, a.liveTemp = rec, held && rec.ExpiresAt.After(s.now())
+	return nil
 }
 
 // resetFailures runs inside the success Update: of the password's two
