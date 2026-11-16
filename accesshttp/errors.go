@@ -79,11 +79,9 @@ var sentinelCodes = []struct {
 	{errPendingTooLarge, access.CodeOIDCFailed, ReasonPendingTooLarge},
 	{oidc.ErrStaleAuthentication, access.CodeOIDCFailed, ReasonStaleAuthentication},
 	{oidc.ErrFlowInvalid, access.CodeOIDCFailed, ReasonFlowInvalid},
-	{oidc.ErrDiscovery, access.CodeOIDCFailed, ReasonDiscoveryFailed},
 	{oidc.ErrExchange, access.CodeOIDCFailed, ReasonExchangeFailed},
 	{oidc.ErrTokenInvalid, access.CodeOIDCFailed, ReasonTokenInvalid},
 	{oidc.ErrNonceMismatch, access.CodeOIDCFailed, ReasonNonceMismatch},
-	{oidc.ErrNoUsername, access.CodeOIDCFailed, ReasonNoUsername},
 	{account.ErrProvisioningDisabled, access.CodeForbidden, ReasonProvisioningDisabled},
 	{account.ErrNotAdmitted, access.CodeForbidden, ReasonNotAdmitted},
 	{account.ErrNotFound, access.CodeNotFound, ""},
@@ -194,9 +192,6 @@ func typedCode(err error) (code access.Code, reason string, ok bool) {
 	}
 	if pe, is := errors.AsType[*oidc.ProviderError](err); is {
 		return access.CodeOIDCFailed, providerErrorPrefix + pe.Code, true
-	}
-	if _, is := errors.AsType[*oidc.UsernameError](err); is {
-		return access.CodeOIDCFailed, ReasonUsernameInvalid, true
 	}
 	return "", "", false
 }

@@ -18,7 +18,6 @@ import (
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/internal/failreason"
-	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/webauthn"
 )
 
@@ -27,8 +26,8 @@ import (
 var designOwnReasons = []string{
 	"ttl_too_long", "ttl_negative", "no_change", "expiry_invalid", "redirect_too_long",
 	"current_password_required", "session_gone", "pending_too_large", "stale_authentication",
-	"flow_invalid", "discovery_failed", "exchange_failed", "token_invalid", "nonce_mismatch",
-	"no_username", "provisioning_disabled", "not_admitted", "username_invalid",
+	"flow_invalid", "exchange_failed", "token_invalid", "nonce_mismatch",
+	"provisioning_disabled", "not_admitted",
 	"reenable_needs_other_method", "trailing_data", "malformed_json", "content_type", "body",
 	"unknown_field", "token_in_query", "enrol_needs_known_device", "no_usable_method",
 	// Design 4.31, 4.48 and 4.49.
@@ -51,7 +50,6 @@ func wireReasons(t *testing.T) []string {
 		failreason.Wrap(access.ErrRecentAuthRequired, failreason.ReenableNeedsOtherMethod),
 		&access.InvalidCredentialError{Method: access.MethodPassword, Err: access.ErrSessionTransport},
 		failreason.Wrap(access.ErrRecentAuthRequired, failreason.SignInAgain),
-		&oidc.UsernameError{},
 		account.ErrTemporaryPasswordExposed,
 	}
 	errs = append(errs, requestReasonErrors(t)...)
@@ -177,6 +175,50 @@ func TestReasonTable(t *testing.T) {
 			}
 		}
 	})
+}
+
+// appReasons is each reason only an app's own route answers, with the
+// account error that route maps to it: ui-contract-part4.md (b) Settings
+// has the app's save answer CheckSecondFactorReady's refusal.
+var appReasons = map[string]error{
+	ReasonEnableWithoutSecondFactor: account.ErrEnableWithoutSecondFactor,
+}
+
+// TestEveryReasonHasAProducer is design 5.7's producer check over every
+// Reasons value: a route lists it, it is a Policy's reason reaching a
+// route whose auth_forbidden is open, or an app's own route answers it.
+func TestEveryReasonHasAProducer(t *testing.T) {
+	t.Parallel()
+	onRoute := map[string]bool{}
+	policyOpen := false
+	for i := range specs {
+		for code, rs := range listedAnswers(&specs[i]) {
+			for _, r := range rs.listed {
+				onRoute[r] = true
+			}
+			policyOpen = policyOpen || code == access.CodeForbidden && rs.open
+		}
+	}
+	for _, r := range Reasons() {
+		switch {
+		case onRoute[r]:
+		case slices.Contains(account.PolicyReasons(), r):
+			if !policyOpen {
+				t.Errorf("Policy reason %q: no route's auth_forbidden is open", r)
+			}
+		case appReasons[r] != nil:
+			if e, ok := classify(appReasons[r], ceremonyNone); !ok || e.Reason != r {
+				t.Errorf("app reason %q: %v classifies as %q", r, appReasons[r], e.Reason)
+			}
+		default:
+			t.Errorf("Reasons() lists %q, which no route and no app route answers", r)
+		}
+	}
+	for r := range appReasons {
+		if onRoute[r] {
+			t.Errorf("app reason %q is listed on a route", r)
+		}
+	}
 }
 
 // TestReasonLiterals parses accesshttp's non-test files. A producer's fixed

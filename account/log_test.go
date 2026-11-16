@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -50,16 +51,73 @@ func logSince(t testing.TB, s account.Store, before []account.LogEntry) []accoun
 	return entries
 }
 
-// sessionClass is the set of kinds in the session class: sign-ins, step-ups,
-// session revocations, refused OIDC admissions (design 5.7) and refused
-// second steps and spent or cancelled temporary passwords (design 4.11).
-var sessionClass = []account.EventKind{account.EventSignedIn, account.EventSteppedUp, account.EventSessionRevoked, account.EventOIDCNotAdmitted, account.EventSecondFactorFailed, account.EventTemporaryPasswordUsed}
-
-func classOf(k account.EventKind) account.LogClass {
-	if slices.Contains(sessionClass, k) {
-		return account.LogClassSession
+// kindClasses is each kind's class as the design states it: the session
+// class holds sign-ins, step-ups and session revocations (docs/security-log.md
+// "What is logged"), refused OIDC admissions (design 5.7), and refused
+// second steps and spent temporary passwords (design 4.11); every other
+// kind of 4.11, 5.3 and 5.7 is a change. sessions_expired is never logged.
+var kindClasses = func() map[account.EventKind]account.LogClass {
+	m := map[account.EventKind]account.LogClass{account.EventSessionsExpired: ""}
+	for _, k := range []account.EventKind{
+		account.EventSignedIn, account.EventSteppedUp, account.EventSessionRevoked,
+		account.EventOIDCNotAdmitted, account.EventSecondFactorFailed, account.EventTemporaryPasswordUsed,
+	} {
+		m[k] = account.LogClassSession
 	}
-	return account.LogClassChange
+	for _, k := range []account.EventKind{
+		account.EventUserSessionsRevoked, account.EventPasswordSet, account.EventPasswordChanged, account.EventPasswordRemoved,
+		account.EventPasskeyAdded, account.EventPasskeyRemoved, account.EventOIDCLinked, account.EventOIDCUnlinked,
+		account.EventSetupTokenIssued, account.EventKeyMinted, account.EventKeyRevoked, account.EventKeyRotated,
+		account.EventUserDisabled, account.EventUserEnabled, account.EventUserDeleted, account.EventRoleChanged,
+		account.EventUserCreated, account.EventInviteIssued, account.EventMethodLocked, account.EventMethodReenabled,
+		account.EventOwnerSet, account.EventOwnerRemoved, account.EventSSOModeChanged, account.EventRoleSynced,
+		account.EventRoleSyncSkipped, account.EventTemporaryPasswordSet, account.EventTemporaryPasswordWithdrawn,
+		account.EventTOTPAdded, account.EventTOTPReplaced, account.EventTOTPRemoved, account.EventSecondFactorReset,
+		account.EventRecoveryCodeIssued, account.EventRecoveryCodeUsed, account.EventRecoveryCodeReplaced,
+		account.EventUserApproved, account.EventRegistrationExpired,
+	} {
+		m[k] = account.LogClassChange
+	}
+	return m
+}()
+
+func classOf(k account.EventKind) account.LogClass { return kindClasses[k] }
+
+// TestLogKindCensus holds kindClasses to every declared kind, and
+// docs/security-log.md's "What is logged" table to the same class for each
+// logged kind (design 4.11 and 5.7: each new kind with its class).
+func TestLogKindCensus(t *testing.T) {
+	t.Parallel()
+	kinds := account.EventKinds()
+	for _, k := range kinds {
+		if _, ok := kindClasses[k]; !ok {
+			t.Errorf("kind %q has no class in kindClasses", k)
+		}
+	}
+	for k := range kindClasses {
+		if !slices.Contains(kinds, k) {
+			t.Errorf("kindClasses names %q, which EventKinds lacks", k)
+		}
+	}
+	doc, err := os.ReadFile("../docs/security-log.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	documented := map[account.EventKind]string{}
+	for line := range strings.Lines(string(doc)) {
+		cells := strings.Split(line, " | ")
+		if len(cells) < 3 || !strings.HasPrefix(cells[0], "| `") {
+			continue
+		}
+		for name := range strings.SplitSeq(cells[0][2:], ", ") {
+			documented[account.EventKind(strings.Trim(name, "`"))] = cells[1]
+		}
+	}
+	for k, class := range kindClasses {
+		if got, ok := documented[k]; class == "" && ok || class != "" && got != string(class) {
+			t.Errorf("docs/security-log.md gives %q class %q, want %q", k, got, class)
+		}
+	}
 }
 
 // stateVariants are catalogued operations run on a stored state their
@@ -913,7 +971,11 @@ func TestEveryLoggedKindHasAProducer(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		for i := range entries {
-			produced[entries[i].Event.Kind] = true
+			e := &entries[i]
+			produced[e.Event.Kind] = true
+			if want := classOf(e.Event.Kind); e.Class != want {
+				t.Errorf("%s logged in class %q, want %q", e.Event.Kind, e.Class, want)
+			}
 		}
 	}
 	t.Run("producers", func(t *testing.T) {

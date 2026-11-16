@@ -14,7 +14,7 @@ type LogClass string
 // The log classes.
 const (
 	LogClassChange  LogClass = "change"  // account, credential, key, policy and app changes
-	LogClassSession LogClass = "session" // signed_in, stepped_up, session_revoked
+	LogClassSession LogClass = "session" // sign-ins, step-ups, session revocations, refused second steps and admissions, spent temporary passwords
 )
 
 // The library's LogEntry.Detail values: two on a session_revoked entry, one

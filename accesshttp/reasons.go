@@ -19,14 +19,11 @@ const (
 	ReasonPendingTooLarge          = "pending_too_large"
 	ReasonStaleAuthentication      = "stale_authentication"
 	ReasonFlowInvalid              = "flow_invalid"
-	ReasonDiscoveryFailed          = "discovery_failed"
 	ReasonExchangeFailed           = "exchange_failed"
 	ReasonTokenInvalid             = "token_invalid"
 	ReasonNonceMismatch            = "nonce_mismatch"
-	ReasonNoUsername               = "no_username"
 	ReasonProvisioningDisabled     = "provisioning_disabled"
 	ReasonNotAdmitted              = "not_admitted"
-	ReasonUsernameInvalid          = "username_invalid"
 	ReasonReenableNeedsOtherMethod = failreason.ReenableNeedsOtherMethod
 	ReasonTrailingData             = "trailing_data"            // auth_bad_request: data after the JSON value
 	ReasonMalformedJSON            = "malformed_json"           // auth_bad_request: the body is not one JSON value
@@ -55,8 +52,8 @@ const (
 var ownReasons = []string{
 	ReasonTTLTooLong, ReasonTTLNegative, ReasonNoChange, ReasonExpiryInvalid, ReasonRedirectTooLong,
 	ReasonCurrentPasswordRequired, ReasonSessionGone, ReasonPendingTooLarge, ReasonStaleAuthentication,
-	ReasonFlowInvalid, ReasonDiscoveryFailed, ReasonExchangeFailed, ReasonTokenInvalid, ReasonNonceMismatch,
-	ReasonNoUsername, ReasonProvisioningDisabled, ReasonNotAdmitted, ReasonUsernameInvalid,
+	ReasonFlowInvalid, ReasonExchangeFailed, ReasonTokenInvalid, ReasonNonceMismatch,
+	ReasonProvisioningDisabled, ReasonNotAdmitted,
 	ReasonReenableNeedsOtherMethod, ReasonTrailingData, ReasonMalformedJSON, ReasonContentType, ReasonBody,
 	ReasonUnknownField, ReasonTokenInQuery, ReasonEnrolNeedsKnownDevice, ReasonNoUsableMethod,
 	ReasonSecondFactorProofRequired, ReasonLastSecondFactor, ReasonSecondFactorHeld, ReasonTOTPNeedsPassword,
