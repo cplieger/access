@@ -1,6 +1,6 @@
 # Passwords, sessions and tokens
 
-This page explains each building block of the root package and of the `oidc` package. For each one it says what it does, what it returns and the rule a caller must keep. Read it when you write the handlers around them. Signatures are on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access), and the defaults are on the [Configuration](configuration.md) page.
+This page explains each building block of the root package and of the `totp` and `oidc` packages. For each one it says what it does, what it returns and the rule a caller must keep. Read it when you write the handlers around them. Signatures are on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access), and the defaults are on the [Configuration](configuration.md) page.
 
 ## Secrets and hashes
 
@@ -13,6 +13,8 @@ Every plaintext credential the library hands you is an `access.Secret`, and ever
 `access.Sealer` seals short payloads with AES-256-GCM under a ring of 1 to 4 keys of `SealerKeySize` bytes. The first key seals and every key opens, so you rotate by putting the new key first and keeping the old one second until every cookie it sealed has expired. `GenerateSealerKey` returns a new key to persist, and `NewSealer` builds the ring from your persisted keys. `NewEphemeralSealer` uses one random key that nobody else holds, so what it sealed cannot be opened after a restart. Each `Seal` binds a purpose and an expiry, and `Open` refuses a payload sealed for another purpose or past its expiry.
 
 The OIDC flow cookie, the pending-link cookie and the trusted-device cookie are sealed this way. Pass a sealer over persisted keys where a restart should keep them working: `ratelimit.Config.Devices` requires one.
+
+`SealAtRest` and `OpenAtRest` seal a value your store keeps, such as a TOTP secret or a secret of your app's own. An at-rest value has no expiry, and its purpose is bound apart from a cookie's, so neither ever opens as the other. `OpenAtRest` also reports `current`, which is false when a key other than the first opened the value: write it back sealed under the first key, so the old key can leave the ring. The at-rest format is stored data, so a later release that changes it keeps a reader for this one. Every value either pair seals takes a random 96-bit nonce, so seal at most 2^32 values under one first key before you put a new key first.
 
 ## Passwords
 
@@ -87,6 +89,12 @@ A principal's `IdleDeadline` and `AbsoluteDeadline` are when it lapses. A sessio
 `CanDisableMethod` reports whether a user keeps at least one way to sign in after you turn one off. It takes a `MethodAvailability` value that describes what remains after the change: the password, the OIDC link and the passkeys other than the one you remove. A user with two passkeys can remove one of them. If you pass a count that includes the passkey being removed, that passkey counts as remaining. The zero value refuses every change.
 
 `IsBrowserRequest` reports a request whose `Accept` header contains `text/html` and that carries no `Authorization` header.
+
+## TOTP codes
+
+The `totp` package computes and checks authenticator-app codes on Go's standard library, as [RFC 6238](https://www.rfc-editor.org/rfc/rfc6238) and RFC 4226 define them, at the one setting every authenticator app reads: HMAC-SHA-1, six digits and a 30-second step. `NewSecret` draws a 20-byte secret, `URI` writes the `otpauth://` URI a QR code carries, and `Text` writes the secret as unpadded base32.
+
+`Match(secret, code, now, after)` accepts a code from the current step or the one before or after it, and returns the step it matched. Replay protection is yours: store that step and pass it back as `after`, so a code at or below it answers `Reused`. A value that is not six ASCII digits once spaces are removed answers `Malformed`. `account` keeps the step on each TOTP record ([Second factors and temporary passwords](totp.md)).
 
 ## OIDC sign-in
 

@@ -1,12 +1,12 @@
 # Implementing the store
 
-access stores nothing itself. This page is for the developer writing the storage layer: the interfaces it implements, the transaction boundary, the 26 contract rules and what each costs. The [`account` package documentation](https://pkg.go.dev/github.com/cplieger/access/account) owns the rules' exact wording, and `accesstest.StoreContract` tests every one of them. Where this page and the package documentation differ, the package documentation is right. Method signatures are on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access).
+access stores nothing itself. This page is for the developer writing the storage layer: the interfaces it implements, the transaction boundary, the 26 contract rules, how the store changes between versions and what each write costs. The [`account` package documentation](https://pkg.go.dev/github.com/cplieger/access/account) owns the rules' exact wording, and `accesstest.StoreContract` tests every one of them. Where this page and the package documentation differ, the package documentation is right. Method signatures are on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access).
 
 ## The interfaces
 
 A store implements `account.Store`: the roles `UserStore`, `SessionStore`, `PasskeyStore`, `KeyStore`, `TokenStore`, `SecondFactorStore`, `TemporaryPasswordStore`, `SSOModeStore`, `AttributionStore`, `FailureStore` and `LogStore`, grouped as `account.Tx` inside `Store.Update`, plus the `Sweeper` cleanups the background sweep calls.
 
-`access.New` takes an `AuthenticatorStore`, the read side it needs: session lookup and activity updates, user lookup by ID, API-key lookup by hash, and `TouchAPIKey`, which records the last use of a key's current secret. An `account.Store` satisfies it. `webauthn.CompleteLogin` takes a `webauthn.Store`, whose `RecordAssertion` merges a sign-in's custody atomically; `account` implements it over your `account.Store`, so a store written for `account` needs nothing more.
+`access.New` takes an `AuthenticatorStore`, the read side it needs: session lookup and activity updates, user lookup by ID, API-key lookup by hash, and `TouchAPIKey`, which records the last use of a key's current secret. An `account.Store` satisfies it. `webauthn.CompleteLogin` takes a `webauthn.Store`, whose `RecordAssertion` merges a sign-in's custody atomically. `account` implements it over your `account.Store`, so a store written for `account` needs nothing more.
 
 ## The transaction boundary
 
@@ -68,6 +68,29 @@ Each rule below is one line of the package documentation's numbered list. `acces
 - **The eviction counter.** Each class keeps a durable `Evicted` counter. A `Keep` prune adds the number it removed, in the same `Update`, and nothing else changes it: a `Before` prune leaves it alone, a rolled-back `Update` leaves it as it was, and it survives a close and a reopen. `LogStats` returns each class that has ever held an entry, with its committed `Count` and `Evicted`.
 - **Nothing else removes an entry.** No other method changes or removes one, and `DeleteUser`'s cascade keeps the user's entries.
 - **Durable.** Keep the log with the durability of your users and keys. A store that resets derived data on a format change classifies its log records as durable, never derived. The library names no table, bucket or file of yours, so your reset policy names your own log table.
+
+## Second factors, temporary passwords and the SSO mode
+
+Three records belong to one user each, under rule 24, and `DeleteUser` removes all three with the user (rule 5):
+
+| Record | Fields | Methods |
+| --- | --- | --- |
+| `access.TOTP` | `UserID`, `Sealed`, `CreatedAt`, `LastStep` | `TOTPByUserID`, `SetTOTP`, `DeleteTOTP`, `ListTOTP` |
+| `access.RecoveryCode` | `UserID`, `Hash`, `CreatedAt` | `RecoveryCodeByUserID`, `SetRecoveryCode`, `DeleteRecoveryCode` |
+| `access.TemporaryPassword` | `UserID`, `Hash`, `CreatedAt`, `ExpiresAt`, `IssuedByUser`, `IssuedByKey`, `Dormant` | `TemporaryPasswordByUserID`, `SetTemporaryPassword`, `DeleteTemporaryPassword` |
+
+- `TOTP.Sealed` is the secret sealed with `Config.TOTP.Sealer`, bound to its user ID. Store it as the text you were given and never decode it. `ListTOTP` serves `Service.ResealTOTP`, which re-seals every record after a key rotation ([Second factors and temporary passwords](totp.md#rotating-the-totp-sealer-key)).
+- Keep the temporary password apart from `User.PasswordHash`. A store that drops the record fails closed: the person gets no sign-in, never a permanent password.
+- `User` carries two flags the store keeps like any other field (rule 20). `Owner` marks a break-glass account ([Identity and single sign-on](identity.md#owners)), and `WaitingApproval` marks a registration an admin has not approved. `UsersWaiting` lists the waiting accounts, oldest first (rule 25), for the cap on waiting registrations and for the sweep that deletes them after 30 days.
+- `SSOMode` and `SetSSOMode` hold the one stored SSO mode and whether it was ever set (rule 26). No setting of your app carries it.
+
+## How the store changes between versions
+
+Before `v1.0.0`, a development tag may add, change or remove store methods, records and fields. Each such change is a line starting `Store:` in that tag's release notes, under its breaking changes, so a developer with their own store finds every one.
+
+From `v1.0.0`, the store contract follows the [Go module compatibility promise](https://go.dev/blog/module-compatibility). A change your store must make, a new `Tx` method included, comes only with a new major version.
+
+`accesstest.StoreContract` checks one build's store, a close and a reopen included. It does not read rows an earlier tag wrote. An app that persists access's records keeps its own fixture from each tag it ships on, and tests that the current build reads it.
 
 ## Hashes
 

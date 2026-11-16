@@ -1,6 +1,6 @@
 # The security log
 
-`account` keeps an append-only log of the security changes it makes: sign-ins, credential and key changes, changes to accounts, and locks. Each entry is appended through the same transaction as the change it records, inside that operation's `Store.Update`, so the change and its entry commit together or not at all. A crash cannot keep one without the other, and an entry still names its actor after that session or key is deleted. Your store keeps the log through the `account.LogStore` role ([Implementing the store](storage.md#the-security-log)).
+`account` keeps an append-only log of the security changes it makes: sign-ins, credential and key changes, changes to accounts, and locks. Each entry is appended through the same transaction as the change it records, inside that operation's `Store.Update`, so the change and its entry commit together or not at all. A crash cannot keep one without the other, and an entry still names its actor after that session or key is deleted. Your store keeps the log through the `account.LogStore` role ([Implementing the store](storage.md#the-security-log)). The log is a local record, not a notification: [Notifications](totp.md#notifications) lists the kinds to send to an account's holder through `Config.OnEvent`.
 
 ## What an entry holds
 

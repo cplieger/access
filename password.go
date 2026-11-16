@@ -2,8 +2,8 @@
 // that guards a route with session and idle/absolute timeouts, Argon2id
 // password hashing in PHC string format, session and API-key tokens, cookies,
 // Secret, Hash and Sealer, and the role check. Passkeys live in webauthn,
-// OIDC in oidc, the account operations in account and their routes in
-// accesshttp.
+// TOTP codes in totp, OIDC in oidc, the account operations in account and
+// their routes in accesshttp.
 package access
 
 import (

@@ -16,8 +16,7 @@ These features are left out of access on purpose, and they are not planned. This
 | Passkey well-known endpoints | A concern of the browser and the credential manager, not of a server library |
 | Role hierarchies and permission sets | `HasRole` checks one flat role. Use [Apache Casbin](https://github.com/apache/casbin) for ACL, RBAC with domains or ABAC, or [Ory Keto](https://github.com/ory/keto) for relationship-based permissions |
 | Session cookie encryption and signing | The session cookie holds only a random token whose hash the store keeps, so it carries no sensitive data. The cookies that do carry state, the OIDC flow cookie, the pending-link cookie and the trusted-device cookie, are sealed with an `access.Sealer` |
-
-The library also has no TOTP or SMS second factor. A custom `CredentialVerifier` passed as `Config.Verifier` can add one.
+| SMS and email one-time codes, and recovery by an emailed link | The library stores no phone number or address and sends nothing, and NIST SP 800-63B-4 restricts SMS codes. Use an authenticator app or a passkey as the second factor, and the recovery code or an admin's temporary password for recovery ([Second factors and temporary passwords](totp.md)) |
 
 ## The two authenticator-policy rows
 

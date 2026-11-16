@@ -1,6 +1,6 @@
 # Migrating from auth v6
 
-access changes the API of every package of auth v6, so a v6 caller does not compile against it unchanged. This page lists what was removed, renamed or changed, and what replaces each, for a developer moving a service from `github.com/cplieger/auth/v6`. Two packages are new: `account`, which runs sign-in, sessions, keys and the user set over your store, and `accesshttp`, which serves those operations as HTTP routes you mount yourself. Every symbol in them is new.
+access changes the API of every package of auth v6, so a v6 caller does not compile against it unchanged. This page lists what was removed, renamed or changed, and what replaces each, for a developer moving a service from `github.com/cplieger/auth/v6`. `account`, which runs sign-in, sessions, keys and the user set over your store, `accesshttp`, which serves those operations as HTTP routes you mount yourself, and `totp`, which computes and checks authenticator-app codes, are new packages, and every symbol in them is new.
 
 Change every import from `github.com/cplieger/auth/v6` to `github.com/cplieger/access`. The root package `auth` is now `access`, and `authtest` is now `accesstest`.
 
@@ -47,7 +47,7 @@ Every plaintext credential is an `access.Secret` and every stored hash an `acces
 | `AuthenticatorStore` | adds `APIKeyToucher`; activity takes a `SessionActivity` |
 | `SessionActivityUpdater.UpdateSessionActivity(ctx, hash, now)` | `(ctx, access.Hash, SessionActivity)`. An older or equal time writes nothing |
 
-New in the root package: `Principal`, `Rechecker`, `Authenticator.Recheck`, `RequireRecentAuth`, `Passive`, `ErrAuthBackend`, `ErrInvalidCredential`, `MethodAPIKey`, `MethodBypass`, `SessionRef`, `OIDCIdentity`, `OneTimeToken`, `TokenPurpose`, `KeyAttribution`, `Sealer`, `ClientAddr`, `Config.ClientAddr` and `CookieConfig.Derive`. `Via` is new too, with its constants `ViaUnknown`, `ViaDirect`, `ViaUntrustedForwarding`, `ViaProxy` and `ViaProxyNoClient`.
+New in the root package: `Principal`, `Rechecker`, `Authenticator.Recheck`, `RequireRecentAuth`, `Passive`, `ErrAuthBackend`, `ErrInvalidCredential`, `MethodAPIKey`, `MethodBypass`, `SessionRef`, `OIDCIdentity`, `OneTimeToken`, `TokenPurpose`, `KeyAttribution`, `Sealer` with `SealAtRest` and `OpenAtRest`, `TOTP`, `RecoveryCode`, `TemporaryPassword`, `MethodTOTP`, `MethodRecoveryCode`, `StatusOf`, `ClientAddr`, `Config.ClientAddr` and `CookieConfig.Derive`. `Via` is new too, with its constants `ViaUnknown`, `ViaDirect`, `ViaUntrustedForwarding`, `ViaProxy` and `ViaProxyNoClient`.
 
 The refusal vocabulary is in the root package as well, so an app that guards its own routes imports neither `accesshttp` nor the passkey and OIDC packages behind it: `Code`, every `Code…` constant and `Codes`, `Error`, `ErrorWriter`, `AuditEvent`, `NewError`, `ErrorFor`, and `Authenticator.Challenge` with its `Config.Realm`. A service built on an earlier access dev tag renames `accesshttp.Code…`, `accesshttp.Codes`, `accesshttp.Error`, `accesshttp.ErrorWriter` and `accesshttp.AuditEvent` to these `access.` names. The wire strings are unchanged. A service built on an earlier dev tag also replaces `Authenticator.RequireAuth` with `access/gate`, and drops `Config.Unauthorized`, which is gone with it. Every 401 the auth routes answer now carries a `WWW-Authenticate` challenge, and `account.New` and `Rules.Validate` refuse a key scope that is not one RFC 6750 scope-token (printable ASCII other than space, `"` and `\`). Two codes are new: 403 `auth_key_required`, a gate `Key` row reached without an API key, and 409 `auth_key_label_taken`, a key label the owner's keys already carry.
 
@@ -98,7 +98,8 @@ Under `PosturePerRequest`, a plain request may sign in and set up by password an
 | `User.OIDCSub`, `User.OIDCIssuer` | `User.OIDC`, an `access.OIDCIdentity` |
 | `Session.OIDCExpiry` | none; a session lives by your idle and absolute timeouts |
 | `Session.IPAddress` | `Session.LastIP` |
-| `Session` | gains `ID`, `AuthTime`, `Kind`, `UserAgent`, `Label`, `IssuedByKey`, `IdleCap`, `AbsoluteCap` and `Secure`; its JSON tags are dropped |
+| `User` | gains `Owner`, an [owner's](identity.md#owners) flag, and `WaitingApproval`, a registration an admin has not approved |
+| `Session` | gains `ID`, `AuthTime`, `UserAgent`, `Label`, `IdleCap`, `AbsoluteCap` and `Secure`, and its JSON tags are dropped |
 | `Key` | gains `Scopes`, `LastUsedAt` and `LineageIDs`, and the `ParentKeyID()` method, the key that minted it |
 | `PasskeyCredential` | gains `LastUsedAt` |
 | `PasskeyFlags` | `PasskeyLoginUpdate` and `DecodePasskeyFlags` |
@@ -149,7 +150,7 @@ The store interfaces move to `account`, and the store contract changes ([Impleme
 | `UserStore.UserByOIDCSub` | `account.UserStore.UserByOIDC(ctx, access.OIDCIdentity)` |
 | `UserByUsername`, `CreateUser`, `UpdateUser` normalising usernames | the store compares bytes exactly, because `account` normalises. Remove any `NormalizeUsername` call from your store |
 | `CreateUser`, `UpdateUser` errors | `account.ErrUsernameTaken`, `account.ErrOIDCIdentityTaken` and `account.ErrNotFound` |
-| `DeleteUser` | cascades, in one transaction, to the user's sessions, passkeys, keys, tokens and key attributions |
+| `DeleteUser` | cascades, in one transaction, to the user's sessions, passkeys, keys, key attributions, TOTP record, recovery code and temporary password |
 | `CreatePasskey` | refuses a credential ID registered to any user with `account.ErrDuplicateCredential` |
 | `PasskeyByCredentialID`, `PasskeyCountForUser` | `ErrDuplicateCredential` from `CreatePasskey`; `len(PasskeysByUserID(...))` |
 | `UpdatePasskeyAfterLogin(ctx, credID, signCount, flags)` | `(ctx, userID, credID, access.PasskeyLoginUpdate)`, scoped to the user |
@@ -159,7 +160,7 @@ The store interfaces move to `account`, and the store contract changes ([Impleme
 | `CreateAPIKey` | appends the ID it assigns to `Key.LineageIDs` |
 | `OIDCStateStore`, `OIDCState`, `OIDCNonce`, `OIDCCodeVerifier` | none; the OIDC flow travels in a sealed cookie |
 
-New roles: `account.FailureStore` for the durable failure cap, `account.AttributionStore` for key attribution and `account.LogStore` for the security log.
+New roles: `account.FailureStore` for the durable failure cap, `account.AttributionStore` for key attribution, `account.LogStore` for the security log, `account.SecondFactorStore` and `account.TemporaryPasswordStore` for the [per-user records](storage.md#second-factors-temporary-passwords-and-the-sso-mode), and `account.SSOModeStore` for the stored SSO mode. `UserStore` gains `UsersWaiting`.
 
 Key rotation adds to the key store, under contract rule 23 ([Key secrets](storage.md#key-secrets)). A store built on an earlier access dev tag adds these:
 

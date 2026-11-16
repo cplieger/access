@@ -249,9 +249,11 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 | `Logger` | The `*slog.Logger` | `slog.Default()` at each call |
 | `Now` | The clock | `time.Now` |
 
+Each sign-in method beside the password is optional: wire TOTP with `Config.TOTP`, passkeys with `Config.RP` and OIDC with `Config.OIDC`, or leave the field unset. `New` refuses two settings an unwired method cannot meet: `Rules.RequireSecondFactor` with neither TOTP nor passkeys wired, and a stored SSO mode other than `SSOAlongside` with `Config.OIDC` unset. [Second factors and temporary passwords](totp.md) and [Identity and single sign-on](identity.md) explain the methods and the recovery paths.
+
 ### Pending sign-ins
 
-Each sign-in method is optional: wire TOTP with `Config.TOTP`, passkeys with `Config.RP` and OIDC with `Config.OIDC`, or leave the field unset. A usable TOTP is one `Config.TOTP` wires while `Rules.DisableTOTP` is off; a usable passkey is one registered under the published relying party's ID while `Rules.MethodUsable` allows passkeys.
+A usable TOTP is one `Config.TOTP` wires while `Rules.DisableTOTP` is off; a usable passkey is one registered under the published relying party's ID while `Rules.MethodUsable` allows passkeys.
 
 After a correct password, `PasswordLogin` answers either a session or an `account.Pending`: a ticket, the next step and the methods that step accepts. It answers `Pending` when the user holds a usable TOTP, or, under `RequireSecondFactor`, when the user holds a usable passkey (`NextSecondFactor`) or neither (`NextEnrol`). Passkey and OIDC sign-ins never pend. The ticket lives ten minutes in memory, rides the response body only, and finishes only on the transport that minted it, so a restart drops it and the person signs in again. A new password sign-in of the same user replaces its earlier ticket, and `SetPassword`, `RemovePassword`, `ResetSecondFactor`, `SetTemporaryPassword`, disabling, deleting, `AdminUnlinkOIDC` and `AdminRelinkOIDC` drop it.
 
@@ -273,7 +275,7 @@ A Policy declares through `SingleUser()` whether it admits one account. `account
 
 ### Owners
 
-An owner is an enabled admin that carries `access.User.Owner`, the break-glass account. Setup creates its account as an owner. `account.New` makes sure one exists: in a store with users and no owner it marks the enabled admin created first, preferring one that holds a password or passkey, and journals `owner_set` with the actor `migration`. When that admin holds neither, it also logs a WARN naming the repair. A store with users and no enabled admin makes `New` return `account.ErrNoOwner`; stop the app and enable an admin or make an enabled account an admin in the store, or restore a backup.
+An owner is an enabled admin that carries `access.User.Owner`, the break-glass account ([Identity and single sign-on](identity.md#owners) gives the practice). Setup creates its account as an owner. `account.New` makes sure one exists: in a store with users and no owner it marks the enabled admin created first, preferring one that holds a password or passkey, and journals `owner_set` with the actor `migration`. When that admin holds neither, it also logs a WARN naming the repair. A store with users and no enabled admin makes `New` return `account.ErrNoOwner`; stop the app and enable an admin or make an enabled account an admin in the store, or restore a backup.
 
 Under a single-user Policy the store must hold exactly one enabled account, an admin, and `New` refuses any other store with one error naming what it found and the repair. `New` leaves the owner flag on that one account and clears it everywhere else.
 

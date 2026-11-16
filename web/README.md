@@ -27,6 +27,8 @@ const auth = createAuthClient({
 const res = await auth.loginPassword({ username, password });
 if (!res.ok) {
   // authCode(res) and authReason(res) give the stable code and reason to branch on
+} else if ("pending" in res.data) {
+  // a second step: res.data.pending.next and .methods say which, res.data.pending.ticket carries it
 }
 
 const passkey = await signInWithPasskey(auth);
@@ -37,12 +39,13 @@ if (passkey.kind === "signed-in") {
 
 Every call returns an `ApiResult`: `ok` with the decoded `data`, or the refusal. `authCode` and `authReason` read the refusal's code and reason as the `AuthCode` and `AuthReason` unions, which mirror the server's `access.Codes()` and `accesshttp.Reasons()`.
 
-`withStepUp` runs an action that needs a recent sign-in. On an `auth_recent_auth_required` refusal with no reason, it asks your `prompt` which method to use, re-authenticates with it and retries the action once. A session signed in over plain HTTP cannot step up, so its refusal carries the reason `sign_in_again`: `withStepUp` then never prompts, and calls your `signInAgain`, retrying the action once when it resolves true and answering `cancelled` when it resolves false. Without `signInAgain`, that refusal is returned as `done`. A refusal with any other reason, such as `reenable_needs_other_method`, is returned as it is, because a step-up cannot cure it:
+`withStepUp` runs an action that needs a recent sign-in. On an `auth_recent_auth_required` refusal with no reason, it asks your `prompt` which of the offered methods to use, the password only while `methods.password_step_up` and the authenticator-app code only while `methods.totp.usable`, re-authenticates with it and retries the action once. A session signed in over plain HTTP cannot step up, so its refusal carries the reason `sign_in_again`: `withStepUp` then never prompts, and calls your `signInAgain`, retrying the action once when it resolves true and answering `cancelled` when it resolves false. Without `signInAgain`, that refusal is returned as `done`. A refusal with any other reason, such as `reenable_needs_other_method`, is returned as it is, because a step-up cannot cure it:
 
 ```ts
 const out = await withStepUp(auth, () => auth.setPassword(change), {
-  prompt: async (methods) => askUser(methods), // "password", "passkey", "oidc" or "cancel"
+  prompt: async (methods, offered) => askUser(offered), // one of offered, or "cancel"
   password: async () => askForCurrentPassword(), // null when the user cancels
+  code: async () => askForAuthenticatorCode(), // null when the user cancels
   signInAgain: async () => showPasswordSignIn(), // true once the user signed in again
 });
 ```
@@ -56,6 +59,8 @@ The OIDC branch navigates to the identity provider and never returns to the acti
 - `createAuthClient` returns an `AuthClient` with one method per route, such as `me`, `loginPassword`, `sessions` and `createKey`. `adminSecurityLog` reads a page of the [security log](https://github.com/cplieger/access/blob/main/docs/security-log.md) with its per-class counts, newest first, or oldest first when `oldestFirst` is set; `after` and `before` are bounds only.
 - `keys`, `createKey`, `renameKey`, `rotateKey` and `revokeKey` manage the user's own API keys. `createKey` and `rotateKey` return the secret once. After `rotateKey` the old secret keeps working until the new one is first used or `details.previous_until` passes, so a leaked key is revoked instead.
 - `signInWithPasskey`, `registerPasskey` (a passkey added from Account), `setupWithPasskey`, `signUpWithPasskey` (an account created where `state().registration` is not `"off"`) and `stepUpWithPasskey` run the WebAuthn ceremonies, and `loginSecondPasskey`, `loginSetPasskey` and `pendingPasskey` run them as a pending sign-in's next step. `passkeyProof` answers the passkey proof a second-factor change takes. `passkeySupport` reports what the browser offers, and `sendSignals` keeps the credential manager's passkey list in step with the server.
+- `loginCode`, `loginRecoveryCode`, `loginSetPassword` and `pendingTOTPBegin` with `pendingTOTPFinish` take a pending sign-in's next step. `beginTOTP`, `finishTOTP`, `removeTOTP`, `stepUpCode` and `regenerateRecoveryCode` manage the user's authenticator app and recovery code, and `adminTemporaryPassword` and `adminResetSecondFactor` let an admin help a person back in. `looksLikeTemporaryPassword` recognises a temporary password before a plain sign-in screen sends it ([Second factors and temporary passwords](https://github.com/cplieger/access/blob/main/docs/totp.md)).
+- `adminSetOwner`, `adminSSOReadiness`, `adminApplySSO`, `adminUnlinkOIDC`, `adminRelinkOIDC`, `oidcCreatePending`, `oidcLinkByAdmin` and `inviteAcceptOIDC` serve owners and the SSO mode ([Identity and single sign-on](https://github.com/cplieger/access/blob/main/docs/identity.md)).
 - `oidcSignInURL`, `startOIDC`, `readOIDCReturn`, `pendingLink` and `completePendingLink` handle the OIDC sign-in, link and step-up redirects.
 - `withStepUp` retries an action after a step-up, and `createSessionsModel` keeps a reactive list of the user's sessions.
 - `shownOnce` holds a key or link shown once and clears it, `storePasswordCredential` offers the password to the browser's password manager, and `continuation` and `takeFragmentToken` carry state and a one-time token across a redirect.
