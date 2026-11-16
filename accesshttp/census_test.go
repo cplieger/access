@@ -304,8 +304,8 @@ func (c *census) serve(t *testing.T, rt Route, p *censusPrincipal, body string) 
 // operation called, so a guard that lets it through to account, which
 // refuses most of them with the same code and some before any store read,
 // fails. A passing cell reaches its operation, stubbed so no cell writes,
-// except on the key_scope routes, whose real policy answers admin and
-// non-admin apart.
+// except on the admin reads under AdminScope, whose real policy answers
+// admin and non-admin apart.
 func TestCensusMatrix(t *testing.T) {
 	descriptors := func(t *testing.T) {
 		e := newEnv(t, envOptions{})
@@ -356,7 +356,7 @@ func typeName(t reflect.Type) string {
 // cell runs one census cell.
 func (c *census) cell(t *testing.T, rt Route, p *censusPrincipal) {
 	want := p.guardAnswer(&rt.Descriptor)
-	viaPolicy := want == "" && rt.Class == ClassKeyScope
+	viaPolicy := want == "" && rt.Class == ClassKeyScope && specNamed(t, rt.Name).scope == scopeAdmin
 	c.stub.Store(want == "" && !viaPolicy)
 	defer c.stub.Store(false)
 	reachedBefore := c.reached.Load()

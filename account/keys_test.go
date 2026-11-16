@@ -878,7 +878,7 @@ func TestRenameAPIKey(t *testing.T) {
 			t.Errorf("events after the rename = %d, want %d", got, before)
 		}
 	})
-	t.Run("not_a_session", func(t *testing.T) {
+	t.Run("neither_a_session_nor_a_create_keys_key", func(t *testing.T) {
 		t.Parallel()
 		w := setup(t)
 		for name, p := range map[string]access.Principal{
@@ -888,8 +888,8 @@ func TestRenameAPIKey(t *testing.T) {
 			"zero":   {},
 		} {
 			t.Run(name, func(t *testing.T) {
-				if err := w.f.svc.RenameAPIKey(t.Context(), p, w.k.ID, "Renamed"); !errors.Is(err, account.ErrSessionRequired) {
-					t.Errorf("RenameAPIKey = %v, want ErrSessionRequired", err)
+				if err := w.f.svc.RenameAPIKey(t.Context(), p, w.k.ID, "Renamed"); !errors.Is(err, account.ErrScopeRequired) {
+					t.Errorf("RenameAPIKey = %v, want ErrScopeRequired", err)
 				}
 			})
 		}

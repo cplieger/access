@@ -18,7 +18,7 @@ var notOperations = map[string]string{
 	"Authenticator":              "accessor of Config.Authenticator",
 	"AdmitOIDC":                  "per-request rate-limit admission returning the provider; reads no store (TestAdmitOIDC)",
 	"AdmitOIDCSession":           "per-request admission returning the provider; reads no store (TestAdmitOIDCSession)",
-	"RequireAdminScope":          "principal guard for accesshttp's key_scope class; reads no store",
+	"RequireKeyScope":            "principal guard for accesshttp's key_scope class; reads no store",
 	"RequireKeyPermission":       "principal guard for accesshttp's key_permission class; reads no store",
 	"RequireRecentAuth":          "principal guard for accesshttp's recent_auth class; reads no store",
 	"Shutdown":                   "lifecycle: the call every operation's ErrServiceClosed answers to",

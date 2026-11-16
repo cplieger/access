@@ -42,7 +42,7 @@ func newPrincipals(t *testing.T, f *fixture) principals {
 	return ps
 }
 
-func TestRequireAdminScopeMatrix(t *testing.T) {
+func TestRequireKeyScopeMatrix(t *testing.T) {
 	t.Parallel()
 	for name, scope := range map[string]string{"scope_set": adminScope, "scope_empty": ""} {
 		t.Run(name, func(t *testing.T) {
@@ -69,8 +69,8 @@ func TestRequireAdminScopeMatrix(t *testing.T) {
 				{name: "bypass", p: ps.bypass, want: otherAnswer},
 				{name: "zero", p: ps.zero, want: otherAnswer},
 			} {
-				if err := f.svc.RequireAdminScope(tc.p); !errors.Is(err, tc.want) || (tc.want == nil && err != nil) {
-					t.Errorf("%s: RequireAdminScope = %v, want %v", tc.name, err, tc.want)
+				if err := f.svc.RequireKeyScope(tc.p, scope); !errors.Is(err, tc.want) || (tc.want == nil && err != nil) {
+					t.Errorf("%s: RequireKeyScope = %v, want %v", tc.name, err, tc.want)
 				}
 			}
 		})

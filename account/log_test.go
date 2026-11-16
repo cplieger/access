@@ -381,7 +381,7 @@ func labeledKeyPrincipal(t *testing.T, f *fixture, u *access.User, scopes ...str
 
 // keyScopeOf is the scope a key principal needs for an operation of each
 // class that admits one.
-var keyScopeOf = map[opClass]string{classAdminScope: scopeAdmin, classManageUsers: scopeUsers, classCreateKeys: scopeKeys}
+var keyScopeOf = map[opClass]string{classAdminScope: scopeAdmin, classOwnKeys: scopeKeys, classManageUsers: scopeUsers, classCreateKeys: scopeKeys}
 
 // labeledActorFor is opWorld.actorFor with a labeled session.
 func labeledActorFor(t *testing.T, w *opWorld, class opClass) access.Principal {
@@ -461,10 +461,15 @@ func TestLogActorSnapshot(t *testing.T) {
 				w := newOpWorld(t, worldOptions{scoped: true})
 				p, key := labeledKeyPrincipal(t, w.fixture, w.root, scope)
 				call := op.prep(t, w, p)
-				entries := snapshotCall(t, w.mem, func() error { return call.run(t.Context()) })
+				before, mark := recordsOf(t, w.mem), logOf(t, w.mem)
+				if err := call.run(t.Context()); err != nil {
+					t.Fatalf("%s = %v", op.name, err)
+				}
+				entries := logSince(t, w.mem, mark)
 				if len(entries) != len(call.want()) {
 					t.Fatalf("%s appended %d entries, want one per event, %d", op.name, len(entries), len(call.want()))
 				}
+				checkShown(t, before, recordsOf(t, w.mem), entries)
 				for i := range entries {
 					e := &entries[i]
 					if e.Event.Actor.KeyID != key.ID || shownOf(e) != (shown{label: key.Label, keySuffix: key.KeySuffix}) {

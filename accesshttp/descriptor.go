@@ -57,9 +57,10 @@ type Descriptor struct {
 type scopeRule int
 
 const (
-	scopeAdmin scopeRule = iota + 1 // key_scope with AdminScope when set, else session
-	scopeUsers                      // key_permission with ManageUsersScope when set, else recent_auth
-	scopeKeys                       // key_permission with CreateKeysScope when set, else recent_auth
+	scopeAdmin   scopeRule = iota + 1 // key_scope with AdminScope when set, else session
+	scopeOwnKeys                      // key_scope with CreateKeysScope when set, else session
+	scopeUsers                        // key_permission with ManageUsersScope when set, else recent_auth
+	scopeKeys                         // key_permission with CreateKeysScope when set, else recent_auth
 )
 
 // pathID is the kind of a route's {id} or {method} path value.
@@ -173,16 +174,16 @@ var specs = []routeSpec{
 	{name: "authSessionRename", method: http.MethodPut, path: "/sessions/{id}", doc: "Renames one of the account's sessions.", class: ClassSession, pathID: pathSession, request: typeOf[NameRequest](), op: "RenameSession", serve: serveSessionRename},
 	{name: "authSessionRevoke", method: http.MethodDelete, path: "/sessions/{id}", doc: "Ends one of the account's sessions.", class: ClassSession, pathID: pathSession, op: "RevokeSession", serve: serveSessionRevoke},
 	{name: "authSessionsRevokeOthers", method: http.MethodPost, path: "/sessions/revoke-others", doc: "Ends every session of the account but the current one.", class: ClassRecentAuth, op: "RevokeOtherSessions", serve: serveSessionsRevokeOthers},
-	{name: "authKeys", method: http.MethodGet, path: "/apikeys", doc: "Lists the account's API keys.", class: ClassSession, response: typeOf[KeyView](), array: true, op: "APIKeys", serve: serveKeys},
+	{name: "authKeys", method: http.MethodGet, path: "/apikeys", doc: "Lists the account's API keys.", scope: scopeOwnKeys, response: typeOf[KeyView](), array: true, op: "APIKeys", serve: serveKeys},
 	{name: "authKeyCreate", method: http.MethodPost, path: "/apikeys", doc: "Creates an API key and answers its secret once.", scope: scopeKeys, request: typeOf[NewKeyRequest](), response: typeOf[KeyCreatedResponse](), op: "CreateAPIKey", serve: serveKeyCreate},
-	{name: "authKeyRename", method: http.MethodPut, path: "/apikeys/{id}", doc: "Renames one of the account's API keys.", class: ClassSession, pathID: pathInt, request: typeOf[NameRequest](), op: "RenameAPIKey", serve: serveKeyRename},
+	{name: "authKeyRename", method: http.MethodPut, path: "/apikeys/{id}", doc: "Renames one of the account's API keys.", scope: scopeOwnKeys, pathID: pathInt, request: typeOf[NameRequest](), op: "RenameAPIKey", serve: serveKeyRename},
 	{name: "authKeyRotate", method: http.MethodPost, path: "/apikeys/{id}/rotate", doc: "Replaces an API key's secret and answers the new one once.", class: ClassRecentAuth, pathID: pathInt, response: typeOf[KeyCreatedResponse](), op: "RotateAPIKey", serve: serveKeyRotate},
-	{name: "authKeyRevoke", method: http.MethodDelete, path: "/apikeys/{id}", doc: "Revokes one of the account's API keys.", class: ClassSession, pathID: pathInt, op: "RevokeAPIKey", serve: serveKeyRevoke},
+	{name: "authKeyRevoke", method: http.MethodDelete, path: "/apikeys/{id}", doc: "Revokes one of the account's API keys.", scope: scopeOwnKeys, pathID: pathInt, op: "RevokeAPIKey", serve: serveKeyRevoke},
 	{name: "authAdminUsers", method: http.MethodGet, path: "/users", doc: "Lists the app's accounts with their sign-in methods.", scope: scopeAdmin, query: typeOf[AdminUsersQuery](), response: typeOf[UserView](), array: true, op: "Users", serve: serveAdminUsers},
 	{name: "authAdminUserCreate", method: http.MethodPost, path: "/users", doc: "Creates an account.", scope: scopeUsers, request: typeOf[NewUserRequest](), response: typeOf[UserView](), op: "CreateUser", serve: serveAdminUserCreate},
 	{name: "authAdminUserUpdate", method: http.MethodPut, path: "/users/{id}", doc: "Changes an account's role or whether it is enabled.", scope: scopeUsers, pathID: pathInt, request: typeOf[UserUpdateRequest](), response: typeOf[UserView](), op: "UpdateUser", serve: serveAdminUserUpdate},
 	{name: "authAdminOwner", method: http.MethodPut, path: "/users/{id}/owner", doc: "Makes an account an owner or removes its owner flag.", class: ClassRecentAuth, pathID: pathInt, request: typeOf[OwnerRequest](), response: typeOf[UserView](), op: "SetOwner", serve: serveAdminOwner},
-	{name: "authAdminSSOReadiness", method: http.MethodGet, path: "/sso/readiness", doc: "Answers what applying a single sign-on mode would change, or why it is refused.", class: ClassRecentAuth, query: typeOf[SSOReadinessQuery](), response: typeOf[Readiness](), op: "SSOReadiness", serve: serveAdminSSOReadiness},
+	{name: "authAdminSSOReadiness", method: http.MethodGet, path: "/sso/readiness", doc: "Answers what applying a single sign-on mode would change, or why it is refused.", scope: scopeAdmin, query: typeOf[SSOReadinessQuery](), response: typeOf[Readiness](), op: "SSOReadiness", serve: serveAdminSSOReadiness},
 	{name: "authAdminSSOApply", method: http.MethodPut, path: "/sso", doc: "Applies a single sign-on mode to the app.", class: ClassRecentAuth, request: typeOf[SSORequest](), op: "ApplySSO", serve: serveAdminSSOApply},
 	{name: "authAdminUserDelete", method: http.MethodDelete, path: "/users/{id}", doc: "Deletes an account.", scope: scopeUsers, pathID: pathInt, op: "DeleteUser", serve: serveAdminUserDelete},
 	{name: "authAdminOIDCUnlink", method: http.MethodDelete, path: "/users/{id}/oidc", doc: "Unlinks an account's single sign-on identity.", scope: scopeUsers, pathID: pathInt, op: "AdminUnlinkOIDC", serve: serveAdminOIDCUnlink},
@@ -256,11 +257,11 @@ var opCodes = map[string][]access.Code{
 	"RenameSession":              {access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
 	"RevokeSession":              {access.CodeUnavailable, access.CodeNotFound},
 	"RevokeOtherSessions":        {access.CodeUnavailable},
-	"APIKeys":                    {access.CodeUnavailable},
+	"APIKeys":                    {access.CodeForbidden, access.CodeUnavailable},
 	"CreateAPIKey":               {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeUnknownScope, access.CodeKeyLabelTaken},
-	"RenameAPIKey":               {access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound, access.CodeKeyLabelTaken},
+	"RenameAPIKey":               {access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound, access.CodeKeyLabelTaken},
 	"RotateAPIKey":               {access.CodeHTTPSRequired, access.CodeSessionExpired, access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
-	"RevokeAPIKey":               {access.CodeUnavailable, access.CodeNotFound},
+	"RevokeAPIKey":               {access.CodeForbidden, access.CodeUnavailable, access.CodeNotFound},
 	"Users":                      {access.CodeForbidden, access.CodeUnavailable},
 	"CreateUser":                 {access.CodeForbidden, access.CodeBusy, access.CodeUnavailable, access.CodeUsernameInvalid, access.CodeUsernameTaken, access.CodePasswordRejected, access.CodeBreachCheckUnavailable},
 	"UpdateUser":                 {access.CodeForbidden, access.CodeUnavailable, access.CodeBadRequest, access.CodeNotFound},
@@ -327,10 +328,9 @@ func (s *routeSpec) transportCodes() []access.Code {
 func (s *routeSpec) classFor(dc *DescriptorConfig) (class Class, scope string) {
 	switch s.scope {
 	case scopeAdmin:
-		if dc.AdminScope != "" {
-			return ClassKeyScope, dc.AdminScope
-		}
-		return ClassSession, ""
+		return keyScope(dc.AdminScope)
+	case scopeOwnKeys:
+		return keyScope(dc.CreateKeysScope)
 	case scopeUsers:
 		return permission(dc.ManageUsersScope)
 	case scopeKeys:
@@ -338,6 +338,13 @@ func (s *routeSpec) classFor(dc *DescriptorConfig) (class Class, scope string) {
 	default:
 		return s.class, ""
 	}
+}
+
+func keyScope(scope string) (class Class, required string) {
+	if scope != "" {
+		return ClassKeyScope, scope
+	}
+	return ClassSession, ""
 }
 
 func permission(scope string) (class Class, required string) {

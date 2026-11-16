@@ -24,6 +24,7 @@ const (
 	classSession
 	classRecentAuth
 	classAdminScope  // key_scope with AdminScope
+	classOwnKeys     // key_scope with CreateKeysScope
 	classManageUsers // key_permission with ManageUsersScope
 	classCreateKeys  // key_permission with CreateKeysScope
 	classOutOfBand   // takes an Actor, and admits only an out-of-band one
@@ -832,14 +833,14 @@ func sessionOperations() []operation {
 				want: events(account.Event{Kind: account.EventSessionRevoked, UserID: u.ID, SessionIDs: []string{target.ID}, Actor: actorOf(p)}),
 			}
 		}},
-		{name: "APIKeys", class: classSession, transport: plainAllowed, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
+		{name: "APIKeys", class: classOwnKeys, transport: plainAllowed, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
 			return opCall{run: func(ctx context.Context) error { _, err := w.svc.APIKeys(ctx, p); return err }, want: none}
 		}},
-		{name: "RenameAPIKey", class: classSession, transport: plainAllowed, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+		{name: "RenameAPIKey", class: classOwnKeys, transport: plainAllowed, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			k, label := w.storedKey(t, w.owner(t, p), "read"), w.name("renamed ")
 			return opCall{run: func(ctx context.Context) error { return w.svc.RenameAPIKey(ctx, p, k.ID, label) }, want: none}
 		}},
-		{name: "RevokeAPIKey", class: classSession, transport: plainAllowed, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+		{name: "RevokeAPIKey", class: classOwnKeys, transport: plainAllowed, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			u := w.owner(t, p)
 			k := w.storedKey(t, u, "read")
 			return opCall{
@@ -1040,11 +1041,11 @@ func adminOperations() []operation {
 		{name: "SSO", class: classPublic, transport: plainAllowed, readOnly: true, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
 			return opCall{run: func(ctx context.Context) error { _, _, err := w.svc.SSO(ctx); return err }, want: none}
 		}},
-		{name: "SSOReadiness", class: classRecentAuth, transport: plainRefused, ownerOnly: true, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
+		{name: "SSOReadiness", class: classAdminScope, transport: plainRefused, readOnly: true, asks: []account.Operation{account.OpListUsers}, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
 			return opCall{run: func(ctx context.Context) error {
 				_, err := w.svc.SSOReadiness(ctx, account.As(p), account.SSOForLinked)
 				return err
-			}, want: none}
+			}, want: none, actor: actorOf(p)}
 		}},
 		{name: "CheckSSOReady", class: classRecentAuth, transport: plainRefused, ownerOnly: true, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
 			return opCall{run: func(ctx context.Context) error { return w.svc.CheckSSOReady(ctx, account.As(p), account.SSOForLinked) }, want: none}

@@ -19,7 +19,7 @@ type accountAPI interface {
 	ManageUsersScope() string
 	CreateKeysScope() string
 	RequireRecentAuth(p access.Principal) error
-	RequireAdminScope(p access.Principal) error
+	RequireKeyScope(p access.Principal, scope string) error
 	RequireKeyPermission(p access.Principal, scope string) error
 
 	State(ctx context.Context, c account.Client) (account.State, error)

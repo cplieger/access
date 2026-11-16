@@ -298,8 +298,8 @@ func TestShutdownStopsSweep(t *testing.T) {
 		if _, err := account.Begin(f.svc); !errors.Is(err, account.ErrServiceClosed) || !errors.Is(err, access.ErrAuthBackend) {
 			t.Errorf("an operation after Shutdown = %v, want ErrServiceClosed matching access.ErrAuthBackend", err)
 		}
-		if err := f.svc.RequireAdminScope(access.Principal{}); !errors.Is(err, account.ErrServiceClosed) {
-			t.Errorf("RequireAdminScope after Shutdown = %v, want ErrServiceClosed", err)
+		if err := f.svc.RequireKeyScope(access.Principal{}, ""); !errors.Is(err, account.ErrServiceClosed) {
+			t.Errorf("RequireKeyScope after Shutdown = %v, want ErrServiceClosed", err)
 		}
 		if err := f.svc.Shutdown(t.Context()); err != nil {
 			t.Errorf("a second Shutdown = %v, want nil", err)

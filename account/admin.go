@@ -81,8 +81,8 @@ func (ua *userAdmin) issue(tok *access.OneTimeToken) {
 }
 
 // Users lists every user by ID with its passkey count, for a principal
-// RequireAdminScope admits and Policy allows OpListUsers. With
-// f.AttributedToKey set it keeps the users holding a KeyAttribution whose
+// RequireKeyScope admits under AdminScope and Policy allows OpListUsers.
+// With f.AttributedToKey set it keeps the users holding a KeyAttribution whose
 // KeyLineage contains that key, whether the key is live or gone. Each row
 // carries the KeyLineage of the user's most recent record the filter
 // matched. It writes nothing.

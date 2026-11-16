@@ -315,7 +315,7 @@ func TestKeyChainStaysUser(t *testing.T) {
 		_, refusals["CreateUser"] = w.f.svc.CreateUser(t.Context(), account.As(k2), account.NewUser{Username: "more"})
 		_, refusals["UpdateUser"] = w.f.svc.UpdateUser(t.Context(), k2, w.alice.ID, account.UserChange{Enabled: new(false)})
 		refusals["RevokeAnyAPIKey"] = w.f.svc.RevokeAnyAPIKey(t.Context(), account.As(k2), k.key.ID)
-		refusals["RequireAdminScope"] = w.f.svc.RequireAdminScope(k2)
+		refusals["RequireKeyScope"] = w.f.svc.RequireKeyScope(k2, scopeAdmin)
 		for name, err := range refusals {
 			if !errors.Is(err, account.ErrScopeRequired) {
 				t.Errorf("%s from uma's key = %v, want ErrScopeRequired: a RoleUser's key carries no permission", name, err)

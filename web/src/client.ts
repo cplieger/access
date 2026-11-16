@@ -240,6 +240,7 @@ export interface AuthClient {
   renameSession(id: string, r: NameRequest): Promise<ApiResult<void>>;
   revokeSession(id: string): Promise<ApiResult<void>>;
   revokeOtherSessions(): Promise<ApiResult<void>>;
+  /** A session, or a key with the create-keys scope; renameKey and revokeKey admit the same, and a key may revoke itself. */
   keys(): Promise<ApiResult<readonly KeyView[]>>;
   /**
    * A label another unexpired key of the user carries, compared after NFC and
@@ -262,7 +263,7 @@ export interface AuthClient {
   adminUpdateUser(id: number, r: UserUpdateRequest): Promise<ApiResult<UserView>>;
   /** Owners only, under recent auth; an owner needs a password or a passkey. */
   adminSetOwner(id: number, r: OwnerRequest): Promise<ApiResult<UserView>>;
-  /** Owners only, under recent auth: call it through withStepUp. A refusal is the body's. */
+  /** Admins, or a key with the admin scope, with no step-up. A refusal is the body's: an owner sees its own change's. */
   adminSSOReadiness(mode: SSOMode): Promise<ApiResult<Readiness>>;
   /** Owners only, under recent auth: answers exactly the refusal adminSSOReadiness showed. */
   adminApplySSO(mode: SSOMode): Promise<ApiResult<void>>;

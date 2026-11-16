@@ -62,7 +62,7 @@ Each operation appends its entries in the order it reports its events to `OnEven
 These are left out, each for its reason:
 
 - Reads, such as the user, session and key lists, `SecurityLog` itself and `UsableMethods`. They change nothing.
-- Admission checks and accessors such as `AdmitOIDC`, `RequireRecentAuth` and `RequireAdminScope`. None of them writes the store.
+- Admission checks and accessors such as `AdmitOIDC`, `RequireRecentAuth`, `RequireKeyScope` and `RequireKeyPermission`. None of them writes the store.
 - The begin step of a passkey ceremony, which writes only the in-memory pending cache.
 - Renaming a passkey or a session, and changing a display name. They change display text only, and an entry keeps the label it was written with.
 - Failed sign-in attempts, as the next section explains.

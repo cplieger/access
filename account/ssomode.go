@@ -146,37 +146,128 @@ type Readiness struct {
 	TemporaryPasswordsWithdrawn int
 }
 
-// SSOReadiness reports what ApplySSO(ctx, a, mode) would do now, writing
-// nothing. Its errors are ApplySSO's that are no state refusal: the actor's
-// (an owner principal's full session, secure and within Rules().RecentAuth,
-// or an out-of-band actor; a principal that is no owner is a *PolicyError
-// with ReasonNotOwner), ErrOIDCUnavailable while Config.OIDC is unset,
-// ErrUnknownSSOMode, and a store error.
+// SSOReadiness reports what changing the stored mode to mode would do now,
+// for an admin's preview, writing nothing. a is an out-of-band actor, a
+// session, or a built-in key carrying Config.AdminScope, its authority
+// re-read inside the read; a principal then meets Policy OpListUsers, and
+// the request must be secure. Readiness.Refusal is the one ApplySSO would
+// give the reader: an owner session's own change, any other reader's
+// out-of-band one. Its errors: the admission's, ErrOIDCUnavailable while
+// Config.OIDC is unset, ErrUnknownSSOMode, and a store error.
 func (s *Service) SSOReadiness(ctx context.Context, a Actor, mode SSOMode) (Readiness, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
-	r, err := s.beginSSO(a, mode)
+	r, err := s.admitReadiness(a, mode)
 	if err != nil {
 		return Readiness{}, err
 	}
 	provider := s.provider()
-	cur, err := storedMode(ctx, s.store)
+	var rd Readiness
+	err = s.update(ctx, func(tx Tx) error {
+		reader, readErr := s.readerIn(ctx, tx, a)
+		if readErr != nil {
+			return readErr
+		}
+		users, readErr := tx.ListUsers(ctx)
+		if readErr != nil {
+			return readErr
+		}
+		cur, readErr := storedMode(ctx, tx)
+		if readErr != nil {
+			return readErr
+		}
+		rd, readErr = s.readinessIn(ctx, tx, r, users, previewOwner(reader, users), provider, ssoChange{from: cur, to: mode})
+		return readErr
+	})
 	if err != nil {
-		return Readiness{}, storeErr(err)
-	}
-	rd, err := s.readinessIn(ctx, s.store, r, a, provider, ssoChange{from: cur, to: mode})
-	if err != nil {
-		return Readiness{}, answer(err)
+		return Readiness{}, err
 	}
 	return rd, nil
 }
 
+// admitReadiness is SSOReadiness's checks before any store read: the
+// Service and its Rules, a secure request, single sign-on wired, a known
+// mode, and the reader as RequireKeyScope admits it under AdminScope.
+func (s *Service) admitReadiness(a Actor, mode SSOMode) (Rules, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
+	r, err := s.beginOver(plainRefused, a.secure())
+	switch {
+	case err != nil:
+		return Rules{}, err
+	case s.oidc == nil:
+		return Rules{}, ErrOIDCUnavailable
+	case !mode.valid():
+		return Rules{}, ErrUnknownSSOMode
+	case a.isOutOfBand():
+		return r, nil
+	}
+	p, ok := a.Principal()
+	if !ok {
+		return Rules{}, ErrSessionRequired
+	}
+	if err := s.admitKey(p, s.adminScope, func() error { return requireSession(p) }); err != nil {
+		return Rules{}, err
+	}
+	if p.User == nil {
+		return Rules{}, ErrSessionRequired
+	}
+	return r, nil
+}
+
+// readerIn is a's authority for an admin read inside tx: a key's re-read
+// under AdminScope, then Policy OpListUsers for any principal. An
+// out-of-band actor asks no Policy.
+func (s *Service) readerIn(ctx context.Context, tx Tx, a Actor) (Actor, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
+	p, ok := a.Principal()
+	if !ok {
+		return a, nil
+	}
+	reader := a
+	if p.IsAPIKey() {
+		var err error
+		if reader, _, err = s.keyAuthority(ctx, tx, OpListUsers, access.KeyRef{ID: p.KeyID, UserID: p.User.ID}, s.adminScope); err != nil {
+			return Actor{}, err
+		}
+	}
+	if err := s.authorize(ctx, Decision{Op: OpListUsers, Actor: reader}); err != nil {
+		return Actor{}, refuse(err)
+	}
+	return reader, nil
+}
+
+// previewOwner is the owner whose own ApplySSO a's preview shows: an owner
+// session's user as users holds it. Every other reader gets nil, the
+// out-of-band change's rule.
+func previewOwner(a Actor, users []access.User) *access.User { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
+	if p, ok := a.Principal(); !ok || !p.IsSession() {
+		return nil
+	}
+	if u, ok := storedActor(a, users).user(); ok && isOwner(u) {
+		return u
+	}
+	return nil
+}
+
 // CheckSSOReady is ApplySSO's every refusal, read now and writing nothing:
-// SSOReadiness's errors, then the state refusal Readiness.Refusal holds.
+// ApplySSO's admission, its owner rule, then the state refusal for the
+// acting owner.
 func (s *Service) CheckSSOReady(ctx context.Context, a Actor, mode SSOMode) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
-	rd, err := s.SSOReadiness(ctx, a, mode)
+	r, err := s.beginSSO(a, mode)
 	if err != nil {
 		return err
 	}
-	return rd.Refusal
+	provider := s.provider()
+	return s.update(ctx, func(tx Tx) error {
+		cur, err := storedMode(ctx, tx)
+		if err != nil {
+			return err
+		}
+		rd, err := s.changeReadinessIn(ctx, tx, r, a, provider, ssoChange{from: cur, to: mode})
+		switch {
+		case err != nil:
+			return err
+		case rd.Refusal != nil:
+			return refuse(rd.Refusal)
+		}
+		return nil
+	})
 }
 
 // ApplySSO stores mode as the SSO mode for a, in one Update after reading
@@ -238,7 +329,7 @@ func (s *Service) writeSSO(ctx context.Context, a Actor, mode SSOMode, migrate b
 			return err
 		}
 		ch := ssoChange{from: cur, to: mode}
-		rd, err := s.readinessIn(ctx, tx, r, a, provider, ch)
+		rd, err := s.changeReadinessIn(ctx, tx, r, a, provider, ch)
 		switch {
 		case err != nil:
 			return err
@@ -328,11 +419,11 @@ func (s *Service) withdrawDormant(ctx context.Context, tx Tx, j *journal, userID
 	return nil
 }
 
-// readinessIn is the one read of SSOReadiness and ApplySSO, on the rows tx
-// reads and the provider read before tx opened. A principal actor must be
-// an owner as stored (else a *PolicyError with ReasonNotOwner, which is no
-// state refusal); then the state refusals, then the counts.
-func (s *Service) readinessIn(ctx context.Context, tx Tx, r Rules, a Actor, provider *oidc.Provider, ch ssoChange) (Readiness, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and its Actor
+// changeReadinessIn is ApplySSO's read of ch by a on the rows tx reads and
+// the provider read before tx opened: a principal actor must be an owner
+// as stored (else a *PolicyError with ReasonNotOwner, which is no state
+// refusal), and the state refusal is that owner's.
+func (s *Service) changeReadinessIn(ctx context.Context, tx Tx, r Rules, a Actor, provider *oidc.Provider, ch ssoChange) (Readiness, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and its Actor
 	users, err := tx.ListUsers(ctx)
 	if err != nil {
 		return Readiness{}, err
@@ -341,8 +432,15 @@ func (s *Service) readinessIn(ctx context.Context, tx Tx, r Rules, a Actor, prov
 	if isPrincipal && !isOwner(actor) {
 		return Readiness{}, refuse(&PolicyError{Op: OpApplySSO, Reason: ReasonNotOwner})
 	}
+	return s.readinessIn(ctx, tx, r, users, actor, provider, ch)
+}
+
+// readinessIn is ch's state refusal and counts over users, the rows tx
+// reads; owner is the acting owner, nil for the out-of-band rule.
+func (s *Service) readinessIn(ctx context.Context, tx Tx, r Rules, users []access.User, owner *access.User, provider *oidc.Provider, ch ssoChange) (Readiness, error) { //nolint:gocritic // hugeParam: the operation's one Rules value
 	var rd Readiness
-	if rd.Refusal, err = s.stateRefusal(ctx, tx, r, actor, users, provider, ch.to); err != nil {
+	var err error
+	if rd.Refusal, err = s.stateRefusal(ctx, tx, r, owner, users, provider, ch.to); err != nil {
 		return Readiness{}, err
 	}
 	for i := range users {

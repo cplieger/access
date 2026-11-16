@@ -559,4 +559,21 @@ func addKeyScenarios(out map[scenarioKey]scenario) {
 	out[scenarioKey{"authKeys", access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		return e.post(t, "authKeys", "", e.aliceSession(t))
 	})
+	// Design 4.51: a key acting on its own keys meets the Policy's
+	// create_own_key, which a session never asks.
+	refused := allScopes
+	refused.edit = func(c *account.Config) {
+		allScopes.edit(c)
+		refuse(account.OpCreateOwnKey)(c)
+	}
+	byKey := func(name, body string) scenario {
+		return scenario{opts: refused, arrange: func(t *testing.T, e *env) *http.Request {
+			e.rootSession(t)
+			k := e.mintKey(t, "root", account.NewKey{Label: "ci", Scopes: []string{scopeKeysName}})
+			return bearer(e.at(t, name, strconv.FormatInt(k.Key.ID, 10), body), k.Plaintext)
+		}}
+	}
+	out[scenarioKey{"authKeys", access.CodeForbidden}] = byKey("authKeys", "")
+	out[scenarioKey{rename, access.CodeForbidden}] = byKey(rename, `{"name":"deploy"}`)
+	out[scenarioKey{revoke, access.CodeForbidden}] = byKey(revoke, "")
 }

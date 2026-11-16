@@ -30,10 +30,10 @@ var (
 	// trust context.
 	ErrMethodNotLocked = errors.New("account: method is not locked")
 	// ErrSessionRequired is an operation for a session reached by any other
-	// principal, and RequireAdminScope or RequireKeyPermission refusing an
+	// principal, and RequireKeyScope or RequireKeyPermission refusing an
 	// empty scope.
 	ErrSessionRequired = errors.New("account: a signed-in session is required")
-	// ErrScopeRequired is RequireAdminScope or RequireKeyPermission under a
+	// ErrScopeRequired is RequireKeyScope or RequireKeyPermission under a
 	// set scope, for a principal that is no session and no key carrying
 	// that scope.
 	ErrScopeRequired = errors.New("account: a key scope is required")

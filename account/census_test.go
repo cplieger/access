@@ -102,6 +102,12 @@ func censusAnswer(op *operation, scoped bool, who string) error {
 			return session
 		}
 		return keyAnswer("users_key", session)
+	case classOwnKeys:
+		session := sessionAnswer("full", "recent", "recent_user")
+		if !scoped {
+			return session
+		}
+		return keyAnswer("keys_key", session)
 	case classCreateKeys:
 		session := sessionAnswer("recent", "recent_user")
 		if !scoped {
@@ -229,7 +235,7 @@ func censusUserNaming(t *testing.T) {
 
 func TestKeyAuthorityEveryWrite(t *testing.T) {
 	t.Parallel()
-	want := []string{"AdminRelinkOIDC", "AdminUnlinkOIDC", "CreateAPIKey", "CreateInvite", "CreateUser", "DeleteUser", "ResetSecondFactor", "RevokeAnyAPIKey", "SetTemporaryPassword", "UpdateUser"}
+	want := []string{"AdminRelinkOIDC", "AdminUnlinkOIDC", "CreateAPIKey", "CreateInvite", "CreateUser", "DeleteUser", "RenameAPIKey", "ResetSecondFactor", "RevokeAPIKey", "RevokeAnyAPIKey", "SetTemporaryPassword", "UpdateUser"}
 	var (
 		mu      sync.Mutex
 		reached []string

@@ -209,35 +209,83 @@ func (s *Service) permissionScopes(op Operation, owner *access.User, scopes []st
 	return nil
 }
 
-// APIKeys returns p's own keys, expired ones included, by ID. p must be a
-// full session (ErrSessionRequired).
+// APIKeys returns p's own keys, expired ones included, by ID, for a
+// principal admitOwnKeys admits.
 func (s *Service) APIKeys(ctx context.Context, p access.Principal) ([]access.Key, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	if _, err := s.begin(); err != nil {
+	if err := s.admitOwnKeys(p); err != nil {
 		return nil, err
 	}
-	if err := requireSession(p); err != nil {
-		return nil, err
-	}
-	keys, err := s.store.ListAPIKeysByUserID(ctx, p.User.ID)
+	var keys []access.Key
+	err := s.update(ctx, func(tx Tx) error {
+		if err := s.ownKeysIn(ctx, tx, p, s.keyAuthority); err != nil {
+			return err
+		}
+		var listErr error
+		keys, listErr = tx.ListAPIKeysByUserID(ctx, p.User.ID)
+		return listErr
+	})
 	if err != nil {
-		return nil, storeErr(err)
+		return nil, err
 	}
 	return byID(keys), nil
 }
 
-// RevokeAPIKey deletes one of p's own keys with its subtree, every key whose
-// LineageIDs holds it, and every token those keys issued, in one Update;
-// one EventKeyRevoked per key follows the commit. p must be a full session
-// (ErrSessionRequired); a key of another user, or none, is ErrNotFound.
-func (s *Service) RevokeAPIKey(ctx context.Context, p access.Principal, id int64) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
+// admitOwnKeys admits p to its own user's keys: a full session, or a
+// built-in key carrying Config.CreateKeysScope when that is set; else
+// ErrSessionRequired with the scope unset, and ErrScopeRequired.
+func (s *Service) admitOwnKeys(p access.Principal) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	if _, err := s.begin(); err != nil {
 		return err
 	}
-	if err := requireSession(p); err != nil {
+	if err := s.admitKey(p, s.keysScope, func() error { return requireSession(p) }); err != nil {
+		return err
+	}
+	if p.User == nil {
+		return ErrSessionRequired
+	}
+	return nil
+}
+
+// keyRead is keyAuthority's shape: currentKeyActor where a change journals
+// the key as its actor.
+type keyRead func(ctx context.Context, tx Tx, op Operation, ref access.KeyRef, scope string) (Actor, *access.Key, error)
+
+// ownKeysIn decides, inside tx, a key principal's act on its own user's
+// keys as CreateAPIKey's key arm does: its authority re-read under
+// CreateKeysScope, then the Policy's OpCreateOwnKey on that user. A session
+// asks no Policy.
+func (s *Service) ownKeysIn(ctx context.Context, tx Tx, p access.Principal, read keyRead) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
+	if !p.IsAPIKey() {
+		return nil
+	}
+	actor, _, err := read(ctx, tx, OpCreateOwnKey, access.KeyRef{ID: p.KeyID, UserID: p.User.ID}, s.keysScope)
+	if err != nil {
+		return err
+	}
+	owner, _ := actor.user()
+	if polErr := s.authorize(ctx, Decision{Op: OpCreateOwnKey, Actor: actor, Target: owner}); polErr != nil {
+		return refuse(polErr)
+	}
+	return nil
+}
+
+// RevokeAPIKey deletes one of p's own keys with its subtree, every key whose
+// LineageIDs holds it, and every token those keys issued, in one Update;
+// one EventKeyRevoked per key follows the commit. p is a principal
+// admitOwnKeys admits, and a key may revoke itself; a key of another user,
+// or none, is ErrNotFound.
+func (s *Service) RevokeAPIKey(ctx context.Context, p access.Principal, id int64) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
+	if err := s.admitOwnKeys(p); err != nil {
 		return err
 	}
 	userID := p.User.ID
 	return s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
+		read := func(ctx context.Context, tx Tx, op Operation, ref access.KeyRef, scope string) (Actor, *access.Key, error) {
+			return s.currentKeyActor(ctx, tx, j, op, ref, scope)
+		}
+		if err := s.ownKeysIn(ctx, tx, p, read); err != nil {
+			return err
+		}
 		revoked, err := revokeSubtree(ctx, tx, userID, id)
 		if err != nil {
 			return err
@@ -249,13 +297,10 @@ func (s *Service) RevokeAPIKey(ctx context.Context, p access.Principal, id int64
 
 // RenameAPIKey sets the label of p's own key id, expired or not, under
 // NewKey.Label's rule, the key's own label aside, so a key can be recased.
-// p must be a full session (ErrSessionRequired); a key of another user, or
-// none, is ErrNotFound. A rename changes no authority and logs no event.
+// p is a principal admitOwnKeys admits; a key of another user, or none, is
+// ErrNotFound. A rename changes no authority and logs no event.
 func (s *Service) RenameAPIKey(ctx context.Context, p access.Principal, id int64, label string) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	if _, err := s.begin(); err != nil {
-		return err
-	}
-	if err := requireSession(p); err != nil {
+	if err := s.admitOwnKeys(p); err != nil {
 		return err
 	}
 	if err := checkKeyLabel(label); err != nil {
@@ -263,6 +308,9 @@ func (s *Service) RenameAPIKey(ctx context.Context, p access.Principal, id int64
 	}
 	ref, now := access.KeyRef{ID: id, UserID: p.User.ID}, s.now()
 	return s.update(ctx, func(tx Tx) error {
+		if err := s.ownKeysIn(ctx, tx, p, s.keyAuthority); err != nil {
+			return err
+		}
 		keys, err := tx.ListAPIKeysByUserID(ctx, ref.UserID)
 		if err != nil {
 			return err
@@ -278,8 +326,8 @@ func (s *Service) RenameAPIKey(ctx context.Context, p access.Principal, id int64
 }
 
 // AllAPIKeys returns every user's keys by ID, each with its owner's
-// username, for an out-of-band actor or a principal RequireAdminScope
-// admits; the zero Actor is ErrSessionRequired. Inside one read
+// username, for an out-of-band actor or a principal RequireKeyScope
+// admits under AdminScope; the zero Actor is ErrSessionRequired. Inside one read
 // transaction a key principal's authority is re-read with AdminScope
 // (key_not_current), and the actor meets Policy (OpManageAllKeys). The keys
 // and the users are read in that transaction, so each Owner is the name the
@@ -375,7 +423,7 @@ func (s *Service) RevokeAnyAPIKey(ctx context.Context, a Actor, id int64) error 
 
 // admitAllKeys is the head of AllAPIKeys and RevokeAnyAPIKey, before any
 // store call: ErrServiceClosed after Shutdown for every actor, then
-// RequireAdminScope's answer for a principal. An out-of-band actor passes;
+// RequireKeyScope's answer under AdminScope for a principal. An out-of-band actor passes;
 // the zero Actor is ErrSessionRequired.
 func (s *Service) admitAllKeys(a Actor) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	if _, err := s.begin(); err != nil {
@@ -446,7 +494,8 @@ func (s *Service) addKeysRevoked(j *journal, userID int64, ids []int64, actor Ev
 	}
 }
 
-// admitAdminScope is RequireAdminScope as an operation's first check,
+// admitAdminScope is RequireKeyScope under AdminScope as an operation's
+// first check,
 // reading Rules() once like every operation.
 func (s *Service) admitAdminScope(p access.Principal) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	if _, err := s.begin(); err != nil {

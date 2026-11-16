@@ -38,7 +38,7 @@ func (h *Handler) admit(d *Descriptor, p access.Principal) error { //nolint:gocr
 		}
 		return h.acct.RequireRecentAuth(p)
 	case ClassKeyScope:
-		return h.acct.RequireAdminScope(p)
+		return h.acct.RequireKeyScope(p, d.Scope)
 	case ClassKeyPermission:
 		return h.acct.RequireKeyPermission(p, d.Scope)
 	default:

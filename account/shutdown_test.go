@@ -47,7 +47,7 @@ func TestShutdownEveryOperation(t *testing.T) {
 			t.Fatalf("Shutdown = %v", err)
 		}
 		closed(t, w, "RequireRecentAuth", func() error { return w.svc.RequireRecentAuth(p) })
-		closed(t, w, "RequireAdminScope", func() error { return w.svc.RequireAdminScope(p) })
+		closed(t, w, "RequireKeyScope", func() error { return w.svc.RequireKeyScope(p, scopeAdmin) })
 		closed(t, w, "RequireKeyPermission", func() error { return w.svc.RequireKeyPermission(p, scopeUsers) })
 	})
 	t.Run("out_of_band", func(t *testing.T) {

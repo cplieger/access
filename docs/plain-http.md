@@ -28,7 +28,7 @@ Under `PosturePerRequest`, a plain request may sign in and set up the first acco
 
 Four rows need a reason:
 
-- **Reading and changing the SSO mode are refused.** A change moves every account's way in, so only an owner on a secure request makes it, and the readiness read answers the refusals the change would.
+- **Reading and changing the SSO mode are refused.** A change moves every account's way in, so only an owner on a secure request makes it, and the readiness read that previews it for an admin needs a secure request too.
 - **Removing the password is refused.** Over plain HTTP the password is the session's only way back in, since every other sign-in method needs HTTPS.
 - **The code step is allowed, and the other second steps are not.** Over plain HTTP the code stops remote password reuse, but anyone on the path reads the session token in the response the code earns. A passkey assertion, and a passkey proof sent with a removal, need HTTPS, as every passkey ceremony does. A pending sign-in's ticket is bound to the transport that minted it: a plain ticket finishes only over plain HTTP, and a secure ticket presented over plain HTTP is cancelled, since it crossed in clear.
 - **Creating a user is allowed.** It answers no secret, and the new user's password is exposed exactly as a password change's is.

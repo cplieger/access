@@ -290,16 +290,17 @@ func (s *Service) recentAuth(r Rules, p access.Principal) error { //nolint:gocri
 	return access.RequireRecentAuth(p, r.RecentAuth, s.now())
 }
 
-// RequireAdminScope admits p to the admin-scope operations: nil for a
-// session, or for a principal the built-in API-key verifier produced
-// (access.Principal.IsAPIKey) carrying Config.AdminScope when that is set.
-// Otherwise ErrSessionRequired when AdminScope is empty, and
-// ErrScopeRequired.
-func (s *Service) RequireAdminScope(p access.Principal) error { //nolint:gocritic // hugeParam: as RequireRecentAuth
+// RequireKeyScope admits p to an operation that scope opens to keys beside
+// every session: nil for a session, or for a principal the built-in API-key
+// verifier produced (access.Principal.IsAPIKey) carrying scope when scope is
+// non-empty. Otherwise ErrSessionRequired when scope is empty, and
+// ErrScopeRequired. It reads the request's principal only: the operation it
+// guards re-reads a key's authority inside its transaction.
+func (s *Service) RequireKeyScope(p access.Principal, scope string) error { //nolint:gocritic // hugeParam: as RequireRecentAuth
 	if s.closed.Load() {
 		return ErrServiceClosed
 	}
-	return s.admitKey(p, s.adminScope, func() error { return nil })
+	return s.admitKey(p, scope, func() error { return nil })
 }
 
 // RequireKeyPermission admits p to an operation that scope opens to keys:
