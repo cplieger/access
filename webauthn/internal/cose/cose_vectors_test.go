@@ -55,8 +55,8 @@ func s16(t testing.TB) map[string]s16Vector {
 	return f.Vectors
 }
 
-// attestationMember returns one member of an attestation object (WebAuthn
-// §6.5, the fmt, attStmt and authData map).
+// attestationMember returns one member of an attestation object
+// (WebAuthn §6.5, the fmt, attStmt and authData map).
 func attestationMember(t testing.TB, attObj []byte, name string) cbor.Value {
 	t.Helper()
 	v, _, err := cbor.Decode(attObj)
@@ -105,9 +105,9 @@ func flipLast(b []byte) []byte {
 	return c
 }
 
-// §16's layer of vectors that runs Verify alone: every published assertion
-// verifies under its registration's credential public key, and a flipped
-// signature byte does not (WebAuthn §7.2's signature step).
+// WebAuthn §16's layer of vectors that runs Verify alone: every published
+// assertion verifies under its registration's credential public key, and a
+// flipped signature byte does not (WebAuthn §7.2's signature step).
 func TestVerify_WebAuthn16_assertions(t *testing.T) {
 	t.Parallel()
 	vectors := s16(t)
@@ -122,28 +122,28 @@ func TestVerify_WebAuthn16_assertions(t *testing.T) {
 			v := vectors[sec]
 			k, err := cose.ParseKey(credentialKey(t, v.Registration.bytes(t, "attestationObject")))
 			if err != nil {
-				t.Fatalf("§%s %s: ParseKey: %v", sec, v.Title, err)
+				t.Fatalf("WebAuthn §%s %s: ParseKey: %v", sec, v.Title, err)
 			}
 			if k.Algorithm() != alg {
-				t.Errorf("§%s: Algorithm() = %d, want %d", sec, k.Algorithm(), alg)
+				t.Errorf("WebAuthn §%s: Algorithm() = %d, want %d", sec, k.Algorithm(), alg)
 			}
 			a := v.Authentication
 			authData, hash, sig := a.bytes(t, "authenticatorData"), sha256.Sum256(a.bytes(t, "clientDataJSON")), a.bytes(t, "signature")
 			if err := k.Verify(authData, hash, sig); err != nil {
-				t.Errorf("§%s: Verify(published assertion) = %v, want nil", sec, err)
+				t.Errorf("WebAuthn §%s: Verify(published assertion) = %v, want nil", sec, err)
 			}
 			if err := k.Verify(authData, hash, flipLast(sig)); !errors.Is(err, cose.ErrSignature) {
-				t.Errorf("§%s: Verify(flipped signature) = %v, want ErrSignature", sec, err)
+				t.Errorf("WebAuthn §%s: Verify(flipped signature) = %v, want ErrSignature", sec, err)
 			}
 			if err := k.Verify(flipLast(authData), hash, sig); !errors.Is(err, cose.ErrSignature) {
-				t.Errorf("§%s: Verify(flipped authData) = %v, want ErrSignature", sec, err)
+				t.Errorf("WebAuthn §%s: Verify(flipped authData) = %v, want ErrSignature", sec, err)
 			}
 		})
 	}
 }
 
-// ES384 (§16.8), ES512 (§16.9) and Ed448 (§16.12) are not offered, so their
-// keys are refused as such (WebAuthn §7.1's pubKeyCredParams step).
+// ES384 (WebAuthn §16.8), ES512 (§16.9) and Ed448 (§16.12) are not offered,
+// so their keys are refused as such (WebAuthn §7.1's pubKeyCredParams step).
 func TestParseKey_WebAuthn16_notOffered(t *testing.T) {
 	t.Parallel()
 	vectors := s16(t)
@@ -152,13 +152,13 @@ func TestParseKey_WebAuthn16_notOffered(t *testing.T) {
 			t.Parallel()
 			raw := credentialKey(t, vectors[sec].Registration.bytes(t, "attestationObject"))
 			if _, err := cose.ParseKey(raw); !errors.Is(err, cose.ErrUnsupported) {
-				t.Errorf("§%s: ParseKey = %v, want ErrUnsupported", sec, err)
+				t.Errorf("WebAuthn §%s: ParseKey = %v, want ErrUnsupported", sec, err)
 			}
 		})
 	}
 }
 
-// §16.3's packed self attestation is signed by the credential key over
+// WebAuthn §16.3's packed self attestation is signed by the credential key over
 // authData ‖ SHA-256(clientDataJSON) (WebAuthn §8.2, the self attestation
 // branch).
 func TestVerify_WebAuthn16_3_selfAttestation(t *testing.T) {
@@ -214,9 +214,10 @@ func keyLabels(t testing.TB, raw []byte) map[int64][]byte {
 	return out
 }
 
-// The §16 vectors pin which input each primitive takes: ECDSA (§6.5.5) and
-// RSASSA-PKCS1-v1_5 verify SHA-256(M), so the published signature fails
-// against M itself or against a second hash, and only Verify's rule passes.
+// The WebAuthn §16 vectors pin which input each primitive takes: ECDSA
+// (WebAuthn §6.5.5) and RSASSA-PKCS1-v1_5 verify SHA-256(M), so the published
+// signature fails against M itself or against a second hash, and only
+// Verify's rule passes.
 func TestVerify_WebAuthn16_digestRule(t *testing.T) {
 	t.Parallel()
 	vectors := s16(t)
@@ -266,10 +267,10 @@ func TestVerify_WebAuthn16_digestRule(t *testing.T) {
 	})
 }
 
-// §6.5.1.1's examples: the one complete key (EC2, ES256) parses from its
-// published CTAP2 canonical encoding; the RSA examples publish n's length and
-// ends but elide its middle, so the RS256 one is built from its label set with
-// those ends and a filled middle, and PS256 (-37) is not offered.
+// WebAuthn §6.5.1.1's examples: the one complete key (EC2, ES256) parses from
+// its published CTAP2 canonical encoding; the RSA examples publish n's length
+// and ends but elide its middle, so the RS256 one is built from its label set
+// with those ends and a filled middle, and PS256 (-37) is not offered.
 func TestParseKey_WebAuthn6_5_1_1(t *testing.T) {
 	t.Parallel()
 	var f struct {
@@ -445,12 +446,12 @@ func TestParseKey_doesNotAliasInput(t *testing.T) {
 		raw := slices.Clone(credentialKey(t, v.Registration.bytes(t, "attestationObject")))
 		k, err := cose.ParseKey(raw)
 		if err != nil {
-			t.Fatalf("§%s: ParseKey = %v", sec, err)
+			t.Fatalf("WebAuthn §%s: ParseKey = %v", sec, err)
 		}
 		clear(raw)
 		a := v.Authentication
 		if err := k.Verify(a.bytes(t, "authenticatorData"), sha256.Sum256(a.bytes(t, "clientDataJSON")), a.bytes(t, "signature")); err != nil {
-			t.Errorf("§%s: Verify after the input was overwritten = %v, want nil", sec, err)
+			t.Errorf("WebAuthn §%s: Verify after the input was overwritten = %v, want nil", sec, err)
 		}
 	}
 	e := rfc9964(t)[0]

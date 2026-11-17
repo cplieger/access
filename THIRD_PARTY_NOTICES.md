@@ -249,7 +249,7 @@ SOFTWARE.
 
 <https://www.w3.org/TR/2026/REC-webauthn-3-20260825/>, W3C Software and Document License (2023).
 
-`webauthn/testdata/vectors/webauthn-l3-s16.json` holds the test vectors of §16.2 to §16.16, and `webauthn-l3-s6.5.1.1.json` the example keys of §6.5.1.1, extracted from the Recommendation and re-encoded as JSON; each file names its source and section. This software includes material copied from or derived from Web Authentication: An API for accessing Public Key Credentials - Level 3, <https://www.w3.org/TR/webauthn-3/>. Copyright © 2026 World Wide Web Consortium. <https://www.w3.org/copyright/software-license-2023/>
+`webauthn/testdata/vectors/webauthn-l3-s16.json` holds the test vectors of WebAuthn Level 3 §16.2 to §16.16, and `webauthn-l3-s6.5.1.1.json` the example keys of §6.5.1.1, extracted from the Recommendation and re-encoded as JSON; each file names its source and section. This software includes material copied from or derived from Web Authentication: An API for accessing Public Key Credentials - Level 3, <https://www.w3.org/TR/webauthn-3/>. Copyright © 2026 World Wide Web Consortium. <https://www.w3.org/copyright/software-license-2023/>
 
 ```text
 License

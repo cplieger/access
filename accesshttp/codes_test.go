@@ -20,9 +20,9 @@ import (
 	"github.com/cplieger/access/webauthn"
 )
 
-// accountSentinels is §7.2's code table read from its From column: each
-// error an account call returns, with the code the table gives it; code ""
-// is an error the table does not name, a WebAuthn finish's own failure.
+// accountSentinels is the code table: each error an account call
+// returns, with the code classify must give it; code "" is an error the
+// table does not name, a WebAuthn finish's own failure.
 // accesshttp's own refusals and the Authenticator's are boundary cases, and
 // so is webauthn.ErrResponseTooLarge: readCredential refuses a body past
 // webauthn.MaxResponseBytes before account reads it.
@@ -110,7 +110,7 @@ var finishFailure = map[ceremony]access.Code{ceremonyAssertion: access.CodeAsser
 // TestAccountSentinelsCoverAccount parses account's non-test files for its
 // exported Err* values and the types whose Is method matches one, and this
 // file for accountSentinels' rows. Each Err* has a row, as itself or as a
-// type matching it, whose §7.2 code classify gives, so a new account
+// type matching it, with the code classify gives it, so a new account
 // sentinel cannot reach the census unlisted and answer auth_unavailable.
 func TestAccountSentinelsCoverAccount(t *testing.T) {
 	t.Parallel()
@@ -203,7 +203,7 @@ func TestAccountSentinelsCoverAccount(t *testing.T) {
 		}
 		row := accountSentinels[i]
 		if !slices.Contains(access.Codes(), row.code) {
-			t.Errorf("account.%s: row %s names code %q, not a §7.2 code", name, row.name, row.code)
+			t.Errorf("account.%s: row %s names code %q, not one of access.Codes()", name, row.name, row.code)
 			continue
 		}
 		if e, ok := classify(row.err, ceremonyNone); !ok || e.Code != row.code {
@@ -386,7 +386,7 @@ func (c *census) passing(t *testing.T, rt Route) *censusPrincipal {
 	return p
 }
 
-// TestDescriptorCodes is §9.5 "Per-route codes" over the fake account,
+// TestDescriptorCodes is the per-route code check over the fake account,
 // under the key scopes all empty and all set: every route answers its
 // boundary cases with their codes, every bypass principal it refuses, and,
 // on a principal its guard admits, its account call answering each
@@ -477,7 +477,7 @@ func (c *census) sweepSentinels(t *testing.T, rt Route, answered map[access.Code
 	}
 }
 
-// TestDescriptorCodesReached is §9.5 "Per-route codes" over the real
+// TestDescriptorCodesReached is the per-route code check over the real
 // Service: every route's boundary cases, generated per class and route
 // shape, and the operation scenarios written with its handler, hold one
 // scenario per code its Codes lists under the key scopes all empty and all

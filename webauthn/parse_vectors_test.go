@@ -60,7 +60,7 @@ func s16Section(t testing.TB, section string) s16Vector {
 	t.Helper()
 	v, ok := s16(t)[section]
 	if !ok {
-		t.Fatalf("no §%s vector", section)
+		t.Fatalf("no WebAuthn §%s vector", section)
 	}
 	return v
 }
@@ -84,11 +84,11 @@ func vectorAuthData(t testing.TB, v s16Vector) []byte {
 	return nil
 }
 
-// TestParseVectors_WebAuthn16_attestationObject is layer 2 at the
-// attestation object: every §16 registration half parses to its published
-// fmt, and its authData to the published AAGUID and credential ID, with the
-// key's bytes kept as received (§6.5.1) and the AAGUID kept whatever the
-// format (§18.1.1).
+// TestParseVectors_WebAuthn16_attestationObject is layer 2 at the attestation
+// object: every WebAuthn §16 registration half parses to its published fmt,
+// and its authData to the published AAGUID and credential ID, with the key's
+// bytes kept as received (WebAuthn §6.5.1) and the AAGUID kept whatever the
+// format (WebAuthn §18.1.1).
 func TestParseVectors_WebAuthn16_attestationObject(t *testing.T) {
 	t.Parallel()
 	formats := map[string]string{
@@ -128,7 +128,8 @@ func TestParseVectors_WebAuthn16_attestationObject(t *testing.T) {
 			if !bytes.Equal(a.attested.id, id) {
 				t.Errorf("credential ID = %x, want %x", a.attested.id, id)
 			}
-			// No §16 vector carries extensions, so the key ends authData.
+			// No WebAuthn §16 vector carries extensions, so the key ends
+			// authData.
 			if keyAt := minAuthDataBytes + attestedHeadBytes + len(id); !bytes.Equal(a.attested.publicKey, o.authData[keyAt:]) {
 				t.Errorf("credential public key = %x, want the bytes after the credential ID, %x", a.attested.publicKey, o.authData[keyAt:])
 			}
@@ -137,9 +138,9 @@ func TestParseVectors_WebAuthn16_attestationObject(t *testing.T) {
 }
 
 // TestParseVectors_WebAuthn16_statement is layer 2 at the statement: the none
-// statements of §16.2 and §16.4 to §16.6 and §16.3's self attestation are
-// accepted (§8.7, §8.2), and every other published format, packed with x5c
-// included, is refused as a format.
+// statements of WebAuthn §16.2 and §16.4 to §16.6 and §16.3's self
+// attestation are accepted (WebAuthn §8.7, §8.2), and every other published
+// format, packed with x5c included, is refused as a format.
 func TestParseVectors_WebAuthn16_statement(t *testing.T) {
 	t.Parallel()
 	for section, v := range s16(t) {
@@ -153,8 +154,8 @@ func TestParseVectors_WebAuthn16_statement(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseAuthData: %v", err)
 			}
-			// §16.8, §16.9 and §16.12's keys are not offered; their packed
-			// statements carry x5c, refused before the key is read.
+			// WebAuthn §16.8, §16.9 and §16.12's keys are not offered; their
+			// packed statements carry x5c, refused before the key is read.
 			key, _ := cose.ParseKey(a.attested.publicKey)
 			hash := sha256.Sum256(v.Registration.bytes(t, "clientDataJSON"))
 			err = o.verifyStatement(key, hash)
@@ -177,9 +178,9 @@ func TestParseVectors_WebAuthn16_statement(t *testing.T) {
 // stopping at its first refusal in step order: UV, then the algorithm.
 func TestParseVectors_WebAuthn16_registrationAuthData(t *testing.T) {
 	t.Parallel()
-	// From each half's published flags octet and credential key: §16.2,
-	// §16.5, §16.6, §16.8, §16.11, §16.12, §16.15 and §16.16 have UV clear;
-	// §16.9's key is ES512 (-36).
+	// From each half's published flags octet and credential key
+	// (WebAuthn §16): vectors 16.2, 16.5, 16.6, 16.8, 16.11, 16.12, 16.15 and
+	// 16.16 have UV clear; 16.9's key is ES512 (-36).
 	refusals := map[string]error{
 		"16.2": errUserVerification, "16.5": errUserVerification, "16.6": errUserVerification,
 		"16.8": errUserVerification, "16.11": errUserVerification, "16.12": errUserVerification,
@@ -231,7 +232,7 @@ func TestParseVectors_WebAuthn16_assertionAuthData(t *testing.T) {
 
 // TestParseVectors_WebAuthn16_framed checks §16.4's crossOrigin and §16.5's
 // topOrigin client data, both halves as published, refused as framed
-// (§5.8.1; access is never framed).
+// (WebAuthn §5.8.1; access is never framed).
 func TestParseVectors_WebAuthn16_framed(t *testing.T) {
 	t.Parallel()
 	origin := mustParseOrigin(t, vectorOrigin)

@@ -229,7 +229,7 @@ func TestRouteAuthAdminKeyRevoke(t *testing.T) {
 	})
 }
 
-// TestAdminTokensListsLiveTokens is §9.5 "Views" for authAdminTokens.
+// TestAdminTokensListsLiveTokens checks the view authAdminTokens answers.
 func TestAdminTokensListsLiveTokens(t *testing.T) {
 	e := newEnv(t, allScopes)
 	root := e.rootSession(t)
@@ -484,7 +484,7 @@ func TestKeyAdminTargetRoutes(t *testing.T) {
 	})
 }
 
-// TestKeysAdminOnlyRoute is §9.5 "Key minting policy" through authKeyCreate.
+// TestKeysAdminOnlyRoute is the key minting policy through authKeyCreate.
 func TestKeysAdminOnlyRoute(t *testing.T) {
 	mint := func(e *env, cookie *http.Cookie, scopes ...string) *httptest.ResponseRecorder {
 		return do(e.route(t, "authKeyCreate"), e.post(t, "authKeyCreate", keyBody(t, "ci "+strings.Join(scopes, " "), scopes...), cookie))
@@ -583,7 +583,7 @@ func TestShownOnceRoutes(t *testing.T) {
 	})
 }
 
-// TestRulesReloadInvalidHTTP is §9.5 "Breach client on reload" through
+// TestRulesReloadInvalidHTTP is the breach client on reload through
 // authPasswordSet.
 func TestRulesReloadInvalidHTTP(t *testing.T) {
 	failOpen := &atomic.Bool{}

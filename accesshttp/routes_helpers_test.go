@@ -373,7 +373,7 @@ func cookieNamed(w *httptest.ResponseRecorder, name string) *http.Cookie {
 }
 
 // names are the cookie names a request to testOrigin uses, the device
-// cookie's derived as §7.4 names it rather than through deviceCookie.
+// cookie's derived here by hand rather than through deviceCookie.
 func (e *env) names() (session, device string) {
 	cfg := e.authn.Cookie()
 	dcfg := cfg.Derive("device", http.SameSiteLaxMode)
@@ -459,7 +459,7 @@ func (e *env) requireTrustedDevice(t *testing.T, name string, device *http.Cooki
 
 // requireLinkRotated checks that a link's response set a session cookie
 // for name's full session, for the absolute timeout, and no device cookie:
-// a link is neither a sign-in nor a step-up (§7.4).
+// a link is neither a sign-in nor a step-up.
 func (e *env) requireLinkRotated(t testing.TB, w *httptest.ResponseRecorder, name string) {
 	t.Helper()
 	sessionName, deviceName := e.names()

@@ -16,7 +16,7 @@ import (
 	"github.com/cplieger/access/account"
 )
 
-// withLogCaps sets the non-default class caps (E15).
+// withLogCaps sets the non-default class caps.
 func withLogCaps(changes, sessions int) func(*account.Config) {
 	return func(c *account.Config) { c.LogMaxChanges, c.LogMaxSessions = changes, sessions }
 }

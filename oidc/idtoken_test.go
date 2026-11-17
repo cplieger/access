@@ -143,9 +143,9 @@ func TestIDToken_Issuer(t *testing.T) {
 	})
 }
 
-// OpenID Connect Core 1.0 §2: sub is a string of at most 255 ASCII
-// characters (RFC 20), required and never empty; a control character (RFC
-// 20 §5.2, 0x00 to 0x1F and 0x7F) is refused too.
+// OpenID Connect Core 1.0 §2: sub is a string of at most 255 ASCII characters
+// (RFC 20), required and never empty; a control character (RFC 20 §5.2, 0x00
+// to 0x1F and 0x7F) is refused too.
 func TestIDToken_Subject(t *testing.T) {
 	t.Parallel()
 	for _, sub := range []string{"a", strings.Repeat("a", 255), "a b", "!~", "248289761001"} {
@@ -319,8 +319,8 @@ func TestIDToken_NotBefore(t *testing.T) {
 // OpenID Connect Core 1.0 §3.1.3.7 step 11: the nonce sent in the
 // authentication request must be present and equal, on every flow, and no
 // claim switches the check off (Authlib CVE-2026-114617). A nonce that is
-// missing or not a string is a malformed token (§2), refused before any
-// comparison; a string other than the sealed one is a mismatch.
+// missing or not a string is a malformed token (Core 1.0 §2), refused before
+// any comparison; a string other than the sealed one is a mismatch.
 func TestIDToken_Nonce(t *testing.T) {
 	t.Parallel()
 	fresh := tokenNow.Unix()
@@ -348,8 +348,9 @@ func TestIDToken_Nonce(t *testing.T) {
 	}
 }
 
-// Every claim is type-checked before any is compared (Core §2 and §3.1.3.7),
-// so a token that also carries another nonce is refused as malformed.
+// Every claim is type-checked before any is compared
+// (Core 1.0 §2 and §3.1.3.7), so a token that also carries another nonce is
+// refused as malformed.
 func TestIDToken_TypesBeforeComparisons(t *testing.T) {
 	t.Parallel()
 	for name, set := range map[string]map[string]any{
@@ -368,9 +369,10 @@ func TestIDToken_TypesBeforeComparisons(t *testing.T) {
 }
 
 // OpenID Connect Core 1.0 §5.1: email, preferred_username and name are
-// strings and email_verified a boolean; auth_time is a NumericDate (§2).
-// null reads as absent on each, and email_verified also takes the strings
-// "true" and "false", as providers send and go-oidc's stringAsBool read.
+// strings and email_verified a boolean; auth_time is a NumericDate
+// (Core 1.0 §2). null reads as absent on each, and email_verified also takes
+// the strings "true" and "false", as providers send and go-oidc's
+// stringAsBool read.
 func TestIDToken_ProfileClaims(t *testing.T) {
 	t.Parallel()
 	c := mustAccept(t, idToken(t, map[string]any{

@@ -21,9 +21,9 @@ import (
 	"github.com/cplieger/access/webauthn"
 )
 
-// designOwnReasons is accesshttp's part of the reason list from §7.2 and
-// errata E12, E22, E26 and E33, written from the spec, not from ownReasons.
-var designOwnReasons = []string{
+// wantOwnReasons is accesshttp's part of the reason list, written by hand
+// rather than read from ownReasons.
+var wantOwnReasons = []string{
 	"ttl_too_long", "ttl_negative", "no_change", "expiry_invalid", "redirect_too_long",
 	"current_password_required", "session_gone", "pending_too_large", "stale_authentication",
 	"flow_invalid", "exchange_failed", "token_invalid", "nonce_mismatch",
@@ -123,8 +123,8 @@ func TestReasonTable(t *testing.T) {
 	got := Reasons()
 	t.Run("own_part", func(t *testing.T) {
 		t.Parallel()
-		if !slices.Equal(got[:min(len(got), len(designOwnReasons))], designOwnReasons) {
-			t.Errorf("Reasons() starts %v, want %v", got[:min(len(got), len(designOwnReasons))], designOwnReasons)
+		if !slices.Equal(got[:min(len(got), len(wantOwnReasons))], wantOwnReasons) {
+			t.Errorf("Reasons() starts %v, want %v", got[:min(len(got), len(wantOwnReasons))], wantOwnReasons)
 		}
 	})
 	t.Run("no_display_name_empty", func(t *testing.T) {
@@ -135,7 +135,7 @@ func TestReasonTable(t *testing.T) {
 	})
 	t.Run("composition", func(t *testing.T) {
 		t.Parallel()
-		want := slices.Clone(designOwnReasons)
+		want := slices.Clone(wantOwnReasons)
 		want = append(want, "transport_changed", "sign_in_again")
 		for _, r := range access.PasswordRejections() {
 			want = append(want, string(r))

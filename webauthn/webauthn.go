@@ -41,9 +41,9 @@ type Store interface {
 	PasskeysByUserID(ctx context.Context, userID int64) ([]access.PasskeyCredential, error)
 	// RecordAssertion stores a verified assertion's custody in one atomic
 	// step: the larger of the stored and upd's SignCount, the OR of both
-	// CloneWarnings, and upd's RawFlags and At (BS may clear, WebAuthn L3
-	// §6.1.3). It compares nothing: the ceremony decided the regression.
-	// A credential userID does not hold is an error.
+	// CloneWarnings, and upd's RawFlags and At (BS may clear,
+	// WebAuthn L3 §6.1.3). It compares nothing: the ceremony decided the
+	// regression. A credential userID does not hold is an error.
 	RecordAssertion(ctx context.Context, userID int64, credID []byte, upd access.PasskeyLoginUpdate) error
 	UserByWebAuthnHandle(ctx context.Context, handle []byte) (user *access.User, found bool, err error)
 }
@@ -358,7 +358,7 @@ func newCeremony(kind ceremonyKind, origin Origin, userHandle []byte, allowed []
 	return st
 }
 
-// checkUserHandle applies §5.4.3's bound on a user handle.
+// checkUserHandle applies WebAuthn §5.4.3's bound on a user handle.
 func checkUserHandle(handle []byte) error {
 	if len(handle) == 0 || len(handle) > maxUserHandleBytes {
 		return errUserHandleSize
@@ -372,7 +372,8 @@ func timeoutMillis() int {
 }
 
 // credentialDescriptors lists creds for excludeCredentials or
-// allowCredentials (§5.8.3), each with the transports its record holds.
+// allowCredentials (WebAuthn §5.8.3), each with the transports its record
+// holds.
 func credentialDescriptors(creds []access.PasskeyCredential) []CredentialDescriptor {
 	if len(creds) == 0 {
 		return nil

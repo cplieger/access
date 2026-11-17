@@ -19,9 +19,8 @@ import (
 )
 
 // PasswordMinLength is the shortest password [ValidatePasswordLength]
-// accepts, in runes after NFC. A password is always a sole sufficient
-// factor here, so the floor never drops below NIST's 15 (SP 800-63B-4
-// §3.1.1.2).
+// accepts, in runes after NFC. A password is always a sole sufficient factor
+// here, so the floor never drops below NIST's 15 (SP 800-63B-4 §3.1.1.2).
 const PasswordMinLength = 15
 
 // PasswordMaxLength is the longest password [ValidatePasswordLength]

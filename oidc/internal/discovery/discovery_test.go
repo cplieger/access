@@ -194,10 +194,10 @@ func endpoints(t *testing.T, field, secret string) {
 }
 
 // OpenID Connect Discovery 1.0 §3 and Core 1.0 §3.1.3.7 step 7: the
-// provider's algorithms are id_token_signing_alg_values_supported, RS256
-// when absent, intersected with the accepted rows (RFC 7518 §3.1; RFC 9864
-// §2.2 names one row EdDSA and Ed25519). An empty intersection, or a list
-// that is not an array of strings, refuses the document.
+// provider's algorithms are id_token_signing_alg_values_supported, RS256 when
+// absent, intersected with the accepted rows (RFC 7518 §3.1; RFC 9864 §2.2
+// names one row EdDSA and Ed25519). An empty intersection, or a list that is
+// not an array of strings, refuses the document.
 func TestParse_Algorithms(t *testing.T) {
 	t.Parallel()
 	const issuer = "https://idp.example"

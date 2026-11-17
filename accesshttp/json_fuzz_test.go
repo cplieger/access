@@ -19,7 +19,7 @@ import (
 // a run keeps nothing per request.
 const fuzzCodeHeader = "X-Test-Code"
 
-// specBodyCap is §7.4's JSON body cap, the oracle maxBodyBytes must meet.
+// specBodyCap is the JSON body cap, the oracle maxBodyBytes must meet.
 const specBodyCap = 4 << 10
 
 // proofBodyCap is a SecondFactorProof body's cap: it may carry a WebAuthn
@@ -129,7 +129,7 @@ func withMember(obj, name string, value []byte) []byte {
 	return append(out, obj[1:]...)
 }
 
-// FuzzAccesshttpJSON is §9.3's property over every route decodeJSON reads:
+// FuzzAccesshttpJSON holds one property over every route decodeJSON reads:
 // any body either reaches the route's operation or is refused with 400
 // auth_bad_request, a body past its cap (4 KiB, or a proof's 64 KiB) is
 // refused with 413

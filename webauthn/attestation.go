@@ -17,8 +17,8 @@ var (
 	errAttestationSignature = errors.New("access/webauthn: the self attestation signature does not verify")
 )
 
-// The formats access accepts: none (§8.7), and packed (§8.2) without x5c,
-// which is self attestation.
+// The formats access accepts: none (WebAuthn §8.7), and packed (§8.2) without
+// x5c, which is self attestation.
 const (
 	formatNone   = "none"
 	formatPacked = "packed"
@@ -30,9 +30,9 @@ type attestationObject struct {
 	statement cbor.Value
 }
 
-// parseAttestationObject reads an attestation object (§6.5.4): one CBOR map
-// of exactly fmt (text), attStmt (map) and authData (bytes), with nothing
-// after it.
+// parseAttestationObject reads an attestation object (WebAuthn §6.5.4): one
+// CBOR map of exactly fmt (text), attStmt (map) and authData (bytes), with
+// nothing after it.
 func parseAttestationObject(raw []byte) (*attestationObject, error) {
 	v, rest, err := cbor.Decode(raw)
 	if err != nil {
@@ -76,8 +76,8 @@ func parseAttestationObject(raw []byte) (*attestationObject, error) {
 // verifyStatement accepts a none statement, or a packed self attestation
 // whose sig verifies under key over authData ‖ clientDataHash. Any other
 // format, and packed with x5c, is errAttestationFormat: under the default
-// conveyance the client sends only these two (§5.4.7), and the others need
-// the trust model access excludes.
+// conveyance the client sends only these two (WebAuthn §5.4.7), and the
+// others need the trust model access excludes.
 func (o *attestationObject) verifyStatement(key *cose.Key, clientDataHash [sha256.Size]byte) error {
 	switch o.format {
 	case formatNone:
@@ -92,7 +92,7 @@ func (o *attestationObject) verifyStatement(key *cose.Key, clientDataHash [sha25
 	}
 }
 
-// verifySelf runs §8.2's self attestation branch.
+// verifySelf runs WebAuthn §8.2's self attestation branch.
 func (o *attestationObject) verifySelf(key *cose.Key, clientDataHash [sha256.Size]byte) error {
 	members := o.members()
 	if _, full := members["x5c"]; full {

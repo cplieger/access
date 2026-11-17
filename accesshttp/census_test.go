@@ -38,7 +38,7 @@ const (
 	credBypass
 )
 
-// censusPrincipal is one row of §9.5's census matrix.
+// censusPrincipal is one row of the census matrix.
 type censusPrincipal struct {
 	send   func(r *http.Request)
 	name   string
@@ -93,7 +93,7 @@ func (p *censusPrincipal) guardAnswer(d *Descriptor) access.Code {
 // census is a handler whose operations it counts and, while stub is set,
 // stubs with fault (errStubbed when nil), over a store that counts each
 // census request's account calls. faults are principals the Authenticator
-// refuses, outside §9.5's matrix.
+// refuses, outside the matrix.
 type census struct {
 	*env
 	store      *countingStore
@@ -298,7 +298,7 @@ func (c *census) serve(t *testing.T, rt Route, p *censusPrincipal, body string) 
 	return w, c.errs.all()[errsBefore:], c.store.calls.Load() - callsBefore
 }
 
-// TestCensusMatrix is §9.5 "Census": every principal against every route,
+// TestCensusMatrix is the census: every principal against every route,
 // under the key scopes all empty and all set. A refused cell runs over the
 // real Service and answers its guard code with no account store call and no
 // operation called, so a guard that lets it through to account, which
@@ -388,7 +388,7 @@ func (c *census) cell(t *testing.T, rt Route, p *censusPrincipal) {
 	}
 }
 
-// TestCensusUserNamingAdminRoutes is §9.5 "Census"'s policy-before-existence
+// TestCensusUserNamingAdminRoutes is the census's policy-before-existence
 // cells: a non-admin's recent session on each user-naming admin route, for
 // an existing and a missing ID with the same body, and, with the scopes
 // set, a manage_users key naming an admin, all answer auth_forbidden alike

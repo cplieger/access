@@ -102,8 +102,9 @@ func recoveryFailures(t testing.TB, f *sfFixture, name string, trusted bool) (ac
 	return rec, found
 }
 
-// TestSignInWithRecoveryCode checks the recovery-code step: NIST SP
-// 800-63B-4 §4.2.1.1's saved recovery code, used once after the password.
+// TestSignInWithRecoveryCode checks the recovery-code step:
+// NIST SP 800-63B-4 §4.2.1.1's saved recovery code, used once after the
+// password.
 func TestSignInWithRecoveryCode(t *testing.T) {
 	t.Parallel()
 	// The step commits its count, which the match clears,

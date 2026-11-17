@@ -40,8 +40,8 @@ func TestObject_Accepted(t *testing.T) {
 
 // RFC 8259 §4: names within an object SHOULD be unique, and a receiver may
 // refuse one that is not (RFC 7515 §4, RFC 7519 §4), at any depth and
-// whatever the escape; §8.1: the text is UTF-8, so invalid UTF-8 or a lone
-// surrogate escape is refused anywhere. Nesting is bounded (PyJWT
+// whatever the escape; RFC 8259 §8.1: the text is UTF-8, so invalid UTF-8 or
+// a lone surrogate escape is refused anywhere. Nesting is bounded (PyJWT
 // CVE-2026-102265, Nimbus CVE-2025-53864), and a document is one value.
 func TestObject_Refused(t *testing.T) {
 	t.Parallel()

@@ -226,7 +226,7 @@ func sessionRoutes() []string {
 	return out
 }
 
-// TestContextPassthroughEveryRoute is §9.5 "Context passthrough" through
+// TestContextPassthroughEveryRoute checks context passthrough through
 // accesshttp: on every session-minting and session-rotating route, every
 // store call each request of the flow makes, the Authenticator's and an
 // Update's Tx calls included, carries the value the request's context

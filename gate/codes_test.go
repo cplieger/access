@@ -28,8 +28,8 @@ func codesWith(extra ...access.Code) []access.Code {
 	return out
 }
 
-// TestCodes pins each row's Codes to the design's list, then drives every
-// row through every request a client can send and checks that the answers
+// TestCodes pins each row's Codes to a list written by hand, then drives
+// every row through every request a client can send and checks that the answers
 // are exactly its Codes, each with Cache-Control: no-store.
 func TestCodes(t *testing.T) {
 	t.Parallel()
@@ -117,7 +117,7 @@ func TestCodes(t *testing.T) {
 	t.Run("key_challenges", func(t *testing.T) {
 		t.Parallel()
 		// RFC 6750 §3: a request with no Bearer token gets the bare
-		// challenge; §3.1: a token lacking the scope gets
+		// challenge; RFC 6750 §3.1: a token lacking the scope gets
 		// insufficient_scope naming it.
 		if a := do(t, f, g, http.MethodGet, "/key", sessionCred); a.header.Get("WWW-Authenticate") != `Bearer realm="access"` {
 			t.Errorf("auth_key_required challenge = %q", a.header.Get("WWW-Authenticate"))

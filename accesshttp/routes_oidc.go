@@ -12,7 +12,7 @@ import (
 	"github.com/cplieger/access/oidc"
 )
 
-// The pending-link cookie (§6.6): its seal purpose and lifetime.
+// The pending-link cookie: its seal purpose and lifetime.
 const (
 	pendingPurpose  = "oidc-pending"
 	pendingLifetime = 10 * time.Minute
@@ -122,8 +122,8 @@ func (h *Handler) startSessionFlow(c *call, intent oidc.Intent) error {
 	return nil
 }
 
-// serveOIDCCallback answers every outcome with a redirect (§7.2's callback
-// table), so it returns no error for fail to write.
+// serveOIDCCallback answers every outcome with a redirect, so it returns
+// no error for fail to write.
 func serveOIDCCallback(h *Handler, c *call) error {
 	if flow, err := h.completeCallback(c); err != nil {
 		h.redirectFailure(c, err, flow)
@@ -149,7 +149,7 @@ func (h *Handler) completeCallback(c *call) (oidc.Flow, error) {
 	return flow, h.land(c, &out)
 }
 
-// land sets the cookies out carries and redirects per §7.2.
+// land sets the cookies out carries and redirects.
 func (h *Handler) land(c *call, out *account.OIDCOutcome) error {
 	switch out.Kind {
 	case account.OutcomeSignedIn:

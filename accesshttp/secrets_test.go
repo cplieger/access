@@ -177,7 +177,7 @@ func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler,
 	if err != nil {
 		t.Fatal(err)
 	}
-	// required is the design's: a setup token is optional (Rules decides
+	// required is the route's own: a setup token is optional (Rules decides
 	// whether setup needs one), an absent current password is account's to
 	// refuse, and an admin may create a user with no password.
 	cases := map[string]secretCase{

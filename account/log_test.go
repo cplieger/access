@@ -51,7 +51,7 @@ func logSince(t testing.TB, s account.Store, before []account.LogEntry) []accoun
 	return entries
 }
 
-// kindClasses is each kind's class as the design states it: the session
+// kindClasses is each kind's class, written by hand: the session
 // class holds sign-ins, step-ups and session revocations (docs/security-log.md
 // "What is logged"), refused OIDC admissions, and refused
 // second steps and spent temporary passwords; every other

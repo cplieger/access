@@ -337,9 +337,9 @@ func TestOriginsError_messageComposesOnce(t *testing.T) {
 	}
 }
 
-// TestDefaultOriginRefusesSibling is A5-2's reproduction reversed: with no
-// Origins the relying party accepts only its exact origin, so a sibling
-// subdomain on another port is refused, and AllowSubdomains accepts it.
+// TestDefaultOriginRefusesSibling: with no Origins the relying party accepts
+// only its exact origin, so a sibling subdomain on another port is refused,
+// and AllowSubdomains accepts it.
 func TestDefaultOriginRefusesSibling(t *testing.T) {
 	t.Parallel()
 	sibling := mustParseOrigin(t, "https://evil.example.com:8443")
@@ -503,7 +503,7 @@ func registrationBody(t *testing.T, challenge []byte, origin string) io.Reader {
 	credID := []byte{1, 2, 3}
 	authData := make([]byte, 0, 64)
 	authData = append(authData, make([]byte, 32)...)
-	authData = append(authData, 0x41) // UP and AT (§6.1)
+	authData = append(authData, 0x41) // UP and AT (WebAuthn §6.1)
 	authData = append(authData, 0, 0, 0, 1)
 	authData = append(authData, make([]byte, 16)...)
 	authData = append(authData, 0, byte(len(credID)))

@@ -34,12 +34,12 @@ func refusedProvider(t *testing.T, what string, err error) {
 	}
 }
 
-// TestNewProviderReachedOrRefused checks the split of a failed
-// NewProvider, for the discovery document's arms the flow tests do not
-// reach: a connection or TLS failure, a timeout or an answer other than
-// 200 (OpenID Connect Discovery 1.0 §4.2) is ErrDiscovery; a body that is
-// not a JSON object (§4.2, RFC 8259), one with a duplicate member (RFC 8259
-// §4) and one naming another issuer (§4.3) are ErrProviderInvalid. The
+// TestNewProviderReachedOrRefused checks the split of a failed NewProvider,
+// for the discovery document's arms the flow tests do not reach: a connection
+// or TLS failure, a timeout or an answer other than 200
+// (OpenID Connect Discovery 1.0 §4.2) is ErrDiscovery; a body that is not a
+// JSON object (§4.2, RFC 8259), one with a duplicate member (RFC 8259 §4) and
+// one naming another issuer (Discovery 1.0 §4.3) are ErrProviderInvalid. The
 // app's own configuration stays ErrConfigInvalid, matching neither.
 func TestNewProviderReachedOrRefused(t *testing.T) {
 	t.Parallel()

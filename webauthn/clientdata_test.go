@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// clientDataCase is §16.2's registration challenge, the origin it was made
-// at, and a clientDataJSON written by the test.
+// clientDataCase is WebAuthn §16.2's registration challenge, the origin it
+// was made at, and a clientDataJSON written by the test.
 func clientDataCase(t *testing.T) (challenge []byte, origin Origin) {
 	t.Helper()
 	return s16Section(t, "16.2").Registration.bytes(t, "challenge"), mustParseOrigin(t, vectorOrigin)
@@ -16,7 +16,7 @@ func clientDataCase(t *testing.T) (challenge []byte, origin Origin) {
 
 // TestVerifyClientData_WebAuthn5_8_1 checks §16.2's published client data,
 // unknown members included, and that the hash is SHA-256 of the bytes as
-// received (§7.1's hash step).
+// received (WebAuthn §7.1's hash step).
 func TestVerifyClientData_WebAuthn5_8_1(t *testing.T) {
 	t.Parallel()
 	v := s16Section(t, "16.2")
@@ -41,8 +41,8 @@ func TestVerifyClientData_WebAuthn5_8_1(t *testing.T) {
 }
 
 // TestVerifyClientData_WebAuthn7_1_BOM checks that a leading byte order mark
-// is stripped before parsing (§7.1's UTF-8 decode step) while the hash still
-// covers the bytes as received.
+// is stripped before parsing (WebAuthn §7.1's UTF-8 decode step) while the
+// hash still covers the bytes as received.
 func TestVerifyClientData_WebAuthn7_1_BOM(t *testing.T) {
 	t.Parallel()
 	challenge, origin := clientDataCase(t)
@@ -70,7 +70,7 @@ func TestVerifyClientData_WebAuthn5_8_1_refusals(t *testing.T) {
 	c := b64(challenge)
 	std := strings.NewReplacer("-", "+", "_", "/").Replace(c)
 	if std == c {
-		t.Fatal("§16.2's challenge has no URL-safe character")
+		t.Fatal("WebAuthn §16.2's challenge has no URL-safe character")
 	}
 	for _, tc := range []struct {
 		name string
@@ -100,10 +100,10 @@ func TestVerifyClientData_WebAuthn5_8_1_refusals(t *testing.T) {
 	}
 }
 
-// TestVerifyClientData_JSON checks the parse of §5.8.1's dictionary: at
-// most 4 KiB, exact member names (§5.8.1's WebIDL names), no duplicate
-// member (RFC 8259 §4), valid UTF-8 (§8.1), and unknown members ignored,
-// tokenBinding among them, which Level 3 reserves.
+// TestVerifyClientData_JSON checks the parse of WebAuthn §5.8.1's dictionary:
+// at most 4 KiB, exact member names (WebAuthn §5.8.1's WebIDL names), no
+// duplicate member (RFC 8259 §4), valid UTF-8 (§8.1), and unknown members
+// ignored, tokenBinding among them, which Level 3 reserves.
 func TestVerifyClientData_JSON(t *testing.T) {
 	t.Parallel()
 	challenge, origin := clientDataCase(t)

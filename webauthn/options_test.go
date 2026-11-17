@@ -26,10 +26,11 @@ func publicKeyJSON(t *testing.T, v any) map[string]any {
 	return doc.PublicKey
 }
 
-// TestCreationOptions_WebAuthn5_4_4_requireResidentKey checks that the creation
-// options send requireResidentKey true beside residentKey "required": WebAuthn
-// §5.4.4 has the relying party set it to true for backwards compatibility with
-// Level 1 clients, which read only requireResidentKey.
+// TestCreationOptions_WebAuthn5_4_4_requireResidentKey checks that the
+// creation options send requireResidentKey true beside residentKey
+// "required": WebAuthn §5.4.4 has the relying party set it to true for
+// backwards compatibility with Level 1 clients, which read only
+// requireResidentKey.
 func TestCreationOptions_WebAuthn5_4_4_requireResidentKey(t *testing.T) {
 	t.Parallel()
 	user := &User{AuthUser: &access.User{ID: 42, Username: "alex", WebAuthnHandle: access.GenerateWebAuthnHandle()}}
@@ -52,7 +53,7 @@ func TestCreationOptions_WebAuthn5_4_4_requireResidentKey(t *testing.T) {
 // TestOptions_WebAuthn5_4_7_noAttestationOrHints checks that neither options
 // dictionary carries attestation, attestationFormats or hints: an absent
 // attestation member is the default "none" (WebAuthn §5.4.7), and access
-// sends no hints (§5.8.7).
+// sends no hints (WebAuthn §5.8.7).
 func TestOptions_WebAuthn5_4_7_noAttestationOrHints(t *testing.T) {
 	t.Parallel()
 	rp := testRelyingParty(t)
@@ -219,9 +220,10 @@ func mustJSON(t *testing.T, v any) []byte {
 // TestCreationOptions_WebAuthn5_4_members checks the whole creation options
 // document against WebAuthn §5.4's member names and access's values: the
 // offer order ML-DSA-44, -65, -87 (RFC 9964 §5), EdDSA, ES256, RS256; a
-// required, user-verified resident key (§5.4.4, §5.4.6); the user's passkeys
-// in excludeCredentials with their transports (§5.8.3); credProps (§10.1.3);
-// a 300000 ms timeout; and no attestation, attestationFormats or hints.
+// required, user-verified resident key (WebAuthn §5.4.4, §5.4.6); the user's
+// passkeys in excludeCredentials with their transports (WebAuthn §5.8.3);
+// credProps (WebAuthn §10.1.3); a 300000 ms timeout; and no attestation,
+// attestationFormats or hints.
 func TestCreationOptions_WebAuthn5_4_members(t *testing.T) {
 	t.Parallel()
 	creation, _, err := BeginRegistration(testRelyingParty(t), optionsUser(), exampleOrigin(t))
@@ -250,7 +252,7 @@ func TestCreationOptions_WebAuthn5_4_members(t *testing.T) {
 // document against WebAuthn §5.5's member names and access's values:
 // rpId, required user verification and a 300000 ms timeout; no
 // allowCredentials for a discoverable login and the user's passkeys for a
-// reauthentication (§5.5, §5.8.3); and mediation "conditional" for the
+// reauthentication (WebAuthn §5.5, §5.8.3); and mediation "conditional" for the
 // conditional login only (Credential Management Level 1,
 // CredentialMediationRequirement).
 func TestRequestOptions_WebAuthn5_5_members(t *testing.T) {

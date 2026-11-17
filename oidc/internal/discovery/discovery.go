@@ -47,12 +47,12 @@ func Fetch(ctx context.Context, client *http.Client, issuer string) (Document, e
 	return Parse(issuer, body)
 }
 
-// Parse checks a document fetched for issuer, which must already pass
-// oidc's Config.Validate: its issuer is identical to issuer (Discovery 1.0
-// §4.3), its endpoints meet the https rule, and its
-// id_token_signing_alg_values_supported, RS256 when absent, shares a row
-// with package jwk's table. Every refusal wraps ErrDocument and names the
-// field, never its value.
+// Parse checks a document fetched for issuer, which must already pass oidc's
+// Config.Validate: its issuer is identical to issuer (Discovery 1.0 §4.3),
+// its endpoints meet the https rule, and its
+// id_token_signing_alg_values_supported, RS256 when absent, shares a row with
+// package jwk's table. Every refusal wraps ErrDocument and names the field,
+// never its value.
 func Parse(issuer string, data []byte) (Document, error) {
 	m, err := jsonmember.Object(data)
 	if err != nil {

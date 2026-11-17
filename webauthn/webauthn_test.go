@@ -253,7 +253,7 @@ func begins(rp *RelyingParty, user *User) map[string]beginFunc {
 }
 
 // TestBegin_WebAuthn13_4_3_challenge checks that every Begin sends a fresh
-// 32-byte challenge (§13.4.3 asks for at least 16 random bytes),
+// 32-byte challenge (WebAuthn §13.4.3 asks for at least 16 random bytes),
 // the one its ceremony verifies, expiring CeremonyTimeout after Begin, and
 // that the ceremony shares no byte with the options or the user, so neither
 // can change it after Begin.
@@ -319,7 +319,8 @@ func TestBegin_WebAuthn13_4_3_challenge(t *testing.T) {
 
 // TestBeginReauthentication_WebAuthn5_5_noPasskeys checks that a user holding
 // no passkey cannot begin a reauthentication: its allowCredentials would be
-// empty, which §5.5 reads as a discoverable ceremony any credential answers.
+// empty, which WebAuthn §5.5 reads as a discoverable ceremony any credential
+// answers.
 func TestBeginReauthentication_WebAuthn5_5_noPasskeys(t *testing.T) {
 	t.Parallel()
 	user := optionsUser()
@@ -331,7 +332,7 @@ func TestBeginReauthentication_WebAuthn5_5_noPasskeys(t *testing.T) {
 }
 
 // TestBegin_WebAuthn5_4_3_userHandle checks that the Begins that carry a user
-// handle refuse one outside 1 to 64 bytes (§5.4.3: "maximum size of 64
+// handle refuse one outside 1 to 64 bytes (WebAuthn §5.4.3: "maximum size of 64
 // bytes", and not empty).
 func TestBegin_WebAuthn5_4_3_userHandle(t *testing.T) {
 	t.Parallel()
@@ -352,11 +353,11 @@ func TestBegin_WebAuthn5_4_3_userHandle(t *testing.T) {
 }
 
 // TestFinish_WebAuthn7_ceremonyKind checks that each finish takes only the
-// ceremony kind it answers (§7.1, §7.2 pkOptions): registration for
+// ceremony kind it answers (WebAuthn §7.1, §7.2 pkOptions): registration for
 // FinishRegistration, a login or conditional login for CompleteLogin, a
 // reauthentication for CompleteReauthentication; and a Ceremony no Begin
 // returned is ErrCeremonyUnbound. A matching kind passes on to the response,
-// which "{}" fails at its type (§5.1).
+// which "{}" fails at its type (WebAuthn §5.1).
 func TestFinish_WebAuthn7_ceremonyKind(t *testing.T) {
 	t.Parallel()
 	rp := testRelyingParty(t)
@@ -413,7 +414,8 @@ func TestFinish_WebAuthn7_ceremonyKind(t *testing.T) {
 // TestBegin_GHSA_22w3_693w_x895 checks GHSA-22w3-693w-x895's class at the
 // Begins: under AllowSubdomains for RP ID example.com, https://evilexample.com
 // shares the suffix without the dot and is refused (the registrable domain
-// suffix rule of §5.1.3 and §5.1.4.1), while a subdomain on any port begins.
+// suffix rule of WebAuthn §5.1.3 and §5.1.4.1), while a subdomain on any port
+// begins.
 func TestBegin_GHSA_22w3_693w_x895(t *testing.T) {
 	t.Parallel()
 	rp := mustNew(t, RPConfig{ID: "example.com", DisplayName: "Example", AllowSubdomains: true})

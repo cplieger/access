@@ -332,8 +332,8 @@ func TestValidateSizesTheFlow(t *testing.T) {
 
 // TestBeginFitsTheFlowNewProviderSized is Begin's largest flow, under the
 // longest client ID checkFlowFits accepts and the longest session cookie
-// Name, setting a flow cookie whose name and value fit 4096 bytes (RFC
-// 6265bis section 5.6).
+// Name, setting a flow cookie whose name and value fit 4096 bytes
+// (RFC 6265bis section 5.6).
 func TestBeginFitsTheFlowNewProviderSized(t *testing.T) {
 	t.Parallel()
 	configWith := func(clientID string) Config {

@@ -166,9 +166,9 @@ func TestOpenAtRestPurpose(t *testing.T) {
 	}
 }
 
-// TestOpenAtRestTampered is AES-GCM authenticated decryption (NIST SP
-// 800-38D §7.2: a tag that does not verify answers FAIL): any changed bit,
-// a truncation or an extension is refused.
+// TestOpenAtRestTampered is AES-GCM authenticated decryption
+// (NIST SP 800-38D §7.2: a tag that does not verify answers FAIL): any
+// changed bit, a truncation or an extension is refused.
 func TestOpenAtRestTampered(t *testing.T) {
 	t.Parallel()
 	s := sealerOf(t, ringA)

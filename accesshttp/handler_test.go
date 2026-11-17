@@ -21,7 +21,7 @@ func requireNoStore(t *testing.T, what string, w *httptest.ResponseRecorder) {
 	}
 }
 
-// TestNoStoreEverywhere is BRIEF-8 over every route: every census cell,
+// TestNoStoreEverywhere runs over every route: every census cell,
 // every boundary case and every sentinel its account call can answer, under
 // the key scopes all empty and all set, and a success through each way a
 // route writes one (a JSON body, a show-once body, no body and a redirect)

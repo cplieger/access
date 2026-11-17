@@ -61,10 +61,10 @@ func requirePasswordError(t *testing.T, err error, reason access.PasswordRejecti
 	}
 }
 
-// TestSetCredentialPassword sets the credential by password: NIST SP
-// 800-63B-4 §3.1.1.2's checks, the temporary password
-// refused as the new one, the rule off writing and signing in, the rule on
-// staging the password for the enrolment finish.
+// TestSetCredentialPassword sets the credential by password:
+// NIST SP 800-63B-4 §3.1.1.2's checks, the temporary password refused as the
+// new one, the rule off writing and signing in, the rule on staging the
+// password for the enrolment finish.
 func TestSetCredentialPassword(t *testing.T) {
 	t.Parallel()
 	// With the rule off, one Update writes PasswordHash, journals

@@ -20,7 +20,7 @@ var (
 )
 
 const (
-	// maxUserHandleBytes is §5.4.3's bound on a user handle.
+	// maxUserHandleBytes is WebAuthn §5.4.3's bound on a user handle.
 	maxUserHandleBytes = 64
 	// The record joins transports with commas, so a kept value is short and
 	// holds none.
@@ -29,7 +29,7 @@ const (
 )
 
 // credentialHead holds the members RegistrationResponseJSON and
-// AuthenticationResponseJSON share (§5.1).
+// AuthenticationResponseJSON share (WebAuthn §5.1).
 type credentialHead struct {
 	ID    string `json:"id"`
 	RawID string `json:"rawId"`
@@ -73,9 +73,9 @@ type assertionResponse struct {
 	userHandle []byte
 }
 
-// parseRegistrationResponse reads a RegistrationResponseJSON (§5.1). Member
-// names match exactly, a duplicate member or invalid UTF-8 is refused (RFC
-// 8259 §4, §8.1), and members it does not read are ignored (§5.1.8).
+// parseRegistrationResponse reads a RegistrationResponseJSON (WebAuthn §5.1).
+// Member names match exactly, a duplicate member or invalid UTF-8 is refused
+// (RFC 8259 §4, §8.1), and members it does not read are ignored (§5.1.8).
 func parseRegistrationResponse(body []byte) (*registrationResponse, error) {
 	var r struct {
 		ClientExtensionResults struct {
@@ -108,9 +108,9 @@ func parseRegistrationResponse(body []byte) (*registrationResponse, error) {
 	}, nil
 }
 
-// parseAssertionResponse reads an AuthenticationResponseJSON (§5.1) under
-// parseRegistrationResponse's rules. Its client extension outputs are not
-// read, since no assertion requests one.
+// parseAssertionResponse reads an AuthenticationResponseJSON (WebAuthn §5.1)
+// under parseRegistrationResponse's rules. Its client extension outputs are
+// not read, since no assertion requests one.
 func parseAssertionResponse(body []byte) (*assertionResponse, error) {
 	var r struct {
 		Head     credentialHead `json:",embed"`
@@ -186,8 +186,9 @@ func keptTransports(in []string) []string {
 	return out
 }
 
-// attachment keeps the two attachment modalities (§5.4.5) and reads any other
-// value as none, since an unknown enumeration value is ignored (§2.1.1).
+// attachment keeps the two attachment modalities (WebAuthn §5.4.5) and reads
+// any other value as none, since an unknown enumeration value is ignored
+// (WebAuthn §2.1.1).
 func attachment(s string) access.AuthenticatorAttachment {
 	switch a := access.AuthenticatorAttachment(s); a {
 	case access.AttachmentPlatform, access.AttachmentCrossPlatform:

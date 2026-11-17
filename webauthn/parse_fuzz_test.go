@@ -57,7 +57,7 @@ func FuzzParseRegistrationResponse(f *testing.F) {
 }
 
 // FuzzParseAuthData checks that parseAuthData never panics and that what it
-// accepts it read from the input at §6.1's and §6.5.1's offsets.
+// accepts it read from the input at WebAuthn §6.1's and §6.5.1's offsets.
 func FuzzParseAuthData(f *testing.F) {
 	for _, v := range s16(f) {
 		f.Add(v.Authentication.bytes(f, "authenticatorData"))

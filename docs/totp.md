@@ -140,4 +140,4 @@ NIST SP 800-63B-4 section 4.6 requires telling the account's holder when an auth
 - `second_factor_reset`
 - `temporary_password_set`, `temporary_password_used`, `temporary_password_withdrawn`
 
-A `temporary_password_used` with `plain` set is the exposure notice. An app with no channel does not meet section 4.6.
+A `temporary_password_used` with `plain` set is the exposure notice. An app with no channel does not meet NIST SP 800-63B-4 section 4.6.

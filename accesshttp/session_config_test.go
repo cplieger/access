@@ -55,7 +55,7 @@ func (c *clock) advance(d time.Duration) {
 	c.at.Store(&at)
 }
 
-// TestOneSessionConfiguration is §9.5 "One session configuration": an idle
+// TestOneSessionConfiguration checks one session configuration: an idle
 // limit moved from 2h to 1h at runtime is the verifier's, the sweep's and
 // the OIDC session check's alike, a source answering zero falling back to
 // the static value in all three; and the cookie a password sign-in sets is

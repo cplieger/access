@@ -13,7 +13,7 @@ import (
 // the floor NIST SP 800-63B-4 §4.2.1.1 sets for a saved recovery code, the
 // other secret the CSP issues to restore access; the spec sets none for an
 // assigned password. Two check bytes follow, so the value is 16 Crockford
-// symbols, over §3.1.1.2's 15-character minimum.
+// symbols, over SP 800-63B-4 §3.1.1.2's 15-character minimum.
 const temporaryPasswordRandomBytes = 8
 
 const temporaryPasswordBytes = temporaryPasswordRandomBytes + 2

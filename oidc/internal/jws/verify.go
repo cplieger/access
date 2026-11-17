@@ -31,8 +31,8 @@ func (t *Token) Verify(keys jwk.Set) ([]byte, error) {
 	return nil, ErrNoKey
 }
 
-// verify checks sig over input under row a (RFC 7518 §3.3 to §3.5, RFC
-// 8037 §3.1). The RSA and Ed25519 calls refuse a signature of the wrong
+// verify checks sig over input under row a (RFC 7518 §3.3 to §3.5,
+// RFC 8037 §3.1). The RSA and Ed25519 calls refuse a signature of the wrong
 // length themselves (RFC 8017 §8.1.2 and §8.2.2 step 1, RFC 8032 §5.1.7).
 func verify(a jwk.Alg, pub crypto.PublicKey, input string, sig []byte) bool {
 	switch a.Scheme() {

@@ -7,7 +7,7 @@ import (
 	"unicode/utf8"
 )
 
-// The callback's markers (§7.2): the query key each sets.
+// The callback's markers: the query key each sets.
 const (
 	markerOIDC  = "oidc"
 	markerError = "auth_error"

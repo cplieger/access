@@ -20,8 +20,8 @@ var (
 	errAssertionSignature = errors.New("access/webauthn: the assertion signature does not verify")
 )
 
-// verifyLogin runs §7.2's ceremony for a user not identified before it, on
-// body, an AuthenticationResponseJSON answering st, and records the
+// verifyLogin runs WebAuthn §7.2's ceremony for a user not identified before
+// it, on body, an AuthenticationResponseJSON answering st, and records the
 // assertion's custody in store.
 func verifyLogin(ctx context.Context, rp *RelyingParty, store Store, st *ceremonyState, body []byte) (LoginResult, error) {
 	if err := st.check(ceremonyLogin); err != nil {
@@ -42,9 +42,9 @@ func verifyLogin(ctx context.Context, rp *RelyingParty, store Store, st *ceremon
 	return recordAssertion(ctx, store, user, cred, a)
 }
 
-// verifyReauthentication runs §7.2's ceremony for user, identified before
-// it and holding the passkeys stored now, on body answering st, and records
-// the assertion's custody in store.
+// verifyReauthentication runs WebAuthn §7.2's ceremony for user, identified
+// before it and holding the passkeys stored now, on body answering st, and
+// records the assertion's custody in store.
 func verifyReauthentication(ctx context.Context, rp *RelyingParty, store Store, user *User, st *ceremonyState, body []byte) (LoginResult, error) {
 	if err := st.check(ceremonyReauthentication); err != nil {
 		return LoginResult{}, err
@@ -67,7 +67,7 @@ func verifyReauthentication(ctx context.Context, rp *RelyingParty, store Store, 
 	return recordAssertion(ctx, store, user, cred, a)
 }
 
-// discoverableCredential is §7.2's identification step for a user not
+// discoverableCredential is WebAuthn §7.2's identification step for a user not
 // identified before the ceremony: the account userHandle names, and its
 // credential record whose id is rawId.
 func discoverableCredential(ctx context.Context, store Store, r *assertionResponse) (*User, *access.PasskeyCredential, error) {
@@ -93,9 +93,9 @@ func discoverableCredential(ctx context.Context, store Store, r *assertionRespon
 	return user, cred, nil
 }
 
-// allowedCredential is §7.2's allowCredentials and identification steps for
-// user, identified before the ceremony: rawId must be on both st's allowed
-// list and the user's passkeys now, so one deleted since Begin fails.
+// allowedCredential is WebAuthn §7.2's allowCredentials and identification
+// steps for user, identified before the ceremony: rawId must be on both st's
+// allowed list and the user's passkeys now, so one deleted since Begin fails.
 func (st *ceremonyState) allowedCredential(user *User, r *assertionResponse) (*access.PasskeyCredential, error) {
 	cred, held := user.credential(r.rawID)
 	if !held || !slices.ContainsFunc(st.allowed, func(id []byte) bool { return bytes.Equal(id, r.rawID) }) {
@@ -107,9 +107,10 @@ func (st *ceremonyState) allowedCredential(user *User, r *assertionResponse) (*a
 	return cred, nil
 }
 
-// verifyAssertion runs §7.2's steps from the client data to the signature
-// against cred, the stored record, and returns the checked authenticator
-// data. Client extension outputs are not read: no Begin requests one.
+// verifyAssertion runs WebAuthn §7.2's steps from the client data to the
+// signature against cred, the stored record, and returns the checked
+// authenticator data. Client extension outputs are not read: no Begin
+// requests one.
 func verifyAssertion(rp *RelyingParty, st *ceremonyState, cred *access.PasskeyCredential, r *assertionResponse) (*authData, error) {
 	hash, err := verifyClientData(r.clientDataJSON, clientDataGet, st.challenge, st.origin)
 	if err != nil {
@@ -119,8 +120,8 @@ func verifyAssertion(rp *RelyingParty, st *ceremonyState, cred *access.PasskeyCr
 	if err != nil {
 		return nil, err
 	}
-	// BE never changes over a credential's life (§6.1.3), so a store that
-	// dropped the octet fails here.
+	// BE never changes over a credential's life (WebAuthn §6.1.3), so a store
+	// that dropped the octet fails here.
 	_, _, storedBE, _ := access.DecodePasskeyFlags(cred.RawFlags)
 	if _, _, be, _ := access.DecodePasskeyFlags(a.flags); be != storedBE {
 		return nil, errBackupEligibility
@@ -135,9 +136,9 @@ func verifyAssertion(rp *RelyingParty, st *ceremonyState, cred *access.PasskeyCr
 	return a, nil
 }
 
-// recordAssertion is §7.2's signCount and update steps: the clone signal is
-// decided against the count read at identification, and the store merges
-// the asserted state (Store.RecordAssertion's contract).
+// recordAssertion is WebAuthn §7.2's signCount and update steps: the clone
+// signal is decided against the count read at identification, and the store
+// merges the asserted state (Store.RecordAssertion's contract).
 func recordAssertion(ctx context.Context, store Store, user *User, cred *access.PasskeyCredential, a *authData) (LoginResult, error) {
 	regressed := signCountRegressed(cred.SignCount, a.signCount)
 	err := store.RecordAssertion(ctx, user.AuthUser.ID, cred.CredentialID, access.PasskeyLoginUpdate{
@@ -156,9 +157,9 @@ func recordAssertion(ctx context.Context, store Store, user *User, cred *access.
 	}, nil
 }
 
-// signCountRegressed is §7.2's signCount step's clone signal: either count
-// nonzero and the asserted one not above the stored one. A stored 0 meets
-// asserted <= stored only when both are 0, which signals nothing.
+// signCountRegressed is WebAuthn §7.2's signCount step's clone signal: either
+// count nonzero and the asserted one not above the stored one. A stored 0
+// meets asserted <= stored only when both are 0, which signals nothing.
 func signCountRegressed(stored, asserted uint32) bool {
 	return stored != 0 && asserted <= stored
 }

@@ -236,9 +236,9 @@ func TestParseKey_RFC9053_curveNotOffered(t *testing.T) {
 	}
 }
 
-// COSE algorithms access does not offer (IANA COSE Algorithms; WebAuthn
-// §7.1's pubKeyCredParams step): ES384, ES512, PS256, RS384, RS1, the
-// fully specified ESP256 and Ed25519, and an unregistered value.
+// COSE algorithms access does not offer (IANA COSE Algorithms;
+// WebAuthn §7.1's pubKeyCredParams step): ES384, ES512, PS256, RS384, RS1,
+// the fully specified ESP256 and Ed25519, and an unregistered value.
 func TestParseKey_algNotOffered(t *testing.T) {
 	t.Parallel()
 	es := baseKeys(t)[0].pairs
@@ -347,9 +347,9 @@ func oddOfBits(bits int) []byte {
 }
 
 // RFC 8230 §4: n and e are unsigned big-endian byte strings. A leading zero
-// byte, which §4 says not to send, has one reading, so it is read as the
-// integer and the §16.10 signature still verifies. n is 2048 to 4096 bits and
-// odd; e is odd, at least 3, below 2^31 (RFC 8017 §3.1).
+// byte, which RFC 8230 §4 says not to send, has one reading, so it is read as
+// the integer and the WebAuthn §16.10 signature still verifies. n is 2048 to
+// 4096 bits and odd; e is odd, at least 3, below 2^31 (RFC 8017 §3.1).
 func TestParseKey_RSA_RFC8230_4(t *testing.T) {
 	t.Parallel()
 	rs := baseKeys(t)[2].pairs
@@ -371,7 +371,7 @@ func TestParseKey_RSA_RFC8230_4(t *testing.T) {
 			continue
 		}
 		if err := k.Verify(authData, hash, sig); err != nil {
-			t.Errorf("%s: Verify(§16.10) = %v, want nil", c.name, err)
+			t.Errorf("%s: Verify(WebAuthn §16.10) = %v, want nil", c.name, err)
 		}
 	}
 
@@ -426,7 +426,7 @@ func TestParseKey_RSA_RFC8230_4(t *testing.T) {
 
 // WebAuthn §2.4 asks for CTAP2 canonical CBOR; access compares decoded values
 // and departs from that SHOULD, so a key with a non-shortest integer and its
-// labels out of order is the same key and verifies §16.2's assertion.
+// labels out of order is the same key and verifies WebAuthn §16.2's assertion.
 func TestParseKey_WebAuthn2_4_canonicalFormDeparture(t *testing.T) {
 	t.Parallel()
 	es := baseKeys(t)[0].pairs
@@ -443,7 +443,7 @@ func TestParseKey_WebAuthn2_4_canonicalFormDeparture(t *testing.T) {
 	}
 	a := s16(t)["16.2"].Authentication
 	if err := k.Verify(a.bytes(t, "authenticatorData"), sha256.Sum256(a.bytes(t, "clientDataJSON")), a.bytes(t, "signature")); err != nil {
-		t.Errorf("Verify(§16.2) = %v, want nil", err)
+		t.Errorf("Verify(WebAuthn §16.2) = %v, want nil", err)
 	}
 }
 
@@ -478,7 +478,7 @@ func es256Assertion(t testing.TB) (*cose.Key, []byte, [sha256.Size]byte, []byte)
 	v := s16(t)["16.2"]
 	k, err := cose.ParseKey(credentialKey(t, v.Registration.bytes(t, "attestationObject")))
 	if err != nil {
-		t.Fatalf("ParseKey(§16.2) = %v", err)
+		t.Fatalf("ParseKey(WebAuthn §16.2) = %v", err)
 	}
 	a := v.Authentication
 	return k, a.bytes(t, "authenticatorData"), sha256.Sum256(a.bytes(t, "clientDataJSON")), a.bytes(t, "signature")
@@ -496,14 +496,15 @@ func TestVerify_CVE_2022_21449(t *testing.T) {
 	}
 }
 
-// WebAuthn §6.5.5: an ES256 signature is an ASN.1 DER Ecdsa-Sig-Value (RFC
-// 3279 §2.2.3). BER forms of the published §16.2 signature, a long-form length
-// or a non-minimal integer, and trailing data are refused (X.690 §10.1, §8.3.2).
+// WebAuthn §6.5.5: an ES256 signature is an ASN.1 DER Ecdsa-Sig-Value
+// (RFC 3279 §2.2.3). BER forms of the published WebAuthn §16.2 signature, a
+// long-form length or a non-minimal integer, and trailing data are refused
+// (X.690 §10.1, §8.3.2).
 func TestVerify_WebAuthn6_5_5_DER(t *testing.T) {
 	t.Parallel()
 	k, authData, hash, sig := es256Assertion(t)
 	if sig[0] != 0x30 || int(sig[1]) != len(sig)-2 || sig[2] != 0x02 {
-		t.Fatalf("§16.2's signature is not a short-form DER SEQUENCE: %x", sig)
+		t.Fatalf("WebAuthn §16.2's signature is not a short-form DER SEQUENCE: %x", sig)
 	}
 	rLen := int(sig[3])
 	r, s := sig[4:4+rLen], sig[4+rLen:]
@@ -534,7 +535,7 @@ func TestVerify_RFC8032_5_1_7_signatureLength(t *testing.T) {
 	v := s16(t)["16.11"]
 	k, err := cose.ParseKey(credentialKey(t, v.Registration.bytes(t, "attestationObject")))
 	if err != nil {
-		t.Fatalf("ParseKey(§16.11) = %v", err)
+		t.Fatalf("ParseKey(WebAuthn §16.11) = %v", err)
 	}
 	a := v.Authentication
 	authData, hash, sig := a.bytes(t, "authenticatorData"), sha256.Sum256(a.bytes(t, "clientDataJSON")), a.bytes(t, "signature")

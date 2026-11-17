@@ -17,16 +17,15 @@ import (
 	"github.com/cplieger/access/ratelimit"
 )
 
-// The companion cookies' lifetimes in seconds (§7.4, §4.1).
+// The companion cookies' lifetimes in seconds.
 const (
 	deviceSeconds  = 180 * 24 * 60 * 60
 	flowSeconds    = 10 * 60
 	pendingSeconds = 10 * 60
 )
 
-// jarNames are the four cookie names a request to an origin uses, the
-// companions derived as §7.4 names them. The flow cookie always takes the
-// secure name.
+// jarNames are the four cookie names a request to an origin uses. The
+// flow cookie always takes the secure name.
 type jarNames struct{ session, device, flow, pending string }
 
 func (e *env) jarNames(origin string) jarNames {
@@ -72,7 +71,7 @@ type walked struct {
 	set map[string]*http.Cookie
 }
 
-// cookieWalk is §9.5's cookie-jar run from a new browser at origin: alice,
+// cookieWalk is the cookie-jar run from a new browser at origin: alice,
 // who must exist, signs in by password, an OIDC sign-in for an identity no
 // user holds leaves a pending link, and a link flow begins and is left
 // open. Each step must set only its own cookies, and the jar must end
@@ -215,11 +214,11 @@ func TestCookieJarCoexistence(t *testing.T) {
 	})
 }
 
-// postureOrigins are §9.5's per-request posture hosts: HTTPS, plain
+// postureOrigins are the per-request posture hosts: HTTPS, plain
 // loopback and a plain LAN address.
 var postureOrigins = []string{testOrigin, "http://localhost", "http://192.168.1.77:9847"}
 
-// perRequest is §9.5's marotte-shaped session cookie under
+// perRequest is a marotte-shaped session cookie under
 // PosturePerRequest.
 var perRequest = envOptions{authn: func(_ *env, c *access.Config) {
 	c.Cookie = access.CookieConfig{Name: "marotte_session", SameSite: http.SameSiteStrictMode, Posture: access.PosturePerRequest}
@@ -510,7 +509,7 @@ func TestDeviceCookieEveryMethod(t *testing.T) {
 		e.createUser(t, "alice", access.RoleUser)
 		e.linkUser(t, "alice", idpIdentity(testIssuer))
 		_, deviceName := e.names()
-		// The payload is the account's digest and the device ID (§2), so
+		// The payload is the account's digest and the device ID, so
 		// for one account equal payloads are equal device IDs.
 		payload := func(w *httptest.ResponseRecorder) []byte {
 			t.Helper()

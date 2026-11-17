@@ -11,7 +11,7 @@ import (
 	"pgregory.net/rapid"
 )
 
-// classModel is what one class must hold by E35 §5: the entries it was
+// classModel is what one class must hold: the entries it was
 // given, oldest dropped beyond the cap and counted, and those older than
 // LogMaxAge dropped uncounted at a sweep.
 type classModel struct {

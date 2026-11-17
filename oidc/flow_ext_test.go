@@ -249,8 +249,8 @@ func flowAccepted(t *testing.T) {
 		t.Errorf("scope = %q, want the default openid profile email", got)
 	}
 	t.Run("exp_inside_the_skew", func(t *testing.T) {
-		// exp one minute past is inside the 5-minute skew (OpenID Connect
-		// Core 1.0 §3.1.3.7 step 9; RFC 7519 §4.1.4).
+		// exp one minute past is inside the 5-minute skew
+		// (OpenID Connect Core 1.0 §3.1.3.7 step 9; RFC 7519 §4.1.4).
 		idp := accesstest.NewIdP(t, accesstest.IdPOptions{Lifetime: -time.Minute})
 		if f := newBrowser(t).run(idp, mustProvider(t, configFor(idp)), signIn); f.err != nil {
 			t.Errorf("a token one minute past exp: Finish = %v, want nil", f.err)
@@ -281,8 +281,8 @@ func flowRefused(t *testing.T) {
 		"aud":         {oidc.ErrTokenInvalid, accesstest.IdPOptions{Audience: []string{"another-client"}}},
 		"multi_aud":   {oidc.ErrTokenInvalid, accesstest.IdPOptions{Audience: []string{accesstest.DefaultIdPClientID, "another-client"}, AuthorizedParty: accesstest.DefaultIdPClientID}},
 		"azp":         {oidc.ErrTokenInvalid, accesstest.IdPOptions{AuthorizedParty: "another-client"}},
-		// exp six minutes past is beyond the 5-minute skew (OpenID Connect
-		// Core 1.0 §3.1.3.7 step 9; RFC 7519 §4.1.4).
+		// exp six minutes past is beyond the 5-minute skew
+		// (OpenID Connect Core 1.0 §3.1.3.7 step 9; RFC 7519 §4.1.4).
 		"expired":   {oidc.ErrTokenInvalid, accesstest.IdPOptions{Lifetime: -6 * time.Minute}},
 		"alg_none":  {oidc.ErrTokenInvalid, accesstest.IdPOptions{Algorithm: accesstest.AlgNone}},
 		"hs256":     {oidc.ErrTokenInvalid, accesstest.IdPOptions{Algorithm: accesstest.AlgHS256}},
@@ -577,10 +577,10 @@ func flowProviderErrors(t *testing.T) {
 	})
 }
 
-// flowReauthentication is every intent but sign-in: OpenID Connect Core 1.0
-// §3.1.2.1 max_age=0 and prompt=login on the authorize request, and §2's
-// auth_time, required once max_age is sent, no earlier than the flow's
-// start less the skew.
+// flowReauthentication is every intent but sign-in:
+// OpenID Connect Core 1.0 §3.1.2.1 max_age=0 and prompt=login on the
+// authorize request, and Core 1.0 §2's auth_time, required once max_age is
+// sent, no earlier than the flow's start less the skew.
 func flowReauthentication(t *testing.T) {
 	for _, req := range []oidc.BeginRequest{link, stepUp, invite} {
 		t.Run(string(req.Intent), func(t *testing.T) {
@@ -881,8 +881,8 @@ func outboundBodyCap(t *testing.T, mk func() (*http.Client, *recordingTransport)
 // outboundRedirect serves discovery from a server whose well-known URL
 // redirects to the document, which names that server as the issuer. The
 // discovery fetch follows no redirect and never asks the caller's
-// CheckRedirect, whatever it would allow (OpenID Connect Discovery 1.0
-// §4.2; PyJWT CVE-2026-102267).
+// CheckRedirect, whatever it would allow (OpenID Connect Discovery 1.0 §4.2;
+// PyJWT CVE-2026-102267).
 func outboundRedirect(t *testing.T) {
 	idp := accesstest.NewIdP(t, accesstest.IdPOptions{})
 	var moved atomic.Int32
@@ -949,13 +949,13 @@ func writeDiscovery(t *testing.T, w http.ResponseWriter, idp *accesstest.IdP, is
 	_ = json.NewEncoder(w).Encode(doc)
 }
 
-// outboundJWKS: NewProvider reads the JWK Set. It fails with ErrDiscovery
-// on an answer other than 200, whose body is never decoded (OpenID Connect
-// Discovery 1.0 §4.2's rule, which the JWKS fetch follows), and on a
-// redirect, followed for no CheckRedirect and asking none (PyJWT
-// CVE-2026-102267). It refuses with ErrProviderInvalid a body that is not
-// a JWK Set (RFC 7517 §5) and a set with no key of an accepted type (RFC
-// 7517 §5: other keys are skipped).
+// outboundJWKS: NewProvider reads the JWK Set. It fails with ErrDiscovery on
+// an answer other than 200, whose body is never decoded
+// (OpenID Connect Discovery 1.0 §4.2's rule, which the JWKS fetch follows),
+// and on a redirect, followed for no CheckRedirect and asking none (PyJWT
+// CVE-2026-102267). It refuses with ErrProviderInvalid a body that is not a
+// JWK Set (RFC 7517 §5) and a set with no key of an accepted type
+// (RFC 7517 §5: other keys are skipped).
 func outboundJWKS(t *testing.T) {
 	idp := accesstest.NewIdP(t, accesstest.IdPOptions{})
 	resp, err := idp.Client().Get(idp.Issuer() + "/jwks")
@@ -1541,12 +1541,12 @@ func idTokenKid(body []byte) string {
 	return h.Kid
 }
 
-// flowKeyRotation: an IdP rotating its signing key (OpenID Connect Core 1.0
-// §10.1.1). NewProvider reads the JWKS, a token under a kid the set lacks
-// re-reads it once, at most once a minute and never held back by
-// NewProvider's read. A token under a kid the IdP retired verifies from a
-// set read before the retirement, and a set read after it refuses the same
-// token.
+// flowKeyRotation: an IdP rotating its signing key
+// (OpenID Connect Core 1.0 §10.1.1). NewProvider reads the JWKS, a token
+// under a kid the set lacks re-reads it once, at most once a minute and never
+// held back by NewProvider's read. A token under a kid the IdP retired
+// verifies from a set read before the retirement, and a set read after it
+// refuses the same token.
 func flowKeyRotation(t *testing.T) {
 	for _, alg := range []string{accesstest.AlgRS256, accesstest.AlgES256} {
 		t.Run(alg, func(t *testing.T) {

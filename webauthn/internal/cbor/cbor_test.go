@@ -192,8 +192,8 @@ func TestDecode_RFC8949AppendixA_containersAndSimple(t *testing.T) {
 	}
 }
 
-// RFC 8949 Appendix F.1, every listed example, plus §3.2's indefinite
-// lengths and §3.4's tags, which the decoder refuses outright. Where an
+// RFC 8949 Appendix F.1, every listed example, plus §3.2's indefinite lengths
+// and RFC 8949 §3.4's tags, which the decoder refuses outright. Where an
 // example reaches a decoder bound before its own error (nine nested arrays
 // reach the depth bound), the bound's refusal is the expected one.
 func TestDecode_RFC8949AppendixF_notWellFormed(t *testing.T) {
@@ -307,7 +307,7 @@ func TestDecode_RFC8949AppendixF_notWellFormed(t *testing.T) {
 		{"1f", errNotWellFormed},
 		{"3f", errNotWellFormed},
 		{"df", errNotWellFormed},
-		// §3.4: every tag.
+		// RFC 8949 §3.4: every tag.
 		{"c074323031332d30332d32315432303a30343a30305a", errTag},
 		{"d82076687474703a2f2f7777772e6578616d706c652e636f6d", errTag},
 	}

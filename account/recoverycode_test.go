@@ -19,8 +19,8 @@ import (
 var shownCode = regexp.MustCompile(`^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$`)
 
 // requireIssued checks shown is a recovery code in its displayed form whose
-// salted hash, and only that, is u's stored record (NIST SP 800-63B-4
-// §4.2.1.1: at least 64 bits, stored hashed).
+// salted hash, and only that, is u's stored record
+// (NIST SP 800-63B-4 §4.2.1.1: at least 64 bits, stored hashed).
 func requireIssued(t *testing.T, f *sfFixture, u *access.User, shown access.Secret) {
 	t.Helper()
 	code := shown.Reveal()

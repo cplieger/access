@@ -80,10 +80,10 @@ func TestURIKeyUriFormat(t *testing.T) {
 	}
 }
 
-// The Key Uri Format: the label and the issuer are URI-encoded (RFC 3986
-// §2.1), a space as %20, and neither part may hold a colon, since the format
-// reads ":" and "%3A" alike as the separator. Each value parses back with
-// net/url to the same issuer and account and one secret.
+// The Key Uri Format: the label and the issuer are URI-encoded
+// (RFC 3986 §2.1), a space as %20, and neither part may hold a colon, since
+// the format reads ":" and "%3A" alike as the separator. Each value parses
+// back with net/url to the same issuer and account and one secret.
 func TestURIEncoding(t *testing.T) {
 	cases := []struct{ name, issuer, account, wantIssuer, wantAccount string }{
 		{"space", "Big Corporation", "Alice Smith", "Big Corporation", "Alice Smith"},

@@ -666,7 +666,7 @@ func TestBreachModes(t *testing.T) {
 		}
 	})
 	// A caller whose request ended is not the breach service failing, so
-	// fail-open does not accept it (errata E5).
+	// fail-open does not accept it.
 	for name, tc := range map[string]struct {
 		ctx  func(t *testing.T) context.Context
 		want error

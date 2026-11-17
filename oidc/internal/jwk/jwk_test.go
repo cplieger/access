@@ -420,9 +420,9 @@ func TestParse_RSABounds(t *testing.T) {
 	}
 }
 
-// RFC 7518 §6.2.1.2 and §6.2.1.3: x and y are exactly the curve's
-// coordinate size; a point off the curve or at infinity is skipped (SEC 1
-// §2.3.4; Nimbus CVE-2017-12974).
+// RFC 7518 §6.2.1.2 and §6.2.1.3: x and y are exactly the curve's coordinate
+// size; a point off the curve or at infinity is skipped (SEC 1 §2.3.4; Nimbus
+// CVE-2017-12974).
 func TestParse_ECBounds(t *testing.T) {
 	t.Parallel()
 	for _, c := range ecCurves {

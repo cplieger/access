@@ -17,9 +17,9 @@ import (
 	"github.com/cplieger/access/account"
 )
 
-// designClasses is each route's specified class. A route with a scope takes
+// wantClasses is each route's specified class. A route with a scope takes
 // the scoped class and the scope when that scope is set, else open.
-var designClasses = map[string]struct {
+var wantClasses = map[string]struct {
 	open   Class
 	scoped Class
 	scope  string // "admin", "users" or "keys"
@@ -88,13 +88,13 @@ func scopeSets() []DescriptorConfig {
 func TestDescriptorClassesFromScopes(t *testing.T) {
 	for _, dc := range scopeSets() {
 		ds := Descriptors(dc)
-		if len(ds) != len(designClasses) {
-			t.Fatalf("%d descriptors, want the %d specified routes", len(ds), len(designClasses))
+		if len(ds) != len(wantClasses) {
+			t.Fatalf("%d descriptors, want the %d specified routes", len(ds), len(wantClasses))
 		}
 		for _, d := range ds {
-			want, ok := designClasses[d.Name]
+			want, ok := wantClasses[d.Name]
 			if !ok {
-				t.Fatalf("route %s is not a section 7.4 route", d.Name)
+				t.Fatalf("route %s is not a specified route", d.Name)
 			}
 			set := map[string]string{"admin": dc.AdminScope, "users": dc.ManageUsersScope, "keys": dc.CreateKeysScope}[want.scope]
 			wantClass, wantScope := want.open, ""
@@ -196,7 +196,7 @@ func TestDescriptorsEqualsNewRoutes(t *testing.T) {
 	type place struct{ path, scope string }
 	cases := map[string]struct {
 		dc   DescriptorConfig
-		want map[string]place // section 7.4's path and scope for a few routes
+		want map[string]place // the specified path and scope for a few routes
 	}{
 		"default": {want: map[string]place{
 			"authMe": {path: "/me"}, "authOIDCCallback": {path: "/callback"},
@@ -252,11 +252,11 @@ func TestDescriptorsEqualsNewRoutes(t *testing.T) {
 	}
 }
 
-// TestRouteSuccess holds each route's success status: present on every
-// route, 302 Found on a redirect (RFC 9110 §15.4.3), 201 Created where the
-// answer describes the resource the request created (§15.3.2: a user, an
-// invite, an API key, a passkey added from Account), 204 No
-// Content where no body is sent (§15.3.5), else 200 OK (§15.3.1).
+// TestRouteSuccess holds each route's success status: present on every route,
+// 302 Found on a redirect (RFC 9110 §15.4.3), 201 Created where the answer
+// describes the resource the request created (RFC 9110 §15.3.2: a user, an
+// invite, an API key, a passkey added from Account), 204 No Content where no
+// body is sent (RFC 9110 §15.3.5), else 200 OK (§15.3.1).
 func TestRouteSuccess(t *testing.T) {
 	created := []string{"authAdminUserCreate", "authAdminInvite", "authKeyCreate", "authPasskeyRegisterFinish"}
 	for i := range specs {

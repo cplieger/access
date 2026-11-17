@@ -264,7 +264,7 @@ func TestRouteAuthPasswordSet(t *testing.T) {
 	})
 }
 
-// TestPasswordSetCurrentHTTP is §9.5 "Current password" through authPasswordSet.
+// TestPasswordSetCurrentHTTP checks the current password through authPasswordSet.
 func TestPasswordSetCurrentHTTP(t *testing.T) {
 	send := func(e *env, cookie *http.Cookie, current string) *httptest.ResponseRecorder {
 		return do(e.route(t, "authPasswordSet"), e.post(t, "authPasswordSet", passwordSetBody(t, current, newPassword), cookie))
@@ -324,7 +324,7 @@ func TestRouteAuthPasswordRemove(t *testing.T) {
 	})
 }
 
-// TestPasswordRemoveCurrentHTTP is §9.5 "Current password" through
+// TestPasswordRemoveCurrentHTTP checks the current password through
 // authPasswordRemove, on a user holding a password and a passkey.
 func TestPasswordRemoveCurrentHTTP(t *testing.T) {
 	setup := func(t *testing.T) (*env, *http.Cookie) {

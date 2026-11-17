@@ -216,7 +216,7 @@ const helpers = [
   "withStepUp",
 ];
 
-// One validator per wire type the design lists (wire.ts).
+// One validator per wire type in wire.ts.
 const validators = [
   "parseCeremonyResponse",
   "parseCodeRequest",

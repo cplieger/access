@@ -75,7 +75,7 @@ func checkIDToken(payload []byte, r *claimRules) (Claims, error) {
 	return c, nil
 }
 
-// readIDClaims reads, by kind, the claims Core §2 and §3.1.3.7 require or
+// readIDClaims reads, by kind, the claims Core 1.0 §2 and §3.1.3.7 require or
 // bound: a missing required claim, or one of the wrong kind, null included
 // except on nbf, is ErrTokenInvalid.
 func readIDClaims(m map[string]jsontext.Value) (idClaims, error) {

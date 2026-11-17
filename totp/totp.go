@@ -36,7 +36,7 @@ func Step(t time.Time) int64 {
 	u := t.Unix()
 	s := u / period
 	if u%period < 0 {
-		s-- // §4.2's floor, where Go's division truncates toward zero
+		s-- // RFC 6238 §4.2's floor, where Go's division truncates toward zero
 	}
 	return s
 }
@@ -46,7 +46,7 @@ func Step(t time.Time) int64 {
 func Code(secret []byte, step int64) string {
 	m := hmac.New(sha1.New, secret)
 	var c [8]byte
-	binary.BigEndian.PutUint64(c[:], uint64(step)) //nolint:gosec // G115: §5.1's C is the counter's 8 bytes, two's complement for a pre-1970 step
+	binary.BigEndian.PutUint64(c[:], uint64(step)) //nolint:gosec // G115: RFC 4226 §5.1's C is the counter's 8 bytes, two's complement for a pre-1970 step
 	m.Write(c[:])
 	v := truncate(m.Sum(nil)) % modulus
 	var out [Digits]byte
