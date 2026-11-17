@@ -91,7 +91,7 @@ var otherLock = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
 // TestOwnContextReset checks that a correct secret clears only its own
 // trust context's record, every counted method alike: device cookies count
-// untrusted clients apart, so the owner's success never refills a guesser's
+// untrusted clients apart, so the holder's success never refills a guesser's
 // budget (OWASP, "Slow Down Online Guessing Attacks with Device Cookies").
 // It clears its own count, or the lock that count set, journalling
 // method_reenabled once the sweep had reported it; another attempt's lock

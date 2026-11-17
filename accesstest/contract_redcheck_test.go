@@ -246,8 +246,16 @@ var variants = map[string]variant{
 		make:  memVariant(func(m *MemStore) account.Store { return &failureDeleteBothStore{m} }),
 		fails: []string{"rule_15_failure_records/delete_one"}, only: true,
 	},
+	"failure-tx-delete-both-contexts": {
+		make:  memVariant(func(m *MemStore) account.Store { return &txFailureDeleteBothStore{m} }),
+		fails: []string{"rule_15_failure_records/delete_one"}, only: true,
+	},
 	"failure-delete-absent-errors": {
 		make:  memVariant(func(m *MemStore) account.Store { return &failureDeleteAbsentStore{m} }),
+		fails: []string{"rule_15_failure_records/delete_one"}, only: true,
+	},
+	"failure-tx-delete-absent-errors": {
+		make:  memVariant(func(m *MemStore) account.Store { return &txFailureDeleteAbsentStore{m} }),
 		fails: []string{"rule_15_failure_records/delete_one"}, only: true,
 	},
 	"rotate-overwrites-activity": {
@@ -1084,6 +1092,20 @@ func (s *failureDeleteBothStore) DeleteAuthFailure(ctx context.Context, ref acco
 	return s.DeleteAuthFailures(ctx, ref.Name, []access.Method{ref.Method})
 }
 
+// txFailureDeleteBothStore's one-record delete removes the record in both
+// trust contexts inside an Update, and only there.
+type txFailureDeleteBothStore struct{ *MemStore }
+
+type txFailureDeleteBothTx struct{ *memTx }
+
+func (s *txFailureDeleteBothStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.MemStore.Update(ctx, func(tx account.Tx) error { return fn(txFailureDeleteBothTx{tx.(*memTx)}) })
+}
+
+func (t txFailureDeleteBothTx) DeleteAuthFailure(ctx context.Context, ref account.FailureRef) error {
+	return t.DeleteAuthFailures(ctx, ref.Name, []access.Method{ref.Method})
+}
+
 // failureDeleteAbsentStore refuses a one-record delete of an absent record.
 type failureDeleteAbsentStore struct{ *MemStore }
 
@@ -1092,4 +1114,21 @@ func (s *failureDeleteAbsentStore) DeleteAuthFailure(ctx context.Context, ref ac
 		return cmp.Or(err, errors.New("no such failure record"))
 	}
 	return s.MemStore.DeleteAuthFailure(ctx, ref)
+}
+
+// txFailureDeleteAbsentStore refuses a one-record delete of an absent record
+// inside an Update, and only there.
+type txFailureDeleteAbsentStore struct{ *MemStore }
+
+type txFailureDeleteAbsentTx struct{ *memTx }
+
+func (s *txFailureDeleteAbsentStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.MemStore.Update(ctx, func(tx account.Tx) error { return fn(txFailureDeleteAbsentTx{tx.(*memTx)}) })
+}
+
+func (t txFailureDeleteAbsentTx) DeleteAuthFailure(ctx context.Context, ref account.FailureRef) error {
+	if _, found, err := t.AuthFailure(ctx, ref); err != nil || !found {
+		return cmp.Or(err, errors.New("no such failure record"))
+	}
+	return t.memTx.DeleteAuthFailure(ctx, ref)
 }
