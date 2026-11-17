@@ -188,7 +188,7 @@ function meWith(passwordStepUp: boolean, totpUsable: boolean): Answer {
   return { status: 200, body: view };
 }
 
-describe("withStepUp: code (design 4.7)", () => {
+describe("withStepUp: code", () => {
   const STEP = "POST /api/auth/stepup/code";
 
   it("steps up with the code and retries the action once", async () => {
@@ -217,7 +217,7 @@ describe("withStepUp: code (design 4.7)", () => {
   });
 });
 
-describe("withStepUp: what it offers (design 4.7)", () => {
+describe("withStepUp: what it offers", () => {
   const cases: readonly (readonly [boolean, boolean, readonly string[]])[] = [
     [true, true, ["password", "passkey", "oidc", "totp"]],
     [false, true, ["passkey", "oidc", "totp"]],

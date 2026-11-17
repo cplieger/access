@@ -79,7 +79,7 @@ func (p rolesSeen) seen() []access.Role {
 	return append([]access.Role(nil), *p.roles...)
 }
 
-// TestAcceptInviteOIDCBegin: design 5.5 "Accepting an invite by SSO", the
+// TestAcceptInviteOIDCBegin: the
 // begin route reads the invite first, in both kinds of app, then asks the
 // Policy with the invite's Role, and seals only the invite's hash.
 func TestAcceptInviteOIDCBegin(t *testing.T) {
@@ -178,7 +178,7 @@ func TestAcceptInviteOIDCBegin(t *testing.T) {
 	})
 }
 
-// TestOIDCInvite: design 5.5 "Accepting an invite by SSO", the callback's
+// TestOIDCInvite: the callback's
 // invite arm.
 func TestOIDCInvite(t *testing.T) {
 	t.Parallel()
@@ -210,7 +210,7 @@ func TestOIDCInvite(t *testing.T) {
 			t.Errorf("the spent invite = %v, want access.ErrTokenInvalid", err)
 		}
 	})
-	// design 5.5: provisioning need not be on, and under SSOOnly this is the
+	// Provisioning need not be on, and under SSOOnly this is the
 	// only way to accept an invite.
 	for _, mode := range []account.SSOMode{account.SSOAlongside, account.SSOForLinked, account.SSOOnly} {
 		t.Run("mode_"+string(mode.Name()), func(t *testing.T) {
@@ -239,7 +239,7 @@ func TestOIDCInvite(t *testing.T) {
 			t.Error("the refused invite was consumed or created a user")
 		}
 	})
-	// design 5.5, 5.4: a taken name gives the free-name pick, with the
+	// A taken name gives the free-name pick, with the
 	// invite in the pending state, and the failed callback leaves it usable.
 	t.Run("taken_name", func(t *testing.T) {
 		t.Parallel()
@@ -343,7 +343,7 @@ func TestOIDCInvite(t *testing.T) {
 			t.Errorf("events = %+v, want one oidc_not_admitted naming no user", evs)
 		}
 	})
-	// "Across the parts": the callback asks the one method again, before
+	// The callback asks the one method again, before
 	// admission, whatever the identity, a not-admitted one included.
 	for name, pol := range singleUserPolicies() {
 		for _, admission := range []bool{false, true} {

@@ -67,7 +67,7 @@ func reasonOf(err error) string {
 
 var socket = account.OutOfBand("admin-socket")
 
-// Design 5.7: the mode's wire names.
+// The mode's wire names.
 func TestSSOModeNames(t *testing.T) {
 	t.Parallel()
 	for mode, name := range map[account.SSOMode]account.SSOModeName{account.SSOAlongside: "alongside", account.SSOForLinked: "for_linked", account.SSOOnly: "only"} {
@@ -91,7 +91,7 @@ func TestSSOModeNames(t *testing.T) {
 	}
 }
 
-// Design 5.3's table: who signs in locally under each mode.
+// Who signs in locally under each mode.
 func TestSSOModeLocalSignIn(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -124,7 +124,7 @@ func TestSSOModeLocalSignIn(t *testing.T) {
 	}
 }
 
-// Design 5.3: a refused local sign-in looks like a wrong password, for an
+// A refused local sign-in looks like a wrong password, for an
 // owner's, a non-owner's and an unknown name, by error and failure count.
 func TestSSOOnlyRefusalLooksLikeWrongPassword(t *testing.T) {
 	t.Parallel()
@@ -171,7 +171,7 @@ func storedByName(t *testing.T, s *accesstest.MemStore, name string) *access.Use
 	return u
 }
 
-// Design 5.3: a discoverable passkey's user is known once its signature
+// A discoverable passkey's user is known once its signature
 // verifies, so a dormant passkey answers ErrInvalidCredentials after it.
 func TestSSOModePasskeySignIn(t *testing.T) {
 	t.Parallel()
@@ -190,7 +190,7 @@ func TestSSOModePasskeySignIn(t *testing.T) {
 	}
 }
 
-// Design 5.3 "Refusals from a session": a non-owner the mode keeps dormant
+// A non-owner the mode keeps dormant
 // adds no local method and steps up by none; Me says so; an owner is exempt.
 func TestSSOModeSessionRefusals(t *testing.T) {
 	t.Parallel()
@@ -230,7 +230,7 @@ func TestSSOModeSessionRefusals(t *testing.T) {
 	}
 }
 
-// Design 5.3: a ceremony begun before the mode changed is refused by its
+// A ceremony begun before the mode changed is refused by its
 // finish's own read of the mode.
 func TestSSOModeCeremonyBegunBeforeChange(t *testing.T) {
 	t.Parallel()
@@ -259,7 +259,7 @@ func TestSSOModeCeremonyBegunBeforeChange(t *testing.T) {
 	}
 }
 
-// Design 5.3 "Under SSOOnly": password invite acceptance is refused, and
+// Password invite acceptance is refused, and
 // the invite stays usable.
 func TestSSOOnlyRefusesPasswordInvite(t *testing.T) {
 	t.Parallel()
@@ -283,7 +283,7 @@ func TestSSOOnlyRefusesPasswordInvite(t *testing.T) {
 	}
 }
 
-// Design 5.3: dormant, never deleted; a loosening brings them back.
+// Dormant, never deleted; a loosening brings them back.
 func TestSSOModeDormantComesBack(t *testing.T) {
 	t.Parallel()
 	f, root := modeFixture(t, pwOptions{})
@@ -312,7 +312,7 @@ func TestSSOModeDormantComesBack(t *testing.T) {
 	}
 }
 
-// Design 5.3: ApplySSO's Update; endForbiddenSessions; sso_mode_changed
+// ApplySSO's Update; endForbiddenSessions; sso_mode_changed
 // with the old and new mode.
 func TestApplySSOEndsForbiddenSessions(t *testing.T) {
 	t.Parallel()
@@ -360,7 +360,7 @@ func TestApplySSOEndsForbiddenSessions(t *testing.T) {
 	}
 }
 
-// Design 5.3 CheckSSOReady: who may change the mode, in either direction.
+// CheckSSOReady: who may change the mode, in either direction.
 func TestApplySSOActor(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -422,7 +422,7 @@ func adminActor(t *testing.T, f *oidcFixture, _ *access.User) account.Actor {
 	return account.As(pr)
 }
 
-// Design 5.23: the state refusals, each Readiness.Refusal and ApplySSO's
+// The state refusals, each Readiness.Refusal and ApplySSO's
 // answer alike, writing nothing.
 func TestSSOStateRefusals(t *testing.T) {
 	t.Parallel()
@@ -481,7 +481,7 @@ func checkStateRefusal(t *testing.T, f *oidcFixture, a account.Actor, mode accou
 	}
 }
 
-// Design 4.46 and RULINGS M1: with Config.OIDC unset, every mode operation
+// With Config.OIDC unset, every mode operation
 // answers ErrOIDCUnavailable.
 func TestSSOModeUnwired(t *testing.T) {
 	t.Parallel()
@@ -504,7 +504,7 @@ func TestSSOModeUnwired(t *testing.T) {
 	}
 }
 
-// Design 5.3: an unknown mode is refused before any read.
+// An unknown mode is refused before any read.
 func TestApplySSOUnknownMode(t *testing.T) {
 	t.Parallel()
 	f, _ := modeFixture(t, pwOptions{})
@@ -516,7 +516,7 @@ func TestApplySSOUnknownMode(t *testing.T) {
 	}
 }
 
-// Design 5.3 MigrateSSO: its condition is inside its write; a refusal leaves
+// MigrateSSO: its condition is inside its write; a refusal leaves
 // the mode unset for the next call.
 func TestMigrateSSO(t *testing.T) {
 	t.Parallel()
@@ -602,7 +602,7 @@ func TestMigrateSSO(t *testing.T) {
 	})
 }
 
-// Design 5.24: ApplySSO reads Config.OIDC before its Update opens.
+// ApplySSO reads Config.OIDC before its Update opens.
 func TestApplySSOReadsProviderOutsideUpdate(t *testing.T) {
 	t.Parallel()
 	var inUpdate, inside atomic.Bool
@@ -626,7 +626,7 @@ func TestApplySSOReadsProviderOutsideUpdate(t *testing.T) {
 	}
 }
 
-// Design 5.3: a sign-in racing ApplySSO commits before it and is swept, or
+// A sign-in racing ApplySSO commits before it and is swept, or
 // after it and is refused.
 func TestSignInRacingApplySSO(t *testing.T) {
 	t.Parallel()
@@ -666,7 +666,7 @@ func TestSignInRacingApplySSO(t *testing.T) {
 	})
 }
 
-// Design 5.3: a refused ApplySSO leaves the old mode across a restart.
+// A refused ApplySSO leaves the old mode across a restart.
 func TestRefusedApplySSOSurvivesRestart(t *testing.T) {
 	t.Parallel()
 	f := newOIDCFixture(t, rigFor(t, "subject-y"), pwOptions{})
@@ -684,9 +684,9 @@ func TestRefusedApplySSOSurvivesRestart(t *testing.T) {
 	}
 }
 
-// Design 5.3 and "Across the parts": New refuses a stored mode no ApplySSO
+// New refuses a stored mode no ApplySSO
 // could have written, or one single sign-on is not wired for; a set
-// Config.OIDC returning nil starts (RULINGS M1 addendum).
+// Config.OIDC returning nil starts.
 func TestNewStoredMode(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -736,7 +736,7 @@ func TestNewStoredMode(t *testing.T) {
 	}
 }
 
-// Design 5.3 SSOReadiness and 5.23: the counts, each zero in the direction
+// SSOReadiness: the counts, each zero in the direction
 // that does not apply.
 func TestSSOReadinessCounts(t *testing.T) {
 	t.Parallel()
@@ -778,7 +778,7 @@ func TestSSOReadinessCounts(t *testing.T) {
 	}
 }
 
-// Design 5.3 "A temporary password beside dormant methods": loosening and
+// Loosening and
 // SetOwner(true) withdraw a Dormant record, a passkey-only holder's
 // included, journalling its issuer.
 func TestDormantTemporaryPasswordWithdrawn(t *testing.T) {
@@ -841,7 +841,7 @@ func TestDormantTemporaryPasswordWithdrawn(t *testing.T) {
 	})
 }
 
-// Design 5.2: SetOwner(false) on an owner the mode then keeps dormant ends
+// SetOwner(false) on an owner the mode then keeps dormant ends
 // its sessions of a local method in the same Update.
 func TestSetOwnerFalseUnderMode(t *testing.T) {
 	t.Parallel()
@@ -863,11 +863,11 @@ func TestSetOwnerFalseUnderMode(t *testing.T) {
 	}
 }
 
-// Design 5.2's owner transitions under a forbidding mode, and the owner's
+// The owner transitions under a forbidding mode, and the owner's
 // break-glass when admission refuses it.
 func TestSetOwnerUnderMode(t *testing.T) {
 	t.Parallel()
-	// 5.2: a linked admin's dormant passkey qualifies under SSOOnly, and
+	// A linked admin's dormant passkey qualifies under SSOOnly, and
 	// becomes usable with the flag.
 	t.Run("dormant_passkey_qualifies", func(t *testing.T) {
 		t.Parallel()
@@ -889,8 +889,8 @@ func TestSetOwnerUnderMode(t *testing.T) {
 			t.Errorf("bob's passkey after the flag = %+v, %v; want bob signed in", in.User, err)
 		}
 	})
-	// 5.10: "SetOwner(false) on a linked owner with a live password
-	// session: the session ends, and an SSO sign-in still works".
+	// SetOwner(false) on a linked owner with a live password
+	// session: the session ends, and an SSO sign-in still works.
 	t.Run("false_keeps_sso", func(t *testing.T) {
 		t.Parallel()
 		f, root := modeFixture(t, pwOptions{})
@@ -911,8 +911,8 @@ func TestSetOwnerUnderMode(t *testing.T) {
 			t.Errorf("the ex-owner's SSO sign-in = %+v, %v; want signed in", out, err)
 		}
 	})
-	// 5.10: "SetOwner(false) of an unlinked owner under SSOOnly ends their
-	// sessions".
+	// SetOwner(false) of an unlinked owner under SSOOnly ends their
+	// sessions.
 	t.Run("false_unlinked_under_sso_only", func(t *testing.T) {
 		t.Parallel()
 		f, root := modeFixture(t, pwOptions{})
@@ -927,8 +927,8 @@ func TestSetOwnerUnderMode(t *testing.T) {
 			t.Errorf("the ex-owner holds %d sessions, want none", n)
 		}
 	})
-	// 5.2 and 5.10: "a methodless owner refused by admission recovers
-	// through an OutOfBand temporary password".
+	// A methodless owner refused by admission recovers
+	// through an OutOfBand temporary password.
 	t.Run("methodless_owner_recovers", func(t *testing.T) {
 		t.Parallel()
 		f, _ := modeFixture(t, pwOptions{rules: rulesWith(staffAdmission)})
@@ -952,7 +952,7 @@ func TestSetOwnerUnderMode(t *testing.T) {
 	})
 }
 
-// Design 5.2 and 5.3: the last-method guard counts only local methods for
+// The last-method guard counts only local methods for
 // an owner, and none the mode keeps dormant for a non-owner.
 func TestLastMethodUnderMode(t *testing.T) {
 	t.Parallel()
@@ -991,7 +991,7 @@ func TestLastMethodUnderMode(t *testing.T) {
 	})
 }
 
-// Design 5.5: both links from a session, under a mode that then keeps the
+// Both links from a session, under a mode that then keeps the
 // user dormant, move the current session onto MethodOIDC and end the other
 // local sessions; only the IntentLink callback moves AuthTime.
 func TestLinkUnderMode(t *testing.T) {
@@ -1078,7 +1078,7 @@ func TestLinkUnderMode(t *testing.T) {
 	}
 }
 
-// State reports the stored mode (design 5.7 StateResponse.sso).
+// State reports the stored mode (StateResponse.sso).
 func TestStateSSO(t *testing.T) {
 	t.Parallel()
 	f, _ := modeFixture(t, pwOptions{})
@@ -1092,7 +1092,7 @@ func TestStateSSO(t *testing.T) {
 	}
 }
 
-// CheckRules answers every operation's Rules check (design 5.3).
+// CheckRules answers every operation's Rules check.
 func TestCheckRules(t *testing.T) {
 	t.Parallel()
 	p := newPW(t, pwOptions{})
@@ -1111,7 +1111,7 @@ func TestCheckRules(t *testing.T) {
 	}
 }
 
-// Design 5.25: the admin list's row carries whether the stored mode keeps
+// The admin list's row carries whether the stored mode keeps
 // the user's local methods dormant, read once for the page.
 func TestUsersLocalMethodsDormant(t *testing.T) {
 	t.Parallel()

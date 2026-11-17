@@ -355,7 +355,7 @@ func wantRetired(t *testing.T, name string, err error, keyID int64) {
 	}
 }
 
-// TestPreviousSecret pins design 2.4 "Verification": a rotated key's
+// TestPreviousSecret: a rotated key's
 // previous secret verifies while PreviousUntil is ahead and the new secret
 // is unused, and never touches; the new secret's first use is always
 // written and ends the overlap.
@@ -500,7 +500,7 @@ func TestPreviousSecretDeadline(t *testing.T) {
 	})
 }
 
-// TestFirstUseTouchFailure pins design 2.4 "A failed touch": while the
+// TestFirstUseTouchFailure: while the
 // previous secret still verifies, the new secret's first use is granted
 // only once its touch is written, so no client sees the new secret work
 // while the old one still does.

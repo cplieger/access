@@ -19,7 +19,7 @@ import (
 )
 
 // giveTOTP stores a TOTP record for name, its secret sealed under sealer
-// with design 4.3's purpose, and returns the secret.
+// with the at-rest purpose "totp:" + the user's ID, and returns the secret.
 func (e *env) giveTOTP(t testing.TB, name string, sealer *access.Sealer) []byte {
 	t.Helper()
 	u := e.user(t, name)
@@ -460,7 +460,7 @@ func addRecoveryCodeScenarios(out map[scenarioKey]scenario) {
 }
 
 // addProofScenarios reach the proof verifier's codes on each route that
-// takes a SecondFactorProof (design 4.31), each where its other scenarios
+// takes a SecondFactorProof, each where its other scenarios
 // do not already.
 func addProofScenarios(out map[scenarioKey]scenario) {
 	type held struct {

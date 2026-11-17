@@ -82,12 +82,12 @@ func waitRefs(t *testing.T, svc *account.Service, name string, n int) {
 	}
 }
 
-// TestLinkPendingOIDCByAdmin is design 5.5's "With an admin's consent,
-// under SSOOnly only": the pending identity is linked to the account an
+// TestLinkPendingOIDCByAdmin: with an admin's consent, under SSOOnly
+// only, the pending identity is linked to the account an
 // admin's temporary password names, and signed in by OIDC.
 func TestLinkPendingOIDCByAdmin(t *testing.T) {
 	t.Parallel()
-	// 5.5 and 5.10: one session whose AuthMethod is OIDC, no password or
+	// One session whose AuthMethod is OIDC, no password or
 	// passkey session, the record spent, the dormant password kept.
 	t.Run("links", func(t *testing.T) {
 		t.Parallel()
@@ -133,12 +133,12 @@ func TestLinkPendingOIDCByAdmin(t *testing.T) {
 		if ev := evs[1]; ev.Method != access.MethodOIDC || ev.UserID != alice.ID {
 			t.Errorf("signed_in = %+v, want alice by oidc", ev)
 		}
-		// 4.9 "works once".
+		// Works once.
 		if _, err := f.adminLink(t.Context(), localClient, pendingFor("other-sub"), "alice", issued.Password.Reveal()); !errors.Is(err, account.ErrInvalidCredentials) {
 			t.Errorf("the spent secret again = %v, want ErrInvalidCredentials", err)
 		}
 	})
-	// 4.6's normalisation, which 4.9 gives the secret at every verifier.
+	// The secret is normalised at every verifier.
 	t.Run("normalised", func(t *testing.T) {
 		t.Parallel()
 		f, _, alice := adminLinkFixture(t, pwOptions{}, nil)
@@ -148,7 +148,7 @@ func TestLinkPendingOIDCByAdmin(t *testing.T) {
 			t.Errorf("the secret typed %q for Alice = %v, want linked", typed, err)
 		}
 	})
-	// 5.5: oidc_linked names the record's issuer.
+	// oidc_linked names the record's issuer.
 	t.Run("issuer_named", func(t *testing.T) {
 		t.Parallel()
 		f, root, alice := adminLinkFixture(t, pwOptions{}, nil)
@@ -168,7 +168,7 @@ func TestLinkPendingOIDCByAdmin(t *testing.T) {
 			t.Errorf("oidc_linked = %+v, want admin's issue, then the key's", evs)
 		}
 	})
-	// 5.5: an unknown name, a wrong secret, an expired one, the account's
+	// An unknown name, a wrong secret, an expired one, the account's
 	// own password and an owner's name are one ErrInvalidCredentials, after
 	// the same work: one derivation each, nothing linked.
 	t.Run("one_answer", func(t *testing.T) {
@@ -216,7 +216,7 @@ func TestLinkPendingOIDCByAdmin(t *testing.T) {
 				}
 				return "alice", secret
 			}},
-			// 5.5: an empty or refused name still does the one dummy hash and
+			// An empty or refused name still does the one dummy hash and
 			// takes no lock.
 			{name: "empty_name", prep: func(_ *testing.T, _ *oidcFixture, _ *access.User, secret string) (string, string) {
 				return "", secret
@@ -245,7 +245,7 @@ func TestLinkPendingOIDCByAdmin(t *testing.T) {
 			})
 		}
 	})
-	// 5.25 and ruling Q3: a pending state that did not open is ErrNotFound
+	// A pending state that did not open is ErrNotFound
 	// before any hash and any limiter charge.
 	t.Run("no_pending_state", func(t *testing.T) {
 		t.Parallel()
@@ -263,7 +263,7 @@ func TestLinkPendingOIDCByAdmin(t *testing.T) {
 			t.Errorf("the IP's one attempt after two missing states = %v, want linked", err)
 		}
 	})
-	// 5.7: the admin link is refused over plain HTTP, before any work.
+	// The admin link is refused over plain HTTP, before any work.
 	t.Run("plain", func(t *testing.T) {
 		t.Parallel()
 		f, _, alice := adminLinkFixture(t, pwOptions{posture: access.PosturePerRequest}, nil)
@@ -278,7 +278,7 @@ func TestLinkPendingOIDCByAdmin(t *testing.T) {
 			t.Error("the plain refusal deleted the record")
 		}
 	})
-	// 5.5: under the other modes the route answers ErrInvalidCredentials
+	// Under the other modes the route answers ErrInvalidCredentials
 	// after the same work, writing nothing.
 	t.Run("only_under_sso_only", func(t *testing.T) {
 		t.Parallel()
@@ -301,7 +301,7 @@ func TestLinkPendingOIDCByAdmin(t *testing.T) {
 			})
 		}
 	})
-	// 5.5: failures count on the pending identity, never on the named
+	// Failures count on the pending identity, never on the named
 	// account, so another identity's failures leave the link usable.
 	t.Run("counted_on_the_identity", func(t *testing.T) {
 		t.Parallel()
@@ -326,7 +326,7 @@ func TestLinkPendingOIDCByAdmin(t *testing.T) {
 			t.Errorf("alice's own link after the attacker's failures = %v, want linked", err)
 		}
 	})
-	// 5.5 and 4.9: a match re-checks the record's issuer; a failure deletes
+	// A match re-checks the record's issuer; a failure deletes
 	// the record and answers as a wrong secret.
 	t.Run("issuer_recheck", func(t *testing.T) {
 		t.Parallel()
@@ -345,7 +345,7 @@ func TestLinkPendingOIDCByAdmin(t *testing.T) {
 		}
 		requireUnlinked(t, f, alice)
 	})
-	// 5.5: a conflict is refused, never merged, writing nothing.
+	// A conflict is refused, never merged, writing nothing.
 	t.Run("identity_taken", func(t *testing.T) {
 		t.Parallel()
 		f, _, alice := adminLinkFixture(t, pwOptions{}, nil)
@@ -377,8 +377,8 @@ func TestLinkPendingOIDCByAdmin(t *testing.T) {
 			t.Error("the refusal spent the record")
 		}
 	})
-	// 5.10: a refused local sign-in with a live temporary password leaves
-	// the admin link usable (5.3: a secure mode-refused sign-in writes
+	// A refused local sign-in with a live temporary password leaves
+	// the admin link usable (a secure mode-refused sign-in writes
 	// nothing).
 	t.Run("refused_sign_in_keeps_the_link", func(t *testing.T) {
 		t.Parallel()
@@ -391,7 +391,7 @@ func TestLinkPendingOIDCByAdmin(t *testing.T) {
 			t.Errorf("the admin link after the refused sign-in = %v, want linked", err)
 		}
 	})
-	// 5.10: the dormant password the link kept comes back with a
+	// The dormant password the link kept comes back with a
 	// loosening.
 	t.Run("dormant_password_comes_back", func(t *testing.T) {
 		t.Parallel()
@@ -418,8 +418,8 @@ func TestLinkPendingOIDCByAdmin(t *testing.T) {
 	})
 }
 
-// TestLinkPendingOIDCByAdminLock is design 4.9's "One verifier of a name's
-// temporary password at a time" at the admin link: the lock is the step-1
+// TestLinkPendingOIDCByAdminLock: one verifier of a name's temporary
+// password at a time, at the admin link: the lock is the step-1
 // lock on the canonical name, so a burn and a link of one secret are
 // ordered.
 func TestLinkPendingOIDCByAdminLock(t *testing.T) {
@@ -447,7 +447,7 @@ func TestLinkPendingOIDCByAdminLock(t *testing.T) {
 			t.Errorf("name locks = %d after both settled, want 0", n)
 		}
 	}
-	// 4.9 and 5.10: a plain step 1 under SSOOnly mid-verification and an
+	// A plain step 1 under SSOOnly mid-verification and an
 	// admin link of the same secret for "ALICE" admitted during it.
 	t.Run("burn_then_link", func(t *testing.T) {
 		t.Parallel()
@@ -472,8 +472,8 @@ func TestLinkPendingOIDCByAdminLock(t *testing.T) {
 		close(release)
 		burnedAndUnlinked(t, f, alice, <-step, <-link)
 	})
-	// 5.10: "including when another step 1 for the name holds the lock
-	// first".
+	// Including when another step 1 for the name holds the lock
+	// first.
 	t.Run("another_step_holds_first", func(t *testing.T) {
 		t.Parallel()
 		f, fs, alice, secret := setup(t)
@@ -506,7 +506,7 @@ func TestLinkPendingOIDCByAdminLock(t *testing.T) {
 		}
 		burnedAndUnlinked(t, f, alice, <-step, <-link)
 	})
-	// 4.9: "two parallel admin-link posts of one secret link once".
+	// Two parallel admin-link posts of one secret link once.
 	t.Run("two_posts_link_once", func(t *testing.T) {
 		t.Parallel()
 		f, _, alice, secret := setup(t)
@@ -537,7 +537,7 @@ func TestLinkPendingOIDCByAdminLock(t *testing.T) {
 	})
 }
 
-// TestAdminRelinkOIDC is design 5.5's "Re-linking is one call":
+// TestAdminRelinkOIDC: re-linking is one call,
 // AdminUnlinkOIDC then SetTemporaryPassword in one Update, under the
 // Policies of both.
 func TestAdminRelinkOIDC(t *testing.T) {
@@ -550,8 +550,8 @@ func TestAdminRelinkOIDC(t *testing.T) {
 		linkIdentity(t, f.mem, alice, old)
 		return f, root, storedUser(t, f.mem, alice.ID)
 	}
-	// 5.5: under SSOOnly the issue keeps the dormant methods, and the
-	// secret links the account again; 5.10: a later loosening brings the
+	// Under SSOOnly the issue keeps the dormant methods, and the
+	// secret links the account again; a later loosening brings the
 	// password back.
 	t.Run("sso_only", func(t *testing.T) {
 		t.Parallel()
@@ -597,7 +597,7 @@ func TestAdminRelinkOIDC(t *testing.T) {
 			t.Errorf("alice's kept password after the loosening = %v, want signed in", err)
 		}
 	})
-	// 5.5: under the other modes the unlinked account's methods are usable,
+	// Under the other modes the unlinked account's methods are usable,
 	// so the issue replaces them.
 	t.Run("looser_modes_replace", func(t *testing.T) {
 		t.Parallel()
@@ -616,7 +616,7 @@ func TestAdminRelinkOIDC(t *testing.T) {
 			})
 		}
 	})
-	// 5.5: on an account that is not linked it is ErrNotFound with nothing
+	// On an account that is not linked it is ErrNotFound with nothing
 	// written.
 	t.Run("not_linked", func(t *testing.T) {
 		t.Parallel()
@@ -637,7 +637,7 @@ func TestAdminRelinkOIDC(t *testing.T) {
 			t.Errorf("the refusal journalled %d events", n)
 		}
 	})
-	// 5.5: under the Policies of both OpUnlinkOIDC and
+	// Under the Policies of both OpUnlinkOIDC and
 	// OpSetTemporaryPassword; a failure of either half writes nothing.
 	t.Run("both_policies", func(t *testing.T) {
 		t.Parallel()
@@ -680,7 +680,7 @@ func TestAdminRelinkOIDC(t *testing.T) {
 			})
 		}
 	})
-	// 5.10: a ManageUsersScope key relinks a regular user and is refused
+	// A ManageUsersScope key relinks a regular user and is refused
 	// for an admin; a relink by a key whose key is then revoked no longer
 	// links.
 	t.Run("key", func(t *testing.T) {
@@ -707,7 +707,7 @@ func TestAdminRelinkOIDC(t *testing.T) {
 		}
 		requireUnlinked(t, f, alice)
 	})
-	// 5.10: with keep_keys the target's keys stay, with revoke_passkeys its
+	// With keep_keys the target's keys stay, with revoke_passkeys its
 	// passkeys go, and with neither the keys go and the passkeys stay.
 	t.Run("options", func(t *testing.T) {
 		t.Parallel()
@@ -742,7 +742,7 @@ func TestAdminRelinkOIDC(t *testing.T) {
 			})
 		}
 	})
-	// 4.9 via 5.5: the issue's self_recovery refusal, the owner protection
+	// The issue's self_recovery refusal, the owner protection
 	// and the plain refusal, each before anything is written.
 	t.Run("refusals", func(t *testing.T) {
 		t.Parallel()

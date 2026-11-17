@@ -46,12 +46,12 @@ func (e *env) adminLink(t testing.TB, name, secret string, pending bool) *http.R
 	return r
 }
 
-// TestRouteAuthOIDCLinkByAdmin is design 5.5's admin-consent link and 5.7's
-// authOIDCLinkByAdmin row, with ruling Q3 (design 5.25) and
-// ui-contract-part5 (b)'s pending-link bullets.
+// TestRouteAuthOIDCLinkByAdmin checks the admin-consent link on the wire,
+// a missing pending cookie answering 404 before any hash, and the screens'
+// pending-link rows.
 func TestRouteAuthOIDCLinkByAdmin(t *testing.T) {
-	// 5.5: the session it answers is by OIDC, the identity is linked and the
-	// record spent; 5.7: SignedInResponse.
+	// The session it answers is by OIDC, the identity is linked and the
+	// record spent; the answer is SignedInResponse.
 	t.Run("links", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		secret := e.issueForAdminLink(t, true)
@@ -76,7 +76,7 @@ func TestRouteAuthOIDCLinkByAdmin(t *testing.T) {
 			t.Errorf("record left (%t, %v), want it spent", found, err)
 		}
 	})
-	// 5.5: one ErrInvalidCredentials for a wrong secret; the pending state
+	// One ErrInvalidCredentials for a wrong secret; the pending state
 	// is kept for another try.
 	t.Run("wrong_secret", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
@@ -90,7 +90,7 @@ func TestRouteAuthOIDCLinkByAdmin(t *testing.T) {
 			t.Errorf("alice linked to %+v, want no link", got)
 		}
 	})
-	// ui-contract-part5 (b): a mode no longer only answers
+	// A mode that is no longer SSOOnly answers
 	// auth_invalid_credentials.
 	t.Run("mode_no_longer_only", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
@@ -100,7 +100,7 @@ func TestRouteAuthOIDCLinkByAdmin(t *testing.T) {
 		}
 		e.requireRefused(t, do(e.route(t, "authOIDCLinkByAdmin"), e.adminLink(t, "alice", secret.Reveal(), true)), access.CodeInvalidCredentials)
 	})
-	// Ruling Q3: no pending cookie answers 404 auth_not_found with no hash.
+	// No pending cookie answers 404 auth_not_found with no hash.
 	// The hash budget is held, so a hash would answer auth_busy.
 	t.Run("no_pending_state", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
@@ -108,7 +108,7 @@ func TestRouteAuthOIDCLinkByAdmin(t *testing.T) {
 		e.holdBudget(t)
 		e.requireRefused(t, do(e.route(t, "authOIDCLinkByAdmin"), e.adminLink(t, "alice", secret.Reveal(), false)), access.CodeNotFound)
 	})
-	// Design 5.25: the IP request window is charged before the pending
+	// The IP request window is charged before the pending
 	// cookie is read.
 	t.Run("limiter_before_pending_cookie", func(t *testing.T) {
 		e := newEnv(t, limited)
@@ -136,10 +136,10 @@ func (e *env) relink(t *testing.T, origin, name, body string, cookie *http.Cooki
 	return requestAt(origin, strings.Replace(rt.Path, "{id}", e.userID(t, name), 1), rt, body, cookie)
 }
 
-// TestRouteAuthAdminOIDCRelink is design 5.5's re-linking and 5.7's
-// authAdminOIDCRelink row: the body decodes into TemporaryPasswordOptions
+// TestRouteAuthAdminOIDCRelink checks authAdminOIDCRelink: the body decodes
+// into TemporaryPasswordOptions
 // as authAdminTemporaryPassword's does, and the answer is its
-// TemporaryPasswordResponse (4.30, 4.31).
+// TemporaryPasswordResponse.
 func TestRouteAuthAdminOIDCRelink(t *testing.T) {
 	t.Run("relinks", func(t *testing.T) {
 		e := newEnv(t, passkeys)
@@ -160,7 +160,7 @@ func TestRouteAuthAdminOIDCRelink(t *testing.T) {
 		if err != nil || !found || !rec.ExpiresAt.Equal(got.ExpiresAt) {
 			t.Errorf("record %+v (%t, %v), want the answer's", rec, found, err)
 		}
-		// 5.10: with neither option the keys go and the passkeys stay.
+		// With neither option the keys go and the passkeys stay.
 		if pk, err := e.mem.PasskeysByUserID(t.Context(), alice.ID); err != nil || len(pk) != 1 {
 			t.Errorf("alice's passkeys %d (%v), want kept", len(pk), err)
 		}
@@ -168,7 +168,7 @@ func TestRouteAuthAdminOIDCRelink(t *testing.T) {
 			t.Errorf("alice's keys %d (%v), want revoked", len(keys), err)
 		}
 	})
-	// 5.10: revoke_passkeys and keep_keys reach the issue.
+	// revoke_passkeys and keep_keys reach the issue.
 	t.Run("options", func(t *testing.T) {
 		e := newEnv(t, passkeys)
 		root := e.rootSession(t)
@@ -184,7 +184,7 @@ func TestRouteAuthAdminOIDCRelink(t *testing.T) {
 			t.Errorf("alice's keys %+v (%v), want key %d kept", keys, err, key.Key.ID)
 		}
 	})
-	// 5.5: under SSOOnly the relink keeps the dormant password (4.31's
+	// Under SSOOnly the relink keeps the dormant password (the
 	// dormant and password_kept).
 	t.Run("dormant", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
@@ -198,7 +198,7 @@ func TestRouteAuthAdminOIDCRelink(t *testing.T) {
 			t.Errorf("answer %+v, want dormant and password_kept with the password kept", got)
 		}
 	})
-	// 5.5: an account that is not linked is ErrNotFound with nothing written.
+	// An account that is not linked is ErrNotFound with nothing written.
 	t.Run("unlinked", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		root := e.rootSession(t)
@@ -207,7 +207,7 @@ func TestRouteAuthAdminOIDCRelink(t *testing.T) {
 			t.Errorf("record stored (%t, %v), want none", found, err)
 		}
 	})
-	// 5.7: refused over plain HTTP, since it answers a new secret; the link
+	// Refused over plain HTTP, since it answers a new secret; the link
 	// stays.
 	t.Run("plain_refused", func(t *testing.T) {
 		e := newEnv(t, perRequest)

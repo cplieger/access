@@ -23,7 +23,7 @@ func opsAdmin(sync bool) func() account.Rules {
 	})
 }
 
-// TestRoleSync: design 5.4, SyncRole re-applies the RoleClaim mapping at
+// TestRoleSync: SyncRole re-applies the RoleClaim mapping at
 // each SSO sign-in only while the claim is present and readable, and never
 // changes an owner.
 func TestRoleSync(t *testing.T) {
@@ -104,7 +104,7 @@ func TestRoleSyncReachesLiveSessions(t *testing.T) {
 	}
 }
 
-// TestUsersRoleFromProvider: design 5.25, the admin list marks a role the
+// TestUsersRoleFromProvider: the admin list marks a role the
 // provider syncs: a linked non-owner under SyncRole.
 func TestUsersRoleFromProvider(t *testing.T) {
 	t.Parallel()
@@ -156,7 +156,7 @@ func takenPendingUnder(t *testing.T, rules func() account.Rules, policy account.
 	return f, out.Pending
 }
 
-// TestCreatePendingOIDC: design 5.4, an admitted identity whose name is
+// TestCreatePendingOIDC: an admitted identity whose name is
 // taken picks a free one; the create re-runs the gates that need no claims.
 func TestCreatePendingOIDC(t *testing.T) {
 	t.Parallel()
@@ -191,7 +191,7 @@ func TestCreatePendingOIDC(t *testing.T) {
 			t.Errorf("events = %+v, want EventUserCreated then EventSignedIn for picked", evs)
 		}
 	})
-	// design 5.4: admission and the role are the callback's.
+	// Admission and the role are the callback's.
 	t.Run("role_from_callback", func(t *testing.T) {
 		t.Parallel()
 		f, pending := takenPending(t, rulesWith(func(r *account.Rules) {
@@ -221,7 +221,7 @@ func TestCreatePendingOIDC(t *testing.T) {
 			t.Errorf("CreatePendingOIDC of a pending link with no offer = %v, want ErrProvisioningDisabled", err)
 		}
 	})
-	// design 5.25: a pending state that does not open is not found, as
+	// A pending state that does not open is not found, as
 	// the pending read answers it.
 	t.Run("no_pending", func(t *testing.T) {
 		t.Parallel()
@@ -281,7 +281,7 @@ func (p togglePolicy) Authorize(ctx context.Context, d account.Decision) error {
 	return account.RolePolicy{}.Authorize(ctx, d)
 }
 
-// TestAdminUnlinkOIDC: design 5.5, an admin or OutOfBand removes a link
+// TestAdminUnlinkOIDC: an admin or OutOfBand removes a link
 // with no last-method guard, ending every session of the user.
 func TestAdminUnlinkOIDC(t *testing.T) {
 	t.Parallel()
@@ -340,7 +340,7 @@ func TestAdminUnlinkOIDC(t *testing.T) {
 			t.Error("the refused unlink removed the link")
 		}
 	})
-	// design 5.5: a ManageUsersScope key unlinks a regular user, never an
+	// A ManageUsersScope key unlinks a regular user, never an
 	// admin (admin_target).
 	t.Run("key", func(t *testing.T) {
 		t.Parallel()
@@ -355,7 +355,7 @@ func TestAdminUnlinkOIDC(t *testing.T) {
 			t.Errorf("a key's unlink of a regular user = %v, want nil", err)
 		}
 	})
-	// design 5.2: a principal that is no owner never acts on an owner.
+	// A principal that is no owner never acts on an owner.
 	t.Run("owner_target", func(t *testing.T) {
 		t.Parallel()
 		f, root, _ := setup(t, nil)
@@ -368,7 +368,7 @@ func TestAdminUnlinkOIDC(t *testing.T) {
 			t.Errorf("an out-of-band unlink of an owner = %v, want nil", err)
 		}
 	})
-	// "Across the parts": SingleOwnerPolicy's OpUnlinkOIDC arm is
+	// SingleOwnerPolicy's OpUnlinkOIDC arm is
 	// OutOfBand only, for the owner.
 	t.Run("single_owner", func(t *testing.T) {
 		t.Parallel()
@@ -382,7 +382,7 @@ func TestAdminUnlinkOIDC(t *testing.T) {
 			t.Errorf("an out-of-band unlink of the owner = %v, want nil", err)
 		}
 	})
-	// design 5.5: an API-key principal cannot link or unlink its own user.
+	// An API-key principal cannot link or unlink its own user.
 	t.Run("key_own_link", func(t *testing.T) {
 		t.Parallel()
 		f, root, _ := setup(t, nil)
@@ -398,7 +398,7 @@ func TestAdminUnlinkOIDC(t *testing.T) {
 	})
 }
 
-// TestSessionCapsByMethod: design 5.6, Rules.SessionCaps gets the method
+// TestSessionCapsByMethod: Rules.SessionCaps gets the method
 // the session is created with, once, and a step-up never calls it.
 func TestSessionCapsByMethod(t *testing.T) {
 	t.Parallel()

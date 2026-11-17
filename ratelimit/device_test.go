@@ -164,7 +164,7 @@ func TestDeviceCookieOtherAccountUntrusted(t *testing.T) {
 
 // TestKnownDevice checks the device cookie's secure bit: a device is known
 // only through a cookie a secure sign-in sealed, and every seal takes the
-// bit from its own request (access design 4.4, "A known device").
+// bit from its own request.
 func TestKnownDevice(t *testing.T) {
 	t.Parallel()
 	alice, bob := AccountKey("alice"), AccountKey("bob")

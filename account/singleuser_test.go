@@ -52,7 +52,7 @@ func singleUserPolicies() map[string]account.Policy {
 	}
 }
 
-// TestSingleUserDeclarationReadOnce: "Across the parts", New reads
+// TestSingleUserDeclarationReadOnce: New reads
 // SingleUser once; a Policy whose answer flips after New changes no row.
 func TestSingleUserDeclarationReadOnce(t *testing.T) {
 	t.Parallel()
@@ -78,7 +78,7 @@ func TestSingleUserDeclarationReadOnce(t *testing.T) {
 	}
 }
 
-// TestNewSingleUserStore: "Across the parts" and design 5.2, a single-user
+// TestNewSingleUserStore: a single-user
 // store with users fits only with exactly one enabled account, an admin;
 // otherwise New refuses with one error naming what it found and one
 // repair, matching ErrNoOwner when no enabled account is an admin. A
@@ -176,7 +176,7 @@ func TestNewSingleUserStore(t *testing.T) {
 	})
 }
 
-// TestServiceOwner: "Across the parts", Owner answers the one enabled
+// TestServiceOwner: Owner answers the one enabled
 // admin when it alone carries the flag, ErrNotFound before setup, New's
 // error or the restart error on a store changed under it, and
 // ErrNotSingleUser under a multi-user Policy.
@@ -252,7 +252,7 @@ type appPolicy struct {
 }
 
 // appPolicies are RolePolicy, SingleOwnerPolicy and the two custom
-// single-user Policies "Across the parts" names: one refusing every
+// single-user Policies: one refusing every
 // user-adding operation, one allowing admin create and invites.
 func appPolicies() []appPolicy {
 	ps := []appPolicy{{name: "role_policy", policy: account.RolePolicy{}}}
@@ -309,7 +309,7 @@ func multiWorld(t *testing.T) (w *appWorld, bob, carol access.Principal) {
 	return w, w.sessionPrincipal(t, b, time.Now()), w.sessionPrincipal(t, c, time.Now())
 }
 
-// declarationRows are the rows of "Across the parts" the library enforces
+// declarationRows are the single-user rows the library enforces
 // from the kept declaration, each run under every appPolicy.
 var declarationRows = []struct {
 	run  func(*testing.T, appPolicy)
@@ -328,7 +328,7 @@ var declarationRows = []struct {
 	{name: "same_everywhere", run: rowSameEverywhere},
 }
 
-// TestSingleAndMultiUser is "Across the parts"' Tests bullet: each row
+// TestSingleAndMultiUser: each row
 // account enforces from the declaration answers by the declaration alone,
 // so the two custom single-user Policies answer as SingleOwnerPolicy does,
 // and RolePolicy answers as a multi-user app.
@@ -451,7 +451,7 @@ func rowOwnerMarking(t *testing.T, ap appPolicy) {
 	}
 }
 
-// rowUnknownIdentity: design 5.4, an identity no account links is refused
+// rowUnknownIdentity: an identity no account links is refused
 // as invalid credentials in a single-user app, with no pending link and
 // nothing journalled, and answers a pending link in a multi-user one.
 func rowUnknownIdentity(t *testing.T, ap appPolicy) {
@@ -489,7 +489,7 @@ func rowProvisioning(t *testing.T, ap appPolicy) {
 	requireRulesRefused(t, ap, account.Rules{Provisioning: account.Provisioning{Enabled: true}}, "Provisioning")
 }
 
-// rowRegistration: design 4.17, either registration mode is refused by
+// rowRegistration: either registration mode is refused by
 // the kept declaration.
 func rowRegistration(t *testing.T, ap appPolicy) {
 	for _, mode := range []account.RegistrationMode{account.RegistrationOpen, account.RegistrationApproval} {
@@ -497,7 +497,7 @@ func rowRegistration(t *testing.T, ap appPolicy) {
 	}
 }
 
-// rowSSOMode: design 5.3, a single-user app keeps SSOAlongside, refusing a
+// rowSSOMode: a single-user app keeps SSOAlongside, refusing a
 // change with single_owner and a stored contradiction at New; a
 // multi-user app takes any mode.
 func rowSSOMode(t *testing.T, ap appPolicy) {
@@ -576,7 +576,7 @@ func rowSameEverywhere(t *testing.T, ap appPolicy) {
 	}
 }
 
-// TestPolicyRowsSingleAndMulti is "Across the parts"' rows the Policy
+// TestPolicyRowsSingleAndMulti checks the single-user rows the Policy
 // decides, each cell checked under SingleOwnerPolicy (single-user) and
 // RolePolicy (multi-user).
 func TestPolicyRowsSingleAndMulti(t *testing.T) {

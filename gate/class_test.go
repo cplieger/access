@@ -27,7 +27,7 @@ var classRoutes = []gate.Route{
 // ok is an admitted request in a class table.
 const ok access.Code = ""
 
-// TestClasses is the class table of design 2.2 for each principal, under
+// TestClasses is the class table for each principal, under
 // the default Allow: no principal passes implicitly, and a bypass or custom
 // verifier's principal passes only where Allow says so.
 func TestClasses(t *testing.T) {

@@ -6,7 +6,7 @@ interface Vector {
   readonly shown: string;
 }
 
-// Written by account's TestTemporaryPasswordVectors from the server's generator (design 4.12).
+// Written by account's TestTemporaryPasswordVectors from the server's generator.
 const files = import.meta.glob<{ readonly issued: readonly Vector[] }>(
   "../testdata/temporary-password/vectors.json",
   { eager: true, import: "default" },
@@ -38,7 +38,7 @@ describe("crc32", () => {
     expect(crc32(new TextEncoder().encode("123456789"))).toBe(0xcbf43926);
   });
 
-  it("matches the server's check on every issued value (design 4.9)", () => {
+  it("matches the server's check on every issued value", () => {
     for (const v of issued) {
       const random = Uint8Array.from(v.random.match(/../g) ?? [], (h) => Number.parseInt(h, 16));
       expect(random).toHaveLength(8);
@@ -51,7 +51,7 @@ describe("crc32", () => {
   });
 });
 
-describe("looksLikeTemporaryPassword (design 4.9, 4.12)", () => {
+describe("looksLikeTemporaryPassword", () => {
   it("reads 64 issued values", () => {
     expect(issued.length).toBeGreaterThanOrEqual(64);
   });
@@ -100,7 +100,7 @@ describe("looksLikeTemporaryPassword (design 4.9, 4.12)", () => {
     ["correct horse battery staple"],
     ["abacus tree bird zebra"],
     // A full case mapping (toUpperCase) makes ß "SS" and this one edit from a valid value;
-    // the byte-loop fold keeps ß, which Crockford's table does not hold (design 4.6).
+    // the byte-loop fold keeps ß, which Crockford's table does not hold.
     ["ßz7xxa5jcvjrrjy"],
     [""],
   ])("does not recognise %j", (value) => {

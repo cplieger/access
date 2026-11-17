@@ -114,7 +114,7 @@ func issuerCases() []issuerCase {
 			if err := kr.svc.RevokeAPIKey(t.Context(), kr.pr, kr.k.key.ID); err != nil {
 				t.Fatalf("RevokeAPIKey(K) = %v", err)
 			}
-			// The revocation deletes K's links with it (design 6.1), so a
+			// The revocation deletes K's links with it, so a
 			// token path meets a revoked issuer only in a link that outlived
 			// its key: it is stored again.
 			if link.token != nil {

@@ -81,7 +81,7 @@ func policyVariants() []operation {
 				return err
 			}}
 		}},
-		// Design 9.5 "Provisioning": a refusing Policy makes the callback
+		// A refusing Policy makes the callback
 		// answer NotLinked, not an error.
 		{name: "OIDCComplete_provisioning", class: classPublic, refused: errNotLinked, asks: []account.Operation{account.OpCreateUser}, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
 			flow, claims := w.rig.signInFlow(t)

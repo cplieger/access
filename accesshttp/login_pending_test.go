@@ -36,7 +36,7 @@ func strictDecode(t testing.TB, body []byte, v any) {
 }
 
 // TestLoginOutcome is authLoginPassword's 200 answer, {signed_in} or
-// {pending}, and that a pending one sets no cookie (design 4.4, 4.12).
+// {pending}, and that a pending one sets no cookie.
 func TestLoginOutcome(t *testing.T) {
 	t.Parallel()
 	t.Run("signed_in", func(t *testing.T) {
@@ -152,9 +152,9 @@ func (e *env) storedInvite(t testing.TB) access.Secret {
 	return issued.Plaintext
 }
 
-// TestDraftOutcome is design 4.52: authSetupPassword and
+// TestDraftOutcome: authSetupPassword and
 // authInviteAcceptPassword answer SignInOutcome, a pending enrol with no
-// cookie under RequireSecondFactor (design 4.8), and signed_in without it.
+// cookie under RequireSecondFactor, and signed_in without it.
 func TestDraftOutcome(t *testing.T) {
 	t.Parallel()
 	routes := map[string]func(t *testing.T, e *env) string{
@@ -178,7 +178,7 @@ func TestDraftOutcome(t *testing.T) {
 				t.Errorf("a draft's answer set cookies %v, want none", c)
 			}
 		})
-		// Design 4.17: under the rule the password routes mint a draft, and an
+		// Under the rule the password routes mint a draft, and an
 		// app allowing no enrolment method answers no_usable_method.
 		t.Run(name+"/no_usable_method", func(t *testing.T) {
 			t.Parallel()

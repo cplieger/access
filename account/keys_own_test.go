@@ -52,8 +52,9 @@ func requireUntouched(t *testing.T, w ownKeysWorld) {
 	}
 }
 
-// Design 4.51 "A key manages its own user's keys under CreateKeysScope":
-// list, rename and revoke join CreateAPIKey's key arm, through the same
+// TestOwnKeysByKey: a key manages its own user's keys under
+// CreateKeysScope: list, rename and revoke join CreateAPIKey's key arm,
+// through the same
 // Policy operation, KeysAdminOnly included.
 func TestOwnKeysByKey(t *testing.T) {
 	t.Parallel()

@@ -59,7 +59,7 @@ func TestStateRoute(t *testing.T) {
 			raw:    []string{`"plain_session":{"idle_seconds":1800,"absolute_seconds":43200}`, `"https_origin":"https://grelot.example"`, `"passkeys":false`, `"oidc":false`},
 			absent: []string{`"temporary_password_https_only"`},
 		},
-		// Design 4.12: a plain request under DisablePasswordLogin carries the
+		// A plain request under DisablePasswordLogin carries the
 		// flag, so the plain form sends no temporary password.
 		{
 			name: "per_request_plain_password_login_off", opts: with(perRequest, envOptions{rules: func(r *account.Rules) { r.DisablePasswordLogin = true }}), origin: plainOrigin,

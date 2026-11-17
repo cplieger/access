@@ -158,7 +158,7 @@ func TestErrorCodeTable(t *testing.T) {
 			}
 		}
 	})
-	// Design 4.51: the bounds are StateResponse.password_length; a length
+	// The bounds are StateResponse.password_length; a length
 	// refusal keeps its reason and Detail stays the code's own diagnostic.
 	t.Run("password_length_not_in_detail", func(t *testing.T) {
 		for _, err := range []error{

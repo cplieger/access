@@ -54,12 +54,12 @@ func signInOutcome(t *testing.T, e *env, w *httptest.ResponseRecorder) SignInOut
 	return out
 }
 
-// TestLoginSetPassword is design 4.12's authLoginSetPassword row and 4.9
-// "Setting the credential" on the wire, with ui-contract-part4 (a)'s
-// loginSetPassword and (b)'s set-password transitions.
+// TestLoginSetPassword checks authLoginSetPassword setting the credential
+// on the wire, with the client's loginSetPassword answers and its
+// set-password transitions.
 func TestLoginSetPassword(t *testing.T) {
 	t.Parallel()
-	// 4.9: with the rule off the chosen password is written and the answer
+	// With the rule off the chosen password is written and the answer
 	// is {signed_in} with the session's cookie.
 	t.Run("rule_off_signs_in", func(t *testing.T) {
 		t.Parallel()
@@ -79,7 +79,7 @@ func TestLoginSetPassword(t *testing.T) {
 			t.Errorf("the chosen password signs in as %s, want {signed_in}", login.Body.Bytes())
 		}
 	})
-	// 4.9 "Under the rule": the answer is {pending} enrol with no cookie,
+	// The answer is {pending} enrol with no cookie,
 	// and nothing is written until the enrolment finishes.
 	t.Run("rule_on_pending_enrol", func(t *testing.T) {
 		t.Parallel()
@@ -98,7 +98,7 @@ func TestLoginSetPassword(t *testing.T) {
 			t.Errorf("alice holds a password before the enrolment finished")
 		}
 	})
-	// ui-contract-part4 (b): is_temporary_password, the ticket kept.
+	// is_temporary_password, the ticket kept.
 	t.Run("is_temporary_password", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, envOptions{})
@@ -113,7 +113,7 @@ func TestLoginSetPassword(t *testing.T) {
 			t.Errorf("the kept ticket answers %s, want {signed_in}", w.Body.Bytes())
 		}
 	})
-	// ui-contract-part4 (b): auth_password_login_disabled, register a
+	// auth_password_login_disabled, register a
 	// passkey instead; the ticket stays.
 	t.Run("password_login_disabled", func(t *testing.T) {
 		t.Parallel()
@@ -127,7 +127,7 @@ func TestLoginSetPassword(t *testing.T) {
 			t.Errorf("set-passkey on the kept ticket answers %s, want {signed_in}", w.Body.Bytes())
 		}
 	})
-	// 4.9 "Over plain HTTP": a plain ticket's set-password is a password
+	// A plain ticket's set-password is a password
 	// set, allowed with the rule off, and its session is a plain one.
 	t.Run("plain", func(t *testing.T) {
 		t.Parallel()
@@ -144,8 +144,8 @@ func TestLoginSetPassword(t *testing.T) {
 	})
 }
 
-// TestLoginSetPasskey is design 4.12's authLoginSetPasskeyBegin/Finish
-// rows and 4.9's "A registered passkey meets the rule": the finish answers
+// TestLoginSetPasskey checks authLoginSetPasskeyBegin and Finish, where a
+// registered passkey meets the rule: the finish answers
 // SignInOutcome's {signed_in} with the session's cookie under either
 // setting, and the passkey is the user's.
 func TestLoginSetPasskey(t *testing.T) {

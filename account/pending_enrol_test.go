@@ -45,13 +45,13 @@ func recoveryTicket(t *testing.T, f *sfFixture, c account.Client) (*access.User,
 	return u, pending(t, out, err, account.NextSecondFactor, access.MethodTOTP, access.MethodRecoveryCode).Ticket, secret
 }
 
-// recovered requires out to be design 4.6's answer to a matched recovery
+// recovered requires out to be the answer to a matched recovery
 // code: a NextEnrol ticket marked Recovered listing methods, and no session.
 func recovered(t testing.TB, out account.LoginResult, err error, methods ...access.Method) *account.Pending {
 	t.Helper()
 	p := pending(t, out, err, account.NextEnrol, methods...)
 	if !p.Recovered {
-		t.Fatal("the recovery code's NextEnrol is not marked recovered (design 4.6)")
+		t.Fatal("the recovery code's NextEnrol is not marked recovered")
 	}
 	return p
 }
@@ -101,11 +101,11 @@ func recoveryFailures(t testing.TB, f *sfFixture, name string, trusted bool) (ac
 	return rec, found
 }
 
-// TestSignInWithRecoveryCode is design 4.6's recovery-code step: NIST SP
+// TestSignInWithRecoveryCode checks the recovery-code step: NIST SP
 // 800-63B-4 §4.2.1.1's saved recovery code, used once after the password.
 func TestSignInWithRecoveryCode(t *testing.T) {
 	t.Parallel()
-	// Design 4.6: the step commits nothing but the count and answers a
+	// The step commits nothing but the count and answers a
 	// recovered NextEnrol, never a session.
 	t.Run("answers_a_recovered_enrolment", func(t *testing.T) {
 		t.Parallel()
@@ -114,7 +114,7 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 		out, err := f.svc.SignInWithRecoveryCode(t.Context(), clientAt(1), ticket, knownRecoveryShown)
 		p := recovered(t, out, err, access.MethodTOTP, access.MethodPasskey)
 		if live(f, ticket) {
-			t.Error("the second-factor ticket outlived its replacement (design 4.4)")
+			t.Error("the second-factor ticket outlived its replacement")
 		}
 		got, ok := account.TicketOf(f.svc, p.Ticket)
 		if !ok || !got.Recovered || got.UserID != u.ID {
@@ -136,7 +136,7 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 			t.Errorf("recovery_code_used events = %d, want 0 before the finish", n)
 		}
 	})
-	// Design 4.6: Crockford's decode table on input, ASCII only.
+	// Crockford's decode table on input, ASCII only.
 	for name, typed := range map[string]string{
 		"lower_case":       "7k3m9qw2xz8r4t6v",
 		"spaces":           "7K3M 9QW2 XZ8R 4T6V",
@@ -169,7 +169,7 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 		out, err = f.svc.SignInWithRecoveryCode(t.Context(), clientAt(1), ticket, "oOiL-k3m9-qw2x-z8r4")
 		recovered(t, out, err, access.MethodTOTP, access.MethodPasskey)
 	})
-	// Design 4.4 step 0 and 4.6: Go and JavaScript case mapping disagree on
+	// Go and JavaScript case mapping disagree on
 	// ß and ı, so neither reads as a letter; a malformed code counts nothing.
 	for name, typed := range map[string]string{
 		"sharp_s":        "7K3M-9QW2-XZ8R-4Tß",
@@ -200,7 +200,7 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 			recovered(t, out, err, access.MethodTOTP, access.MethodPasskey)
 		})
 	}
-	// NIST SP 800-63B-4 §3.1.2.1: a look-up secret is throttled; design 4.6
+	// NIST SP 800-63B-4 §3.1.2.1: a look-up secret is throttled, here
 	// on (username, recovery_code), the ticket kept for a retry.
 	t.Run("wrong_code", func(t *testing.T) {
 		t.Parallel()
@@ -220,7 +220,7 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 		}
 		evs := eventsOf(f.events, account.EventSecondFactorFailed)
 		if len(evs) != 1 || evs[0].Method != access.MethodRecoveryCode || evs[0].UserID != u.ID {
-			t.Errorf("second_factor_failed = %+v, want one recovery_code entry for alice (design 4.4)", evs)
+			t.Errorf("second_factor_failed = %+v, want one recovery_code entry for alice", evs)
 		}
 	})
 	t.Run("locked", func(t *testing.T) {
@@ -236,7 +236,7 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 			t.Errorf("the right code on a locked method = %v, want method_locked", err)
 		}
 	})
-	// Design 4.6: refused over plain before the code is read.
+	// Refused over plain before the code is read.
 	t.Run("plain_refused", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{posture: access.PosturePerRequest})
@@ -251,7 +251,7 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 			t.Fatalf("a plain recovery step = %v, want access.ErrHTTPSRequired", err)
 		}
 		if !live(f, ticket) {
-			t.Error("a plain ticket refused on its own transport was dropped (design 4.4)")
+			t.Error("a plain ticket refused on its own transport was dropped")
 		}
 	})
 	t.Run("ticket_not_listing_it", func(t *testing.T) {
@@ -262,7 +262,7 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 			t.Errorf("a recovery step on a totp-only ticket = %v, want access.ErrTokenInvalid", err)
 		}
 	})
-	// Design 4.4 step 5: a record deleted between the steps ends the ticket.
+	// A record deleted between the steps ends the ticket.
 	t.Run("code_gone", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{})
@@ -277,7 +277,7 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 			t.Error("the ticket outlived its record")
 		}
 	})
-	// Design 4.4's ticket-method tests: with DisableTOTP on, a
+	// With DisableTOTP on, a
 	// password-and-passkey user under the rule is asked for a passkey or
 	// the recovery code, and the recovery step answers NextEnrol [passkey].
 	t.Run("disable_totp_enrols_a_passkey", func(t *testing.T) {
@@ -291,7 +291,7 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 		out, err = f.svc.SignInWithRecoveryCode(t.Context(), clientAt(1), ticket, knownRecoveryShown)
 		recovered(t, out, err, access.MethodPasskey)
 	})
-	// Design 4.4: a hook refusing passkeys gets no passkey at the
+	// A hook refusing passkeys gets no passkey at the
 	// recovery-code replacement.
 	t.Run("hook_refusing_passkeys", func(t *testing.T) {
 		t.Parallel()
@@ -300,7 +300,7 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 		out, err := f.svc.SignInWithRecoveryCode(t.Context(), clientAt(1), ticket, knownRecoveryShown)
 		recovered(t, out, err, access.MethodTOTP)
 	})
-	// Design 4.4: an empty enrolment set at the replacement is
+	// An empty enrolment set at the replacement is
 	// no_usable_method, and the replaced ticket ends.
 	t.Run("no_usable_method", func(t *testing.T) {
 		t.Parallel()
@@ -316,7 +316,7 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 	})
 }
 
-// TestRecoveryCompletes is design 4.6's enrolment finish committing the
+// TestRecoveryCompletes checks the enrolment finish committing the
 // recovery: NIST SP 800-63B-4 §4.2.1.1, a saved recovery code is used once
 // and the CSP SHALL issue a new one.
 func TestRecoveryCompletes(t *testing.T) {
@@ -332,7 +332,7 @@ func TestRecoveryCompletes(t *testing.T) {
 			t.Fatalf("PendingTOTPFinish = %v, want alice signed in", err)
 		}
 		if sess := storedSession(t, f.mem, u.ID, in.Session.ID); sess.AuthMethod != access.MethodPassword {
-			t.Errorf("session method = %s, want password (design 4.4 step 3)", sess.AuthMethod)
+			t.Errorf("session method = %s, want password", sess.AuthMethod)
 		}
 		requireIssued(t, f, u, in.RecoveryCode)
 		if in.RecoveryCode.Reveal() == knownRecoveryShown {
@@ -345,7 +345,7 @@ func TestRecoveryCompletes(t *testing.T) {
 			t.Error("the enrolment ticket outlived its sign-in")
 		}
 		if _, found := recoveryFailures(t, f, "alice", false); found {
-			t.Error("the recovery left the recovery code's failure record (design 4.6)")
+			t.Error("the recovery left the recovery code's failure record")
 		}
 		removed := eventsOf(f.events, account.EventTOTPRemoved)
 		if len(removed) != 1 || removed[0].UserID != u.ID {
@@ -381,8 +381,8 @@ func TestRecoveryCompletes(t *testing.T) {
 			t.Errorf("passkey_added events = %d, want 1", n)
 		}
 	})
-	// Design 4.6's issue rule: with the rule off a password and a passkey
-	// hold no second factor (4.4), so the finish issues no code.
+	// The issue rule: with the rule off a password and a passkey
+	// hold no second factor, so the finish issues no code.
 	t.Run("by_passkey_rule_off_issues_none", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{})
@@ -398,7 +398,7 @@ func TestRecoveryCompletes(t *testing.T) {
 			t.Errorf("recovery_code_used events = %d, want 1", n)
 		}
 	})
-	// Design 4.6: an abandoned recovery leaves the old code and TOTP.
+	// An abandoned recovery leaves the old code and TOTP.
 	t.Run("abandoned", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{})
@@ -445,7 +445,7 @@ func TestRecoveryCompletes(t *testing.T) {
 	})
 }
 
-// TestPendingEnrolment is design 4.4's and 4.8's NextEnrol for an existing
+// TestPendingEnrolment checks the NextEnrol for an existing
 // user under Rules.RequireSecondFactor, from a known device.
 func TestPendingEnrolment(t *testing.T) {
 	t.Parallel()
@@ -542,7 +542,7 @@ func TestPendingEnrolment(t *testing.T) {
 			t.Errorf("a finish with no secret drawn = %v, want access.ErrTokenInvalid", err)
 		}
 	})
-	// Design 4.5's mirror: a second begin replaces the secret, so only the
+	// As from a session, a second begin replaces the secret, so only the
 	// newest shown secret binds.
 	t.Run("begin_again_replaces_the_secret", func(t *testing.T) {
 		t.Parallel()
@@ -560,7 +560,7 @@ func TestPendingEnrolment(t *testing.T) {
 			t.Errorf("the replaced secret's code = %v, want code_invalid", err)
 		}
 	})
-	// Design 4.7: under DisableTOTP the pending TOTP begin and finish answer
+	// Under DisableTOTP the pending TOTP begin and finish answer
 	// ErrTOTPDisabled and keep the ticket.
 	t.Run("disable_totp", func(t *testing.T) {
 		t.Parallel()
@@ -574,13 +574,13 @@ func TestPendingEnrolment(t *testing.T) {
 			t.Errorf("PendingTOTPFinish = %v, want ErrTOTPDisabled", err)
 		}
 		if !live(f, ticket) {
-			t.Error("auth_totp_disabled ended the ticket (design 4.39)")
+			t.Error("auth_totp_disabled ended the ticket")
 		}
 		if _, err := pendingEnrolPasskey(t, f, clientAt(1), ticket, accesstest.NewPasskeyDevice(t)); err != nil {
 			t.Errorf("the ticket's passkey enrolment after the switch = %v", err)
 		}
 	})
-	// Design 4.4: a ticket finishes only on its own transport, and a
+	// A ticket finishes only on its own transport, and a
 	// secure ticket sent in clear is dropped.
 	t.Run("plain_drops_the_ticket", func(t *testing.T) {
 		t.Parallel()
@@ -606,7 +606,7 @@ func TestPendingEnrolment(t *testing.T) {
 			t.Errorf("a passkey enrolment on a second-factor ticket = %v, want access.ErrTokenInvalid", err)
 		}
 	})
-	// Design 4.4 step 1: the finish re-checks what step 1 verified.
+	// The finish re-checks what step 1 verified.
 	t.Run("password_changed_between", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, rule, pwOptions{})

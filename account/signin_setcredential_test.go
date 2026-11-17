@@ -48,7 +48,7 @@ func requireBy(t *testing.T, f *sfFixture, kind account.EventKind, userID int64,
 	t.Helper()
 	evs := eventsOf(f.events, kind)
 	if len(evs) != 1 || evs[0].UserID != userID || evs[0].Actor.UserID != userID || evs[0].Actor.SessionID != sessionID {
-		t.Errorf("%s = %+v, want one for user %d by its session %s (design 4.9: each journal names the ticket's user as the actor)", kind, evs, userID, sessionID)
+		t.Errorf("%s = %+v, want one for user %d by its session %s (each journal names the ticket's user as the actor)", kind, evs, userID, sessionID)
 	}
 }
 
@@ -61,13 +61,13 @@ func requirePasswordError(t *testing.T, err error, reason access.PasswordRejecti
 	}
 }
 
-// TestSetCredentialPassword is design 4.9's "Setting the credential" by
-// password: NIST SP 800-63B-4 §3.1.1.2's checks, the temporary password
+// TestSetCredentialPassword sets the credential by password: NIST SP
+// 800-63B-4 §3.1.1.2's checks, the temporary password
 // refused as the new one, the rule off writing and signing in, the rule on
 // staging the password for the enrolment finish.
 func TestSetCredentialPassword(t *testing.T) {
 	t.Parallel()
-	// 4.9: with the rule off, one Update writes PasswordHash, journals
+	// With the rule off, one Update writes PasswordHash, journals
 	// password_set by the user and creates the session; the ticket ends.
 	t.Run("rule_off_signs_in", func(t *testing.T) {
 		t.Parallel()
@@ -76,11 +76,11 @@ func TestSetCredentialPassword(t *testing.T) {
 		out, err := f.svc.SetCredentialPassword(t.Context(), localClient, ticket, access.NewSecret(chosenPassword))
 		in := requireSignedIn(t, out, err, alice.ID)
 		if in.Session.AuthMethod != access.MethodPassword || !in.Session.Secure {
-			t.Errorf("the session = %s secure %t, want a secure password session (design 4.4 step 3)", in.Session.AuthMethod, in.Session.Secure)
+			t.Errorf("the session = %s secure %t, want a secure password session", in.Session.AuthMethod, in.Session.Secure)
 		}
 		requireBy(t, f, account.EventPasswordSet, alice.ID, in.Session.ID)
 		if !in.RecoveryCode.IsZero() {
-			t.Error("a password with no second factor was issued a recovery code (design 4.6)")
+			t.Error("a password with no second factor was issued a recovery code")
 		}
 		if _, err := f.svc.SetCredentialPassword(t.Context(), localClient, ticket, access.NewSecret(chosenPassword)); !errors.Is(err, access.ErrTokenInvalid) {
 			t.Errorf("the spent ticket again = %v, want access.ErrTokenInvalid", err)
@@ -125,7 +125,7 @@ func TestSetCredentialPassword(t *testing.T) {
 		out, err := f.svc.SetCredentialPassword(t.Context(), localClient, ticket, access.NewSecret(chosenPassword))
 		requireSignedIn(t, out, err, alice.ID)
 	})
-	// 4.9: only the one form the hash can match is verified against it, so
+	// Only the one form the hash can match is verified against it, so
 	// no other password costs a second Argon2 run; and checkPassword refuses
 	// nothing for its form (NIST SP 800-63B-4 §3.1.1.1: no composition rule).
 	t.Run("verified_only_in_its_form", func(t *testing.T) {
@@ -153,7 +153,7 @@ func TestSetCredentialPassword(t *testing.T) {
 		out, err := f.svc.SetCredentialPassword(t.Context(), localClient, ticket, access.NewSecret("tree bird fish wolf"))
 		requireSignedIn(t, out, err, alice.ID)
 	})
-	// 4.9 "Under DisablePasswordLogin": a ticket whose Methods lack password
+	// A ticket whose Methods lack password
 	// answers ErrPasswordLoginDisabled, writes nothing and keeps the ticket.
 	t.Run("password_login_off", func(t *testing.T) {
 		t.Parallel()
@@ -169,7 +169,7 @@ func TestSetCredentialPassword(t *testing.T) {
 			t.Error("the refusal dropped the ticket")
 		}
 	})
-	// 4.4: a password-minted ticket is not a NextSetCredential one.
+	// A password-minted ticket is not a NextSetCredential one.
 	t.Run("other_ticket", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{})
@@ -181,8 +181,8 @@ func TestSetCredentialPassword(t *testing.T) {
 			t.Errorf("SetCredentialPassword on a NextSecondFactor ticket = %v, want access.ErrTokenInvalid", err)
 		}
 	})
-	// 4.4 transport binding: a ticket minted on plain is refused over
-	// HTTPS, and one finishing over plain makes a plain session (4.9).
+	// Transport binding: a ticket minted on plain is refused over
+	// HTTPS, and one finishing over plain makes a plain session.
 	t.Run("plain", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{posture: access.PosturePerRequest})
@@ -200,7 +200,7 @@ func TestSetCredentialPassword(t *testing.T) {
 			t.Errorf("a plain ticket over HTTPS = %v, want access.ErrTokenInvalid", err)
 		}
 	})
-	// 4.4 step 1's re-check of a temporary-password ticket (cal.com
+	// Re-check of a temporary-password ticket (cal.com
 	// GHSA-9r3w-4j8q-pw98: a reset token outliving a changed credential):
 	// PasswordHash still zero and no live temporary password.
 	t.Run("recheck_password_written", func(t *testing.T) {
@@ -231,7 +231,7 @@ func TestSetCredentialPassword(t *testing.T) {
 			t.Errorf("SetCredentialPassword with a live record = %v, want access.ErrTokenInvalid", err)
 		}
 	})
-	// 4.15: issued under old hasher parameters, entered after they are
+	// Issued under old hasher parameters, entered after they are
 	// raised, then SetCredentialPassword: PasswordHash verifies the chosen
 	// password and the temporary password fails afterwards.
 	t.Run("old_hasher_parameters", func(t *testing.T) {
@@ -265,7 +265,7 @@ func TestSetCredentialPassword(t *testing.T) {
 	})
 }
 
-// TestSetCredentialPasswordUnderTheRule is design 4.9's staged password:
+// TestSetCredentialPasswordUnderTheRule checks the staged password:
 // under RequireSecondFactor, SetCredentialPassword writes nothing and
 // replaces the ticket with a NextEnrol one holding the password's hash,
 // which the enrolment finish writes beside the factor and a recovery code.
@@ -277,12 +277,12 @@ func TestSetCredentialPasswordUnderTheRule(t *testing.T) {
 		alice, _, ticket := setCredentialTicket(t, f, localClient, access.MethodPassword, access.MethodPasskey)
 		out, err := f.svc.SetCredentialPassword(t.Context(), localClient, ticket, access.NewSecret(chosenPassword))
 		next := pending(t, out, err, account.NextEnrol, access.MethodTOTP, access.MethodPasskey)
-		// 4.4: a ticket is replaced whenever its state changes.
+		// A ticket is replaced whenever its state changes.
 		if _, err := f.svc.SetCredentialPassword(t.Context(), localClient, ticket, access.NewSecret(chosenPassword)); !errors.Is(err, access.ErrTokenInvalid) {
 			t.Errorf("the replaced ticket = %v, want access.ErrTokenInvalid", err)
 		}
 		if got, ok := account.TicketOf(f.svc, next.Ticket); !ok || !got.Temporary {
-			t.Errorf("the replacement = %+v, %t; want it to keep its temporary-password origin (design 4.4)", got, ok)
+			t.Errorf("the replacement = %+v, %t; want it to keep its temporary-password origin", got, ok)
 		}
 		if u := storedUser(t, f.mem, alice.ID); !u.PasswordHash.IsZero() {
 			t.Error("set-password under the rule wrote the password")
@@ -301,7 +301,7 @@ func TestSetCredentialPasswordUnderTheRule(t *testing.T) {
 			t.Fatalf("PendingTOTPFinish = %v", err)
 		}
 		if in.RecoveryCode.IsZero() {
-			t.Error("the finish binding a password and a TOTP issued no recovery code (design 4.6)")
+			t.Error("the finish binding a password and a TOTP issued no recovery code")
 		}
 		for _, kind := range []account.EventKind{account.EventPasswordSet, account.EventTOTPAdded, account.EventRecoveryCodeIssued} {
 			requireBy(t, f, kind, alice.ID, in.Session.ID)
@@ -318,7 +318,7 @@ func TestSetCredentialPasswordUnderTheRule(t *testing.T) {
 			t.Fatalf("PendingPasskeyFinish = %v", err)
 		}
 		if in.RecoveryCode.IsZero() {
-			t.Error("the finish binding a password and a passkey issued no recovery code (design 4.6)")
+			t.Error("the finish binding a password and a passkey issued no recovery code")
 		}
 		for _, kind := range []account.EventKind{account.EventPasswordSet, account.EventPasskeyAdded, account.EventRecoveryCodeIssued} {
 			requireBy(t, f, kind, alice.ID, in.Session.ID)
@@ -327,7 +327,7 @@ func TestSetCredentialPasswordUnderTheRule(t *testing.T) {
 			t.Error("the passkey finish did not write the staged password")
 		}
 	})
-	// 4.15: abandoned after set-password under the rule, the new password
+	// Abandoned after set-password under the rule, the new password
 	// does not sign in.
 	t.Run("abandoned", func(t *testing.T) {
 		t.Parallel()
@@ -337,7 +337,7 @@ func TestSetCredentialPasswordUnderTheRule(t *testing.T) {
 			t.Errorf("the staged password before the finish = %v, want ErrInvalidCredentials", err)
 		}
 	})
-	// 4.4: the temporary-password re-check runs at every later step, the
+	// The temporary-password re-check runs at every later step, the
 	// enrolment finish included (cal.com GHSA-9r3w-4j8q-pw98).
 	t.Run("recheck_at_the_finish", func(t *testing.T) {
 		t.Parallel()
@@ -359,7 +359,7 @@ func TestSetCredentialPasswordUnderTheRule(t *testing.T) {
 			t.Error("a refused finish wrote the staged password")
 		}
 	})
-	// 4.4's ticket-method function at set-password's replacement: a hook
+	// Ticket-method function at set-password's replacement: a hook
 	// refusing passkeys leaves totp.
 	t.Run("hook_refusing_passkeys", func(t *testing.T) {
 		t.Parallel()
@@ -368,7 +368,7 @@ func TestSetCredentialPasswordUnderTheRule(t *testing.T) {
 		out, err := f.svc.SetCredentialPassword(t.Context(), localClient, ticket, access.NewSecret(chosenPassword))
 		pending(t, out, err, account.NextEnrol, access.MethodTOTP)
 	})
-	// 4.4: enrolment is refused over plain, so a plain ticket meeting the
+	// Enrolment is refused over plain, so a plain ticket meeting the
 	// rule switched on since its step 1 answers access.ErrHTTPSRequired at
 	// set-password's replacement, writes nothing and ends.
 	t.Run("plain_rule_on_since", func(t *testing.T) {
@@ -386,7 +386,7 @@ func TestSetCredentialPasswordUnderTheRule(t *testing.T) {
 			t.Error("the refused replacement wrote the password")
 		}
 	})
-	// 4.4: an empty NextEnrol set at the replacement is no_usable_method and
+	// An empty NextEnrol set at the replacement is no_usable_method and
 	// drops the ticket.
 	t.Run("no_way_to_enrol", func(t *testing.T) {
 		t.Parallel()
@@ -413,8 +413,8 @@ func setPasskey(t *testing.T, f *sfFixture, c account.Client, ticket access.Secr
 	return f.svc.SetCredentialPasskeyFinish(t.Context(), c, pc.ID, bytes.NewReader(dev.Register(browserJSON(t, pc.Creation))))
 }
 
-// TestSetCredentialPasskey is design 4.9's passkey arm of "Setting the
-// credential": a registered passkey meets the rule (4.8), so the finish
+// TestSetCredentialPasskey sets the credential by passkey: a registered
+// passkey meets the rule, so the finish
 // signs in under either setting, journalling passkey_added by the user.
 func TestSetCredentialPasskey(t *testing.T) {
 	t.Parallel()
@@ -450,7 +450,7 @@ func TestSetCredentialPasskey(t *testing.T) {
 			}
 		})
 	}
-	// 4.9 "Over plain HTTP": the passkey pair stays refused over plain.
+	// The passkey pair stays refused over plain.
 	t.Run("plain_refused", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{posture: access.PosturePerRequest})
@@ -484,7 +484,7 @@ func TestSetCredentialPasskey(t *testing.T) {
 			t.Errorf("SetCredentialPasskeyFinish with no relying party = %v, want ErrPasskeysUnavailable", err)
 		}
 	})
-	// 4.4's re-check at the finish (cal.com GHSA-9r3w-4j8q-pw98).
+	// Re-check at the finish (cal.com GHSA-9r3w-4j8q-pw98).
 	t.Run("recheck_at_the_finish", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{})

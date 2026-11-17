@@ -68,7 +68,7 @@ func TestNewKeySet_Refusals(t *testing.T) {
 	}
 }
 
-// Design 6.16: a JWK Set over the body cap is one the provider published
+// A JWK Set over the body cap is one the provider published
 // and access refuses, so it is a refused set, never a failed fetch, while
 // one at the cap is read whole.
 func TestNewKeySet_BodyPastCap(t *testing.T) {

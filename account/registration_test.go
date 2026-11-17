@@ -38,14 +38,14 @@ func registerPasskey(t *testing.T, f *sfFixture, c account.Client, name string, 
 func requireWaiting(t *testing.T, f *sfFixture, w *account.Waiting, name string) *access.User {
 	t.Helper()
 	if w == nil || w.User == nil || w.User.Username != name {
-		t.Fatalf("the answer = %+v, want %q waiting for approval (design 4.17)", w, name)
+		t.Fatalf("the answer = %+v, want %q waiting for approval", w, name)
 	}
 	u := storedUser(t, f.mem, w.User.ID)
 	if u.Enabled || !u.WaitingApproval || u.Role != access.RoleUser || u.Owner {
-		t.Errorf("the stored account = enabled %t, waiting %t, role %s, owner %t; want a disabled regular user waiting (design 4.17)", u.Enabled, u.WaitingApproval, u.Role, u.Owner)
+		t.Errorf("the stored account = enabled %t, waiting %t, role %s, owner %t; want a disabled regular user waiting", u.Enabled, u.WaitingApproval, u.Role, u.Owner)
 	}
 	if ss := sessionsOf(t, f.mem, u.ID); len(ss) != 0 {
-		t.Errorf("a waiting account holds %d sessions, want none (design 4.17, 4.31)", len(ss))
+		t.Errorf("a waiting account holds %d sessions, want none", len(ss))
 	}
 	return u
 }
@@ -55,18 +55,18 @@ func requireWaiting(t *testing.T, f *sfFixture, w *account.Waiting, name string)
 func requireRegular(t *testing.T, f *sfFixture, in account.SignedIn, name string, m access.Method) {
 	t.Helper()
 	if in.User == nil || in.User.Username != name || in.Token.IsZero() {
-		t.Fatalf("the answer = %+v, want %q signed in (design 4.17)", in.User, name)
+		t.Fatalf("the answer = %+v, want %q signed in", in.User, name)
 	}
 	u := storedUser(t, f.mem, in.User.ID)
 	if !u.Enabled || u.WaitingApproval || u.Role != access.RoleUser || u.Owner {
-		t.Errorf("the stored account = enabled %t, waiting %t, role %s, owner %t; want an enabled regular user (design 4.17)", u.Enabled, u.WaitingApproval, u.Role, u.Owner)
+		t.Errorf("the stored account = enabled %t, waiting %t, role %s, owner %t; want an enabled regular user", u.Enabled, u.WaitingApproval, u.Role, u.Owner)
 	}
 	if sess := storedSession(t, f.mem, u.ID, in.Session.ID); sess.AuthMethod != m {
 		t.Errorf("session method = %s, want %s", sess.AuthMethod, m)
 	}
 }
 
-// TestRegistrationModes is design 4.17's table of the two modes and the
+// TestRegistrationModes checks the table of the two modes and the
 // rule, by password and by passkey.
 func TestRegistrationModes(t *testing.T) {
 	t.Parallel()
@@ -102,10 +102,10 @@ func TestRegistrationModes(t *testing.T) {
 		}
 		requireWaiting(t, f, out.Waiting, "newcomer")
 		if !out.Waiting.RecoveryCode.IsZero() {
-			t.Error("a password registration with no second factor issued a recovery code (design 4.6)")
+			t.Error("a password registration with no second factor issued a recovery code")
 		}
 		if _, err := f.login(t.Context(), localClient, "newcomer", goodPassword); !errors.Is(err, account.ErrInvalidCredentials) {
-			t.Errorf("the waiting account's sign-in = %v, want ErrInvalidCredentials (ui-contract part 4: fails like a wrong password)", err)
+			t.Errorf("the waiting account's sign-in = %v, want ErrInvalidCredentials (fails like a wrong password)", err)
 		}
 	})
 	t.Run("open_rule_on_drafts_then_signs_in", func(t *testing.T) {
@@ -123,7 +123,7 @@ func TestRegistrationModes(t *testing.T) {
 		}
 		requireRegular(t, f, in, "newcomer", access.MethodPassword)
 		if in.RecoveryCode.IsZero() {
-			t.Error("the finish bound a password and a second factor and issued no recovery code (design 4.6)")
+			t.Error("the finish bound a password and a second factor and issued no recovery code")
 		}
 	})
 	t.Run("approval_rule_on_end_to_end", func(t *testing.T) {
@@ -137,11 +137,11 @@ func TestRegistrationModes(t *testing.T) {
 		}
 		done, err := f.svc.PendingTOTPFinish(t.Context(), localClient, p.Ticket, codeNow(secretOf(t, account.TOTPEnrolment{URI: e.URI, Text: e.Text})))
 		if err != nil || done.SignedIn.User != nil || !done.SignedIn.Token.IsZero() {
-			t.Fatalf("PendingTOTPFinish = %+v, %v; want a waiting answer and no session (design 4.31)", done, err)
+			t.Fatalf("PendingTOTPFinish = %+v, %v; want a waiting answer and no session", done, err)
 		}
 		u := requireWaiting(t, f, done.Waiting, "newcomer")
 		if done.Waiting.RecoveryCode.IsZero() {
-			t.Error("the waiting answer carried no recovery code; it is the code's one show (design 4.31)")
+			t.Error("the waiting answer carried no recovery code; it is the code's one show")
 		}
 		if _, held := totpRecord(t, f.mem, u.ID); !held {
 			t.Error("the waiting account's TOTP was not bound")
@@ -183,7 +183,7 @@ func TestRegistrationModes(t *testing.T) {
 	}
 }
 
-// TestRegistrationRefusals is design 4.17's refusals: transport, the
+// TestRegistrationRefusals checks the refusals: transport, the
 // password rule, a taken name, the SSO mode, the Policy, and the waiting
 // cap and a closed mode at the draft's finish.
 func TestRegistrationRefusals(t *testing.T) {
@@ -192,7 +192,7 @@ func TestRegistrationRefusals(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, regRules(account.RegistrationOpen, false), pwOptions{})
 		if _, err := f.svc.RegisterPassword(t.Context(), plainClientOf(), newcomer("newcomer")); !errors.Is(err, access.ErrHTTPSRequired) {
-			t.Errorf("RegisterPassword over plain HTTP = %v, want access.ErrHTTPSRequired (design 4.17, as invite acceptance)", err)
+			t.Errorf("RegisterPassword over plain HTTP = %v, want access.ErrHTTPSRequired (as invite acceptance)", err)
 		}
 		if _, err := f.svc.RegisterPasskeyBegin(t.Context(), plainClientOf(), account.RegistrationPasskey{Username: "newcomer", Origin: f.origin}); !errors.Is(err, access.ErrHTTPSRequired) {
 			t.Errorf("RegisterPasskeyBegin over plain HTTP = %v, want access.ErrHTTPSRequired", err)
@@ -219,7 +219,7 @@ func TestRegistrationRefusals(t *testing.T) {
 		in := account.Registration{Username: "longnewcomername", Password: access.NewSecret("longnewcomername-2024")}
 		var pe *access.PasswordError
 		if _, err := f.svc.RegisterPassword(t.Context(), localClient, in); !errors.As(err, &pe) || pe.Reason != access.PasswordContainsUsername {
-			t.Errorf("RegisterPassword with the username and digits as the password = %v, want contains_username (design 4.17: checkPassword with that username)", err)
+			t.Errorf("RegisterPassword with the username and digits as the password = %v, want contains_username (checkPassword with that username)", err)
 		}
 	})
 	t.Run("taken_username", func(t *testing.T) {
@@ -227,7 +227,7 @@ func TestRegistrationRefusals(t *testing.T) {
 		f := newSF(t, regRules(account.RegistrationOpen, false), pwOptions{})
 		passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
 		if _, err := f.svc.RegisterPassword(t.Context(), localClient, newcomer("alice")); !errors.Is(err, account.ErrUsernameTaken) {
-			t.Errorf("RegisterPassword of a taken name = %v, want ErrUsernameTaken (design 4.17)", err)
+			t.Errorf("RegisterPassword of a taken name = %v, want ErrUsernameTaken", err)
 		}
 		if _, err := registerPasskey(t, f, localClient, "alice", accesstest.NewPasskeyDevice(t)); !errors.Is(err, account.ErrUsernameTaken) {
 			t.Errorf("RegisterPasskeyFinish of a taken name = %v, want ErrUsernameTaken", err)
@@ -238,7 +238,7 @@ func TestRegistrationRefusals(t *testing.T) {
 		f := newSF(t, regRules(account.RegistrationOpen, false), pwOptions{})
 		setMode(t, f.mem, account.SSOOnly)
 		if _, err := f.svc.RegisterPassword(t.Context(), localClient, newcomer("newcomer")); !errors.Is(err, account.ErrSSOOnly) {
-			t.Errorf("RegisterPassword under SSOOnly = %v, want ErrSSOOnly (design 4.17, 5.3)", err)
+			t.Errorf("RegisterPassword under SSOOnly = %v, want ErrSSOOnly", err)
 		}
 		if _, err := f.svc.RegisterPasskeyBegin(t.Context(), localClient, account.RegistrationPasskey{Username: "newcomer", Origin: f.origin}); !errors.Is(err, account.ErrSSOOnly) {
 			t.Errorf("RegisterPasskeyBegin under SSOOnly = %v, want ErrSSOOnly", err)
@@ -263,7 +263,7 @@ func TestRegistrationRefusals(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, regRules(account.RegistrationOpen, false), pwOptions{edit: func(c *account.Config) { c.Policy = refuseRegistration{} }})
 		if _, err := f.svc.RegisterPassword(t.Context(), localClient, newcomer("newcomer")); !errors.Is(err, account.ErrPolicyRefused) {
-			t.Errorf("RegisterPassword under a Policy refusing ViaRegistration = %v, want ErrPolicyRefused (design 4.17)", err)
+			t.Errorf("RegisterPassword under a Policy refusing ViaRegistration = %v, want ErrPolicyRefused", err)
 		}
 		requireNoUsers(t, f.mem)
 	})
@@ -276,7 +276,7 @@ func TestRegistrationRefusals(t *testing.T) {
 			t.Fatalf("the first registration = %+v, %v; want it waiting", out, err)
 		}
 		if _, err := f.svc.RegisterPassword(t.Context(), localClient, newcomer("second")); !errors.Is(err, account.ErrRegistrationFull) {
-			t.Errorf("a registration at the cap = %v, want ErrRegistrationFull (design 4.17)", err)
+			t.Errorf("a registration at the cap = %v, want ErrRegistrationFull", err)
 		}
 		if _, err := f.svc.RegisterPasskeyBegin(t.Context(), localClient, account.RegistrationPasskey{Username: "second", Origin: f.origin}); !errors.Is(err, account.ErrRegistrationFull) {
 			t.Errorf("a passkey registration at the cap = %v, want ErrRegistrationFull", err)
@@ -296,7 +296,7 @@ func TestRegistrationRefusals(t *testing.T) {
 			}
 		}
 		if _, err := f.svc.RegisterPassword(t.Context(), localClient, newcomer("newcomer")); !errors.Is(err, account.ErrRegistrationFull) {
-			t.Errorf("a registration beside 50 waiting accounts = %v, want ErrRegistrationFull (design 4.17: default 50)", err)
+			t.Errorf("a registration beside 50 waiting accounts = %v, want ErrRegistrationFull (default 50)", err)
 		}
 	})
 	t.Run("cap_reached_since_the_draft", func(t *testing.T) {
@@ -310,7 +310,7 @@ func TestRegistrationRefusals(t *testing.T) {
 			t.Fatalf("the passkey registration filling the cap = %v", err)
 		}
 		if err := pendingEnrolTOTPRaw(t, f, localClient, p.Ticket); !errors.Is(err, account.ErrRegistrationFull) {
-			t.Errorf("the draft's finish at the cap = %v, want ErrRegistrationFull (design 4.17: the cap is re-checked there)", err)
+			t.Errorf("the draft's finish at the cap = %v, want ErrRegistrationFull (the cap is re-checked there)", err)
 		}
 		if usernameTakenIn(t, f.mem, "drafted") || live(f, p.Ticket) {
 			t.Error("a finish refused at the cap created the account or kept its ticket")
@@ -323,7 +323,7 @@ func TestRegistrationRefusals(t *testing.T) {
 		p := pending(t, account.LoginResult{Pending: out.Pending}, err, account.NextEnrol, access.MethodTOTP, access.MethodPasskey)
 		f.set(regRules(account.RegistrationOff, true))
 		if err := pendingEnrolTOTPRaw(t, f, localClient, p.Ticket); !errors.Is(err, account.ErrRegistrationClosed) {
-			t.Errorf("the draft's finish after the mode went off = %v, want ErrRegistrationClosed (design 4.17)", err)
+			t.Errorf("the draft's finish after the mode went off = %v, want ErrRegistrationClosed", err)
 		}
 		requireNoUsers(t, f.mem)
 		if live(f, p.Ticket) {
@@ -378,9 +378,9 @@ func pendingEnrolPasskeyRaw(t *testing.T, f *sfFixture, c account.Client, ticket
 	return f.svc.PendingPasskeyFinish(t.Context(), c, pc.ID, bytes.NewReader(dev.Register(browserJSON(t, pc.Creation))))
 }
 
-// TestRegistrationUnderSingleUser is design 4.17's and "Across the parts"'
-// static refusal: under a single-user Policy checkRules refuses either mode
-// at every operation, so a reloaded value cannot turn registration on.
+// TestRegistrationUnderSingleUser checks the static refusal: under a
+// single-user Policy checkRules refuses either mode at every operation, so
+// a reloaded value cannot turn registration on.
 func TestRegistrationUnderSingleUser(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []account.RegistrationMode{account.RegistrationOpen, account.RegistrationApproval} {
@@ -407,7 +407,7 @@ func TestRegistrationUnderSingleUser(t *testing.T) {
 	}
 }
 
-// TestCheckRulesRegistration is design 5.3's mode rule: CheckRules refuses
+// TestCheckRulesRegistration checks the mode rule: CheckRules refuses
 // either registration mode while the stored mode is SSOOnly; a value
 // published anyway leaves the owner's sign-in working while registration
 // refuses at use.
@@ -442,7 +442,7 @@ func TestCheckRulesRegistration(t *testing.T) {
 	}
 }
 
-// TestSSOOnlyRefusedWhileRegistrationOn is design 5.3: CheckSSOReady, and
+// TestSSOOnlyRefusedWhileRegistrationOn: CheckSSOReady, and
 // so ApplySSO, refuses SSOOnly while Rules has either registration mode,
 // with ReasonRegistrationEnabled, and the other modes are not refused for
 // it.
@@ -461,8 +461,8 @@ func TestSSOOnlyRefusedWhileRegistrationOn(t *testing.T) {
 	}
 }
 
-// TestStateRegistration is design 4.17's StateResponse.registration: the
-// mode, on a plain request too, since the screen reads secure itself.
+// TestStateRegistration: StateResponse.registration carries the mode, on a
+// plain request too, since the screen reads secure itself.
 func TestStateRegistration(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []account.RegistrationMode{account.RegistrationOff, account.RegistrationOpen, account.RegistrationApproval} {
@@ -475,7 +475,7 @@ func TestStateRegistration(t *testing.T) {
 	}
 }
 
-// TestApproveRegistration is design 4.17's approval: enabling a waiting
+// TestApproveRegistration checks the approval: enabling a waiting
 // account clears WaitingApproval and journals user_approved in place of
 // user_enabled; enabling an account an admin disabled stays user_enabled.
 func TestApproveRegistration(t *testing.T) {
@@ -516,7 +516,7 @@ func TestApproveRegistration(t *testing.T) {
 	}
 }
 
-// TestWaitingFieldDropped is design 4.17: a store that drops
+// TestWaitingFieldDropped: a store that drops
 // WaitingApproval shows a waiting account as disabled, which still cannot
 // sign in.
 func TestWaitingFieldDropped(t *testing.T) {
@@ -536,7 +536,7 @@ func TestWaitingFieldDropped(t *testing.T) {
 	}
 }
 
-// TestSweepRegistrations is design 4.17's sweep leg: a waiting account
+// TestSweepRegistrations checks the sweep leg: a waiting account
 // older than 30 days is deleted through DeleteUser's cascade, journalling
 // registration_expired and freeing its name; a younger one, and an old
 // account no longer waiting, stay.

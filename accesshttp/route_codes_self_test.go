@@ -453,7 +453,7 @@ func addEnrolmentScenarios(out map[scenarioKey]scenario) {
 		e.keepDormant(t, "alice")
 	})}
 	out[scenarioKey{finishRoute, access.CodeUnavailable}] = scenario{opts: passkeys, arrange: finishOwn(nil, nil, func(t *testing.T, e *env) { e.shutdown(t) })}
-	// Design 4.50: a password user's first passkey under the rule issues a
+	// A password user's first passkey under the rule issues a
 	// recovery code, whose hash a full budget refuses. The rule goes on once
 	// alice is signed in, which it would hold at enrol_needs_known_device.
 	rule := &atomic.Bool{}
@@ -559,7 +559,7 @@ func addKeyScenarios(out map[scenarioKey]scenario) {
 	out[scenarioKey{"authKeys", access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		return e.post(t, "authKeys", "", e.aliceSession(t))
 	})
-	// Design 4.51: a key acting on its own keys meets the Policy's
+	// A key acting on its own keys meets the Policy's
 	// create_own_key, which a session never asks.
 	refused := allScopes
 	refused.edit = func(c *account.Config) {

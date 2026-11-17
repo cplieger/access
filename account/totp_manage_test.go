@@ -33,7 +33,7 @@ func enrolTOTP(t *testing.T, f *sfFixture, pr access.Principal) []byte {
 	return secret
 }
 
-// TestBeginTOTP is design 4.5's enrolment start and the Key Uri Format.
+// TestBeginTOTP checks the enrolment start and the Key Uri Format.
 func TestBeginTOTP(t *testing.T) {
 	t.Parallel()
 	t.Run("answers_the_uri_and_key", func(t *testing.T) {
@@ -76,14 +76,14 @@ func TestBeginTOTP(t *testing.T) {
 		{name: "disable_totp", rules: account.Rules{DisableTOTP: true}, want: account.ErrTOTPDisabled, user: func(t *testing.T, f *sfFixture) access.Principal {
 			return f.sessionPrincipal(t, passwordUser(t, f.mem, f.hasher, "alice", goodPassword), time.Now())
 		}},
-		// Design 4.49: a passkey-only user has no password for a code to
+		// A passkey-only user has no password for a code to
 		// protect.
 		{name: "no_password", want: account.ErrPasswordRequired, user: func(t *testing.T, f *sfFixture) access.Principal {
 			u := passwordUser(t, f.mem, nil, "alice", "")
 			addPasskey(t, f.mem, u, rpID)
 			return f.sessionPrincipal(t, u, time.Now())
 		}},
-		// Design 5.3: a dormant user adds no TOTP.
+		// A dormant user adds no TOTP.
 		{name: "dormant", want: account.ErrSSOOnly, user: func(t *testing.T, f *sfFixture) access.Principal {
 			mustOwner(t, f.mem, "root")
 			u := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
@@ -108,7 +108,7 @@ func TestBeginTOTP(t *testing.T) {
 			}
 		})
 	}
-	// Design 4.46: TOTP unwired answers ErrTOTPDisabled.
+	// TOTP unwired answers ErrTOTPDisabled.
 	t.Run("unwired", func(t *testing.T) {
 		t.Parallel()
 		f := newPK(t, pwOptions{})
@@ -119,7 +119,7 @@ func TestBeginTOTP(t *testing.T) {
 	})
 }
 
-// TestFinishTOTP is design 4.5's enrolment and replacement.
+// TestFinishTOTP checks the enrolment and replacement.
 func TestFinishTOTP(t *testing.T) {
 	t.Parallel()
 	begin := func(t *testing.T, f *sfFixture, pr access.Principal) (account.TOTPEnrolment, []byte) {
@@ -146,7 +146,7 @@ func TestFinishTOTP(t *testing.T) {
 		}
 		opened, current, err := f.sealer.OpenAtRest("totp:"+strconv.FormatInt(u.ID, 10), rec.Sealed)
 		if err != nil || !current || !bytes.Equal(opened, secret) {
-			t.Errorf("the stored secret opens as %v, %t, %v; want the enrolled secret under the first key (design 4.3)", opened, current, err)
+			t.Errorf("the stored secret opens as %v, %t, %v; want the enrolled secret under the first key", opened, current, err)
 		}
 		if strings.Contains(rec.Sealed, e.Text.Reveal()) {
 			t.Error("the record holds the secret in clear")
@@ -183,7 +183,7 @@ func TestFinishTOTP(t *testing.T) {
 			t.Errorf("the right code after a wrong one = %v", err)
 		}
 	})
-	// Design 4.5: a ticket from another session is refused.
+	// A ticket from another session is refused.
 	t.Run("other_session", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{})
@@ -208,7 +208,7 @@ func TestFinishTOTP(t *testing.T) {
 		}
 		in.CurrentCode = codeAt(old, time.Now().Add(-5*totp.Period))
 		if _, err := f.svc.FinishTOTP(t.Context(), clientAt(1), pr, in); codeReason(err) != account.ReasonCurrentCodeInvalid {
-			t.Fatalf("a wrong current code = %v, want current_code_invalid (design 4.31)", err)
+			t.Fatalf("a wrong current code = %v, want current_code_invalid", err)
 		}
 		in.CurrentCode = "x"
 		if _, err := f.svc.FinishTOTP(t.Context(), clientAt(1), pr, in); func() bool {
@@ -237,7 +237,7 @@ func TestFinishTOTP(t *testing.T) {
 			t.Errorf("the old secret after the replacement = %v, want code_invalid", err)
 		}
 	})
-	// Design 4.5: an older enrolment ticket cannot overwrite a newer device.
+	// An older enrolment ticket cannot overwrite a newer device.
 	t.Run("older_ticket", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{})
@@ -252,7 +252,7 @@ func TestFinishTOTP(t *testing.T) {
 			t.Errorf("a ticket older than the record = %v, want access.ErrTokenInvalid", err)
 		}
 	})
-	// Design 4.49: a password removed mid-enrolment refuses the finish
+	// A password removed mid-enrolment refuses the finish
 	// inside its Update.
 	t.Run("password_removed_during_the_finish", func(t *testing.T) {
 		t.Parallel()
@@ -291,7 +291,7 @@ func TestFinishTOTP(t *testing.T) {
 	})
 }
 
-// TestRemoveTOTP is design 4.5's removal, its proof and its guard.
+// TestRemoveTOTP checks the removal, its proof and its guard.
 func TestRemoveTOTP(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T, r account.Rules) (*sfFixture, *access.User, access.Principal, []byte) {
@@ -326,7 +326,7 @@ func TestRemoveTOTP(t *testing.T) {
 			t.Error("the refused removal deleted the record")
 		}
 		if _, found := totpFailures(t, f.mem, f.svc, "alice", false); found {
-			t.Error("a missing proof was counted (design 4.31: decided before any count)")
+			t.Error("a missing proof was counted (decided before any count)")
 		}
 	})
 	t.Run("wrong_code", func(t *testing.T) {
@@ -387,7 +387,7 @@ func TestRemoveTOTP(t *testing.T) {
 			t.Errorf("RemoveTOTP with no record = %v, want ErrNotFound", err)
 		}
 	})
-	// Design 4.5: under the rule, a user cannot remove TOTP while their
+	// Under the rule, a user cannot remove TOTP while their
 	// passkey is unusable.
 	t.Run("last_second_factor", func(t *testing.T) {
 		t.Parallel()
@@ -408,7 +408,7 @@ func TestRemoveTOTP(t *testing.T) {
 			t.Errorf("RemoveTOTP with a usable passkey kept = %v", err)
 		}
 	})
-	// Design 4.5 and 4.7: a record TOTP no longer reads is removed with no
+	// A record TOTP no longer reads is removed with no
 	// proof, any proof ignored, but only by a recent session.
 	t.Run("dormant_record", func(t *testing.T) {
 		t.Parallel()
@@ -432,7 +432,7 @@ func TestRemoveTOTP(t *testing.T) {
 			})
 		}
 	})
-	// RULINGS M1 addendum 2: with TOTP unwired, a stored record is removed
+	// With TOTP unwired, a stored record is removed
 	// by the dormant arm.
 	t.Run("unwired", func(t *testing.T) {
 		t.Parallel()
@@ -448,7 +448,7 @@ func TestRemoveTOTP(t *testing.T) {
 	})
 }
 
-// TestStepUpCode is design 4.7's step-up by code.
+// TestStepUpCode checks the step-up by code.
 func TestStepUpCode(t *testing.T) {
 	t.Parallel()
 	t.Run("rotates_to_totp", func(t *testing.T) {
@@ -472,7 +472,7 @@ func TestStepUpCode(t *testing.T) {
 			t.Errorf("stepped_up events = %+v, want one by totp", evs)
 		}
 		if _, err := f.svc.SignInWithCode(t.Context(), clientAt(1), again(t, f, clientAt(1)), code); codeReason(err) != account.ReasonCodeReused {
-			t.Errorf("the step-up's code at sign-in = %v, want code_reused (design 4.7)", err)
+			t.Errorf("the step-up's code at sign-in = %v, want code_reused", err)
 		}
 	})
 	t.Run("101_step_ups_never_lock", func(t *testing.T) {
@@ -516,7 +516,7 @@ func TestStepUpCode(t *testing.T) {
 			_, err := f.svc.StepUpCode(t.Context(), c, f.sessionPrincipal(t, u, time.Now()), code)
 			switch {
 			case tc.none && codeReason(err) != account.ReasonCodeInvalid:
-				t.Errorf("StepUpCode with no record = %v, want code_invalid (design 4.7)", err)
+				t.Errorf("StepUpCode with no record = %v, want code_invalid", err)
 			case !tc.none && !errors.Is(err, tc.want):
 				t.Errorf("StepUpCode = %v, want %v", err, tc.want)
 			}
@@ -524,7 +524,7 @@ func TestStepUpCode(t *testing.T) {
 	}
 }
 
-// TestStepUpPasswordWhileHeld is design 4.48: a password never steps up a
+// TestStepUpPasswordWhileHeld: a password never steps up a
 // user who holds a second factor, and nothing is counted for the try.
 func TestStepUpPasswordWhileHeld(t *testing.T) {
 	t.Parallel()
@@ -559,7 +559,7 @@ func TestStepUpPasswordWhileHeld(t *testing.T) {
 	}
 }
 
-// TestPasskeyChangesNeedAFactor is design 4.5 and 4.30: while a second
+// TestPasskeyChangesNeedAFactor: while a second
 // factor is held, adding or removing a passkey takes a current one
 // (Keycloak CVE-2026-3429).
 func TestPasskeyChangesNeedAFactor(t *testing.T) {
@@ -584,7 +584,7 @@ func TestPasskeyChangesNeedAFactor(t *testing.T) {
 			t.Fatalf("PasskeyRegisterBegin with a code = %v", err)
 		}
 		if _, err := f.svc.PasskeyRegisterBegin(t.Context(), clientAt(1), pr, f.origin, account.ProofCode(code)); codeReason(err) != account.ReasonCodeReused {
-			t.Errorf("the proof's code again = %v, want code_reused (design 4.31)", err)
+			t.Errorf("the proof's code again = %v, want code_reused", err)
 		}
 	})
 	t.Run("remove", func(t *testing.T) {
@@ -598,7 +598,7 @@ func TestPasskeyChangesNeedAFactor(t *testing.T) {
 			t.Fatalf("RemovePasskey with a code = %v", err)
 		}
 	})
-	// Design 4.5: the passkey being removed may prove itself.
+	// The passkey being removed may prove itself.
 	t.Run("remove_with_its_own_assertion", func(t *testing.T) {
 		t.Parallel()
 		f, u, dev, pk, _ := setup(t, account.Rules{})
@@ -611,7 +611,7 @@ func TestPasskeyChangesNeedAFactor(t *testing.T) {
 			t.Errorf("RemovePasskey with its own assertion = %v", err)
 		}
 	})
-	// Design 4.5: under the rule, the last passkey of a user with no usable
+	// Under the rule, the last passkey of a user with no usable
 	// TOTP is refused, and its row is not removable.
 	t.Run("last_second_factor", func(t *testing.T) {
 		t.Parallel()
@@ -640,7 +640,7 @@ func TestPasskeyChangesNeedAFactor(t *testing.T) {
 	})
 }
 
-// TestMeTOTP is MethodsView.totp's four fields (design 4.5).
+// TestMeTOTP is MethodsView.totp's four fields.
 func TestMeTOTP(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -676,7 +676,7 @@ func TestMeTOTP(t *testing.T) {
 	}
 }
 
-// TestRemovePasswordDropsSecondFactors is design 4.5: with no password,
+// TestRemovePasswordDropsSecondFactors: with no password,
 // TOTP and the recovery code protect nothing.
 func TestRemovePasswordDropsSecondFactors(t *testing.T) {
 	t.Parallel()
@@ -700,8 +700,8 @@ func TestRemovePasswordDropsSecondFactors(t *testing.T) {
 	}
 }
 
-// TestResealTOTP is design 4.3's re-sealing and ruling Q6's return
-// contract.
+// TestResealTOTP checks the re-sealing and its return contract: the
+// counts so far, stopping at the first store error.
 func TestResealTOTP(t *testing.T) {
 	t.Parallel()
 	oldKey, newKey := access.GenerateSealerKey(), access.GenerateSealerKey()
@@ -786,7 +786,7 @@ func TestResealTOTP(t *testing.T) {
 			t.Errorf("ResealTOTP with the second write failing = %d, %d, %v; want 1, 0 and the store's error", resealed, unopenable, err)
 		}
 	})
-	// Design 4.3: a sign-in setting LastStep during the walk is kept.
+	// A sign-in setting LastStep during the walk is kept.
 	t.Run("keeps_a_concurrent_last_step", func(t *testing.T) {
 		t.Parallel()
 		fs := newFaultStore()

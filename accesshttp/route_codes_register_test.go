@@ -182,7 +182,7 @@ func addRegisterPasskeyScenarios(out map[scenarioKey]scenario) {
 }
 
 // addRegistrationDraftScenarios are the pending enrolment finishes'
-// answers only a registration draft gives (design 4.17: the finish re-reads
+// answers only a registration draft gives (the finish re-reads
 // the mode and re-checks the cap).
 func addRegistrationDraftScenarios(out map[scenarioKey]scenario) {
 	finishes := map[string]func(t *testing.T, e *env, ticket string, between func()) *http.Request{
@@ -226,7 +226,7 @@ func (p laterRegistrationPolicy) Authorize(ctx context.Context, d account.Decisi
 	return account.RolePolicy{}.Authorize(ctx, d)
 }
 
-// TestRegistrationRoutes is design 4.17's and 4.31's answers on the wire:
+// TestRegistrationRoutes checks the answers on the wire:
 // RegistrationOutcome and EnrolmentOutcome's arms, with the session
 // cookie only on signed_in.
 func TestRegistrationRoutes(t *testing.T) {
@@ -260,7 +260,7 @@ func TestRegistrationRoutes(t *testing.T) {
 		e := newEnv(t, registration(account.RegistrationApproval))
 		w := do(e.route(t, "authRegisterPassword"), e.post(t, "authRegisterPassword", registerBody(t, "carol", testPassword)))
 		if got := w.Body.String(); got != "{\"waiting_approval\":true}\n" {
-			t.Errorf("body = %q, want exactly {\"waiting_approval\":true} (design 4.31)", got)
+			t.Errorf("body = %q, want exactly {\"waiting_approval\":true}", got)
 		}
 		if c := w.Result().Cookies(); len(c) != 0 {
 			t.Errorf("a waiting account's answer set cookies %v, want none", c)
@@ -279,7 +279,7 @@ func TestRegistrationRoutes(t *testing.T) {
 		var done EnrolmentOutcome
 		decode(t, fw, &done)
 		if !done.WaitingApproval || done.RecoveryCode == "" || done.SignedIn != nil {
-			t.Errorf("EnrolmentOutcome = %+v, want waiting_approval with the recovery code (design 4.31)", done)
+			t.Errorf("EnrolmentOutcome = %+v, want waiting_approval with the recovery code", done)
 		}
 		if c := fw.Result().Cookies(); len(c) != 0 {
 			t.Errorf("the waiting finish set cookies %v, want none", c)
@@ -316,7 +316,7 @@ func TestRegistrationRoutes(t *testing.T) {
 		var st StateResponse
 		decode(t, w, &st)
 		if st.Registration != account.RegistrationNameApproval {
-			t.Errorf("StateResponse.registration = %q, want approval (design 4.17)", st.Registration)
+			t.Errorf("StateResponse.registration = %q, want approval", st.Registration)
 		}
 	})
 	t.Run("admin_list_marks_waiting", func(t *testing.T) {
@@ -327,7 +327,7 @@ func TestRegistrationRoutes(t *testing.T) {
 		views := decoded[[]UserView](t, e, do(e.route(t, "authAdminUsers"), e.post(t, "authAdminUsers", "", root)), http.StatusOK)
 		for _, v := range views {
 			if v.Methods == nil || v.Methods.WaitingApproval != (v.Username == "carol") {
-				t.Errorf("%s methods %+v, want waiting_approval on carol alone (design 4.17)", v.Username, v.Methods)
+				t.Errorf("%s methods %+v, want waiting_approval on carol alone", v.Username, v.Methods)
 			}
 		}
 	})

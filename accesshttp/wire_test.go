@@ -417,7 +417,7 @@ func TestSecurityLogViewJSON(t *testing.T) {
 }
 
 // TestPendingMethodsAreMethods checks that pendingView's conversion keeps a
-// value: every PendingMethod is an access.Method constant (design 4.4's
+// value: every PendingMethod is an access.Method constant (the
 // four ticket methods).
 func TestPendingMethodsAreMethods(t *testing.T) {
 	pending, _ := enumValues(t, reflect.TypeFor[PendingMethod]())

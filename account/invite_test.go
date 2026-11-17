@@ -211,7 +211,7 @@ func TestKeyIssuedTokens(t *testing.T) {
 			return ki.f.svc
 		},
 		"owner_demoted": func(t *testing.T, ki *keyIssuer) *account.Service {
-			// Design 5.2: an owner's role never changes; demoting one
+			// An owner's role never changes; demoting one
 			// removes the owner flag first.
 			if _, err := ki.f.svc.SetOwner(t.Context(), account.As(ki.bp), ki.root.ID, false); err != nil {
 				t.Fatalf("remove the owner flag = %v", err)

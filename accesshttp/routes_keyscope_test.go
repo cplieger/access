@@ -10,9 +10,9 @@ import (
 	"github.com/cplieger/access/account"
 )
 
-// Design 4.51: a key under CreateKeysScope lists, renames and revokes its
-// own user's keys, and a key under AdminScope reads SSO readiness (design
-// 4.55); a key without the scope is refused before the operation.
+// A key under CreateKeysScope lists, renames and revokes its
+// own user's keys, and a key under AdminScope reads SSO readiness; a key
+// without the scope is refused before the operation.
 func TestKeyScopeRoutes(t *testing.T) {
 	t.Parallel()
 	t.Run("own_keys_by_key", func(t *testing.T) {

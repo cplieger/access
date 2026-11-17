@@ -955,7 +955,7 @@ func writeDiscovery(t *testing.T, w http.ResponseWriter, idp *accesstest.IdP, is
 // redirect, followed for no CheckRedirect and asking none (PyJWT
 // CVE-2026-102267). It refuses with ErrProviderInvalid a body that is not
 // a JWK Set (RFC 7517 §5) and a set with no key of an accepted type (RFC
-// 7517 §5: other keys are skipped), design 6.16.
+// 7517 §5: other keys are skipped).
 func outboundJWKS(t *testing.T) {
 	idp := accesstest.NewIdP(t, accesstest.IdPOptions{})
 	resp, err := idp.Client().Get(idp.Issuer() + "/jwks")

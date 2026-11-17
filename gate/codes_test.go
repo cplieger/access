@@ -9,8 +9,8 @@ import (
 	"github.com/cplieger/access/gate"
 )
 
-// authenticating is what every authenticating row answers, from design 2.2
-// "The codes are fixed", in access.Codes() order.
+// authenticating is what every authenticating row answers, a fixed list in
+// access.Codes() order.
 var authenticating = []access.Code{
 	access.CodeAuthRequired, access.CodeSessionExpired, access.CodeInvalidCredentials, access.CodeKeyInvalid,
 	access.CodeHTTPSRequired,

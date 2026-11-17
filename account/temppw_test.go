@@ -14,8 +14,8 @@ import (
 	"github.com/cplieger/access/internal/crockford"
 )
 
-// temporaryPasswordVectors is the file the web suite's recogniser tests read
-// (design 4.12): issued values with the random bytes each came from.
+// temporaryPasswordVectors is the file the web suite's recogniser tests read:
+// issued values with the random bytes each came from.
 var temporaryPasswordVectors = filepath.Join("..", "web", "testdata", "temporary-password", "vectors.json")
 
 const regenerateVectors = "UPDATE_VECTORS=1 go test ./account/ -run '^TestTemporaryPasswordVectors$'"
@@ -31,7 +31,7 @@ type temporaryPasswordVectorFile struct {
 }
 
 // checkBytes reports whether b is ten bytes whose last two are the low 16
-// bits of the CRC-32/ISO-HDLC of the first eight, big-endian (design 4.9).
+// bits of the CRC-32/ISO-HDLC of the first eight, big-endian.
 func checkBytes(b []byte) bool {
 	return len(b) == 10 && uint32(binary.BigEndian.Uint16(b[8:])) == crc32.ChecksumIEEE(b[:8])&0xFFFF
 }
@@ -48,7 +48,7 @@ func TestTemporaryPasswordCRC(t *testing.T) {
 // TestTemporaryPasswordFrom checks values computed outside Go (Python's
 // zlib.crc32 and a by-hand Crockford encode, crockford.com/base32.html,
 // most significant bit first): eight random bytes, then the CRC's low 16
-// bits big-endian, as 16 symbols (design 4.9 "The secret").
+// bits big-endian, as 16 symbols.
 func TestTemporaryPasswordFrom(t *testing.T) {
 	for _, c := range []struct{ random, want string }{
 		{"0000000000000000", "0000000000001QV9"},
@@ -69,7 +69,7 @@ func TestTemporaryPasswordFrom(t *testing.T) {
 }
 
 // TestNewTemporaryPassword: NIST SP 800-63B-4 §3.1.1.1 (a password the CSP
-// assigns is at least 64 random bits from an approved RBG); design 4.9: ten
+// assigns is at least 64 random bits from an approved RBG): ten
 // bytes, the last two the CRC check, shown as XXXX-XXXX-XXXX-XXXX.
 func TestNewTemporaryPassword(t *testing.T) {
 	seen := map[string]bool{}
@@ -92,9 +92,9 @@ func TestNewTemporaryPassword(t *testing.T) {
 	}
 }
 
-// TestTemporaryPasswordForm is design 4.9's normalisation (4.6's table:
-// ASCII "-" and space removed, ASCII letters folded, O to 0 and I, L to 1,
-// every other rune kept) and the check the one hashable form passes.
+// TestTemporaryPasswordForm checks the normalisation (the recovery code's
+// table: ASCII "-" and space removed, ASCII letters folded, O to 0 and I,
+// L to 1, every other rune kept) and the check the one hashable form passes.
 func TestTemporaryPasswordForm(t *testing.T) {
 	const canonical = "04HMASW9NF6YZMDE"
 	accepted := map[string]string{
@@ -124,7 +124,7 @@ func TestTemporaryPasswordForm(t *testing.T) {
 	})
 	refused := map[string]string{
 		// Go's and JavaScript's case mappings both take ı to I, which
-		// Crockford's table does not accept (design 4.6).
+		// Crockford's table does not accept.
 		"dotless_i":       strings.Replace("64S36D1N6RVKHPNF", "1", "ı", 1),
 		"fullwidth_digit": strings.Replace(canonical, "0", "０", 1),
 		"long_s":          strings.Replace("64S36D1N6RVKHPNF", "S", "ſ", 1),
@@ -146,7 +146,7 @@ func TestTemporaryPasswordForm(t *testing.T) {
 
 // TestTemporaryPasswordVectors writes (UPDATE_VECTORS=1) and checks the
 // issued values the web recogniser's tests read, so both suites test one
-// generator (design 4.12).
+// generator.
 func TestTemporaryPasswordVectors(t *testing.T) {
 	if os.Getenv("UPDATE_VECTORS") == "1" {
 		f := temporaryPasswordVectorFile{Source: "written by " + regenerateVectors}

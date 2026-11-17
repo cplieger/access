@@ -89,7 +89,7 @@ func TestDescriptorClassesFromScopes(t *testing.T) {
 	for _, dc := range scopeSets() {
 		ds := Descriptors(dc)
 		if len(ds) != len(designClasses) {
-			t.Fatalf("%d descriptors, want section 7.4's and Part 4's %d routes", len(ds), len(designClasses))
+			t.Fatalf("%d descriptors, want the %d specified routes", len(ds), len(designClasses))
 		}
 		for _, d := range ds {
 			want, ok := designClasses[d.Name]
@@ -255,7 +255,7 @@ func TestDescriptorsEqualsNewRoutes(t *testing.T) {
 // TestRouteSuccess holds each route's success status: present on every
 // route, 302 Found on a redirect (RFC 9110 §15.4.3), 201 Created where the
 // answer describes the resource the request created (§15.3.2: a user, an
-// invite, an API key, a passkey added from Account, design 4.50), 204 No
+// invite, an API key, a passkey added from Account), 204 No
 // Content where no body is sent (§15.3.5), else 200 OK (§15.3.1).
 func TestRouteSuccess(t *testing.T) {
 	created := []string{"authAdminUserCreate", "authAdminInvite", "authKeyCreate", "authPasskeyRegisterFinish"}
@@ -417,7 +417,7 @@ func (as answers) reasons() map[access.Code]reasonSet {
 	return out
 }
 
-// TestRouteReasons is design 4.56: under both key-scope settings, every
+// TestRouteReasons: under both key-scope settings, every
 // code a route answers carries a listed Reason ("" for none) or an open
 // mark, every listed one is a Reason access fixes (Reasons), and only the
 // three families a route cannot fix are open: auth_bad_request on a route

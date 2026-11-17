@@ -324,7 +324,7 @@ describe("stepUpWithPasskey", () => {
   });
 });
 
-// Design 4.4: a passkey as a pending sign-in's second step.
+// A passkey as a pending sign-in's second step.
 describe("loginSecondPasskey", () => {
   it("sends the ticket, then the assertion, and answers the sign-in step's outcome", async () => {
     bareplatform();
@@ -353,7 +353,7 @@ describe("loginSecondPasskey", () => {
   });
 });
 
-// Design 4.17, 4.31 and 4.54: an account created with a passkey where registration is open,
+// An account created with a passkey where registration is open,
 // signed in, or waiting for approval with no session.
 describe("signUpWithPasskey", () => {
   it.each(["EnrolmentOutcome", "EnrolmentOutcome.waiting"])(
@@ -390,7 +390,7 @@ describe("signUpWithPasskey", () => {
   });
 });
 
-// Design 4.4 and 4.8: a passkey as a pending sign-in's enrolment.
+// A passkey as a pending sign-in's enrolment.
 describe("pendingPasskey", () => {
   it("sends the ticket, then the registration, and answers the completed sign-in", async () => {
     bareplatform();
@@ -419,7 +419,7 @@ describe("pendingPasskey", () => {
   });
 });
 
-// Design 4.9 and 4.12: a passkey registered in place of a temporary password signs in.
+// A passkey registered in place of a temporary password signs in.
 describe("loginSetPasskey", () => {
   it("sends the ticket, then the registration, and answers the sign-in step's outcome", async () => {
     bareplatform();
@@ -448,7 +448,7 @@ describe("loginSetPasskey", () => {
   });
 });
 
-// Design 4.30 and 4.31: a passkey proof is a step-up ceremony's assertion, sent with the change.
+// A passkey proof is a step-up ceremony's assertion, sent with the change.
 describe("passkeyProof", () => {
   it("answers the ceremony with its assertion and finishes no step-up", async () => {
     bareplatform();
@@ -508,7 +508,7 @@ describe("registerPasskey", () => {
     expect(signalAllAcceptedCredentials).toHaveBeenCalledOnce();
   });
 
-  // Design 4.50: the code rides only the answer whose registration issued it.
+  // The code rides only the answer whose registration issued it.
   it("answers no recovery_code when the registration issued none", async () => {
     bareplatform();
     credentialsCreate(attests);

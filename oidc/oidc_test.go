@@ -62,7 +62,7 @@ func TestConfigValidate(t *testing.T) {
 		"scopes without openid":      func(c *Config) { c.Scopes = []string{"email"} },
 		"empty scopes":               func(c *Config) { c.Scopes = []string{} },
 		"negative timeout":           func(c *Config) { c.HTTPClient = &http.Client{Timeout: -time.Second} },
-		// Design 6.17: the largest flow cookie must fit (RFC 6265bis §5.6).
+		// The largest flow cookie must fit (RFC 6265bis §5.6).
 		"client ID past the flow cookie":    func(c *Config) { c.ClientID = strings.Repeat("c", 4096) },
 		"redirect URL past the flow cookie": func(c *Config) { c.RedirectURL = "https://app.example/" + strings.Repeat("a", 3000) },
 		"issuer past the flow cookie":       func(c *Config) { c.IssuerURL = "https://idp.example/" + strings.Repeat("i", 3000) },
@@ -284,7 +284,7 @@ func TestNewProviderRefusesAFlowThatCannotFit(t *testing.T) {
 	}
 }
 
-// TestValidateSizesTheFlow is design 6.17: Validate refuses, with no
+// TestValidateSizesTheFlow: Validate refuses, with no
 // network, every config whose largest flow cookie would not fit, so
 // NewProvider refuses nothing Validate accepted on the cookie's account. The
 // size is the same with the ephemeral sealer Validate fills in and with an

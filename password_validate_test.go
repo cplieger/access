@@ -9,8 +9,8 @@ import (
 
 // TestPasswordRejections pins the list to the wire values and to this
 // package's validators: each validator rejection is listed, and each listed
-// value but the last two, breached and is_temporary_password (design 4.9,
-// 4.12), which account produces, comes from a validator.
+// value but the last two, breached and is_temporary_password, which
+// account produces, comes from a validator.
 func TestPasswordRejections(t *testing.T) {
 	t.Parallel()
 	want := []PasswordRejection{"too_short", "too_long", "contains_username", "contains_forbidden_word", "common", "breached", "is_temporary_password"}

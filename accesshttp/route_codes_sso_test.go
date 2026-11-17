@@ -10,7 +10,7 @@ import (
 	"github.com/cplieger/access/account"
 )
 
-// ssoScenarios reach the codes of the two SSO-mode routes (design 5.23).
+// ssoScenarios reach the codes of the two SSO-mode routes.
 func ssoScenarios() map[scenarioKey]scenario {
 	out := map[scenarioKey]scenario{}
 	const readiness, apply = "authAdminSSOReadiness", "authAdminSSOApply"
@@ -37,7 +37,7 @@ func ssoScenarios() map[scenarioKey]scenario {
 	return out
 }
 
-// Design 5.23: authAdminSSOApply answers a state refusal with exactly the
+// authAdminSSOApply answers a state refusal with exactly the
 // refusal authAdminSSOReadiness showed, and the readiness read answers it
 // in its body.
 func TestSSOReadinessRefusalIsApplysAnswer(t *testing.T) {

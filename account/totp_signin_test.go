@@ -48,7 +48,7 @@ func live(f *sfFixture, ticket access.Secret) bool {
 	return ok
 }
 
-// TestSignInWithCode is design 4.4's code step against RFC 6238.
+// TestSignInWithCode checks the code step against RFC 6238.
 func TestSignInWithCode(t *testing.T) {
 	t.Parallel()
 	t.Run("signs_in", func(t *testing.T) {
@@ -60,7 +60,7 @@ func TestSignInWithCode(t *testing.T) {
 			t.Fatalf("SignInWithCode = %+v, %v, want alice signed in", out.Pending, err)
 		}
 		if sess := storedSession(t, f.mem, u.ID, out.SignedIn.Session.ID); sess.AuthMethod != access.MethodPassword {
-			t.Errorf("session method = %s, want password (design 4.4 step 3)", sess.AuthMethod)
+			t.Errorf("session method = %s, want password", sess.AuthMethod)
 		}
 		if out.SignedIn.DeviceCookie.IsZero() {
 			t.Error("a completed sign-in answered no device cookie")
@@ -114,7 +114,7 @@ func TestSignInWithCode(t *testing.T) {
 			t.Fatalf("a wrong code = %v, want code_invalid", err)
 		}
 		if !live(f, ticket) {
-			t.Fatal("a wrong code ended the ticket (design 4.4: a wrong code leaves it usable)")
+			t.Fatal("a wrong code ended the ticket (a wrong code leaves it usable)")
 		}
 		if rec, _ := totpFailures(t, f.mem, f.svc, "alice", false); rec.Count != 1 {
 			t.Errorf("TOTP failure count = %d, want 1", rec.Count)
@@ -195,7 +195,7 @@ func TestSignInWithCode(t *testing.T) {
 			t.Errorf("the unspaced replay = %v, want code_reused", err)
 		}
 	})
-	// Design 4.4 step 0: a malformed code is refused before anything counts.
+	// A malformed code is refused before anything counts.
 	t.Run("malformed", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{limiter: ipLimit(2)})
@@ -213,7 +213,7 @@ func TestSignInWithCode(t *testing.T) {
 			t.Error("a malformed code ended the ticket")
 		}
 	})
-	// Design 4.7: the switch refuses the code step and keeps the ticket.
+	// The switch refuses the code step and keeps the ticket.
 	t.Run("disable_totp_keeps_the_ticket", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{})
@@ -237,7 +237,8 @@ func TestSignInWithCode(t *testing.T) {
 			t.Errorf("an unknown ticket = %v, want access.ErrTokenInvalid", err)
 		}
 	})
-	// Design 4.4 step 5 and step 1's re-check (cal.com GHSA-9r3w-4j8q-pw98).
+	// A record deleted between the steps, and step 1's re-check (cal.com
+	// GHSA-9r3w-4j8q-pw98).
 	for _, tc := range []struct {
 		name   string
 		change func(t *testing.T, f *sfFixture, u *access.User)
@@ -282,7 +283,7 @@ func TestSignInWithCode(t *testing.T) {
 			}
 		})
 	}
-	// Design 4.3: a record no key opens answers 503 and is never a wrong code.
+	// A record no key opens answers 503 and is never a wrong code.
 	t.Run("unopenable", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{})
@@ -302,7 +303,7 @@ func TestSignInWithCode(t *testing.T) {
 			t.Error("an unopenable record logged nothing at ERROR")
 		}
 	})
-	// Design 4.4 "Security log": the first refused step journals once.
+	// The first refused step journals once.
 	t.Run("first_refusal_journals_once", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{})
@@ -327,7 +328,7 @@ func TestSignInWithCode(t *testing.T) {
 			t.Errorf("log entry = %+v, want a session entry with the reason, the user agent and the IP", entry)
 		}
 	})
-	// Design 4.4 "Every ticket is bound to its transport".
+	// Every ticket is bound to its transport.
 	t.Run("plain_ticket_on_https", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{posture: access.PosturePerRequest})
@@ -362,7 +363,7 @@ func TestSignInWithCode(t *testing.T) {
 		_, ticket, secret := codeTicket(t, f, plain)
 		out, err := f.svc.SignInWithCode(t.Context(), plain, ticket, codeNow(secret))
 		if err != nil || out.SignedIn.Session.Secure {
-			t.Errorf("a plain code step = %v, secure %t; want a plain session (design 4.4: the code step is allowed over plain)", err, out.SignedIn.Session.Secure)
+			t.Errorf("a plain code step = %v, secure %t; want a plain session (the code step is allowed over plain)", err, out.SignedIn.Session.Secure)
 		}
 	})
 	// snipe-it GHSA-mr8g-2mj4-pcq2 and runtipi GHSA-v6gf-frxm-567w: the code
@@ -417,7 +418,7 @@ func TestSignInWithCode(t *testing.T) {
 		}
 	})
 	// Vault GHSA-w8f3-r2q9-xr6w: a pending sign-in completed past its
-	// lifetime. Design 4.4: a ticket lives ten minutes on the Service clock.
+	// lifetime. A ticket lives ten minutes on the Service clock.
 	for name, tc := range map[string]struct {
 		after time.Duration
 		live  bool
@@ -530,7 +531,8 @@ func TestSignInWithCode(t *testing.T) {
 	})
 }
 
-// TestCodeStepNeverLocksGoodSignIns is design 4.15's two lock tests.
+// TestCodeStepNeverLocksGoodSignIns: good two-step sign-ins never lock, and
+// typos around a success do not add up to a lock.
 func TestCodeStepNeverLocksGoodSignIns(t *testing.T) {
 	t.Parallel()
 	t.Run("101_good_sign_ins", func(t *testing.T) {
@@ -574,7 +576,7 @@ func TestCodeStepNeverLocksGoodSignIns(t *testing.T) {
 	})
 }
 
-// TestSecondFactorPasskey is design 4.4's passkey second step.
+// TestSecondFactorPasskey checks the passkey second step.
 func TestSecondFactorPasskey(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T) (*sfFixture, *access.User, *accesstest.PasskeyDevice, access.Secret) {
@@ -602,7 +604,7 @@ func TestSecondFactorPasskey(t *testing.T) {
 			t.Fatalf("SecondFactorPasskeyFinish = %v, want alice signed in", err)
 		}
 		if sess := storedSession(t, f.mem, u.ID, out.SignedIn.Session.ID); sess.AuthMethod != access.MethodPassword {
-			t.Errorf("session method = %s, want password (design 4.4 step 3)", sess.AuthMethod)
+			t.Errorf("session method = %s, want password", sess.AuthMethod)
 		}
 		if live(f, ticket) {
 			t.Error("the ticket outlived its sign-in")
@@ -653,7 +655,7 @@ func TestSecondFactorPasskey(t *testing.T) {
 			t.Errorf("sessions of alice and bob = %d after the refusal, want the %d before it", after, before)
 		}
 	})
-	// Design 4.4: the passkey step needs HTTPS, and a secure ticket sent in
+	// The passkey step needs HTTPS, and a secure ticket sent in
 	// clear is dropped.
 	t.Run("plain_drops_the_ticket", func(t *testing.T) {
 		t.Parallel()
@@ -709,7 +711,7 @@ func TestSecondFactorPasskey(t *testing.T) {
 }
 
 // TestOIDCSignInNeverAskedForTheCode is Vikunja GHSA-8jvc-mcx6-r4cg's
-// regression by decision (design 4.4's table): an SSO sign-in of a TOTP
+// regression by decision: an SSO sign-in of a TOTP
 // user signs in, the provider owning its factors.
 func TestOIDCSignInNeverAskedForTheCode(t *testing.T) {
 	t.Parallel()

@@ -44,7 +44,7 @@ func secondFactorGone(t testing.TB, s account.Store, u *access.User) bool {
 	return !totpHeld && !codeHeld
 }
 
-// TestResetSecondFactor is design 4.10's admin reset: the TOTP record and
+// TestResetSecondFactor checks the admin reset: the TOTP record and
 // the recovery code go with their locks, the sessions and the pending
 // sign-ins, and the password and passkeys stay.
 func TestResetSecondFactor(t *testing.T) {
@@ -62,11 +62,11 @@ func TestResetSecondFactor(t *testing.T) {
 		if !secondFactorGone(t, f.mem, l.user) {
 			t.Error("the TOTP record or the recovery code survived the reset")
 		}
-		// 4.10: "clears both locks", the TOTP's and the recovery code's.
+		// Both locks are cleared, the TOTP's and the recovery code's.
 		if failureHeld(t, f, l.user, access.MethodTOTP) || failureHeld(t, f, l.user, access.MethodRecoveryCode) {
 			t.Error("a TOTP or recovery-code lock survived the reset")
 		}
-		// 4.10: the user keeps the password and their passkeys.
+		// The user keeps the password and their passkeys.
 		if u := storedUser(t, f.mem, l.user.ID); u.PasswordHash.IsZero() {
 			t.Error("the reset cleared the password")
 		}
@@ -105,8 +105,8 @@ func TestResetSecondFactor(t *testing.T) {
 			t.Errorf("password sign-in after the reset = %+v, %v; want a session with no second step", out.Pending, err)
 		}
 	})
-	// 4.10: under the rule the next password sign-in reaches NextEnrol, from
-	// a known device (4.4).
+	// Under the rule the next password sign-in reaches NextEnrol, from
+	// a known device.
 	t.Run("rule_reaches_enrol", func(t *testing.T) {
 		t.Parallel()
 		f := issueFixture(t, account.Rules{}, 0, nil)
@@ -125,7 +125,7 @@ func TestResetSecondFactor(t *testing.T) {
 			t.Fatalf("step 1 after the reset = %+v, %v; want NextEnrol offering totp", out.Pending, err)
 		}
 	})
-	// RULINGS Q16 (design 4.53): a target holding neither record answers
+	// A target holding neither record answers
 	// ErrNotFound and nothing is written.
 	t.Run("nothing_held", func(t *testing.T) {
 		t.Parallel()
@@ -155,7 +155,7 @@ func TestResetSecondFactor(t *testing.T) {
 			t.Errorf("a reset of a missing user = %v, want ErrNotFound", err)
 		}
 	})
-	// RULINGS Q16: a refused actor's refusal comes before the existence
+	// A refused actor's refusal comes before the existence
 	// answer, so a refusal never tells a held factor from none.
 	t.Run("refusal_before_existence", func(t *testing.T) {
 		t.Parallel()
@@ -182,7 +182,7 @@ func TestResetSecondFactor(t *testing.T) {
 	})
 }
 
-// TestResetSecondFactorWho is design 4.10's actors: Admidio
+// TestResetSecondFactorWho checks the actors: Admidio
 // GHSA-rh3w-4ccx-prf9 (an inverted reset authorization let a non-admin
 // strip an admin's TOTP), a test per role, and snipe-it
 // GHSA-mr8g-2mj4-pcq2 (admin-only and never self-targeted).
@@ -239,7 +239,7 @@ func TestResetSecondFactorWho(t *testing.T) {
 			t.Error("the admin's reset left alice's records")
 		}
 	})
-	// 5.2: only another owner or OutOfBand resets an owner.
+	// Only another owner or OutOfBand resets an owner.
 	t.Run("owner_target", func(t *testing.T) {
 		t.Parallel()
 		f := issueFixture(t, account.Rules{}, 0, nil)
@@ -261,7 +261,7 @@ func TestResetSecondFactorWho(t *testing.T) {
 			t.Errorf("an out-of-band reset of an owner = %v, want nil", err)
 		}
 	})
-	// 4.10: a manage_users key resets a regular user only (admin_target).
+	// A manage_users key resets a regular user only (admin_target).
 	t.Run("key", func(t *testing.T) {
 		t.Parallel()
 		f := issueFixture(t, account.Rules{}, 0, nil)
@@ -282,7 +282,7 @@ func TestResetSecondFactorWho(t *testing.T) {
 			t.Errorf("second_factor_reset = %+v, want one by key %d", evs, key.ID)
 		}
 	})
-	// 4.10: SingleOwnerPolicy allows OutOfBand only.
+	// SingleOwnerPolicy allows OutOfBand only.
 	t.Run("single_owner", func(t *testing.T) {
 		t.Parallel()
 		f := issueFixture(t, account.Rules{}, 0, account.SingleOwnerPolicy{})
@@ -298,7 +298,7 @@ func TestResetSecondFactorWho(t *testing.T) {
 			t.Error("the out-of-band reset left the owner's TOTP record")
 		}
 	})
-	// 4.12: the reset is allowed over plain HTTP; it answers no secret.
+	// The reset is allowed over plain HTTP; it answers no secret.
 	t.Run("plain", func(t *testing.T) {
 		t.Parallel()
 		f := issueFixture(t, account.Rules{}, access.PosturePerRequest, nil)
@@ -315,7 +315,7 @@ func TestResetSecondFactorWho(t *testing.T) {
 	})
 }
 
-// TestResetSecondFactorDormant is RULINGS M1 addendum 2 and Q16: a record
+// TestResetSecondFactorDormant: a record
 // kept dormant, by TOTP unwired or off or by the SSO mode, is still
 // something to reset, and is deleted.
 func TestResetSecondFactorDormant(t *testing.T) {

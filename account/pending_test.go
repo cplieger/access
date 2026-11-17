@@ -170,7 +170,7 @@ func TestPendingCacheConcurrent(t *testing.T) {
 	})
 }
 
-// TestPendingCacheLists is design 4.4's per-purpose cache: each list has
+// TestPendingCacheLists checks the per-purpose cache: each list has
 // its own lifetime and cap, a pending sign-in replaces its user's earlier
 // one, and a user's sign-in drops through the index.
 func TestPendingCacheLists(t *testing.T) {

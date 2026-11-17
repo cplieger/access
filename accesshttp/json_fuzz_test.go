@@ -23,7 +23,7 @@ const fuzzCodeHeader = "X-Test-Code"
 const specBodyCap = 4 << 10
 
 // proofBodyCap is a SecondFactorProof body's cap: it may carry a WebAuthn
-// assertion, whose cap is webauthn.MaxResponseBytes (design 4.31).
+// assertion, whose cap is webauthn.MaxResponseBytes.
 const proofBodyCap = 64 << 10
 
 // jsonFuzz serves bodies on every route decodeJSON reads, as a principal

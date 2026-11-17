@@ -68,7 +68,7 @@ var (
 	t0       = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 
-// TestNewMarksOwner: design 5.2 "Existing stores": New marks the enabled
+// TestNewMarksOwner: on an existing store, New marks the enabled
 // admin with the earliest CreatedAt, preferring one holding a local method,
 // journals owner_set by "migration", and never reads IDs.
 func TestNewMarksOwner(t *testing.T) {
@@ -165,7 +165,7 @@ func TestNewMarksOwner(t *testing.T) {
 	})
 }
 
-// TestSetupMarksOwner: design 5.2, setup creates its account as an owner in
+// TestSetupMarksOwner: setup creates its account as an owner in
 // the Update that creates it, on the password and the passkey path.
 func TestSetupMarksOwner(t *testing.T) {
 	t.Parallel()
@@ -194,7 +194,7 @@ func TestSetupMarksOwner(t *testing.T) {
 	})
 }
 
-// TestSetOwner: design 5.2, SetOwner under OpSetOwner for an owner
+// TestSetOwner: SetOwner under OpSetOwner for an owner
 // principal or OutOfBand; an owner needs an enabled admin holding a usable
 // password or passkey; the last enabled owner stays one.
 func TestSetOwner(t *testing.T) {
@@ -302,7 +302,7 @@ func TestSetOwner(t *testing.T) {
 	})
 }
 
-// TestOwnerProtections: design 5.2 "Owners are protected by operation": a
+// TestOwnerProtections: owners are protected by operation. A
 // principal that is no owner is refused owner_target on an owner target,
 // also when the owner is not the last admin, and an owner's role never
 // changes (owner_role); each refusal writes nothing.
@@ -351,7 +351,7 @@ func TestOwnerProtections(t *testing.T) {
 	}
 }
 
-// TestRecreatedAccountIsNoOwner: design 5.2, an account re-created after
+// TestRecreatedAccountIsNoOwner: an account re-created after
 // deletion is never an owner.
 func TestRecreatedAccountIsNoOwner(t *testing.T) {
 	t.Parallel()

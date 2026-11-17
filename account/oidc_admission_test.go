@@ -121,7 +121,7 @@ func TestOIDCIdentityIsIssuerAndSubject(t *testing.T) {
 	}
 }
 
-// TestOIDCAdmission: design 5.4, Rules.OIDCAdmission is checked at every
+// TestOIDCAdmission: Rules.OIDCAdmission is checked at every
 // intent before any write, owners included, and a refusal is journalled.
 func TestOIDCAdmission(t *testing.T) {
 	t.Parallel()
@@ -197,7 +197,7 @@ func TestOIDCAdmission(t *testing.T) {
 			t.Error("the refused step-up rotated alice's session")
 		}
 	})
-	// design 5.4 "Readable shapes": a string or an array of strings; Entra
+	// A string or an array of strings; Entra
 	// sends one group as a string and several as an array.
 	for name, tc := range map[string]struct {
 		raw  string
@@ -225,7 +225,7 @@ func TestOIDCAdmission(t *testing.T) {
 			}
 		})
 	}
-	// design 5.1: Entra's group overage replaces the claim with
+	// Entra's group overage replaces the claim with
 	// _claim_names, which admission cannot read and so refuses.
 	t.Run("entra_overage", func(t *testing.T) {
 		t.Parallel()
@@ -252,7 +252,7 @@ func TestOIDCAdmission(t *testing.T) {
 	})
 }
 
-// TestSingleUserOIDCIdentity: design 5.4, a single-user app accepts no
+// TestSingleUserOIDCIdentity: a single-user app accepts no
 // identity but the owner's, refused as invalid credentials at sign-in and
 // step-up whatever its claims, and the owner's own identity still meets
 // OIDCAdmission.
@@ -331,7 +331,7 @@ func TestSingleUserOIDCIdentity(t *testing.T) {
 	}
 }
 
-// TestProvisioningUnderSingleUser: design 5.4, checkRules refuses
+// TestProvisioningUnderSingleUser: checkRules refuses
 // Provisioning.Enabled under a single-user Policy at every operation, so a
 // reloaded Rules value cannot turn it on.
 func TestProvisioningUnderSingleUser(t *testing.T) {

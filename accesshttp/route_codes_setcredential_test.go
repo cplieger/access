@@ -48,7 +48,7 @@ func addSetPasswordScenarios(out map[scenarioKey]scenario) {
 			return e.setPassword(t, testOrigin, ticket, password)
 		}
 	}
-	// Design 4.4: under the rule the replacement's NextEnrol set is the
+	// Under the rule the replacement's NextEnrol set is the
 	// passkey alone, which the app then refuses.
 	refused := &atomic.Bool{}
 	out[scenarioKey{route, access.CodeForbidden}] = scenario{opts: with(requireRule, flag(refused, refusePasskeys)), arrange: func(t *testing.T, e *env) *http.Request {

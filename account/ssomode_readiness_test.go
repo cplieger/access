@@ -23,7 +23,7 @@ func storedAdmin(t *testing.T, f *oidcFixture, name string) *access.User {
 	return u
 }
 
-// Design 4.55: readiness is an admin read, a session or an AdminScope key
+// Readiness is an admin read, a session or an AdminScope key
 // re-read inside the read, then Policy OpListUsers; no owner check and no
 // recent auth, and refused over plain HTTP.
 func TestSSOReadinessReaders(t *testing.T) {
@@ -110,8 +110,8 @@ func TestSSOReadinessReaders(t *testing.T) {
 	})
 }
 
-// Design 4.55 "The preview never disagrees with the change for the person
-// who can make it": an owner session's readiness refusal is its own
+// The preview never disagrees with the change for the person who can make
+// it: an owner session's readiness refusal is its own
 // ApplySSO's answer, and any other reader's is the out-of-band one.
 func TestSSOReadinessRefusalIsTheReaders(t *testing.T) {
 	t.Parallel()

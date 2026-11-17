@@ -50,7 +50,7 @@ func setupIn(name string) account.SetupPassword {
 func requireNoUsers(t *testing.T, s account.Store) {
 	t.Helper()
 	if n, err := s.UserCount(t.Context()); err != nil || n != 0 {
-		t.Fatalf("users = %d, %v; a draft creates no account before its finish (design 4.8)", n, err)
+		t.Fatalf("users = %d, %v; a draft creates no account before its finish", n, err)
 	}
 }
 
@@ -64,10 +64,9 @@ func tokenLive(t testing.TB, s account.Store, hash access.Hash) bool {
 	return found && tok.ExpiresAt.After(time.Now())
 }
 
-// TestSetupDraft is design 4.8's "New self-service accounts are created
-// only when the second factor is bound" for first setup by password, with
-// 4.4 step 3's re-admission at the finish and 5.2's owner on that path;
-// the answer's shape is design 4.52's.
+// TestSetupDraft: under the rule, first setup by password creates the
+// account only when the second factor is bound, re-admits at the finish,
+// marks the owner on that path, and answers the sign-in union.
 func TestSetupDraft(t *testing.T) {
 	t.Parallel()
 	t.Run("pends_and_spends_nothing", func(t *testing.T) {
@@ -84,7 +83,7 @@ func TestSetupDraft(t *testing.T) {
 		setupDraft(t, f, localClient, in, access.MethodTOTP, access.MethodPasskey)
 		requireNoUsers(t, f.mem)
 		if !tokenLive(t, f.mem, access.NewHash(access.HexSHA256(tok.Reveal()))) {
-			t.Error("the draft spent the setup token; only the enrolment finish does (design 4.8)")
+			t.Error("the draft spent the setup token; only the enrolment finish does")
 		}
 		if n := len(eventsOf(f.events, account.EventUserCreated)); n != 0 {
 			t.Errorf("user_created events = %d before the finish, want 0", n)
@@ -108,19 +107,19 @@ func TestSetupDraft(t *testing.T) {
 		}
 		u := got.User
 		if u == nil || u.Username != "owner" || u.Role != access.RoleAdmin || !u.Enabled || !u.Owner || u.PasswordHash.IsZero() {
-			t.Fatalf("the created user = %+v, want an enabled admin owner with a password (design 5.2)", u)
+			t.Fatalf("the created user = %+v, want an enabled admin owner with a password", u)
 		}
 		if got.Session.AuthMethod != access.MethodPassword || got.Token.IsZero() {
-			t.Errorf("session = %+v, want a password session with its token (design 4.4 step 3)", got.Session)
+			t.Errorf("session = %+v, want a password session with its token", got.Session)
 		}
 		if got.RecoveryCode.IsZero() {
-			t.Error("the finish issued no recovery code (design 4.6, 4.8)")
+			t.Error("the finish issued no recovery code")
 		}
 		if _, found := totpRecord(t, f.mem, u.ID); !found {
 			t.Error("the finish bound no TOTP record")
 		}
 		if tokenLive(t, f.mem, access.NewHash(access.HexSHA256(tok.Reveal()))) {
-			t.Error("the finish left the setup token live (design 4.8: consumed only at the finish)")
+			t.Error("the finish left the setup token live (consumed only at the finish)")
 		}
 		if live(f, ticket) {
 			t.Error("the draft's ticket outlived its finish")
@@ -140,13 +139,13 @@ func TestSetupDraft(t *testing.T) {
 			t.Fatalf("PendingPasskeyFinish = %v", err)
 		}
 		if u := got.User; u == nil || !u.Owner || u.Role != access.RoleAdmin {
-			t.Fatalf("the created user = %+v, want the admin owner (design 5.2)", got.User)
+			t.Fatalf("the created user = %+v, want the admin owner", got.User)
 		}
 		if keys, _ := f.mem.PasskeysByUserID(t.Context(), got.User.ID); len(keys) != 1 {
 			t.Errorf("passkeys = %d, want the one the finish registered", len(keys))
 		}
 		if got.RecoveryCode.IsZero() {
-			t.Error("a password and a passkey under the rule issued no recovery code (design 4.6)")
+			t.Error("a password and a passkey under the rule issued no recovery code")
 		}
 	})
 	t.Run("abandoned_leaves_the_token_usable", func(t *testing.T) {
@@ -163,7 +162,7 @@ func TestSetupDraft(t *testing.T) {
 		setupDraft(t, f, localClient, in, access.MethodTOTP, access.MethodPasskey)
 		f.set(account.Rules{})
 		if _, err := completed(f.svc.SetupWithPassword(t.Context(), localClient, in)); err != nil {
-			t.Fatalf("setup with the abandoned draft's token = %v, want signed in (design 4.8)", err)
+			t.Fatalf("setup with the abandoned draft's token = %v, want signed in", err)
 		}
 	})
 	t.Run("setup_completed_since_the_draft", func(t *testing.T) {
@@ -175,7 +174,7 @@ func TestSetupDraft(t *testing.T) {
 			t.Fatalf("the first finish = %v", err)
 		}
 		if _, _, err := pendingEnrolTOTP(t, f, localClient, second); !errors.Is(err, account.ErrSetupComplete) {
-			t.Fatalf("the second finish = %v, want ErrSetupComplete (design 4.4 step 3)", err)
+			t.Fatalf("the second finish = %v, want ErrSetupComplete", err)
 		}
 		if n, _ := f.mem.UserCount(t.Context()); n != 1 {
 			t.Errorf("users = %d, want the first draft's only", n)
@@ -190,14 +189,14 @@ func TestSetupDraft(t *testing.T) {
 		c := localClient
 		c.Secure = false
 		if _, err := f.svc.SetupWithPassword(t.Context(), c, setupIn("owner")); !errors.Is(err, access.ErrHTTPSRequired) {
-			t.Fatalf("a plain setup under the rule = %v, want access.ErrHTTPSRequired (design 4.8)", err)
+			t.Fatalf("a plain setup under the rule = %v, want access.ErrHTTPSRequired", err)
 		}
 		requireNoUsers(t, f.mem)
 		if n := account.PendingOf(f.svc).Len(); n != 0 {
 			t.Errorf("pending entries = %d, want no ticket", n)
 		}
 	})
-	// Design 4.4's ticket-method function on a setup draft.
+	// The ticket-method function on a setup draft.
 	t.Run("passkeys_refused_lists_totp", func(t *testing.T) {
 		t.Parallel()
 		r := ruleOn
@@ -211,7 +210,7 @@ func TestSetupDraft(t *testing.T) {
 		r.MethodUsable, r.DisableTOTP = refusePasskeys, true
 		f := newSF(t, r, pwOptions{})
 		if _, err := f.svc.SetupWithPassword(t.Context(), localClient, setupIn("owner")); !errors.Is(err, account.ErrNoUsableMethod) {
-			t.Fatalf("setup with no enrolment method = %v, want ErrNoUsableMethod (design 4.17)", err)
+			t.Fatalf("setup with no enrolment method = %v, want ErrNoUsableMethod", err)
 		}
 		requireNoUsers(t, f.mem)
 		if n := account.PendingOf(f.svc).Len(); n != 0 {
@@ -257,9 +256,8 @@ func inviteDraft(t *testing.T, f *sfFixture, inv account.IssuedToken, name strin
 	return p.Ticket
 }
 
-// TestInviteDraft is design 4.8's draft for invite acceptance by password,
-// with 4.4 step 3's re-admission at the finish; the answer's shape is
-// design 4.52's.
+// TestInviteDraft checks the draft for invite acceptance by password,
+// with the re-admission at the finish and the sign-in union's answer.
 func TestInviteDraft(t *testing.T) {
 	t.Parallel()
 	t.Run("pends_and_spends_nothing", func(t *testing.T) {
@@ -268,10 +266,10 @@ func TestInviteDraft(t *testing.T) {
 		inv := f.invite(t, p, access.RoleUser)
 		inviteDraft(t, f, inv, "newcomer")
 		if usernameTakenIn(t, f.mem, "newcomer") {
-			t.Error("the draft created the account before its finish (design 4.8)")
+			t.Error("the draft created the account before its finish")
 		}
 		if !tokenLive(t, f.mem, hashOf(inv)) {
-			t.Error("the draft spent the invite; only the enrolment finish does (design 4.8)")
+			t.Error("the draft spent the invite; only the enrolment finish does")
 		}
 	})
 	t.Run("finish_creates_the_invited_role", func(t *testing.T) {
@@ -287,10 +285,10 @@ func TestInviteDraft(t *testing.T) {
 			t.Fatalf("the created user = %+v, want an enabled admin newcomer who is no owner", got.User)
 		}
 		if got.RecoveryCode.IsZero() {
-			t.Error("the finish issued no recovery code (design 4.6)")
+			t.Error("the finish issued no recovery code")
 		}
 		if tokenLive(t, f.mem, hashOf(inv)) {
-			t.Error("the finish left the invite live (design 4.8: consumed at the finish)")
+			t.Error("the finish left the invite live (consumed at the finish)")
 		}
 		if evs := eventsOf(f.events, account.EventUserCreated); len(evs) != 1 || evs[0].UserID != got.User.ID || evs[0].Role != access.RoleAdmin {
 			t.Errorf("user_created = %+v, want the newcomer's with its role", evs)
@@ -306,7 +304,7 @@ func TestInviteDraft(t *testing.T) {
 			t.Fatalf("the first finish = %v", err)
 		}
 		if _, _, err := pendingEnrolTOTP(t, f, localClient, second); !errors.Is(err, access.ErrTokenInvalid) {
-			t.Fatalf("the second finish = %v, want access.ErrTokenInvalid (design 4.4 step 3)", err)
+			t.Fatalf("the second finish = %v, want access.ErrTokenInvalid", err)
 		}
 		if usernameTakenIn(t, f.mem, "second") {
 			t.Error("a spent invite created an account")
@@ -322,7 +320,7 @@ func TestInviteDraft(t *testing.T) {
 		ticket := inviteDraft(t, f, inv, "newcomer")
 		passwordUser(t, f.mem, f.hasher, "newcomer", goodPassword)
 		if _, _, err := pendingEnrolTOTP(t, f, localClient, ticket); !errors.Is(err, account.ErrUsernameTaken) {
-			t.Fatalf("the finish = %v, want ErrUsernameTaken (design 4.4 step 3)", err)
+			t.Fatalf("the finish = %v, want ErrUsernameTaken", err)
 		}
 		if !tokenLive(t, f.mem, hashOf(inv)) {
 			t.Error("a refused finish spent the invite")
@@ -348,9 +346,9 @@ func usernameTakenIn(t *testing.T, s account.Store, name string) bool {
 	return found
 }
 
-// TestCheckSecondFactorReady is design 4.8's enable-time check: a full
+// TestCheckSecondFactorReady checks the enable-time check: a full
 // session on a secure request whose user holds a usable TOTP or a usable
-// passkey, by 4.4's reading, so a dormant record does not count.
+// passkey, so a dormant record does not count.
 func TestCheckSecondFactorReady(t *testing.T) {
 	t.Parallel()
 	type held struct{ totp, passkey, oldPasskey bool }
@@ -425,7 +423,7 @@ func TestCheckSecondFactorReady(t *testing.T) {
 	}
 }
 
-// TestDraftList is design 4.4's cache table: drafts have their own list,
+// TestDraftList checks the cache table: drafts have their own list,
 // so a flood of them never evicts a pending sign-in and ceremonies never
 // evict a draft.
 func TestDraftList(t *testing.T) {

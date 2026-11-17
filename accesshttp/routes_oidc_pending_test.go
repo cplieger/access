@@ -31,7 +31,7 @@ func pendingAfter(t *testing.T, o envOptions, arrange func(e *env)) (*env, *brow
 	return e, b, w.Code, w.Body.Bytes()
 }
 
-// TestPendingAnswerIsNeutral: design 5.4, two callbacks, one whose hint
+// TestPendingAnswerIsNeutral: two callbacks, one whose hint
 // matches a user and one matching nobody, give identical status and body;
 // the server never looks a user up by the hint for this answer.
 func TestPendingAnswerIsNeutral(t *testing.T) {
@@ -46,7 +46,7 @@ func TestPendingAnswerIsNeutral(t *testing.T) {
 	}
 }
 
-// TestPendingCreate: design 5.4 and 5.23, under provisioning a taken name
+// TestPendingCreate: under provisioning a taken name
 // offers can_create with the hint plus a suffix, a taken pick answers
 // auth_username_taken and keeps the pending state, and a free pick signs in.
 func TestPendingCreate(t *testing.T) {

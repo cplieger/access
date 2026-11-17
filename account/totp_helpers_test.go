@@ -15,7 +15,7 @@ import (
 const testIssuer = "Example"
 
 // sealTOTP stores a fresh TOTP record for u, its secret sealed at rest
-// under sealer with design 4.3's purpose "totp:" + the user's ID, and
+// under sealer with the purpose "totp:" + the user's ID, and
 // returns the secret.
 func sealTOTP(t testing.TB, s account.Store, sealer *access.Sealer, u *access.User) []byte {
 	t.Helper()

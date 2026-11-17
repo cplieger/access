@@ -19,8 +19,8 @@ func (e *env) issueTemporary(t *testing.T, origin, name, body string, cookie *ht
 	return requestAt(origin, strings.Replace(rt.Path, "{id}", e.userID(t, name), 1), rt, body, cookie)
 }
 
-// TestRouteAuthAdminTemporaryPassword is design 4.12's
-// authAdminTemporaryPassword row and 4.30's and 4.31's answer: the body
+// TestRouteAuthAdminTemporaryPassword checks authAdminTemporaryPassword's
+// request and answer: the body
 // decodes into TemporaryPasswordOptions, and the answer serialises
 // IssuedTemporaryPassword with https_only read after the issue.
 func TestRouteAuthAdminTemporaryPassword(t *testing.T) {
@@ -32,7 +32,7 @@ func TestRouteAuthAdminTemporaryPassword(t *testing.T) {
 		before := time.Now()
 		w := do(e.route(t, "authAdminTemporaryPassword"), e.issueTemporary(t, testOrigin, "alice", `{"ttl_hours":2}`, root))
 		got := decoded[TemporaryPasswordResponse](t, e, w, http.StatusOK)
-		// 4.9: shown as XXXX-XXXX-XXXX-XXXX; 2 hours from the issue.
+		// Shown as XXXX-XXXX-XXXX-XXXX; 2 hours from the issue.
 		if len(got.Password) != 19 || strings.Count(got.Password, "-") != 3 {
 			t.Errorf("password %q, want XXXX-XXXX-XXXX-XXXX", got.Password)
 		}
@@ -61,7 +61,7 @@ func TestRouteAuthAdminTemporaryPassword(t *testing.T) {
 			t.Errorf("body %s holds https_origin with no Rules.HTTPSOrigin", w.Body.String())
 		}
 	})
-	// 4.9's six TemporaryPasswordHTTPSOnly cases are account's; the route
+	// The six TemporaryPasswordHTTPSOnly cases are account's; the route
 	// carries its answer for the posture and rules the app runs.
 	t.Run("https_only", func(t *testing.T) {
 		for _, tc := range []struct {
@@ -84,8 +84,8 @@ func TestRouteAuthAdminTemporaryPassword(t *testing.T) {
 			})
 		}
 	})
-	// 4.31: dormant and password_kept are what the issuing Update decided
-	// (5.3: an unlinked non-owner under SSOOnly).
+	// Dormant and password_kept are what the issuing Update decided
+	// (an unlinked non-owner under SSOOnly).
 	t.Run("dormant", func(t *testing.T) {
 		e := newEnv(t, perRequest)
 		e.createUser(t, "root", access.RoleAdmin)
@@ -100,7 +100,7 @@ func TestRouteAuthAdminTemporaryPassword(t *testing.T) {
 			t.Errorf("answer %+v, alice's password kept %t; want dormant, password_kept and https_only, the password kept", got, !e.user(t, "alice").PasswordHash.IsZero())
 		}
 	})
-	// 4.12: the body's three fields reach TemporaryPasswordOptions.
+	// The body's three fields reach TemporaryPasswordOptions.
 	t.Run("options", func(t *testing.T) {
 		e := newEnv(t, passkeys)
 		root := e.rootSession(t)
@@ -117,7 +117,7 @@ func TestRouteAuthAdminTemporaryPassword(t *testing.T) {
 			t.Errorf("alice's keys %+v (%v), want key %d kept", keys, err, key.Key.ID)
 		}
 	})
-	// 4.9 "Over plain HTTP": issuing answers a new secret, so it is refused.
+	// Issuing answers a new secret, so it is refused.
 	t.Run("plain_refused", func(t *testing.T) {
 		e := newEnv(t, perRequest)
 		e.createUser(t, "root", access.RoleAdmin)
@@ -128,7 +128,7 @@ func TestRouteAuthAdminTemporaryPassword(t *testing.T) {
 			t.Errorf("record stored (%t, %v), want none", found, err)
 		}
 	})
-	// 4.9 "Never for yourself".
+	// Never for yourself.
 	t.Run("self_recovery", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		root := e.rootSession(t)
@@ -137,7 +137,7 @@ func TestRouteAuthAdminTemporaryPassword(t *testing.T) {
 			t.Errorf("reason %q, want %q", got.Reason, account.ReasonSelfRecovery)
 		}
 	})
-	// 5.5: a linked non-owner under SSOForLinked is refused, reason linked.
+	// A linked non-owner under SSOForLinked is refused, reason linked.
 	t.Run("linked", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		root := e.rootSession(t)
@@ -149,7 +149,7 @@ func TestRouteAuthAdminTemporaryPassword(t *testing.T) {
 	})
 }
 
-// TestAdminUsersSecondFactorRows is design 4.12's UserMethodsView gaining
+// TestAdminUsersSecondFactorRows checks the UserMethodsView gaining
 // totp and temporary_password{expires_at}: the admin list reads each from
 // the user's records, and a lapsed temporary password lists as none.
 func TestAdminUsersSecondFactorRows(t *testing.T) {
@@ -184,8 +184,8 @@ func TestAdminUsersSecondFactorRows(t *testing.T) {
 	}
 }
 
-// TestLoginTemporaryPasswordExposed is design 4.9's burn on the wire and
-// ui-contract-part4 (b)'s fourth step-1 row: a temporary password posted to
+// TestLoginTemporaryPasswordExposed checks the burn on the wire: a
+// temporary password posted to
 // authLoginPassword over plain HTTP where it cannot finish answers 403
 // auth_https_required with reason temporary_password_exposed.
 func TestLoginTemporaryPasswordExposed(t *testing.T) {

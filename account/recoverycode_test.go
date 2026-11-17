@@ -14,7 +14,7 @@ import (
 	"github.com/cplieger/access/account"
 )
 
-// shownCode is design 4.6's displayed form: 16 Crockford symbols in four
+// shownCode is the displayed form: 16 Crockford symbols in four
 // groups of four (crockford.com/base32.html, no I L O U).
 var shownCode = regexp.MustCompile(`^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$`)
 
@@ -69,7 +69,7 @@ func registerWith(t *testing.T, f *sfFixture, pr access.Principal, dev *accesste
 	return f.svc.PasskeyRegisterFinish(t.Context(), pr, pc.ID, bytes.NewReader(dev.Register(browserJSON(t, pc.Creation))))
 }
 
-// TestRecoveryCodeIssueRule is design 4.6 and 4.50: an Update that adds a
+// TestRecoveryCodeIssueRule: an Update that adds a
 // password or a second factor issues a recovery code when the user then
 // holds a password, a usable second factor and no code, carried once in
 // that Update's answer.
@@ -93,7 +93,7 @@ func TestRecoveryCodeIssueRule(t *testing.T) {
 			t.Errorf("recovery_code_issued events = %+v, want one by the session", evs)
 		}
 	})
-	// Design 4.6: a code is issued once; a binding while one is held
+	// A code is issued once; a binding while one is held
 	// issues none.
 	t.Run("totp_replacement_keeps_the_code", func(t *testing.T) {
 		t.Parallel()
@@ -112,7 +112,7 @@ func TestRecoveryCodeIssueRule(t *testing.T) {
 		}
 		requireNoCode(t, f, u, done.RecoveryCode, true)
 	})
-	// Design 4.50: a password user's first usable passkey under the rule is
+	// A password user's first usable passkey under the rule is
 	// a second factor; a second passkey finds the code held.
 	t.Run("first_usable_passkey", func(t *testing.T) {
 		t.Parallel()
@@ -141,7 +141,7 @@ func TestRecoveryCodeIssueRule(t *testing.T) {
 			t.Errorf("recovery_code_issued events = %d, want the first passkey's one", n)
 		}
 	})
-	// Design 4.4: password and a passkey is a second factor only under the
+	// Password and a passkey is a second factor only under the
 	// rule, so with it off the passkey issues nothing.
 	t.Run("passkey_without_the_rule", func(t *testing.T) {
 		t.Parallel()
@@ -153,7 +153,7 @@ func TestRecoveryCodeIssueRule(t *testing.T) {
 		}
 		requireNoCode(t, f, u, reg.RecoveryCode, false)
 	})
-	// Design 4.50, 4.4: a passkey the app's MethodUsable refuses is not a
+	// A passkey the app's MethodUsable refuses is not a
 	// usable second factor.
 	t.Run("passkey_not_usable", func(t *testing.T) {
 		t.Parallel()
@@ -174,7 +174,7 @@ func TestRecoveryCodeIssueRule(t *testing.T) {
 		}
 		requireNoCode(t, f, u, reg.RecoveryCode, false)
 	})
-	// Design 4.50: a passkey user's first password under the rule leaves
+	// A passkey user's first password under the rule leaves
 	// password and passkey held.
 	t.Run("first_password", func(t *testing.T) {
 		t.Parallel()
@@ -202,7 +202,7 @@ func TestRecoveryCodeIssueRule(t *testing.T) {
 		}
 		requireNoCode(t, f, u, set.RecoveryCode, true)
 	})
-	// Design 4.4: a passkey under an old relying-party ID is not usable.
+	// A passkey under an old relying-party ID is not usable.
 	t.Run("first_password_beside_an_old_rp_passkey", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{RequireSecondFactor: true}, pwOptions{})
@@ -229,7 +229,7 @@ func TestRecoveryCodeIssueRule(t *testing.T) {
 	})
 }
 
-// TestRegenerateRecoveryCode is design 4.6's replacement on request.
+// TestRegenerateRecoveryCode checks the replacement on request.
 func TestRegenerateRecoveryCode(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T) (*sfFixture, *access.User, access.Principal, []byte) {
@@ -322,7 +322,7 @@ func TestRegenerateRecoveryCode(t *testing.T) {
 	}
 }
 
-// TestMethodsRecoveryCode is MethodsView.recovery_code (design 4.12).
+// TestMethodsRecoveryCode is MethodsView.recovery_code.
 func TestMethodsRecoveryCode(t *testing.T) {
 	t.Parallel()
 	f := newSF(t, account.Rules{}, pwOptions{})

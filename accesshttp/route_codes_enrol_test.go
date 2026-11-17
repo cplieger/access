@@ -123,7 +123,7 @@ func (e *env) inviteDraftTicket(t testing.TB) string {
 }
 
 // addDraftFinishScenarios are the pending enrolment finishes' answers that
-// only a draft's creation gives (design 4.4 step 3).
+// only a draft's creation gives.
 func addDraftFinishScenarios(out map[scenarioKey]scenario) {
 	draftRule := with(requireRule, totpOn)
 	finishes := map[string]func(t *testing.T, e *env, ticket string, between func()) *http.Request{
@@ -165,7 +165,7 @@ func addRecoveryStepScenarios(out map[scenarioKey]scenario) {
 	right := func(t *testing.T, e *env) *http.Request {
 		return post(t, e, e.recoveryTicket(t, "alice"), knownRecoveryCode)
 	}
-	// Design 4.4: the only enrolment the step leads to is TOTP here, which
+	// The only enrolment the step leads to is TOTP here, which
 	// the switch then turns off.
 	off := &atomic.Bool{}
 	out[scenarioKey{route, access.CodeForbidden}] = scenario{opts: with(totpOn, flag(off, func(r *account.Rules) { r.DisableTOTP = true })), arrange: func(t *testing.T, e *env) *http.Request {

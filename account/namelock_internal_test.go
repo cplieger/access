@@ -11,7 +11,7 @@ import (
 	"github.com/cplieger/access/ratelimit"
 )
 
-// TestNameLocks is design 4.9's lock: one holder per name, waiters that
+// TestNameLocks checks the lock: one holder per name, waiters that
 // hold nothing else, a wait that ends with its context, and an entry that
 // leaves the set when its last holder or waiter does, as go/keylock's.
 func TestNameLocks(t *testing.T) {
@@ -84,7 +84,7 @@ func TestNameLocks(t *testing.T) {
 			t.Errorf("held = %d, want 0", n)
 		}
 	})
-	// 4.15: after 10,000 distinct names are posted and settled, the lock set
+	// After 10,000 distinct names are posted and settled, the lock set
 	// is empty.
 	t.Run("distinct_names_leave_nothing", func(t *testing.T) {
 		t.Parallel()

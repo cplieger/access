@@ -111,7 +111,7 @@ func pending(t testing.TB, out account.LoginResult, err error, next account.Next
 	return p
 }
 
-// TestStepOnePends is design 4.4's pend table and its ticket-method
+// TestStepOnePends checks the pend table and its ticket-method
 // function, for a password first factor.
 func TestStepOnePends(t *testing.T) {
 	t.Parallel()
@@ -137,11 +137,11 @@ func TestStepOnePends(t *testing.T) {
 		{name: "passkey_and_recovery_rule_on", rules: rule, has: user{passkey: true, recovery: true}, next: account.NextSecondFactor, methods: []access.Method{access.MethodPasskey, access.MethodRecoveryCode}},
 		{name: "neither_rule_on_known_device", rules: rule, known: true, next: account.NextEnrol, methods: []access.Method{access.MethodTOTP, access.MethodPasskey}},
 		{name: "neither_rule_on_new_device", rules: rule, err: account.ErrEnrolNeedsKnownDevice},
-		// 4.4 "A ticket's Methods follow its transport".
+		// A ticket's Methods follow its transport.
 		{name: "plain_totp_lists_totp_only", has: user{totp: true, passkey: true, recovery: true}, plain: true, next: account.NextSecondFactor, methods: []access.Method{access.MethodTOTP}},
 		{name: "plain_passkey_rule_on", rules: rule, has: user{passkey: true}, plain: true, err: access.ErrHTTPSRequired},
 		{name: "plain_enrol", rules: rule, plain: true, known: true, err: access.ErrHTTPSRequired},
-		// 4.4 "One function decides a ticket's Methods".
+		// One function decides a ticket's Methods.
 		{name: "hook_without_totp_keeps_totp", has: user{totp: true, recovery: true}, refuse: allowOnly(access.MethodPassword, access.MethodPasskey, access.MethodOIDC), next: account.NextSecondFactor, methods: []access.Method{access.MethodTOTP, access.MethodRecoveryCode}},
 		{name: "hook_refusing_passkeys", has: user{totp: true, passkey: true}, refuse: allowOnly(access.MethodPassword), next: account.NextSecondFactor, methods: []access.Method{access.MethodTOTP}},
 		{name: "hook_refusing_passkeys_enrol", rules: rule, known: true, refuse: allowOnly(access.MethodPassword), next: account.NextEnrol, methods: []access.Method{access.MethodTOTP}},
@@ -214,7 +214,7 @@ func allowOnly(methods ...access.Method) func(*account.Config) {
 	}
 }
 
-// TestStepOneDisableTOTP is 4.4's held-means-usable test: with DisableTOTP
+// TestStepOneDisableTOTP: a held factor is a usable one. With DisableTOTP
 // on, a TOTP-only user's record reads as absent.
 func TestStepOneDisableTOTP(t *testing.T) {
 	t.Parallel()
@@ -245,7 +245,7 @@ func TestStepOneDisableTOTP(t *testing.T) {
 }
 
 // TestMethodsSecondFactorHeld is MeResponse.methods.second_factor_held and
-// password_step_up (4.4, 4.7).
+// password_step_up.
 func TestMethodsSecondFactorHeld(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -292,8 +292,8 @@ func TestMethodsSecondFactorHeld(t *testing.T) {
 	})
 }
 
-// TestStepOneSettles is 4.4's "Step 1 settles the password attempt" and
-// "The limiter: two settle outcomes and one minter".
+// TestStepOneSettles: step 1 settles the password attempt, and the limiter
+// has two settle outcomes and one minter.
 func TestStepOneSettles(t *testing.T) {
 	t.Parallel()
 	totpUser := func(t *testing.T, f *sfFixture) *access.User {
@@ -452,7 +452,7 @@ func TestEveryFirstFactorUnderTheRule(t *testing.T) {
 	}
 }
 
-// TestKnownDeviceAtStepOne is 4.4's known-device rule: only a cookie a
+// TestKnownDeviceAtStepOne checks the known-device rule: only a cookie a
 // secure sign-in sealed lets an existing account enrol its first factor.
 func TestKnownDeviceAtStepOne(t *testing.T) {
 	t.Parallel()
@@ -488,8 +488,8 @@ func TestKnownDeviceAtStepOne(t *testing.T) {
 	}
 }
 
-// TestTicketsEnd is 4.4's "The ticket dies with the credential that earned
-// it" and the Keycloak CVE-2026-94218 regression.
+// TestTicketsEnd: a ticket dies with the credential that earned it, and the
+// Keycloak CVE-2026-94218 regression.
 func TestTicketsEnd(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T) (*sfFixture, *access.User, *account.Pending) {
@@ -658,7 +658,7 @@ func TestTicketsEnd(t *testing.T) {
 	})
 }
 
-// TestRehashAtStepOne is 4.4 step 4's rehash rule: derived only unless the
+// TestRehashAtStepOne checks the rehash rule: derived only unless the
 // SSO mode refuses the sign-in, and written by a step 1 that pends.
 func TestRehashAtStepOne(t *testing.T) {
 	t.Parallel()
@@ -706,7 +706,7 @@ func TestRehashAtStepOne(t *testing.T) {
 	})
 }
 
-// TestCountedMethods is 4.11's census: every method with a failure record
+// TestCountedMethods checks the census: every method with a failure record
 // is counted, so user creation and Me cover it.
 func TestCountedMethods(t *testing.T) {
 	t.Parallel()

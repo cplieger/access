@@ -34,7 +34,7 @@ func (l *auditLog) all() []access.AuditEvent {
 // httptest.NewRequest's RemoteAddr, which the default ClientAddr reads.
 const testIP = "192.0.2.1"
 
-// TestAudit is design 2.2 "The audit": one event per refusal of a
+// TestAudit: one audit event per refusal of a
 // presented credential, with its kind, reason and fields, and none for a
 // request with no credential, a 503, an admitted request or a route miss.
 func TestAudit(t *testing.T) {

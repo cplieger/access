@@ -36,7 +36,7 @@ import (
 // function: every error chain it can return or hand (*Handler).refusal,
 // followed through the module up to the app's Policy and mapped through
 // classify, answers a listed code and Reason, or one in its code's open
-// family (design 4.56), or is refuted; every listed code, reason and open
+// family, or is refuted; every listed code, reason and open
 // mark has such a producer; every producer error has a producerErrors row
 // the error table names; and every refuted row still describes a path.
 func TestOpCodesFromProducers(t *testing.T) {
@@ -268,7 +268,7 @@ var fixedReasons = func() map[string]bool {
 
 // producedReason is how a Reason classify gave code stands against the
 // route's answers: itself when access fixes it, else the open family that
-// leaves it to the request, the IdP or the Policy (design 4.56); false for
+// leaves it to the request, the IdP or the Policy; false for
 // a reason in none.
 func producedReason(code access.Code, r string) (string, bool) {
 	switch {
@@ -412,12 +412,12 @@ var refuted = []struct {
 	{route: "authOIDCStartStepUp", code: access.CodeOIDCFailed, invariant: "startSessionFlow refuses a Sec-Fetch-Site other than same-origin before Begin and passes the guard's session ID, 32 hex characters under maxSessionIDBytes, and user ID, which BeginRequest.check's session-bound arms accept"},
 	{route: "authInviteAcceptOIDC", code: access.CodeOIDCFailed, invariant: "serveInviteAcceptOIDC refuses a Sec-Fetch-Site other than same-origin before Begin and passes AcceptInviteOIDCBegin's request, IntentInvite with a 64-byte hex SHA-256 and no redirect, which BeginRequest.check's invite arm accepts"},
 	{route: "authOIDCCallback", code: access.CodeUsernameTaken, invariant: "oidcInvite reads the name inside the Update that creates the account and commits nothing when it is taken, so acceptIn's ErrUsernameTaken refusal of a store's CreateUser cannot fire on the callback under a serialisable Update"},
-	{route: "authTOTPRemove", code: access.CodeTOTPDisabled, invariant: "RemoveTOTP enters verifyProof only while totpOn holds for the Rules value it began with, the one verifyProof's code arm reads, so that arm's ErrTOTPDisabled cannot fire there (design 4.7)"},
-	{route: "authSetupPassword", code: access.CodeSecondFactorRequired, invariant: "passwordDraft mints a new account's NextEnrol with ticketMint's unknownDevice false, since only an existing account's enrolment needs a known device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there (design 4.4)"},
-	{route: "authInviteAcceptPassword", code: access.CodeSecondFactorRequired, invariant: "passwordDraft mints a new account's NextEnrol with ticketMint's unknownDevice false, since only an existing account's enrolment needs a known device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there (design 4.4)"},
-	{route: "authRegisterPassword", code: access.CodeSecondFactorRequired, invariant: "passwordDraft mints a new account's NextEnrol with ticketMint's unknownDevice false, since only an existing account's enrolment needs a known device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there (design 4.4)"},
-	{route: "authLoginRecoveryCode", code: access.CodeSecondFactorRequired, invariant: "countRecoveryIn mints its NextEnrol with ticketMint's unknownDevice false, since step 1 settled the device before minting the ticket the recovery code replaces, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there (design 4.4)"},
-	{route: "authLoginSetPassword", code: access.CodeSecondFactorRequired, invariant: "stagePassword mints its NextEnrol with ticketMint's unknownDevice false, since a temporary password is the issuer's trust and its step 1 reads no device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there (design 4.4, 4.9)"},
+	{route: "authTOTPRemove", code: access.CodeTOTPDisabled, invariant: "RemoveTOTP enters verifyProof only while totpOn holds for the Rules value it began with, the one verifyProof's code arm reads, so that arm's ErrTOTPDisabled cannot fire there"},
+	{route: "authSetupPassword", code: access.CodeSecondFactorRequired, invariant: "passwordDraft mints a new account's NextEnrol with ticketMint's unknownDevice false, since only an existing account's enrolment needs a known device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there"},
+	{route: "authInviteAcceptPassword", code: access.CodeSecondFactorRequired, invariant: "passwordDraft mints a new account's NextEnrol with ticketMint's unknownDevice false, since only an existing account's enrolment needs a known device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there"},
+	{route: "authRegisterPassword", code: access.CodeSecondFactorRequired, invariant: "passwordDraft mints a new account's NextEnrol with ticketMint's unknownDevice false, since only an existing account's enrolment needs a known device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there"},
+	{route: "authLoginRecoveryCode", code: access.CodeSecondFactorRequired, invariant: "countRecoveryIn mints its NextEnrol with ticketMint's unknownDevice false, since step 1 settled the device before minting the ticket the recovery code replaces, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there"},
+	{route: "authLoginSetPassword", code: access.CodeSecondFactorRequired, invariant: "stagePassword mints its NextEnrol with ticketMint's unknownDevice false, since a temporary password is the issuer's trust and its step 1 reads no device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there"},
 	{route: "authLoginSetPassword", leaf: modulePath + ".ErrHashInvalid", invariant: "chosenPassword verifies against the ticket's temporary-password hash, which step 1 verified on the same Hasher, whose Capacity never changes, so Verify's over-budget ErrHashInvalid arm cannot fire there"},
 	{route: "authKeyCreate", leaf: modulePath + ".ErrInvalidKeyPrefix", invariant: "CreateAPIKey's begin validates the Rules value it mints under, and Rules.Validate's KeyPrefix check refuses a KeyPrefix access.ValidateKeyPrefix refuses, so GenerateAPIKey in CreateAPIKey cannot"},
 	{route: "authKeyRotate", leaf: modulePath + ".ErrInvalidKeyPrefix", invariant: "admitRotation's begin validates the Rules value RotateAPIKey generates under, and Rules.Validate's KeyPrefix check refuses a KeyPrefix access.ValidateKeyPrefix refuses, so GenerateAPIKey in RotateAPIKey cannot"},
@@ -601,7 +601,7 @@ const (
 	policyReason = "\x00policy" // whatever the app's Policy answers
 )
 
-// The families of reasons a route does not fix (design 4.56), as a
+// The families of reasons a route does not fix, as a
 // produced reason's key.
 const (
 	familyField    = "\x00field"    // auth_bad_request naming a field, path value or query key
@@ -1811,8 +1811,7 @@ func (p *producers) callFunc(fn *types.Func, call *ast.CallExpr, res int) errVal
 
 // isPolicyAuthorize reports whether fn is account.Policy's Authorize, which
 // answers the app's own Policy: the analysis stops there, since what a
-// built-in Policy answers describes that Policy, not the route (design
-// 4.56).
+// built-in Policy answers describes that Policy, not the route.
 func (p *producers) isPolicyAuthorize(fn *types.Func) bool {
 	recv := fn.Signature().Recv()
 	return fn.Name() == "Authorize" && recv != nil && types.Identical(recv.Type(), p.policy.Type())

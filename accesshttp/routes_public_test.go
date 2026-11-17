@@ -31,7 +31,7 @@ func secureState(want StateResponse) StateResponse {
 // state answer publishes whatever the posture or transport.
 var passwordBounds = PasswordLengthView{Min: access.PasswordMinLength, Max: access.PasswordMaxLength}
 
-// TestStatePasswordLength: design 4.51 publishes the bounds a form checks
+// TestStatePasswordLength: the state publishes the bounds a form checks
 // early. They are read from the rule itself: the shortest and longest
 // passwords it accepts (NIST SP 800-63B-4 §3.1.1.2 counts each Unicode code
 // point as one character), so a state that drifted from the check is caught.

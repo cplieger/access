@@ -15,9 +15,9 @@ import (
 )
 
 // specCodes is the specified code table, in Codes order, each code with its
-// status and detail; it is written from the spec, not from the table. The
-// second-factor and registration rows are design 4.11's, auth_sso_only is
-// 5.7's, each status as the UI contracts' codes tables give it.
+// status and detail; it is written from the spec, not from the table. Each
+// second-factor, registration and auth_sso_only status is the one the UI
+// contracts' codes tables give it.
 var specCodes = []struct {
 	code   access.Code
 	detail string
@@ -77,7 +77,7 @@ var specCodes = []struct {
 // specRetryAfter is the Retry-After the spec gives the 503 codes that carry
 // no limiter window; every other code has none, auth_second_factor_unavailable
 // included: a record whose key is gone opens after an operator restores the
-// key, not after a wait (design 4.3).
+// key, not after a wait.
 var specRetryAfter = map[access.Code]time.Duration{
 	"auth_busy":                     time.Second,
 	"auth_unavailable":              5 * time.Second,

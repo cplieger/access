@@ -9,7 +9,7 @@ import (
 
 // FuzzTemporaryPasswordForm_canonical: whatever is presented, an accepted
 // form decodes to ten bytes whose check passes and is the generator's own
-// output for its first eight (design 4.9).
+// output for its first eight.
 func FuzzTemporaryPasswordForm_canonical(f *testing.F) {
 	for _, s := range []string{"", "04HM-ASW9-NF6Y-ZMDE", "04HMASW9NF6YZMDF", "ı", "0000000000001QV9"} {
 		f.Add(s)

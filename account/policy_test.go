@@ -144,7 +144,7 @@ func TestRolePolicyTable(t *testing.T) {
 			{name: "demote_other_admin", d: account.Decision{Op: account.OpSetRole, Role: access.RoleUser, Actor: actorA, Target: &b, Users: []access.User{a, b}}},
 			{name: "promote_keeps_admin", d: account.Decision{Op: account.OpSetRole, Role: access.RoleAdmin, Actor: actorA, Target: &a, Users: []access.User{a, u}}},
 			{name: "disable_admin_two_left", d: account.Decision{Op: account.OpSetEnabled, Enabled: false, Actor: actorA, Target: &b, Users: []access.User{a, b}}},
-			// Design 5.2: owners replace the last-admin rule, so the Policy
+			// Owners replace the last-admin rule, so the Policy
 			// alone no longer keeps an enabled admin.
 			{name: "demote_last_admin", d: account.Decision{Op: account.OpSetRole, Role: access.RoleUser, Actor: actorA, Target: &a, Users: []access.User{a, bDisabled, u}}},
 			{name: "user_actor", reason: "not_admin", d: account.Decision{Op: account.OpSetEnabled, Enabled: false, Actor: actorU, Target: &b, Users: []access.User{a, b, u}}},

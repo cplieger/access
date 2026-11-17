@@ -12,7 +12,7 @@ import (
 	"github.com/cplieger/access/account"
 )
 
-// shownForm is design 4.9's display form: four groups of four Crockford
+// shownForm is the display form: four groups of four Crockford
 // symbols (crockford.com/base32.html: no I, L, O or U), joined by dashes.
 var shownForm = regexp.MustCompile(`^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$`)
 
@@ -69,11 +69,11 @@ func loadUser(t *testing.T, f *sfFixture, name string) loaded {
 	return loaded{user: u, passkey: addPasskey(t, f.mem, u, f.rp.ID()), key: key, session: putSession(t, f.mem, liveSession(t, u))}
 }
 
-// TestSetTemporaryPassword is design 4.9's "What issuing does" and the
-// secret's form.
+// TestSetTemporaryPassword checks what issuing does and the secret's
+// form.
 func TestSetTemporaryPassword(t *testing.T) {
 	t.Parallel()
-	// 4.9: a usable user's password, TOTP and recovery code go, with the
+	// A usable user's password, TOTP and recovery code go, with the
 	// keys, sessions and locks; the passkeys stay without RevokePasskeys.
 	t.Run("usable", func(t *testing.T) {
 		t.Parallel()
@@ -88,7 +88,7 @@ func TestSetTemporaryPassword(t *testing.T) {
 		if !shownForm.MatchString(issued.Password.Reveal()) {
 			t.Errorf("Password = %q, want XXXX-XXXX-XXXX-XXXX in Crockford's alphabet", issued.Password.Reveal())
 		}
-		// 4.9: 24 hours by default.
+		// 24 hours by default.
 		if d := issued.ExpiresAt.Sub(before); d < 24*time.Hour-time.Minute || d > 24*time.Hour+time.Minute {
 			t.Errorf("ExpiresAt is %v after the call, want 24h", d)
 		}
@@ -102,7 +102,7 @@ func TestSetTemporaryPassword(t *testing.T) {
 		if rec.Dormant || rec.IssuedByUser != 0 || rec.IssuedByKey != 0 || !rec.ExpiresAt.Equal(issued.ExpiresAt) {
 			t.Errorf("record = %+v, want an out-of-band, usable record expiring at %v", rec, issued.ExpiresAt)
 		}
-		// 4.9: hashed with the password hasher in 4.6's normalised form.
+		// Hashed with the password hasher in the normalised form.
 		canonical := strings.ReplaceAll(issued.Password.Reveal(), "-", "")
 		if ok, _, verr := f.hasher.Verify(t.Context(), canonical, rec.Hash); verr != nil || !ok {
 			t.Errorf("the record's hash does not verify the secret without dashes: %t, %v", ok, verr)
@@ -145,7 +145,7 @@ func TestSetTemporaryPassword(t *testing.T) {
 			}
 		}
 	})
-	// 4.9: RevokePasskeys deletes them, journalling passkey_removed for
+	// RevokePasskeys deletes them, journalling passkey_removed for
 	// each; KeepKeys keeps the keys.
 	t.Run("options", func(t *testing.T) {
 		t.Parallel()
@@ -166,7 +166,7 @@ func TestSetTemporaryPassword(t *testing.T) {
 			t.Errorf("events = %v, want one passkey_removed for %d and no key_revoked", kinds(f.events.all()), l.passkey.ID)
 		}
 	})
-	// 4.9: at most 7 days; a negative lifetime is refused, and a refusal
+	// At most 7 days; a negative lifetime is refused, and a refusal
 	// writes nothing.
 	t.Run("ttl", func(t *testing.T) {
 		t.Parallel()
@@ -197,7 +197,7 @@ func TestSetTemporaryPassword(t *testing.T) {
 			t.Errorf("ExpiresAt is %v after the call, want 7 days", d)
 		}
 	})
-	// 4.9: issuing replaces any earlier record.
+	// Issuing replaces any earlier record.
 	t.Run("replaces", func(t *testing.T) {
 		t.Parallel()
 		f := issueFixture(t, account.Rules{}, 0, nil)
@@ -233,12 +233,12 @@ func TestSetTemporaryPassword(t *testing.T) {
 	})
 }
 
-// TestSetTemporaryPasswordDormant is design 5.3's "A temporary password
-// beside dormant methods" and 5.5's refusal of a linked non-owner.
+// TestSetTemporaryPasswordDormant: a temporary password beside dormant
+// methods, and the refusal of a linked non-owner.
 func TestSetTemporaryPasswordDormant(t *testing.T) {
 	t.Parallel()
 	identity := access.OIDCIdentity{Issuer: "https://idp.example.com", Subject: "alice"}
-	// 5.3: under SSOOnly an unlinked non-owner's password, TOTP and
+	// Under SSOOnly an unlinked non-owner's password, TOTP and
 	// recovery code stay, and the record carries Dormant.
 	t.Run("unlinked_under_sso_only", func(t *testing.T) {
 		t.Parallel()
@@ -265,7 +265,7 @@ func TestSetTemporaryPasswordDormant(t *testing.T) {
 		if _, held, _ := f.mem.RecoveryCodeByUserID(t.Context(), l.user.ID); !held {
 			t.Error("the dormant recovery code went")
 		}
-		// 5.3: the explicit options still apply.
+		// The explicit options still apply.
 		if keys, _ := f.mem.ListAPIKeysByUserID(t.Context(), l.user.ID); len(keys) != 0 {
 			t.Errorf("keys = %d, want none without KeepKeys", len(keys))
 		}
@@ -273,7 +273,7 @@ func TestSetTemporaryPasswordDormant(t *testing.T) {
 			t.Errorf("sessions = %d, want none", n)
 		}
 	})
-	// 4.31: password_kept is the Update's fact, false for a dormant user
+	// password_kept is the Update's fact, false for a dormant user
 	// holding no password.
 	t.Run("no_password_kept", func(t *testing.T) {
 		t.Parallel()
@@ -289,7 +289,7 @@ func TestSetTemporaryPasswordDormant(t *testing.T) {
 			t.Errorf("Dormant, PasswordKept = %t, %t, want true, false", issued.Dormant, issued.PasswordKept)
 		}
 	})
-	// 5.5: a linked non-owner under SSOForLinked and SSOOnly is refused
+	// A linked non-owner under SSOForLinked and SSOOnly is refused
 	// (ErrSSOOnly, linked), and nothing is written.
 	for _, mode := range []account.SSOMode{account.SSOForLinked, account.SSOOnly} {
 		t.Run("linked_under_"+mode.String(), func(t *testing.T) {
@@ -312,7 +312,7 @@ func TestSetTemporaryPasswordDormant(t *testing.T) {
 			}
 		})
 	}
-	// 5.3: a linked user under SSOAlongside, and an owner under SSOOnly, are
+	// A linked user under SSOAlongside, and an owner under SSOOnly, are
 	// usable: the issue takes the usable arm.
 	t.Run("usable_linked", func(t *testing.T) {
 		t.Parallel()
@@ -332,12 +332,12 @@ func TestSetTemporaryPasswordDormant(t *testing.T) {
 	})
 }
 
-// TestSetTemporaryPasswordWho is design 4.9's "Who may" and "Never for
-// yourself", and 5.2's owner protection.
+// TestSetTemporaryPasswordWho checks who may issue one, never for
+// yourself, and the owner protection.
 func TestSetTemporaryPasswordWho(t *testing.T) {
 	t.Parallel()
 	opts := account.TemporaryPasswordOptions{}
-	// 4.9: a principal whose user is the target is refused (self_recovery),
+	// A principal whose user is the target is refused (self_recovery),
 	// a session's and a key's alike, before any Policy call or hash.
 	t.Run("self", func(t *testing.T) {
 		t.Parallel()
@@ -355,7 +355,7 @@ func TestSetTemporaryPasswordWho(t *testing.T) {
 			t.Error("a refused self issue wrote a record or spent a hash")
 		}
 	})
-	// 4.9: RolePolicy allows an admin principal; a regular user is refused
+	// RolePolicy allows an admin principal; a regular user is refused
 	// and nothing is written.
 	t.Run("admin", func(t *testing.T) {
 		t.Parallel()
@@ -381,7 +381,7 @@ func TestSetTemporaryPasswordWho(t *testing.T) {
 			t.Errorf("temporary_password_set = %+v, want one by the admin's session", evs)
 		}
 	})
-	// 4.9 and 5.2: only another owner or OutOfBand issues one for an owner.
+	// Only another owner or OutOfBand issues one for an owner.
 	t.Run("owner_target", func(t *testing.T) {
 		t.Parallel()
 		f := issueFixture(t, account.Rules{}, 0, nil)
@@ -398,7 +398,7 @@ func TestSetTemporaryPasswordWho(t *testing.T) {
 			t.Errorf("an out-of-band issue for an owner = %v, want nil", err)
 		}
 	})
-	// 4.9: a manage_users key sets one for a regular user only
+	// A manage_users key sets one for a regular user only
 	// (admin_target), attributes it and caps its expiry at its own.
 	t.Run("key", func(t *testing.T) {
 		t.Parallel()
@@ -430,7 +430,7 @@ func TestSetTemporaryPasswordWho(t *testing.T) {
 			t.Errorf("attributions = %+v, want one temporary_password_set on alice", attrs)
 		}
 	})
-	// 4.9: SingleOwnerPolicy allows OutOfBand only.
+	// SingleOwnerPolicy allows OutOfBand only.
 	t.Run("single_owner", func(t *testing.T) {
 		t.Parallel()
 		f := issueFixture(t, account.Rules{}, 0, account.SingleOwnerPolicy{})
@@ -442,7 +442,7 @@ func TestSetTemporaryPasswordWho(t *testing.T) {
 			t.Errorf("an out-of-band issue for the owner = %v, want nil", err)
 		}
 	})
-	// 4.9: issuing answers a new secret, so a plain request is refused.
+	// Issuing answers a new secret, so a plain request is refused.
 	t.Run("plain", func(t *testing.T) {
 		t.Parallel()
 		f := issueFixture(t, account.Rules{}, access.PosturePerRequest, nil)
@@ -460,8 +460,8 @@ func TestSetTemporaryPasswordWho(t *testing.T) {
 	})
 }
 
-// TestTemporaryPasswordHTTPSOnly is design 4.9's six cases, 4.43's SSOOnly
-// clause inside the posture guard and 4.44's named postures.
+// TestTemporaryPasswordHTTPSOnly checks the six cases, the SSOOnly
+// clause inside the posture guard and the named postures.
 func TestTemporaryPasswordHTTPSOnly(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -499,7 +499,7 @@ func TestTemporaryPasswordHTTPSOnly(t *testing.T) {
 			}
 		})
 	}
-	// 4.9: the mode is the one the issue decided under; a later ApplySSO is
+	// The mode is the one the issue decided under; a later ApplySSO is
 	// a change the copy does not follow.
 	t.Run("mode_as_issued", func(t *testing.T) {
 		t.Parallel()
@@ -517,7 +517,7 @@ func TestTemporaryPasswordHTTPSOnly(t *testing.T) {
 	})
 }
 
-// TestStateTemporaryPasswordHTTPSOnly is design 4.12: a plain State under
+// TestStateTemporaryPasswordHTTPSOnly: a plain State under
 // each of the three settings answers true and under none false; a secure
 // State never sets it.
 func TestStateTemporaryPasswordHTTPSOnly(t *testing.T) {
@@ -551,7 +551,7 @@ func TestStateTemporaryPasswordHTTPSOnly(t *testing.T) {
 	}
 }
 
-// TestTemporaryPasswordIsAWayIn is design 4.9's last-method guard: a live
+// TestTemporaryPasswordIsAWayIn checks the last-method guard: a live
 // temporary password counts as a way in whatever DisablePasswordLogin says,
 // and an expired one does not.
 func TestTemporaryPasswordIsAWayIn(t *testing.T) {
@@ -588,7 +588,7 @@ func TestTemporaryPasswordIsAWayIn(t *testing.T) {
 	}
 }
 
-// TestUsersSecondFactorRows is design 4.12's UserMethodsView row facts:
+// TestUsersSecondFactorRows checks the UserMethodsView row facts:
 // TOTP enrolment and a live temporary password's expiry.
 func TestUsersSecondFactorRows(t *testing.T) {
 	t.Parallel()

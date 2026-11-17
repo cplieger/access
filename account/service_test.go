@@ -65,7 +65,7 @@ func TestNewRefuses(t *testing.T) {
 		{name: "breach_fail_closed_without_client", field: "Breach", edit: func(c *account.Config) {
 			c.Rules = func() account.Rules { return account.Rules{Breach: account.BreachFailClosed} }
 		}},
-		// Design 4.3: Config.TOTP is optional, and a half-set value is refused.
+		// Config.TOTP is optional, and a half-set value is refused.
 		{name: "totp_sealer_without_issuer", field: "TOTP.Issuer", edit: func(c *account.Config) {
 			c.TOTP = account.TOTPConfig{Sealer: access.NewEphemeralSealer()}
 		}},
@@ -77,7 +77,7 @@ func TestNewRefuses(t *testing.T) {
 		{name: "totp_issuer_colon", field: "TOTP.Issuer", edit: func(c *account.Config) {
 			c.TOTP = account.TOTPConfig{Sealer: access.NewEphemeralSealer(), Issuer: "Ex:ample"}
 		}},
-		// Design 4.46: RequireSecondFactor with no wired second factor.
+		// RequireSecondFactor with no wired second factor.
 		{name: "require_second_factor_unwired", field: "RequireSecondFactor", edit: func(c *account.Config) {
 			c.Rules = func() account.Rules { return account.Rules{RequireSecondFactor: true} }
 		}},

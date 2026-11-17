@@ -9,8 +9,8 @@ import (
 	"github.com/cplieger/access/accesstest"
 )
 
-// TestInviteAcceptOIDC: design 5.5 "Accepting an invite by SSO" through the
-// routes: POST /start/invite {token}, the provider round trip, the callback.
+// TestInviteAcceptOIDC accepts an invite by SSO through the routes: POST
+// /start/invite {token}, the provider round trip, the callback.
 func TestInviteAcceptOIDC(t *testing.T) {
 	t.Parallel()
 	t.Run("signs_in_the_invited_account", func(t *testing.T) {
@@ -66,7 +66,7 @@ func TestInviteAcceptOIDC(t *testing.T) {
 		}
 		e.wantInviteSpent(t, token)
 	})
-	// design 5.25: the create route answers a pending cookie that does not
+	// The create route answers a pending cookie that does not
 	// open as not found, before any other check.
 	t.Run("create_without_pending", func(t *testing.T) {
 		t.Parallel()

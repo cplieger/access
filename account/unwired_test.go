@@ -49,11 +49,10 @@ func (w *unwiredWorld) untouched(t *testing.T) {
 	}
 }
 
-// TestTOTPUnwired is design 4.46's census for Config.TOTP unset: every
+// TestTOTPUnwired checks the census for Config.TOTP unset: every
 // operation that verifies a code, enrols or reseals answers
 // ErrTOTPDisabled and writes nothing, a stored record is dormant and never
-// opened, and the operations on stored records keep working (RULINGS M1
-// addendum 2).
+// opened, and the operations on stored records keep working.
 func TestTOTPUnwired(t *testing.T) {
 	t.Parallel()
 	ticket := access.NewSecret("any-ticket")
@@ -150,7 +149,7 @@ func TestTOTPUnwired(t *testing.T) {
 	})
 }
 
-// TestTOTPUnwiredRecordReadsAbsent is design 4.46's one predicate: with
+// TestTOTPUnwiredRecordReadsAbsent: with
 // TOTP unwired a stored record holds no second factor, so a password user
 // with no passkey signs in by password alone and steps up by password.
 func TestTOTPUnwiredRecordReadsAbsent(t *testing.T) {
@@ -181,7 +180,7 @@ func TestTOTPUnwiredRecordReadsAbsent(t *testing.T) {
 	}
 }
 
-// TestRequireSecondFactorNeedsAWiredFactor is design 4.46's refusal of
+// TestRequireSecondFactorNeedsAWiredFactor checks the refusal of
 // RequireSecondFactor with neither TOTP nor passkeys wired, at every
 // operation after a reload and at CheckRules, as New refuses it.
 func TestRequireSecondFactorNeedsAWiredFactor(t *testing.T) {

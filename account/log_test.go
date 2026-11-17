@@ -53,9 +53,9 @@ func logSince(t testing.TB, s account.Store, before []account.LogEntry) []accoun
 
 // kindClasses is each kind's class as the design states it: the session
 // class holds sign-ins, step-ups and session revocations (docs/security-log.md
-// "What is logged"), refused OIDC admissions (design 5.7), and refused
-// second steps and spent temporary passwords (design 4.11); every other
-// kind of 4.11, 5.3 and 5.7 is a change. sessions_expired is never logged.
+// "What is logged"), refused OIDC admissions, and refused
+// second steps and spent temporary passwords; every other
+// kind is a change. sessions_expired is never logged.
 var kindClasses = func() map[account.EventKind]account.LogClass {
 	m := map[account.EventKind]account.LogClass{account.EventSessionsExpired: ""}
 	for _, k := range []account.EventKind{
@@ -85,7 +85,7 @@ func classOf(k account.EventKind) account.LogClass { return kindClasses[k] }
 
 // TestLogKindCensus holds kindClasses to every declared kind, and
 // docs/security-log.md's "What is logged" table to the same class for each
-// logged kind (design 4.11 and 5.7: each new kind with its class).
+// logged kind (each new kind with its class).
 func TestLogKindCensus(t *testing.T) {
 	t.Parallel()
 	kinds := account.EventKinds()
@@ -138,7 +138,7 @@ func stateVariants() []operation {
 				want: events(account.Event{Kind: account.EventUserEnabled, UserID: target.ID, Actor: actorOf(p)}),
 			}
 		}},
-		// Design 4.17: enabling a waiting registration approves it.
+		// Enabling a waiting registration approves it.
 		{name: "UpdateUser_approve", class: classManageUsers, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			target := w.user(t)
 			target.Enabled, target.WaitingApproval = false, true
@@ -153,7 +153,7 @@ func stateVariants() []operation {
 				want: events(account.Event{Kind: account.EventUserApproved, UserID: target.ID, Actor: actorOf(p)}),
 			}
 		}},
-		// Design 4.5: a replacement journals totp_replaced.
+		// A replacement journals totp_replaced.
 		{name: "FinishTOTP_replace", class: classRecentAuth, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			old := sealTOTP(t, w.mem, w.sealer, w.owner(t, p))
 			e, err := w.svc.BeginTOTP(t.Context(), p)
@@ -169,7 +169,7 @@ func stateVariants() []operation {
 				),
 			}
 		}},
-		// Design 4.4: a pending sign-in's first refused code journals
+		// A pending sign-in's first refused code journals
 		// second_factor_failed, which the run's refusal answers.
 		{name: "SignInWithCode_refused", class: classPublic, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
 			ticket, secret := w.pendingTicket(t)
@@ -185,7 +185,7 @@ func stateVariants() []operation {
 				want: events(account.Event{Kind: account.EventSecondFactorFailed, UserID: w.alice.ID, Method: access.MethodTOTP}),
 			}
 		}},
-		// Design 4.9: a temporary password matched at step 1 is spent and
+		// A temporary password matched at step 1 is spent and
 		// journalled temporary_password_used with its transport.
 		{name: "PasswordLogin_temporary_password", class: classPublic, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
 			target := passwordUser(t, w.mem, nil, w.name("user"), "")
@@ -216,7 +216,7 @@ func stateVariants() []operation {
 				want: events(account.Event{Kind: account.EventOwnerRemoved, UserID: target.ID, Actor: actorOf(p)}),
 			}
 		}},
-		// design 5.4: an unreadable role claim changes no role and is journalled.
+		// An unreadable role claim changes no role and is journalled.
 		{name: "OIDCComplete_role_sync_skipped", class: classPublic, rules: syncRoles, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
 			return oidcSignInCall(t, w, w.rig, account.EventRoleSyncSkipped, access.RoleUser)
 		}},
@@ -224,7 +224,7 @@ func stateVariants() []operation {
 			*w.rig = *newOIDCRig(t, accesstest.IdPOptions{Subject: &w.rig.subject, Groups: []string{"ops"}})
 			return oidcSignInCall(t, w, w.rig, account.EventRoleSynced, access.RoleAdmin)
 		}},
-		// design 5.4: a token OIDCAdmission refuses is journalled and refused.
+		// A token OIDCAdmission refuses is journalled and refused.
 		{name: "OIDCComplete_not_admitted", class: classPublic, rules: func(r *account.Rules) {
 			r.OIDCAdmission = account.OIDCAdmission{Claim: "groups", AllowedValues: []string{"staff"}}
 		}, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {

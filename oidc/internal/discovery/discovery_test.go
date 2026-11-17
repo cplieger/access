@@ -358,7 +358,7 @@ func TestFetch_BodyError(t *testing.T) {
 	}
 }
 
-// Design 6.16: a document over the body cap is one the provider published
+// A document over the body cap is one the provider published
 // and access refuses, so it is a refused document, never a failed fetch,
 // while one at the cap is read whole.
 func TestFetch_BodyPastCap(t *testing.T) {

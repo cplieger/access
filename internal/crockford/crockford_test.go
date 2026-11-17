@@ -117,7 +117,7 @@ func TestDecodeRefuses(t *testing.T) {
 	}
 }
 
-// TestNormalize is 4.6's reading of crockford.com/base32.html's decode
+// TestNormalize checks the reading of crockford.com/base32.html's decode
 // table: hyphens dropped (the spec), spaces dropped, case folded, O to 0
 // and I and L to 1 (the spec); nothing outside ASCII is mapped. The
 // Python base32-crockford package's normalize agrees on the ASCII rows.
@@ -132,7 +132,7 @@ func TestNormalize(t *testing.T) {
 		{"\tA", "\tA"},
 		{"A_B", "A_B"},
 		// Unicode case mapping would fold these to ASCII letters, and
-		// JavaScript's full mapping turns ß into SS: 4.6 keeps them.
+		// JavaScript's full mapping turns ß into SS: Normalize keeps them.
 		{"ß", "ß"},
 		{"ı", "ı"},
 		{"ſ", "ſ"},

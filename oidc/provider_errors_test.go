@@ -16,7 +16,7 @@ import (
 )
 
 // unreached fails unless err is ErrDiscovery and not ErrProviderInvalid:
-// design 6.16's provider that could not be reached, which a retry can fix.
+// a provider that could not be reached, which a retry can fix.
 func unreached(t *testing.T, what string, err error) {
 	t.Helper()
 	if !errors.Is(err, oidc.ErrDiscovery) || errors.Is(err, oidc.ErrProviderInvalid) || errors.Is(err, oidc.ErrConfigInvalid) {
@@ -25,7 +25,7 @@ func unreached(t *testing.T, what string, err error) {
 }
 
 // refusedProvider fails unless err is ErrProviderInvalid and not
-// ErrDiscovery: design 6.16's provider that answered with what access will
+// ErrDiscovery: the provider that answered with what access will
 // not use.
 func refusedProvider(t *testing.T, what string, err error) {
 	t.Helper()
@@ -34,7 +34,7 @@ func refusedProvider(t *testing.T, what string, err error) {
 	}
 }
 
-// TestNewProviderReachedOrRefused is design 6.16's split of a failed
+// TestNewProviderReachedOrRefused checks the split of a failed
 // NewProvider, for the discovery document's arms the flow tests do not
 // reach: a connection or TLS failure, a timeout or an answer other than
 // 200 (OpenID Connect Discovery 1.0 §4.2) is ErrDiscovery; a body that is

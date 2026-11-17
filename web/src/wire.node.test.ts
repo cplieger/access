@@ -480,7 +480,7 @@ describe("StateResponse", () => {
     ).toBeUndefined();
   });
 
-  // Design 4.51: the password bounds are data, so a form words its own limit.
+  // The password bounds are data, so a form words its own limit.
   it("reads password_length's bounds", () => {
     expect(parseStateResponse(state)?.password_length).toEqual({ min: 15, max: 128 });
   });
@@ -690,7 +690,7 @@ describe("AuthReason", () => {
   });
 });
 
-// Design 4.31: a completion that creates an account waiting for approval answers
+// A completion that creates an account waiting for approval answers
 // { waiting_approval: true, recovery_code? }; a password registration binds no second factor,
 // so its waiting answer carries no code.
 describe("WaitingApproval", () => {

@@ -36,7 +36,7 @@ func checkRefusedAtRest(t *testing.T, s *Sealer, purpose, sealed string) {
 }
 
 // rawGCM is AES-256-GCM under key with no Sealer code in the path: the
-// oracle for design 4.3's at-rest frame, base64url(nonce || ciphertext)
+// oracle for the at-rest frame, base64url(nonce || ciphertext)
 // with the additional data "access/at-rest\x00" + purpose and no expiry.
 func rawGCM(t *testing.T, key string) cipher.AEAD {
 	t.Helper()
@@ -51,7 +51,7 @@ func rawGCM(t *testing.T, key string) cipher.AEAD {
 	return gcm
 }
 
-// TestSealAtRestFrame is design 4.3's frame, checked by sealing and opening
+// TestSealAtRestFrame checks the at-rest frame by sealing and opening
 // with crypto/cipher directly.
 func TestSealAtRestFrame(t *testing.T) {
 	t.Parallel()
@@ -85,7 +85,7 @@ func TestSealAtRestFrame(t *testing.T) {
 	})
 }
 
-// TestSealAtRestSeparation is design 4.3's rule that a cookie seal never
+// TestSealAtRestSeparation checks the rule that a cookie seal never
 // opens at rest and an at-rest seal never opens as a cookie, for the same
 // purpose string, both ways, and that no purpose string bridges the two.
 func TestSealAtRestSeparation(t *testing.T) {
@@ -123,7 +123,7 @@ func TestSealAtRestSeparation(t *testing.T) {
 	}
 }
 
-// TestOpenAtRestRing is design 4.3's current: true only when the ring's
+// TestOpenAtRestRing: current is true only when the ring's
 // first key opened the value.
 func TestOpenAtRestRing(t *testing.T) {
 	t.Parallel()
@@ -152,7 +152,7 @@ func TestOpenAtRestRing(t *testing.T) {
 	})
 }
 
-// TestOpenAtRestPurpose is design 4.3's "totp:" + userID purpose: a record
+// TestOpenAtRestPurpose: under the "totp:" + userID purpose a record
 // copied onto another user's row does not open.
 func TestOpenAtRestPurpose(t *testing.T) {
 	t.Parallel()

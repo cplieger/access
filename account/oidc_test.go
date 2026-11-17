@@ -146,10 +146,10 @@ func TestOIDCProvisioning(t *testing.T) {
 		{name: "admitted_with_role", adm: staff, prov: account.Provisioning{Enabled: true, Role: access.RoleAdmin}, groups: []string{"ops", "staff"}, wantRole: access.RoleAdmin},
 		{name: "admitted_default_role", adm: staff, prov: account.Provisioning{Enabled: true}, groups: "staff", wantRole: access.RoleUser},
 		{name: "any_identity", prov: account.Provisioning{Enabled: true}, wantRole: access.RoleUser},
-		// design 5.4: a RoleClaim value in AdminValues makes an admin, by exact string.
+		// A RoleClaim value in AdminValues makes an admin, by exact string.
 		{name: "role_claim_admin", prov: byClaim, groups: []string{"staff", "ops"}, wantRole: access.RoleAdmin},
 		{name: "role_claim_other", prov: byClaim, groups: []string{"Ops"}, wantRole: access.RoleUser},
-		// design 5.4: an absent or unreadable role claim never makes an admin.
+		// An absent or unreadable role claim never makes an admin.
 		{name: "role_claim_absent", prov: byClaim, wantRole: access.RoleUser},
 		{name: "role_claim_number", prov: byClaim, groups: 7, wantRole: access.RoleUser},
 	} {
@@ -299,7 +299,7 @@ func TestOIDCNotLinkedOneShape(t *testing.T) {
 	if want.Kind != account.OutcomeNotLinked || !reflect.DeepEqual(want.Pending, wantPending) || want.Redirect != "/home" {
 		t.Fatalf("NotLinked outcome = %+v, want Pending %+v and Redirect /home", want, wantPending)
 	}
-	// design 5.4: with provisioning off, a hint matching a user and one
+	// With provisioning off, a hint matching a user and one
 	// matching nobody give the same answer.
 	for _, holder := range []string{"password", "passwordless"} {
 		t.Run("off_name_held_"+holder, func(t *testing.T) {
@@ -309,7 +309,7 @@ func TestOIDCNotLinkedOneShape(t *testing.T) {
 			}
 		})
 	}
-	// design 5.4: an admitted identity whose name is taken gets the create
+	// An admitted identity whose name is taken gets the create
 	// offer, the hint plus a numeric suffix, whatever the holder signs in with.
 	for _, holder := range []string{"password", "passwordless"} {
 		t.Run("provisioning_name_held_"+holder, func(t *testing.T) {

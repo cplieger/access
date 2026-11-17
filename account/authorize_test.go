@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// TestPolicyAskedInOnePlace: "Across the parts", every Policy question goes
+// TestPolicyAskedInOnePlace: every Policy question goes
 // through one account method, which applies the single-user refusals before
 // Authorize; no other non-test function calls Authorize on the Policy.
 func TestPolicyAskedInOnePlace(t *testing.T) {

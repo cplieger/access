@@ -91,7 +91,7 @@ func TestStateTransport(t *testing.T) {
 				HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys, account.HTTPSOIDC}, HTTPSOrigin: stateOrigin,
 			},
 		},
-		// Design 4.8: under the rule setup enrols a second factor, which
+		// Under the rule setup enrols a second factor, which
 		// plain HTTP refuses, so the plain screen offers no setup.
 		"per_request_plain_rule_setup_needs_https": {
 			config: stateConfig{posture: access.PosturePerRequest, passkeys: true, rule: true}, client: plain,

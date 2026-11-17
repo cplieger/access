@@ -402,7 +402,7 @@ describe.each(jsonRoutes)("$name", (route) => {
   });
 });
 
-// Design 4.30 and 4.5: a proof rides the body only when the screen has one.
+// A proof rides the body only when the screen has one.
 describe("an optional proof", () => {
   it.each<[string, (c: AuthClient) => Promise<ApiResult<unknown>>]>([
     ["removeTOTP()", (c) => c.removeTOTP()],
@@ -554,7 +554,7 @@ describe("path parameters", () => {
   });
 });
 
-// Design 4.52: password setup and invite acceptance answer the sign-in union, pending under the rule.
+// Password setup and invite acceptance answer the sign-in union, pending under the rule.
 describe.each([
   ["setupPassword", (c: AuthClient) => c.setupPassword({ username: "u", password: "p" })],
   [
@@ -574,7 +574,7 @@ describe.each([
   });
 });
 
-// Design 4.4, contract part 4 (a): a password sign-in answers signed_in or pending, never both.
+// A password sign-in answers signed_in or pending, never both.
 describe("loginPassword()", () => {
   const signedIn = fixture("SignInOutcome");
   const pending = fixture("SignInOutcome.pending");

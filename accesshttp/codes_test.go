@@ -249,7 +249,7 @@ func (e *env) refusalOf(t *testing.T, rt Route, r *http.Request) (got access.Err
 }
 
 // checkReason fails t when e's Reason is not one rt's answers give its
-// code (design 4.56).
+// code.
 func checkReason(t *testing.T, rt *Route, e access.Error) {
 	t.Helper()
 	rs := specNamed(t, rt.Name).answers(rt.Class).reasons()[e.Code]

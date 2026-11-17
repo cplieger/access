@@ -45,9 +45,9 @@ func requireUsed(t *testing.T, f *sfFixture, userID int64, plain bool) {
 	}
 }
 
-// TestTemporaryPasswordSignIn is design 4.9's "Using it" on a secure
-// request: step 1 checks a live record first, spends it, and answers
-// NextSetCredential (4.4's pend table).
+// TestTemporaryPasswordSignIn uses one on a secure request: step 1 checks a
+// live record first, spends it, and answers
+// NextSetCredential.
 func TestTemporaryPasswordSignIn(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T, r account.Rules, edit func(*account.Config)) (*sfFixture, *access.User, string) {
@@ -57,7 +57,7 @@ func TestTemporaryPasswordSignIn(t *testing.T) {
 		alice := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
 		return f, alice, issueTemp(t, f, account.OutOfBand("cli"), alice)
 	}
-	// 4.9: "A test enters it twice": its first correct entry is its only one.
+	// Its first correct entry is its only one.
 	t.Run("spent_once", func(t *testing.T) {
 		t.Parallel()
 		f, alice, secret := setup(t, account.Rules{}, nil)
@@ -74,7 +74,7 @@ func TestTemporaryPasswordSignIn(t *testing.T) {
 			t.Errorf("the same temporary password again = %v, want ErrInvalidCredentials", err)
 		}
 	})
-	// 4.6's normalisation: dashes and spaces go, any ASCII case, O for 0 and
+	// Normalisation: dashes and spaces go, any ASCII case, O for 0 and
 	// I or L for 1.
 	t.Run("normalised", func(t *testing.T) {
 		t.Parallel()
@@ -84,8 +84,8 @@ func TestTemporaryPasswordSignIn(t *testing.T) {
 		out, err := f.step1(t.Context(), localClient, "alice", typed)
 		pending(t, out, err, account.NextSetCredential, access.MethodPassword, access.MethodPasskey)
 	})
-	// 4.12: a temporary password spelled with ı for an I is not accepted at
-	// step 1 (4.6: ASCII folding only).
+	// A temporary password spelled with ı for an I is not accepted at
+	// step 1 (ASCII folding only).
 	t.Run("dotless_i", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{})
@@ -106,7 +106,7 @@ func TestTemporaryPasswordSignIn(t *testing.T) {
 		out, err := f.step1(t.Context(), localClient, "alice", strings.ReplaceAll(secret, "1", "I"))
 		pending(t, out, err, account.NextSetCredential, access.MethodPassword, access.MethodPasskey)
 	})
-	// 4.9: an expired temporary password fails exactly as a wrong password.
+	// An expired temporary password fails exactly as a wrong password.
 	t.Run("expired", func(t *testing.T) {
 		t.Parallel()
 		f, alice, secret := setup(t, account.Rules{}, nil)
@@ -122,8 +122,8 @@ func TestTemporaryPasswordSignIn(t *testing.T) {
 			t.Error("an expired temporary password left a password")
 		}
 	})
-	// 4.9: "A store that drops the record fails closed: no temporary sign-in,
-	// and never a permanent password."
+	// A store that drops the record fails closed: no temporary sign-in,
+	// and never a permanent password.
 	t.Run("store_drops_the_record", func(t *testing.T) {
 		t.Parallel()
 		f, alice, secret := setup(t, account.Rules{}, nil)
@@ -137,7 +137,7 @@ func TestTemporaryPasswordSignIn(t *testing.T) {
 			t.Errorf("the password the issue cleared = %v, want ErrInvalidCredentials", err)
 		}
 	})
-	// 4.4 step 4: a temporary password is never rehashed, since a rehash
+	// A temporary password is never rehashed, since a rehash
 	// would copy it into PasswordHash as a permanent password.
 	t.Run("never_rehashed", func(t *testing.T) {
 		t.Parallel()
@@ -163,7 +163,7 @@ func TestTemporaryPasswordSignIn(t *testing.T) {
 			t.Error("step 1 wrote the temporary password into PasswordHash")
 		}
 	})
-	// 4.4: a correct first factor resets the password failure records.
+	// A correct first factor resets the password failure records.
 	t.Run("resets_the_failure_count", func(t *testing.T) {
 		t.Parallel()
 		f, _, secret := setup(t, account.Rules{}, nil)
@@ -174,7 +174,7 @@ func TestTemporaryPasswordSignIn(t *testing.T) {
 			t.Errorf("the password record = %+v after a correct temporary password, want none", rec)
 		}
 	})
-	// 4.9 "Under DisablePasswordLogin": only a live temporary password is
+	// Only a live temporary password is
 	// verified, and its NextSetCredential lists passkey only.
 	t.Run("password_login_off", func(t *testing.T) {
 		t.Parallel()
@@ -182,7 +182,7 @@ func TestTemporaryPasswordSignIn(t *testing.T) {
 		out, err := f.step1(t.Context(), localClient, "alice", secret)
 		pending(t, out, err, account.NextSetCredential, access.MethodPasskey)
 	})
-	// 4.15: under DisablePasswordLogin an old password typed on the form
+	// Under DisablePasswordLogin an old password typed on the form
 	// answers invalid credentials, never password_login_disabled.
 	t.Run("password_login_off_old_password", func(t *testing.T) {
 		t.Parallel()
@@ -197,7 +197,7 @@ func TestTemporaryPasswordSignIn(t *testing.T) {
 			t.Errorf("an unknown name under DisablePasswordLogin = %v, want ErrInvalidCredentials", err)
 		}
 	})
-	// 4.4: with no relying party published, a temporary password under
+	// With no relying party published, a temporary password under
 	// DisablePasswordLogin answers no_usable_method with its record live.
 	t.Run("no_relying_party_password_login_off", func(t *testing.T) {
 		t.Parallel()
@@ -211,7 +211,7 @@ func TestTemporaryPasswordSignIn(t *testing.T) {
 			t.Error("a secure no_usable_method deleted the record")
 		}
 	})
-	// 4.4: under the rule with DisableTOTP on and passkeys refused, a secure
+	// Under the rule with DisableTOTP on and passkeys refused, a secure
 	// temporary password answers no_usable_method at step 1 with its record
 	// live, and the refusal still resets the password failure count.
 	t.Run("rule_no_way_to_enrol", func(t *testing.T) {
@@ -228,7 +228,7 @@ func TestTemporaryPasswordSignIn(t *testing.T) {
 			t.Errorf("the password record = %+v, want the refusal to reset it", rec)
 		}
 	})
-	// 4.4's ticket-method function: under the rule a set password must still
+	// Ticket-method function: under the rule a set password must still
 	// enrol, so password stays while an enrolment method exists.
 	t.Run("rule_on", func(t *testing.T) {
 		t.Parallel()
@@ -238,7 +238,7 @@ func TestTemporaryPasswordSignIn(t *testing.T) {
 	})
 }
 
-// TestTemporaryPasswordPlain is design 4.9's burn: a plain step 1 that
+// TestTemporaryPasswordPlain checks the burn: a plain step 1 that
 // verifies a temporary password and answers no ticket deletes it and
 // answers temporary_password_exposed; one whose path finishes over plain
 // spends it.
@@ -265,8 +265,8 @@ func TestTemporaryPasswordPlain(t *testing.T) {
 			t.Errorf("the burned secret over HTTPS = %v, want ErrInvalidCredentials", err)
 		}
 	}
-	// 4.9: "over plain under the rule, a matched temporary password answers
-	// 403, and the same secret over HTTPS then fails as a wrong password".
+	// Over plain under the rule, a matched temporary password answers
+	// 403, and the same secret over HTTPS then fails as a wrong password.
 	t.Run("rule_on", func(t *testing.T) {
 		t.Parallel()
 		f, alice, secret := setup(t, account.Rules{RequireSecondFactor: true}, nil, nil)
@@ -277,7 +277,7 @@ func TestTemporaryPasswordPlain(t *testing.T) {
 		f, alice, secret := setup(t, account.Rules{DisablePasswordLogin: true}, nil, nil)
 		burned(t, f, alice, secret)
 	})
-	// 4.4's ticket-method function: a plain temporary password whose set is
+	// Ticket-method function: a plain temporary password whose set is
 	// empty is burned, not answered no_usable_method.
 	t.Run("empty_set", func(t *testing.T) {
 		t.Parallel()
@@ -286,7 +286,7 @@ func TestTemporaryPasswordPlain(t *testing.T) {
 		}, nil)
 		burned(t, f, alice, secret)
 	})
-	// 4.9: with the rule off and password sign-in on, the path finishes over
+	// With the rule off and password sign-in on, the path finishes over
 	// plain, so the secret is spent into a plain ticket listing password.
 	t.Run("rule_off_spends", func(t *testing.T) {
 		t.Parallel()
@@ -301,7 +301,7 @@ func TestTemporaryPasswordPlain(t *testing.T) {
 		}
 		requireUsed(t, f, alice.ID, true)
 	})
-	// 4.4's limiter: the burn's 403 cancels the attempt, so it neither
+	// Limiter: the burn's 403 cancels the attempt, so it neither
 	// counts nor forgives.
 	t.Run("burn_cancels", func(t *testing.T) {
 		t.Parallel()
@@ -316,9 +316,9 @@ func TestTemporaryPasswordPlain(t *testing.T) {
 	})
 }
 
-// TestTemporaryPasswordUnderMode is design 5.3's refused local sign-in for
+// TestTemporaryPasswordUnderMode checks the refused local sign-in for
 // a temporary password: it looks like a wrong password, writes nothing on a
-// secure request, and is burned on a plain one (4.9).
+// secure request, and is burned on a plain one.
 func TestTemporaryPasswordUnderMode(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T, limit func(*ratelimit.Config)) (*sfFixture, *access.User, *access.User) {
@@ -332,7 +332,7 @@ func TestTemporaryPasswordUnderMode(t *testing.T) {
 		alice := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
 		return f, root, alice
 	}
-	// 5.3: a secure sign-in the mode refuses writes nothing to the record,
+	// A secure sign-in the mode refuses writes nothing to the record,
 	// so its one use under SSOOnly, the admin link, survives; it settles as
 	// a wrong secret, so the IP's one attempt is spent.
 	t.Run("secure_sso_only", func(t *testing.T) {
@@ -354,8 +354,8 @@ func TestTemporaryPasswordUnderMode(t *testing.T) {
 			t.Errorf("the next attempt from the IP = %v, want a RefusedError: the refusal settles as a wrong secret", err)
 		}
 	})
-	// 4.9: on a plain request the secret has crossed in clear, so the burn
-	// wins over 5.3's write-nothing rule; the answer is still a wrong
+	// On a plain request the secret has crossed in clear, so the burn
+	// wins over the write-nothing rule; the answer is still a wrong
 	// password, so no answer tells a non-owner from an owner.
 	t.Run("plain_sso_only", func(t *testing.T) {
 		t.Parallel()
@@ -371,7 +371,7 @@ func TestTemporaryPasswordUnderMode(t *testing.T) {
 		}
 		requireUsed(t, f, alice.ID, true)
 	})
-	// 4.15: over plain under SSOForLinked, a linked non-owner's matched
+	// Over plain under SSOForLinked, a linked non-owner's matched
 	// temporary password is deleted and the answer is a wrong password.
 	t.Run("plain_sso_for_linked", func(t *testing.T) {
 		t.Parallel()
@@ -390,7 +390,7 @@ func TestTemporaryPasswordUnderMode(t *testing.T) {
 			t.Error("the matched record survived")
 		}
 	})
-	// 4.12: under SSOOnly an owner's temporary password finishes over HTTPS.
+	// Under SSOOnly an owner's temporary password finishes over HTTPS.
 	t.Run("owner_under_sso_only", func(t *testing.T) {
 		t.Parallel()
 		f, root, _ := setup(t, nil)
@@ -401,7 +401,7 @@ func TestTemporaryPasswordUnderMode(t *testing.T) {
 	})
 }
 
-// TestTemporaryPasswordIssuerRecheck is design 4.9's "re-checks its issuer":
+// TestTemporaryPasswordIssuerRecheck: use re-checks the issuer:
 // a match runs every check the issue ran, again, at use; a failure deletes
 // the record and answers as a wrong password.
 func TestTemporaryPasswordIssuerRecheck(t *testing.T) {
@@ -442,7 +442,7 @@ func TestTemporaryPasswordIssuerRecheck(t *testing.T) {
 		}
 		_ = root
 	})
-	// 4.9: "A test uses a Policy whose answer changes between issue and use."
+	// A test uses a Policy whose answer changes between issue and use.
 	t.Run("policy_changes", func(t *testing.T) {
 		t.Parallel()
 		gp := &gatePolicy{}
@@ -452,7 +452,7 @@ func TestTemporaryPasswordIssuerRecheck(t *testing.T) {
 		gp.arm(account.OpSetTemporaryPassword)
 		refused(t, f, alice, secret)
 	})
-	// 4.15: after its issuing admin is demoted.
+	// After its issuing admin is demoted.
 	t.Run("issuer_demoted", func(t *testing.T) {
 		t.Parallel()
 		f, _, alice := setup(t, nil)
@@ -464,7 +464,7 @@ func TestTemporaryPasswordIssuerRecheck(t *testing.T) {
 		}
 		refused(t, f, alice, secret)
 	})
-	// 5.2: the issuer must be enabled.
+	// The issuer must be enabled.
 	t.Run("issuer_disabled", func(t *testing.T) {
 		t.Parallel()
 		f, _, alice := setup(t, nil)
@@ -476,8 +476,8 @@ func TestTemporaryPasswordIssuerRecheck(t *testing.T) {
 		}
 		refused(t, f, alice, secret)
 	})
-	// 4.9: "An owner who issued one for an owner and has since lost the
-	// flag, while still an admin, therefore fails the re-check."
+	// An owner who issued one for an owner and has since lost the
+	// flag, while still an admin, therefore fails the re-check.
 	t.Run("owner_lost_the_flag", func(t *testing.T) {
 		t.Parallel()
 		f, root, _ := setup(t, nil)
@@ -489,7 +489,7 @@ func TestTemporaryPasswordIssuerRecheck(t *testing.T) {
 		}
 		refused(t, f, second, secret)
 	})
-	// 4.15: after its issuing key is revoked.
+	// After its issuing key is revoked.
 	t.Run("key_revoked", func(t *testing.T) {
 		t.Parallel()
 		f, root, alice := setup(t, nil)
@@ -503,7 +503,7 @@ func TestTemporaryPasswordIssuerRecheck(t *testing.T) {
 		}
 		refused(t, f, alice, secret)
 	})
-	// 4.15: issued OutOfBand and used: both issuer fields zero pass.
+	// Issued OutOfBand and used: both issuer fields zero pass.
 	t.Run("out_of_band", func(t *testing.T) {
 		t.Parallel()
 		f, _, alice := setup(t, nil)
@@ -511,7 +511,7 @@ func TestTemporaryPasswordIssuerRecheck(t *testing.T) {
 		out, err := f.step1(t.Context(), localClient, "alice", secret)
 		pending(t, out, err, account.NextSetCredential, access.MethodPassword, access.MethodPasskey)
 	})
-	// 4.4 step 3: a secure sign-in the SSO mode refuses writes nothing, the
+	// A secure sign-in the SSO mode refuses writes nothing, the
 	// issuer re-check's deletion included.
 	t.Run("secure_mode_refused_writes_nothing", func(t *testing.T) {
 		t.Parallel()
@@ -530,8 +530,8 @@ func TestTemporaryPasswordIssuerRecheck(t *testing.T) {
 	})
 }
 
-// TestTemporaryPasswordLock is design 4.9's "One verifier of a name's
-// temporary password at a time": the lock sits after the limiter and
+// TestTemporaryPasswordLock: one verifier of a name's temporary password
+// at a time. The lock sits after the limiter and
 // before the hash permit and is held through the success Update.
 func TestTemporaryPasswordLock(t *testing.T) {
 	t.Parallel()
@@ -551,9 +551,9 @@ func TestTemporaryPasswordLock(t *testing.T) {
 		fs.mu.Unlock()
 		return entered, release
 	}
-	// 4.9: "with the hash budget at one share, two posts for one name and
+	// With the hash budget at one share, two posts for one name and
 	// one for another, where the queued same-name post holds no permit and
-	// the other name runs once the holder finishes its verify".
+	// the other name runs once the holder finishes its verify.
 	t.Run("other_name_runs", func(t *testing.T) {
 		t.Parallel()
 		budget, err := access.NewHashBudget(access.HashCost(fastParams))
@@ -613,8 +613,8 @@ func TestTemporaryPasswordLock(t *testing.T) {
 			t.Errorf("name locks = %d after every post settled, want 0", n)
 		}
 	})
-	// 4.9: "a cancelled wait calls Cancel and answers as an ended context
-	// does".
+	// A cancelled wait calls Cancel and answers as an ended context
+	// does.
 	t.Run("cancelled_wait", func(t *testing.T) {
 		t.Parallel()
 		fs := newFaultStore()
@@ -660,8 +660,8 @@ func TestTemporaryPasswordLock(t *testing.T) {
 	})
 }
 
-// TestSetPasswordDeletesTemporaryPassword is design 4.9's "SetPassword from
-// any path also deletes a live temporary password".
+// TestSetPasswordDeletesTemporaryPassword: SetPassword from any path also
+// deletes a live temporary password.
 func TestSetPasswordDeletesTemporaryPassword(t *testing.T) {
 	t.Parallel()
 	f := newSF(t, account.Rules{}, pwOptions{})

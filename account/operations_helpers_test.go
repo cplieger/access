@@ -313,7 +313,7 @@ type operation struct {
 	// ErrPolicyRefused when nil.
 	refused   error
 	name      string
-	asks      []account.Operation // the Policy operations the call asks, in order (design 6.4)
+	asks      []account.Operation // the Policy operations the call asks, in order
 	class     opClass
 	transport opTransport
 	empty     bool // the call needs a store with no user

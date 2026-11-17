@@ -30,11 +30,11 @@ var designOwnReasons = []string{
 	"provisioning_disabled", "not_admitted",
 	"reenable_needs_other_method", "trailing_data", "malformed_json", "content_type", "body",
 	"unknown_field", "token_in_query", "enrol_needs_known_device", "no_usable_method",
-	// Design 4.31, 4.48 and 4.49.
+	// Proofs and second factors.
 	"second_factor_proof_required", "last_second_factor", "second_factor_held", "totp_needs_password",
 	"enable_without_second_factor",
 	"linked",
-	// Design 4.9's burn.
+	// The burn of a temporary password sent over plain HTTP.
 	"temporary_password_exposed",
 }
 
@@ -178,14 +178,14 @@ func TestReasonTable(t *testing.T) {
 }
 
 // appReasons is each reason only an app's own route answers, with the
-// account error that route maps to it: ui-contract-part4.md (b) Settings
-// has the app's save answer CheckSecondFactorReady's refusal.
+// account error that route maps to it: an app's settings save answers
+// CheckSecondFactorReady's refusal.
 var appReasons = map[string]error{
 	ReasonEnableWithoutSecondFactor: account.ErrEnableWithoutSecondFactor,
 }
 
-// TestEveryReasonHasAProducer is design 5.7's producer check over every
-// Reasons value: a route lists it, it is a Policy's reason reaching a
+// TestEveryReasonHasAProducer checks that every Reasons value has a
+// producer: a route lists it, it is a Policy's reason reaching a
 // route whose auth_forbidden is open, or an app's own route answers it.
 func TestEveryReasonHasAProducer(t *testing.T) {
 	t.Parallel()

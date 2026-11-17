@@ -204,7 +204,7 @@ func TestUpdateUser(t *testing.T) {
 	})
 }
 
-// TestLastOwnerConcurrent: design 5.2, at least one enabled owner always
+// TestLastOwnerConcurrent: at least one enabled owner always
 // exists; two owners removing each other concurrently leave one.
 func TestLastOwnerConcurrent(t *testing.T) {
 	t.Parallel()

@@ -141,7 +141,7 @@ func TestEqualWorkArms(t *testing.T) {
 			for _, c := range calls {
 				shape = append(shape, fmt.Sprintf("%s@%d", c.name, c.update))
 			}
-			// Design 4.9: every arm reads the name's temporary password, user
+			// Every arm reads the name's temporary password, user
 			// ID 0 for an unknown name, so a record's absence costs the same.
 			want := []string{"Update" + count, "UserByUsername" + count, "TemporaryPasswordByUserID" + count, "SSOMode" + count, "AuthFailure" + count, "PutAuthFailure" + count}
 			if !slices.Equal(shape, want) {

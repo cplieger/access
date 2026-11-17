@@ -183,7 +183,7 @@ func TestRouteAuthMethodReenable(t *testing.T) {
 			t.Errorf("locks %+v after the re-enable, want none", got)
 		}
 	})
-	// Design 4.11 and the contract's unlock control: a TOTP lock unlocks from
+	// The Account unlock control: a TOTP lock unlocks from
 	// a session signed in another way.
 	t.Run("totp", func(t *testing.T) {
 		spy := &failureNames{}
@@ -253,7 +253,7 @@ func TestRouteAuthPasswordSet(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		cookie := e.aliceSession(t)
-		// Design 4.50: a change that issues no recovery code answers none.
+		// A change that issues no recovery code answers none.
 		got := decoded[RecoveryCodeIssuedResponse](t, e, do(e.route(t, "authPasswordSet"), e.post(t, "authPasswordSet", passwordSetBody(t, testPassword, newPassword), cookie)), http.StatusOK)
 		if got.RecoveryCode != "" {
 			t.Errorf("recovery_code %q, want none for a changed password", got.RecoveryCode)
@@ -433,7 +433,7 @@ func TestRouteAuthPasskeyRegisterFinish(t *testing.T) {
 		got := decoded[PasskeyRegisteredResponse](t, e, do(e.route(t, "authPasskeyRegisterFinish"), e.registerFinish(t, cookie, nil, nil, nil)), http.StatusCreated)
 		view := got.Passkey
 		if got.RecoveryCode != "" {
-			t.Errorf("recovery_code %q, want none: alice holds no second factor (design 4.50)", got.RecoveryCode)
+			t.Errorf("recovery_code %q, want none: alice holds no second factor", got.RecoveryCode)
 		}
 		if id := e.passkeyID(t, "alice"); view.ID != id || view.RPID != testRPID || view.Name == "" {
 			t.Errorf("view %+v, want the stored passkey %d under %s", view, id, testRPID)
