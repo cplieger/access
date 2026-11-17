@@ -72,7 +72,7 @@ The account's own password never works here, only a live temporary password. Eve
 `Rules.Provisioning` is off by default. With `Enabled`, an admitted identity with no account gets one at its first SSO sign-in, with `Role`. When the name is taken, the pending screen offers "Create a new account" under a name the person picks.
 
 - `RoleClaim` and `AdminValues` make an identity whose claim holds an admin value an admin.
-- `SyncRole` applies that mapping again at each SSO sign-in. A missing or unreadable claim keeps the role and appends `role_sync_skipped`. An owner's role never changes. While `SyncRole` is on, the provider owns the role: a change in the app holds only until the next sign-in, and `UserMethodsView.role_from_provider` lets the Users screen say so.
+- `SyncRole` applies that mapping again at each SSO sign-in. A sync that changes the role ends every other session of the user in the same write, as an admin's role change does, and its `role_synced` entry names the ended sessions; one that keeps the role ends none. A missing or unreadable claim keeps the role and appends `role_sync_skipped`. An owner's role never changes. While `SyncRole` is on, the provider owns the role: a change in the app holds only until the next sign-in, and `UserMethodsView.role_from_provider` lets the Users screen say so.
 
 Use a claim the provider asserts, such as a group, never a profile field the user can edit at the provider.
 

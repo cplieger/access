@@ -69,7 +69,9 @@ type Provisioning struct {
 	Enabled     bool
 	// SyncRole re-applies the RoleClaim mapping at each OIDC sign-in of a
 	// linked non-owner, whether or not Enabled, while the claim is present
-	// and readable; an in-app role change holds until the next sign-in.
+	// and readable; an in-app role change holds until the next sign-in. A
+	// sync that changes the role ends the user's other sessions, as
+	// UpdateUser's role change does.
 	SyncRole bool
 }
 

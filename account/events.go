@@ -53,8 +53,9 @@ const (
 	// UserID is zero at an invite acceptance and for an identity no account
 	// is linked to.
 	EventOIDCNotAdmitted EventKind = "oidc_not_admitted"
-	// EventRoleSynced is a role an OIDC sign-in's SyncRole changed, and
-	// EventRoleSyncSkipped one it left because the claim was unreadable.
+	// EventRoleSynced is a role an OIDC sign-in's SyncRole changed, naming
+	// the user's sessions the change ended, and EventRoleSyncSkipped one it
+	// left because the claim was unreadable.
 	EventRoleSynced      EventKind = "role_synced"
 	EventRoleSyncSkipped EventKind = "role_sync_skipped"
 	EventTOTPAdded       EventKind = "totp_added"

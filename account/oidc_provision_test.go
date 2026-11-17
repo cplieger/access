@@ -76,31 +76,70 @@ func TestRoleSync(t *testing.T) {
 	}
 }
 
-// TestRoleSyncReachesLiveSessions is FileRise GHSA-92g3-h8h2-p4wq's
-// regression: a provider demotion applies to the user's existing session at
-// its next request.
-func TestRoleSyncReachesLiveSessions(t *testing.T) {
+// TestRoleSyncEndsOtherSessions is FileRise GHSA-92g3-h8h2-p4wq's
+// regression: no session made under the old role outlives a provider's role
+// change. A sync that changes the role ends the user's other sessions in the
+// sign-in's Update and names them in role_synced, as UpdateUser's role change
+// does (OWASP Session Management Cheat Sheet, "Renew the Session ID After Any
+// Privilege Level Change"); one that keeps the role ends none.
+func TestRoleSyncEndsOtherSessions(t *testing.T) {
 	t.Parallel()
-	f := newOIDCFixture(t, newOIDCRig(t, accesstest.IdPOptions{}), pwOptions{rules: opsAdmin(true)})
-	mustOwner(t, f.mem, "root")
-	u := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
-	u.Role = access.RoleAdmin
-	linkIdentity(t, f.mem, u, f.rig.identity())
-	sess := liveSession(t, u)
-	before, token := f.principalOf(t, &sess)
-	if before.User.Role != access.RoleAdmin {
-		t.Fatalf("alice's session before the sync has role %s, want admin", before.User.Role)
-	}
-	flow, claims := f.rig.signInFlow(t)
-	if out, err := f.complete(t, localClient, flow, withClaim(claims, "groups", `"staff"`)); err != nil || out.Kind != account.OutcomeSignedIn {
-		t.Fatalf("OIDCComplete = %+v, %v; want SignedIn", out, err)
-	}
-	after, err := f.authenticate(t.Context(), token)
-	if err != nil {
-		t.Fatalf("alice's earlier session after the demotion = %v, want it to authenticate", err)
-	}
-	if after.User.Role != access.RoleUser {
-		t.Errorf("alice's earlier session answers role %s after the demotion, want user", after.User.Role)
+	for _, tc := range []struct {
+		name  string
+		raw   string // the groups claim; empty is absent
+		start access.Role
+		ends  bool
+	}{
+		{name: "demoted", raw: `"staff"`, start: access.RoleAdmin, ends: true},
+		{name: "promoted", raw: `"ops"`, start: access.RoleUser, ends: true},
+		{name: "unchanged", raw: `"ops"`, start: access.RoleAdmin},
+		{name: "skipped", start: access.RoleAdmin},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newOIDCFixture(t, newOIDCRig(t, accesstest.IdPOptions{}), pwOptions{rules: opsAdmin(true)})
+			mustOwner(t, f.mem, "root")
+			u := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
+			u.Role = tc.start
+			linkIdentity(t, f.mem, u, f.rig.identity())
+			phone := liveSession(t, u)
+			if before, _ := f.principalOf(t, &phone); before.User.Role != tc.start {
+				t.Fatalf("the phone's session before the sync has role %s, want %s", before.User.Role, tc.start)
+			}
+			flow, claims := f.rig.signInFlow(t)
+			out, err := f.complete(t, localClient, flow, withClaim(claims, "groups", tc.raw))
+			if err != nil || out.Kind != account.OutcomeSignedIn {
+				t.Fatalf("OIDCComplete = %+v, %v; want SignedIn", out, err)
+			}
+			want := []string{out.SignedIn.Session.ID}
+			if !tc.ends {
+				want = append(want, phone.ID)
+			}
+			var stored []string
+			for _, s := range sessionsOf(t, f.mem, u.ID) {
+				stored = append(stored, s.ID)
+			}
+			slices.Sort(stored)
+			slices.Sort(want)
+			if !slices.Equal(stored, want) {
+				t.Errorf("alice's sessions after the sync = %v, want %v", stored, want)
+			}
+			if _, err := f.authenticate(t.Context(), out.SignedIn.Token); err != nil {
+				t.Errorf("the laptop's new session = %v, want it to authenticate", err)
+			}
+			var synced []account.Event
+			for _, ev := range f.events.all() {
+				if ev.Kind == account.EventRoleSynced {
+					synced = append(synced, ev)
+				}
+			}
+			switch {
+			case !tc.ends && len(synced) != 0:
+				t.Errorf("role_synced = %+v, want none for a kept role", synced)
+			case tc.ends && (len(synced) != 1 || !slices.Equal(synced[0].SessionIDs, []string{phone.ID})):
+				t.Errorf("role_synced = %+v, want one naming the phone's session %s", synced, phone.ID)
+			}
+		})
 	}
 }
 

@@ -230,9 +230,10 @@ func (s *Service) oidcUserIn(ctx context.Context, tx Tx, r Rules, claims oidc.Cl
 }
 
 // syncRoleIn re-applies Rules.Provisioning's role mapping to u inside tx
-// when SyncRole applies to u: a changed role is written and its
-// EventRoleSynced kept in res, and an unreadable RoleClaim changes nothing
-// and keeps EventRoleSyncSkipped.
+// when SyncRole applies to u: a changed role is written, every session of u
+// is deleted before the sign-in's own is stored, and EventRoleSynced naming
+// them is kept in res; an unreadable RoleClaim changes nothing and keeps
+// EventRoleSyncSkipped.
 func (s *Service) syncRoleIn(ctx context.Context, tx Tx, r Rules, u *access.User, claims oidc.Claims, res *signInResult) error { //nolint:gocritic // hugeParam: the operation's one Rules value and Claims
 	if !r.Provisioning.syncs(u) {
 		return nil
@@ -249,7 +250,12 @@ func (s *Service) syncRoleIn(ctx context.Context, tx Tx, r Rules, u *access.User
 	if err := tx.UpdateUser(ctx, u); err != nil {
 		return err
 	}
-	res.sync = &Event{Kind: EventRoleSynced, At: s.now(), UserID: u.ID, Role: role}
+	ended, err := tx.DeleteUserSessions(ctx, u.ID, "")
+	if err != nil {
+		return err
+	}
+	slices.Sort(ended)
+	res.sync = &Event{Kind: EventRoleSynced, At: s.now(), UserID: u.ID, Role: role, SessionIDs: ended}
 	return nil
 }
 

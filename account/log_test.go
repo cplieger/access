@@ -218,11 +218,20 @@ func stateVariants() []operation {
 		}},
 		// An unreadable role claim changes no role and is journalled.
 		{name: "OIDCComplete_role_sync_skipped", class: classPublic, rules: syncRoles, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
-			return oidcSignInCall(t, w, w.rig, account.EventRoleSyncSkipped, access.RoleUser)
+			return oidcSignInCall(t, w, w.rig, account.Event{Kind: account.EventRoleSyncSkipped, Role: access.RoleUser})
 		}},
+		// A changed role ends the user's other sessions and names them.
 		{name: "OIDCComplete_role_synced", class: classPublic, rules: syncRoles, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
 			*w.rig = *newOIDCRig(t, accesstest.IdPOptions{Subject: &w.rig.subject, Groups: []string{"ops"}})
-			return oidcSignInCall(t, w, w.rig, account.EventRoleSynced, access.RoleAdmin)
+			var ended []string
+			for _, s := range sessionsOf(t, w.mem, w.alice.ID) {
+				ended = append(ended, s.ID)
+			}
+			if len(ended) == 0 {
+				t.Fatal("alice holds no session for the sync to end")
+			}
+			slices.Sort(ended)
+			return oidcSignInCall(t, w, w.rig, account.Event{Kind: account.EventRoleSynced, Role: access.RoleAdmin, SessionIDs: ended})
 		}},
 		// A token OIDCAdmission refuses is journalled and refused.
 		{name: "OIDCComplete_not_admitted", class: classPublic, rules: func(r *account.Rules) {
@@ -260,9 +269,9 @@ func syncRoles(r *account.Rules) {
 	r.Provisioning = account.Provisioning{Enabled: true, RoleClaim: "groups", AdminValues: []string{"ops"}, SyncRole: true}
 }
 
-// oidcSignInCall is alice's OIDC sign-in through rig, which journals kind
-// with role before EventSignedIn.
-func oidcSignInCall(t *testing.T, w *opWorld, rig *oidcRig, kind account.EventKind, role access.Role) opCall {
+// oidcSignInCall is alice's OIDC sign-in through rig, which journals sync
+// about alice before EventSignedIn.
+func oidcSignInCall(t *testing.T, w *opWorld, rig *oidcRig, sync account.Event) opCall {
 	t.Helper()
 	linkIdentity(t, w.mem, storedUser(t, w.mem, w.alice.ID), rig.identity())
 	flow, claims := rig.signInFlow(t)
@@ -273,7 +282,8 @@ func oidcSignInCall(t *testing.T, w *opWorld, rig *oidcRig, kind account.EventKi
 			return err
 		},
 		want: func() []account.Event {
-			return []account.Event{{Kind: kind, UserID: w.alice.ID, Role: role}, signedIn(out.SignedIn, access.MethodOIDC)}
+			sync.UserID = w.alice.ID
+			return []account.Event{sync, signedIn(out.SignedIn, access.MethodOIDC)}
 		},
 	}
 }

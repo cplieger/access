@@ -10,7 +10,7 @@ It reads no environment variables, and every setting lives on the value you cons
 
 access is built for a Go service that owns its login pages and its database.
 
-- Every sign-in path, password, passkey, OIDC, invite and first-user setup, runs through one admission path, which checks the rate limits before any password is hashed.
+- Every sign-in path, password, passkey, OIDC, invite, self-registration and first-user setup, runs through one admission path, which checks the rate limits before any password is hashed.
 - Passwords hash with Argon2id at OWASP's parameters. When every `Hasher` is given the same `HashBudget`, that bound is process-wide. With no `HashBudget`, each `Hasher` has its own budget of four derivations. An unknown username costs the same work as a wrong password.
 - Repeated wrong passwords lock the method durably: after 100 consecutive failures for one account, method and trust context, that method is locked in that context until the user, signed in another way, re-enables it. A browser that signed in before keeps its own context, so a stranger's guesses do not lock the owner out.
 - Your store keeps only the SHA-256 hash of each 256-bit random session token. The session cookie holds only the token, and the cookies that carry state are sealed with AES-256-GCM.
