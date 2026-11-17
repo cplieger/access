@@ -30,7 +30,7 @@ A local method the mode forbids is dormant. It is kept, never deleted, and a loo
 
 Before an owner applies a mode, the settings screen shows `Service.SSOReadiness` (`authAdminSSOReadiness`). It counts the accounts the mode leaves unable to sign in, those that lose or regain their local methods, and the temporary passwords it withdraws. `ApplySSO` ends each session the new mode forbids, in the same change.
 
-`ApplySSO` refuses `SSOOnly` until an owner holds a password or passkey it signs in with, and while open registration is on. It refuses every mode but `SSOAlongside` in a single-user app, whose one account is an owner.
+`ApplySSO` refuses `SSOOnly` until an owner holds a password or passkey it signs in with, and while `Rules.Registration` is anything but `RegistrationOff`. It refuses every mode but `SSOAlongside` in a single-user app, whose one account is an owner.
 
 API keys stay allowed under every mode. An app that wants none for its users sets `RolePolicy.KeysAdminOnly`.
 
@@ -65,7 +65,7 @@ The account's own password never works here, only a live temporary password. Eve
 
 ## Who may sign in
 
-`Rules.OIDCAdmission` names a claim, such as `groups`, and the values that admit an identity. Every SSO sign-in, link, admin link, invite acceptance and step-up checks it, owners' included, before anything is written. The claim may be a string or an array of strings. Any other shape is refused, including Microsoft Entra's group overage, where `_claim_names` replaces the groups. A refused identity answers 403 `auth_forbidden` with reason `not_admitted`, gets no pending screen and appends `oidc_not_admitted`. A person removed from the group at the provider is refused at their next SSO sign-in.
+`Rules.OIDCAdmission` names a claim, such as `groups`, and the values that admit an identity. Every SSO sign-in, link, admin link, invite acceptance and step-up checks it, owners' included, before anything is written. The claim may be a string or an array of strings. Any other shape is refused, including Microsoft Entra's group overage, where `_claim_names` replaces the groups. A refused identity is `account.ErrNotAdmitted`. The callback's redirect carries it as `auth_error=auth_forbidden`, with no reason, so the person gets no pending screen, and the log appends `oidc_not_admitted`. A person removed from the group at the provider is refused at their next SSO sign-in.
 
 ### Provisioning and role sync
 

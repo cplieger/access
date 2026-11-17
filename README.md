@@ -14,7 +14,7 @@ access is built for a Go service that owns its login pages and its database.
 - Passwords hash with Argon2id at OWASP's parameters. When every `Hasher` is given the same `HashBudget`, that bound is process-wide. With no `HashBudget`, each `Hasher` has its own budget of four derivations. An unknown username costs the same work as a wrong password.
 - Repeated wrong passwords lock the method durably: after 100 consecutive failures for one account, method and trust context, that method is locked in that context until the user, signed in another way, re-enables it. A browser that signed in before keeps its own context, so a stranger's guesses do not lock the owner out.
 - Your store keeps only the SHA-256 hash of each 256-bit random session token. The session cookie holds only the token, and the cookies that carry state are sealed with AES-256-GCM.
-- A password sign-in asks for a second factor, an authenticator-app code or a passkey, before any session exists. A recovery code or an admin's single-use temporary password lets a person back in.
+- A password sign-in from a user with an authenticator app asks for its code or a passkey before any session exists, and under `RequireSecondFactor` every password sign-in proves or binds a second factor. A recovery code or an admin's single-use temporary password lets a person back in.
 - Passkey ceremonies accept only your exact origin by default.
 - OIDC sign-in sends a PKCE S256 challenge, checks the ID token's nonce and keeps the flow in a sealed cookie, with nothing stored on the server.
 - API keys can carry scopes, and two permissions you grant explicitly let a key manage regular users or mint narrower keys, each act attributed to the key's whole lineage. A key rotates to a new secret in place, and its old secret keeps working through a short overlap.
@@ -191,7 +191,7 @@ access hardens the building blocks, and the security of your service depends on 
 - `Config.Bypass` grants a synthetic admin user, whose ID is 0 and names no stored user, to every request while its callback returns true. `account` refuses every write made under it. Keep it off in production.
 - When hosts you do not control share your relying-party domain, keep the default exact origin. [Passkeys](docs/webauthn.md#the-origin-policy) explains `AllowSubdomains` and `Origins`.
 - Three rules stay with you. Guard every route of your own with `access/gate`, set `ClientAddr.Secure` from where TLS ends ([Authenticator configuration](docs/configuration.md#authenticator-configuration)), and keep the store contract. [Implementing the store](docs/storage.md) states the contract, and `accesstest.StoreContract` checks it.
-- Fuzz targets cover password hashes and checks, cookie settings, API keys, opaque tokens, sealed values, redirect paths, the JSON body decoder, OIDC claims, the rate limiter, and WebAuthn origins and stored credentials.
+- Fuzz targets cover password hashes and checks, cookie settings, API keys, opaque tokens, sealed values, redirect paths, the JSON body decoder, OIDC claims, ID tokens, discovery documents and key sets, the rate limiter, TOTP codes and URIs, temporary-password and recovery-code input, and WebAuthn origins, stored credentials, and registration and sign-in responses.
 - The cryptography has had no independent third-party audit.
 
 Report a vulnerability privately through the [security policy](https://github.com/cplieger/.github/blob/main/SECURITY.md), not in a public issue.
@@ -200,7 +200,7 @@ Report a vulnerability privately through the [security policy](https://github.co
 
 These are left out on purpose. [Non-goals](docs/non-goals.md) gives the reason for each and what to use instead.
 
-- Several processes over one store. Every read-check-write decision runs inside one store transaction, but the rate limiter's windows and the pending passkey ceremonies live in the process, so run one process per store.
+- Several processes over one store. Every read-check-write decision runs inside one store transaction, but the rate limiter's windows, the pending passkey ceremonies and the pending sign-ins and enrolments live in the process, so run one process per store.
 - Page rendering. The browser client renders nothing.
 - A CSRF token, because Go's `http.CrossOriginProtection` refuses cross-origin state-changing requests without needing one.
 - OIDC token refresh, a registry of several providers, back-channel logout and the userinfo endpoint.

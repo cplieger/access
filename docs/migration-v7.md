@@ -234,7 +234,7 @@ New: `ErrResponseTooLarge`, `LoginResult`, `BeginReauthentication` and `Complete
 | `ResolveUser` | `account.Rules.OIDCAdmission`, `account.Rules.Provisioning` and `UsernameCandidate`, which `account` composes |
 | a discovery document with `http` endpoints | refused with `ErrProviderInvalid` unless the issuer is a loopback `http` URL |
 
-New: `Provider.Issuer`, `BeginRequest`, the `Intent` constants, `Flow`, `MaxRedirectBytes`, `ProviderError`, `UsernameError`, `ErrFlowInvalid`, `ErrStaleAuthentication` and `ErrRedirectTooLong`.
+New: `Provider.Issuer`, `BeginRequest`, the `Intent` constants, `Flow`, `MaxRedirectBytes`, `MaxInviteHashBytes`, `ProviderError`, `UsernameError`, `ErrFlowInvalid`, `ErrStaleAuthentication`, `ErrRedirectTooLong` and `ErrProviderInvalid`.
 
 ## accesstest
 

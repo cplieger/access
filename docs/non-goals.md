@@ -5,7 +5,7 @@ These features are left out of access on purpose, and they are not planned. This
 | Feature | Reason and alternative |
 | --- | --- |
 | A CSRF token | Go's standard library refuses a cross-origin request with any method other than GET, HEAD or OPTIONS, judged from its `Sec-Fetch-Site` and `Origin` headers, with no token. Wrap your handlers in [`http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection) |
-| Several processes over one store | Every read-check-write decision runs inside one `Store.Update`, whose serialisability your store guarantees, but the rate limiter's windows and the pending passkey ceremonies live in the process. Run one process per store, as a bbolt or single-file store already requires |
+| Several processes over one store | Every read-check-write decision runs inside one `Store.Update`, whose serialisability your store guarantees, but the rate limiter's windows, the pending passkey ceremonies and the pending sign-ins and enrolments live in the process. Run one process per store, as a bbolt or single-file store already requires |
 | OIDC token refresh | The library handles sign-in, not long-lived API access. Use an `oauth2.TokenSource` from `golang.org/x/oauth2` |
 | A registry of several OIDC providers | `account.Config.OIDC` returns one `oidc.Provider`, so `account` and `accesshttp` sign in through one identity provider. To offer several, put one identity provider in front that brokers the others |
 | OIDC back-channel logout | An enterprise single sign-on feature, outside the scope of a library of building blocks |

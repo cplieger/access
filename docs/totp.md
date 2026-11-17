@@ -2,7 +2,7 @@
 
 This page explains authenticator-app codes, the recovery code, `RequireSecondFactor`, the admin's reset and the temporary password. Read it before you wire TOTP or choose how users recover an account.
 
-A second factor is a passkey, or a time-based one-time password from an authenticator app: TOTP, [RFC 6238](https://www.rfc-editor.org/rfc/rfc6238). A password sign-in asks for one when the user holds one. Passkey sign-ins and single sign-on never ask, since a passkey is already two factors and the identity provider owns the second factor of a single sign-on.
+A second factor is a passkey, or a time-based one-time password from an authenticator app: TOTP, [RFC 6238](https://www.rfc-editor.org/rfc/rfc6238). A password sign-in asks for one when the user holds an authenticator app. Under `RequireSecondFactor`, every password sign-in proves a held code or passkey, or binds one first. Passkey sign-ins and single sign-on never ask, since a passkey is already two factors and the identity provider owns the second factor of a single sign-on.
 
 ## Setting up TOTP
 
@@ -96,6 +96,7 @@ The secret is 16 characters of Crockford's base32, shown as `XXXX-XXXX-XXXX-XXXX
 - Issuing is refused over plain HTTP, because the answer is a new secret. A plain-only network's way is the admin socket, as an out-of-band caller.
 - Issuing replaces any earlier temporary password, clears the user's password, TOTP and recovery code, deletes their API keys and the links those keys issued, and ends their sessions, pending sign-ins and locks. `KeepKeys` keeps the keys, and `RevokePasskeys` also deletes the passkeys.
 - Under `account.SSOOnly`, an unlinked account other than an owner's keeps its password, TOTP and recovery code, which are dormant. Its temporary password's one use is the admin link ([Identity and single sign-on](identity.md#linking-with-an-admins-consent)).
+- Under `SSOForLinked` and `SSOOnly`, a linked account other than an owner's is refused with 403 `auth_sso_only` and reason `linked`, because it signs in only by single sign-on. For an identity that changed hands, use `AdminRelinkOIDC` ([Unlinking](identity.md#unlinking)).
 
 The answer's `https_only` is true when the app also serves plain HTTP and the secret works only on the HTTPS address: `RequireSecondFactor` is on, password sign-in is off, or the SSO mode is `SSOOnly`. Show the HTTPS address with the secret when it is. An app's admin socket reads the same fact from `Service.TemporaryPasswordHTTPSOnly`.
 

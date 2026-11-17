@@ -316,8 +316,8 @@ A dormant method is kept, never deleted, and a looser mode brings it back. A loc
 | `KeyPrefix` | The prefix of every minted key's plaintext | empty |
 | `ForbiddenWords` | Words refused in a password, beside the username | none |
 | `Scopes` | The key-scope vocabulary; `CreateAPIKey` refuses any other scope. `Validate` refuses a scope that is not one scope-token | none |
-| `OIDCAdmission` | A claim (`Claim`, `AllowedValues`) every OIDC sign-in, link, invite acceptance and step-up must hold, owners' included; a string or an array of strings, anything else not admitted | nil: every identity |
-| `Provisioning` | Account creation at an admitted identity's first OIDC sign-in (`Enabled`, `Role`), the role mapping (`RoleClaim`, `AdminValues`) and `SyncRole`, which re-applies the mapping at each sign-in of a linked non-owner; `Validate` refuses `AdminValues` or `SyncRole` without `RoleClaim`, and a single-user Policy refuses `Enabled` | off |
+| `OIDCAdmission` | A claim (`Claim`, `AllowedValues`) every OIDC sign-in, link, invite acceptance and step-up must hold, owners' included; a string or an array of strings, anything else not admitted. `Validate` refuses a `Claim` without `AllowedValues`, and `AllowedValues` without a `Claim` | zero: every identity |
+| `Provisioning` | Account creation at an admitted identity's first OIDC sign-in (`Enabled`, `Role`), the role mapping (`RoleClaim`, `AdminValues`) and `SyncRole`, which re-applies the mapping at each sign-in of a linked non-owner; `Validate` refuses a `Role` other than empty, `access.RoleUser` or `access.RoleAdmin`, and `AdminValues` or `SyncRole` without `RoleClaim`, and a single-user Policy refuses `Enabled` | off |
 | `RecentAuth` | How recent a sign-in or step-up must be for a sensitive operation; below 1m is invalid | 10m |
 | `KeyRotationOverlap` | How long `RotateAPIKey` lets a key's superseded secret keep working while the new one is unused; below 1m or above 24h is invalid | 1h |
 | `Breach` | The breached-password check: `BreachOff`, `BreachFailOpen` or `BreachFailClosed` | `BreachOff` |
