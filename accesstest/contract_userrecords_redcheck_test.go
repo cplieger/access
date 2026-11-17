@@ -15,15 +15,15 @@ import (
 var recordVariants = map[string]variant{
 	"totp-delete-keeps-record": {
 		make:  memVariant(func(m *MemStore) account.Store { return &totpDeleteNoopStore{m} }),
-		fails: []string{"rule_24_user_records/totp", "rule_24_user_records/list_totp"}, only: true,
+		fails: []string{"rule_24_user_records/totp/store", "rule_24_user_records/list_totp"}, only: true,
 	},
 	"recovery-set-keeps-first": {
 		make:  memVariant(func(m *MemStore) account.Store { return &recoveryKeepsFirstStore{m} }),
-		fails: []string{"rule_24_user_records/recovery_code"}, only: true,
+		fails: []string{"rule_24_user_records/recovery_code/store"}, only: true,
 	},
 	"temporary-delete-clears-all": {
 		make:  memVariant(func(m *MemStore) account.Store { return &temporaryDeleteAllStore{m} }),
-		fails: []string{"rule_24_user_records/temporary_password"}, only: true,
+		fails: []string{"rule_24_user_records/temporary_password/store"}, only: true,
 	},
 	"list-totp-includes-after": {
 		make:  memVariant(func(m *MemStore) account.Store { return &listTOTPInclusiveStore{m} }),
@@ -39,11 +39,11 @@ var recordVariants = map[string]variant{
 	},
 	"drops-totp-last-step": {
 		make:  memVariant(func(m *MemStore) account.Store { return &dropLastStepStore{m} }),
-		fails: []string{"rule_20_fidelity/write_read", "rule_24_user_records/totp"}, mention: []string{"TOTP.LastStep"},
+		fails: []string{"rule_20_fidelity/write_read", "rule_24_user_records/totp/store"}, mention: []string{"TOTP.LastStep"},
 	},
 	"drops-temporary-dormant": {
 		make:  memVariant(func(m *MemStore) account.Store { return &dropDormantStore{m} }),
-		fails: []string{"rule_20_fidelity/write_read", "rule_24_user_records/temporary_password"}, mention: []string{"TemporaryPassword.Dormant"},
+		fails: []string{"rule_20_fidelity/write_read", "rule_24_user_records/temporary_password/store"}, mention: []string{"TemporaryPassword.Dormant"},
 	},
 	"drops-user-owner": {
 		make:  memVariant(func(m *MemStore) account.Store { return &dropOwnerStore{m} }),
@@ -65,6 +65,75 @@ var recordVariants = map[string]variant{
 		make:  mediumVariant(func(m *medium) { m.reload = dropSSOSet }),
 		fails: []string{"rule_26_sso_mode/reopen"}, only: true,
 	},
+	"tx-totp-set-keeps-first": {
+		make:  memVariant(func(m *MemStore) account.Store { return &txTOTPKeepsFirstStore{m} }),
+		fails: []string{"rule_24_user_records/totp/in_update"}, only: true,
+	},
+	"tx-recovery-delete-keeps-record": {
+		make:  memVariant(func(m *MemStore) account.Store { return &txRecoveryDeleteNoopStore{m} }),
+		fails: []string{"rule_24_user_records/recovery_code/in_update"}, only: true,
+	},
+	"tx-temporary-delete-keeps-record": {
+		make:  memVariant(func(m *MemStore) account.Store { return &txTemporaryDeleteNoopStore{m} }),
+		fails: []string{"rule_24_user_records/temporary_password/in_update"}, only: true,
+	},
+	"tx-sso-mode-not-committed": {
+		make:  memVariant(func(m *MemStore) account.Store { return &txSSOModeUncommittedStore{m} }),
+		fails: []string{"rule_26_sso_mode/in_update"}, only: true,
+	},
+}
+
+// txTOTPKeepsFirstStore writes a TOTP record inside an Update only where
+// none is held, so a code's LastStep never advances there.
+type txTOTPKeepsFirstStore struct{ *MemStore }
+
+type txTOTPKeepsFirstTx struct{ *memTx }
+
+func (s *txTOTPKeepsFirstStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.MemStore.Update(ctx, func(tx account.Tx) error { return fn(txTOTPKeepsFirstTx{tx.(*memTx)}) })
+}
+
+func (t txTOTPKeepsFirstTx) SetTOTP(ctx context.Context, rec access.TOTP) error {
+	if _, found, err := t.TOTPByUserID(ctx, rec.UserID); found || err != nil {
+		return err
+	}
+	return t.memTx.SetTOTP(ctx, rec)
+}
+
+// txRecoveryDeleteNoopStore never deletes a recovery code inside an Update.
+type txRecoveryDeleteNoopStore struct{ *MemStore }
+
+type txRecoveryDeleteNoopTx struct{ *memTx }
+
+func (s *txRecoveryDeleteNoopStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.MemStore.Update(ctx, func(tx account.Tx) error { return fn(txRecoveryDeleteNoopTx{tx.(*memTx)}) })
+}
+
+func (txRecoveryDeleteNoopTx) DeleteRecoveryCode(context.Context, int64) error { return nil }
+
+// txTemporaryDeleteNoopStore never deletes a temporary password inside an
+// Update, so a spent one stays usable.
+type txTemporaryDeleteNoopStore struct{ *MemStore }
+
+type txTemporaryDeleteNoopTx struct{ *memTx }
+
+func (s *txTemporaryDeleteNoopStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.MemStore.Update(ctx, func(tx account.Tx) error { return fn(txTemporaryDeleteNoopTx{tx.(*memTx)}) })
+}
+
+func (txTemporaryDeleteNoopTx) DeleteTemporaryPassword(context.Context, int64) error { return nil }
+
+// txSSOModeUncommittedStore commits every write of an Update but the SSO
+// mode, which reads as set only inside that Update.
+type txSSOModeUncommittedStore struct{ *MemStore }
+
+func (s *txSSOModeUncommittedStore) Update(_ context.Context, fn func(account.Tx) error) error {
+	return s.write(func(tx *memTx) (bool, error) {
+		mode, set := tx.s.ssoMode, tx.s.ssoSet
+		err := fn(tx)
+		tx.s.ssoMode, tx.s.ssoSet = mode, set
+		return true, err
+	})
 }
 
 // totpDeleteNoopStore never deletes a TOTP record.

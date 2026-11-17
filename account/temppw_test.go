@@ -68,9 +68,10 @@ func TestTemporaryPasswordFrom(t *testing.T) {
 	}
 }
 
-// TestNewTemporaryPassword: NIST SP 800-63B-4 §3.1.1.1 (a password the CSP
-// assigns is at least 64 random bits from an approved RBG): ten
-// bytes, the last two the CRC check, shown as XXXX-XXXX-XXXX-XXXX.
+// TestNewTemporaryPassword: NIST SP 800-63B-4 §3.1.1.1 (the CSP assigns
+// the password randomly) and §3.1.1.2 (at least 15 characters), with 64
+// random bits, §4.2.1.1's floor for a saved recovery code: ten bytes, the
+// last two the CRC check, shown as XXXX-XXXX-XXXX-XXXX.
 func TestNewTemporaryPassword(t *testing.T) {
 	seen := map[string]bool{}
 	for range 1000 {

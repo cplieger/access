@@ -1,6 +1,7 @@
 package accesstest
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"reflect"
@@ -12,51 +13,68 @@ import (
 	"github.com/cplieger/access/account"
 )
 
-// userRecords: rule 24, the per-user records.
+// userRecords: rule 24, the per-user records, on the Store and inside an
+// Update, since account writes them only through a Tx.
 func (c *contract) userRecords(t *testing.T) {
-	t.Run("totp", func(t *testing.T) { checkPerUser(t, c.store(t), totpKind) })
-	t.Run("recovery_code", func(t *testing.T) { checkPerUser(t, c.store(t), recoveryKind) })
-	t.Run("temporary_password", func(t *testing.T) { checkPerUser(t, c.store(t), temporaryKind) })
+	t.Run("totp", func(t *testing.T) { perUserCases(t, c, totpKind) })
+	t.Run("recovery_code", func(t *testing.T) { perUserCases(t, c, recoveryKind) })
+	t.Run("temporary_password", func(t *testing.T) { perUserCases(t, c, temporaryKind) })
 	t.Run("list_totp", c.listTOTP)
+}
+
+func perUserCases[T any](t *testing.T, c *contract, k perUser[T]) {
+	t.Run("store", func(t *testing.T) { checkPerUser(t, c.store(t), k, onStore) })
+	t.Run("in_update", func(t *testing.T) { checkPerUser(t, c.store(t), k, inUpdate) })
+	t.Run("rolls_back", func(t *testing.T) { perUserRollsBack(t, c.store(t), k) })
 }
 
 // perUser is one record type a user holds at most one of.
 type perUser[T any] struct {
 	version func(userID int64, n int) T // a distinct record of userID for each n
-	get     func(ctx context.Context, s account.Store, userID int64) (T, bool, error)
-	set     func(ctx context.Context, s account.Store, rec T) error
-	del     func(ctx context.Context, s account.Store, userID int64) error
+	get     func(ctx context.Context, tx account.Tx, userID int64) (T, bool, error)
+	set     func(ctx context.Context, tx account.Tx, rec T) error
+	del     func(ctx context.Context, tx account.Tx, userID int64) error
+}
+
+// writeVia runs one write on s: on the Store itself, or inside a committed
+// Update.
+type writeVia func(ctx context.Context, s account.Store, write func(account.Tx) error) error
+
+func onStore(_ context.Context, s account.Store, write func(account.Tx) error) error { return write(s) }
+
+func inUpdate(ctx context.Context, s account.Store, write func(account.Tx) error) error {
+	return s.Update(ctx, write)
 }
 
 var totpKind = perUser[access.TOTP]{
 	version: newTOTP,
-	get: func(ctx context.Context, s account.Store, id int64) (access.TOTP, bool, error) {
-		return s.TOTPByUserID(ctx, id)
+	get: func(ctx context.Context, tx account.Tx, id int64) (access.TOTP, bool, error) {
+		return tx.TOTPByUserID(ctx, id)
 	},
-	set: func(ctx context.Context, s account.Store, r access.TOTP) error { return s.SetTOTP(ctx, r) },
-	del: func(ctx context.Context, s account.Store, id int64) error { return s.DeleteTOTP(ctx, id) },
+	set: func(ctx context.Context, tx account.Tx, r access.TOTP) error { return tx.SetTOTP(ctx, r) },
+	del: func(ctx context.Context, tx account.Tx, id int64) error { return tx.DeleteTOTP(ctx, id) },
 }
 
 var recoveryKind = perUser[access.RecoveryCode]{
 	version: newRecoveryCode,
-	get: func(ctx context.Context, s account.Store, id int64) (access.RecoveryCode, bool, error) {
-		return s.RecoveryCodeByUserID(ctx, id)
+	get: func(ctx context.Context, tx account.Tx, id int64) (access.RecoveryCode, bool, error) {
+		return tx.RecoveryCodeByUserID(ctx, id)
 	},
-	set: func(ctx context.Context, s account.Store, r access.RecoveryCode) error {
-		return s.SetRecoveryCode(ctx, r)
+	set: func(ctx context.Context, tx account.Tx, r access.RecoveryCode) error {
+		return tx.SetRecoveryCode(ctx, r)
 	},
-	del: func(ctx context.Context, s account.Store, id int64) error { return s.DeleteRecoveryCode(ctx, id) },
+	del: func(ctx context.Context, tx account.Tx, id int64) error { return tx.DeleteRecoveryCode(ctx, id) },
 }
 
 var temporaryKind = perUser[access.TemporaryPassword]{
 	version: newTemporaryPassword,
-	get: func(ctx context.Context, s account.Store, id int64) (access.TemporaryPassword, bool, error) {
-		return s.TemporaryPasswordByUserID(ctx, id)
+	get: func(ctx context.Context, tx account.Tx, id int64) (access.TemporaryPassword, bool, error) {
+		return tx.TemporaryPasswordByUserID(ctx, id)
 	},
-	set: func(ctx context.Context, s account.Store, r access.TemporaryPassword) error {
-		return s.SetTemporaryPassword(ctx, r)
+	set: func(ctx context.Context, tx account.Tx, r access.TemporaryPassword) error {
+		return tx.SetTemporaryPassword(ctx, r)
 	},
-	del: func(ctx context.Context, s account.Store, id int64) error { return s.DeleteTemporaryPassword(ctx, id) },
+	del: func(ctx context.Context, tx account.Tx, id int64) error { return tx.DeleteTemporaryPassword(ctx, id) },
 }
 
 func newTOTP(userID int64, n int) access.TOTP {
@@ -75,44 +93,71 @@ func newTemporaryPassword(userID int64, n int) access.TemporaryPassword {
 	}
 }
 
-// checkPerUser: one record per user, written whole over the last, read by
-// its user alone, and deleted idempotently.
-func checkPerUser[T any](t *testing.T, s account.Store, k perUser[T]) {
-	ctx := t.Context()
-	u, other := mustUser(t, s, "holder"), mustUser(t, s, "bystander")
-	kept := k.version(other.ID, 9)
-	check(t, "set the bystander's record", k.set(ctx, s, kept))
-	expect := func(when string, id int64, want *T) {
-		t.Helper()
-		got, found, err := k.get(ctx, s, id)
-		switch {
-		case err != nil:
-			t.Errorf("%s: read = %v", when, err)
-		case want == nil && (found || !reflect.ValueOf(got).IsZero()):
-			t.Errorf("%s: read = (found %t, zero %t), want nothing", when, found, reflect.ValueOf(got).IsZero())
-		case want != nil && !found:
-			t.Errorf("%s: read found nothing, want the record", when)
-		case want != nil:
-			if path := firstDiff(reflect.ValueOf(*want), reflect.ValueOf(got), reflect.TypeFor[T]().Name()); path != "" {
-				t.Errorf("%s: %s does not read back as written", when, path)
-			}
+// expectRecord fails t unless userID's record on s reads as want, or as
+// nothing when want is nil.
+func expectRecord[T any](t *testing.T, s account.Tx, k perUser[T], when string, userID int64, want *T) {
+	t.Helper()
+	got, found, err := k.get(t.Context(), s, userID)
+	switch {
+	case err != nil:
+		t.Errorf("%s: read = %v", when, err)
+	case want == nil && (found || !reflect.ValueOf(got).IsZero()):
+		t.Errorf("%s: read = (found %t, zero %t), want nothing", when, found, reflect.ValueOf(got).IsZero())
+	case want != nil && !found:
+		t.Errorf("%s: read found nothing, want the record", when)
+	case want != nil:
+		if path := firstDiff(reflect.ValueOf(*want), reflect.ValueOf(got), reflect.TypeFor[T]().Name()); path != "" {
+			t.Errorf("%s: %s does not read back as written", when, path)
 		}
 	}
-	expect("before any write", u.ID, nil)
+}
+
+// checkPerUser: one record per user, written whole over the last, read by
+// its user alone, and deleted idempotently, each write made through via.
+func checkPerUser[T any](t *testing.T, s account.Store, k perUser[T], via writeVia) {
+	ctx := t.Context()
+	set := func(rec T) error { return via(ctx, s, func(tx account.Tx) error { return k.set(ctx, tx, rec) }) }
+	del := func(id int64) error { return via(ctx, s, func(tx account.Tx) error { return k.del(ctx, tx, id) }) }
+	u, other := mustUser(t, s, "holder"), mustUser(t, s, "bystander")
+	kept := k.version(other.ID, 9)
+	check(t, "set the bystander's record", set(kept))
+	expectRecord(t, s, k, "before any write", u.ID, nil)
 	first, second := k.version(u.ID, 1), k.version(u.ID, 2)
-	check(t, "first set", k.set(ctx, s, first))
-	expect("after the first set", u.ID, &first)
-	check(t, "second set", k.set(ctx, s, second))
-	expect("after a second set over the first", u.ID, &second)
-	expect("the bystander after the holder's writes", other.ID, &kept)
-	check(t, "delete", k.del(ctx, s, u.ID))
-	expect("after delete", u.ID, nil)
-	expect("the bystander after the holder's delete", other.ID, &kept)
-	if err := k.del(ctx, s, u.ID); err != nil {
+	check(t, "first set", set(first))
+	expectRecord(t, s, k, "after the first set", u.ID, &first)
+	check(t, "second set", set(second))
+	expectRecord(t, s, k, "after a second set over the first", u.ID, &second)
+	expectRecord(t, s, k, "the bystander after the holder's writes", other.ID, &kept)
+	check(t, "delete", del(u.ID))
+	expectRecord(t, s, k, "after delete", u.ID, nil)
+	expectRecord(t, s, k, "the bystander after the holder's delete", other.ID, &kept)
+	if err := del(u.ID); err != nil {
 		t.Errorf("a second delete = %v, want nil", err)
 	}
-	if err := k.del(ctx, s, 4242); err != nil {
+	if err := del(4242); err != nil {
 		t.Errorf("delete for a user with no record = %v, want nil", err)
+	}
+}
+
+// perUserRollsBack: a set or a delete inside an Update that returns an
+// error leaves the record as it was.
+func perUserRollsBack[T any](t *testing.T, s account.Store, k perUser[T]) {
+	ctx := t.Context()
+	u := mustUser(t, s, "holder")
+	first := k.version(u.ID, 1)
+	check(t, "set", k.set(ctx, s, first))
+	for _, w := range []struct {
+		write func(account.Tx) error
+		name  string
+	}{
+		{func(tx account.Tx) error { return k.set(ctx, tx, k.version(u.ID, 2)) }, "set"},
+		{func(tx account.Tx) error { return k.del(ctx, tx, u.ID) }, "delete"},
+	} {
+		err := s.Update(ctx, func(tx account.Tx) error { return cmp.Or(w.write(tx), errContract) })
+		if !errors.Is(err, errContract) {
+			t.Errorf("Update(%s) = %v, want the callback's error", w.name, err)
+		}
+		expectRecord(t, s, k, "after a rolled-back "+w.name, u.ID, &first)
 	}
 }
 
@@ -236,6 +281,13 @@ func (c *contract) ssoMode(t *testing.T) {
 			check(t, "SetSSOMode", s.SetSSOMode(t.Context(), m))
 			read(t, s, "after a SetSSOMode", m, true)
 		}
+	})
+	t.Run("in_update", func(t *testing.T) {
+		s := c.store(t)
+		check(t, "Update(SetSSOMode)", s.Update(t.Context(), func(tx account.Tx) error {
+			return tx.SetSSOMode(t.Context(), account.SSOForLinked)
+		}))
+		read(t, s, "after a committed Update that set SSOForLinked", account.SSOForLinked, true)
 	})
 	t.Run("rolls_back", func(t *testing.T) {
 		s := c.store(t)
