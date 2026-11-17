@@ -47,9 +47,7 @@ func (s *Service) StepUpPassword(ctx context.Context, c Client, p access.Princip
 		}
 		actor := EventActor{SessionID: rot.session.ID, UserID: rot.session.UserID}
 		at := rot.session.AuthTime
-		if cleared {
-			j.add(Event{Kind: EventMethodReenabled, At: at, UserID: actor.UserID, Method: access.MethodPassword, Trusted: a.ref.Trusted, Actor: actor})
-		}
+		j.addReenabled(cleared, a.ref, at, actor)
 		j.add(Event{Kind: EventSteppedUp, At: at, UserID: actor.UserID, Method: access.MethodPassword, SessionIDs: []string{rot.session.ID}, Actor: actor})
 		return nil
 	})

@@ -1,6 +1,7 @@
 package accesstest
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -240,6 +241,14 @@ var variants = map[string]variant{
 	"label-rewrites-secret": {
 		make:  memVariant(func(m *MemStore) account.Store { return &labelDropsPreviousStore{m} }),
 		fails: []string{"rule_23_key_secrets/label_write"}, only: true,
+	},
+	"failure-delete-both-contexts": {
+		make:  memVariant(func(m *MemStore) account.Store { return &failureDeleteBothStore{m} }),
+		fails: []string{"rule_15_failure_records/delete_one"}, only: true,
+	},
+	"failure-delete-absent-errors": {
+		make:  memVariant(func(m *MemStore) account.Store { return &failureDeleteAbsentStore{m} }),
+		fails: []string{"rule_15_failure_records/delete_one"}, only: true,
 	},
 	"rotate-overwrites-activity": {
 		make:  memVariant(func(m *MemStore) account.Store { return &rotationOverwritesStore{m} }),
@@ -1065,4 +1074,22 @@ func (t txLabelDropsPreviousTx) UpdateAPIKeyLabel(ctx context.Context, ref acces
 	k.PreviousHash, k.PreviousUntil = access.Hash{}, time.Time{}
 	t.putKey(&k)
 	return nil
+}
+
+// failureDeleteBothStore's one-record delete removes the record in both
+// trust contexts.
+type failureDeleteBothStore struct{ *MemStore }
+
+func (s *failureDeleteBothStore) DeleteAuthFailure(ctx context.Context, ref account.FailureRef) error {
+	return s.DeleteAuthFailures(ctx, ref.Name, []access.Method{ref.Method})
+}
+
+// failureDeleteAbsentStore refuses a one-record delete of an absent record.
+type failureDeleteAbsentStore struct{ *MemStore }
+
+func (s *failureDeleteAbsentStore) DeleteAuthFailure(ctx context.Context, ref account.FailureRef) error {
+	if _, found, err := s.AuthFailure(ctx, ref); err != nil || !found {
+		return cmp.Or(err, errors.New("no such failure record"))
+	}
+	return s.MemStore.DeleteAuthFailure(ctx, ref)
 }

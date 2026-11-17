@@ -508,6 +508,10 @@ func (f *faultStore) UnreportedLocks(ctx context.Context) ([]account.FailureCoun
 	return f.view().UnreportedLocks(ctx)
 }
 
+func (f *faultStore) DeleteAuthFailure(ctx context.Context, ref account.FailureRef) error {
+	return f.commit(func(tx *memTx) error { return tx.DeleteAuthFailure(ctx, ref) })
+}
+
 func (f *faultStore) DeleteAuthFailures(ctx context.Context, name string, ms []access.Method) error {
 	return f.commit(func(tx *memTx) error { return tx.DeleteAuthFailures(ctx, name, ms) })
 }

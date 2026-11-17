@@ -80,11 +80,13 @@ func (s *Service) countCode(ctx context.Context, res *ratelimit.Reservation, ch 
 	return codeMatch{}, err
 }
 
-// codeMatch is a matched step and the CreatedAt of the record it matched,
-// which identifies the enrolment whose secret produced the code.
+// codeMatch is a matched step, the CreatedAt of the record it matched,
+// which identifies the enrolment whose secret produced the code, and the
+// LockedAt its count stamped (zero for none), which resetFailures reads.
 type codeMatch struct {
-	record time.Time
-	step   int64
+	record   time.Time
+	lockedAt time.Time
+	step     int64
 }
 
 // counted is what countCode's Update found.
@@ -116,25 +118,27 @@ func (s *Service) countIn(ctx context.Context, tx Tx, ch *codeCheck) (counted, e
 	if got.step, got.result = totp.Match(secret, ch.raw, s.now(), rec.LastStep); got.result == totp.Malformed {
 		return counted{}, refuse(&MalformedError{Field: ch.field})
 	}
-	return got, s.addFailure(ctx, tx, ch.ref)
+	got.lockedAt, err = s.addFailure(ctx, tx, ch.ref)
+	return got, err
 }
 
 // addFailure counts one attempt on ref's record inside tx, locking it at
-// FailureCap; a record already locked is method_locked, writing nothing.
-func (s *Service) addFailure(ctx context.Context, tx Tx, ref FailureRef) error {
+// FailureCap, and returns the LockedAt it stamped (zero for none); a record
+// already locked is method_locked, writing nothing.
+func (s *Service) addFailure(ctx context.Context, tx Tx, ref FailureRef) (lockedAt time.Time, err error) {
 	f, _, err := tx.AuthFailure(ctx, ref)
 	switch {
 	case err != nil:
-		return err
+		return time.Time{}, err
 	case f.Locked:
-		return refuse(&CodeError{Reason: ReasonMethodLocked})
+		return time.Time{}, refuse(&CodeError{Reason: ReasonMethodLocked})
 	}
 	f.FailureRef = ref
 	f.Count++
 	if f.Count >= FailureCap {
 		f.Locked, f.LockedAt, f.Unreported = true, s.stamp(), true
 	}
-	return tx.PutAuthFailure(ctx, f)
+	return f.LockedAt, tx.PutAuthFailure(ctx, f)
 }
 
 // settleRefused settles res for a refused check: a counted code fails it,
@@ -151,49 +155,30 @@ func settleRefused(res *ratelimit.Reservation, err error) {
 // re-reads the record, answers one replaced since the count as gone (ch's
 // missing), refuses a step at or below its LastStep, so of two parallel
 // matches only one commits (Gitea GHSA-gx3v-q759-g323), then writes the
-// step with the secret sealed under the first key and deletes the
-// method's failure record of the check's trust context.
-func (s *Service) commitCode(ctx context.Context, tx Tx, ch *codeCheck, m codeMatch) error {
+// step with the secret sealed under the first key and runs resetFailures
+// on the check's record, returning its answer.
+func (s *Service) commitCode(ctx context.Context, tx Tx, ch *codeCheck, m codeMatch) (reenabled bool, err error) {
 	rec, found, err := tx.TOTPByUserID(ctx, ch.userID)
 	switch {
 	case err != nil:
-		return err
+		return false, err
 	case !found, !rec.CreatedAt.Equal(m.record):
-		return refuse(ch.missing)
+		return false, refuse(ch.missing)
 	case rec.LastStep >= m.step:
-		return refuse(&CodeError{Reason: ReasonCodeReused})
+		return false, refuse(&CodeError{Reason: ReasonCodeReused})
 	}
 	secret, _, err := s.openTOTP(&rec)
 	if err != nil {
-		return refuse(ErrSecondFactorUnavailable)
+		return false, refuse(ErrSecondFactorUnavailable)
 	}
 	if rec.Sealed, err = s.sealTOTP(ch.userID, secret); err != nil {
-		return err
+		return false, err
 	}
 	rec.LastStep = m.step
 	if err := tx.SetTOTP(ctx, rec); err != nil {
-		return err
+		return false, err
 	}
-	return resetOwnFailure(ctx, tx, ch.ref)
-}
-
-// resetOwnFailure deletes ref's record inside tx and keeps the other trust
-// context's as it is.
-func resetOwnFailure(ctx context.Context, tx Tx, ref FailureRef) error {
-	other := ref
-	other.Trusted = !ref.Trusted
-	kept, found, err := tx.AuthFailure(ctx, other)
-	if err != nil {
-		return err
-	}
-	if err := tx.DeleteAuthFailures(ctx, ref.Name, []access.Method{ref.Method}); err != nil {
-		return err
-	}
-	if !found {
-		return nil
-	}
-	kept.FailureRef = other
-	return tx.PutAuthFailure(ctx, kept)
+	return resetFailures(ctx, tx, ch.ref, m.lockedAt)
 }
 
 // totpPurpose is the at-rest purpose of userID's TOTP secret, so a record
@@ -219,12 +204,17 @@ type proven struct {
 	match codeMatch
 }
 
-// commit is commitCode for a code; nothing for an assertion.
-func (pr *proven) commit(ctx context.Context, s *Service, tx Tx) error {
+// commit is commitCode for a code, journalling a cleared reported lock by
+// p; nothing for an assertion.
+func (pr *proven) commit(ctx context.Context, s *Service, tx Tx, j *journal, p access.Principal) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	if pr.check == nil {
 		return nil
 	}
-	return s.commitCode(ctx, tx, pr.check, pr.match)
+	reenabled, err := s.commitCode(ctx, tx, pr.check, pr.match)
+	if err == nil {
+		j.addReenabled(reenabled, pr.check.ref, s.now(), eventActor(As(p)))
+	}
+	return err
 }
 
 // settle settles a code's reservation by its site's result.

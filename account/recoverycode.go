@@ -168,7 +168,7 @@ func (s *Service) regenerateIn(ctx context.Context, tx Tx, j *journal, p access.
 	if _, found, readErr := tx.RecoveryCodeByUserID(ctx, cur.ID); readErr != nil || !found {
 		return foundOr(readErr, found)
 	}
-	if commitErr := pr.commit(ctx, s, tx); commitErr != nil {
+	if commitErr := pr.commit(ctx, s, tx, j, p); commitErr != nil {
 		return commitErr
 	}
 	if writeErr := s.storeRecoveryCode(ctx, tx, cur, code); writeErr != nil {

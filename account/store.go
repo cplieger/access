@@ -198,6 +198,8 @@ type FailureStore interface {
 	PutAuthFailure(ctx context.Context, f FailureCount) error // upsert
 	// UnreportedLocks returns every record whose Unreported is set.
 	UnreportedLocks(ctx context.Context) ([]FailureCount, error)
+	// DeleteAuthFailure removes ref's one record; an absent one is skipped.
+	DeleteAuthFailure(ctx context.Context, ref FailureRef) error
 	// DeleteAuthFailures removes name's records for each listed method, in
 	// both trust contexts; an absent record is skipped.
 	DeleteAuthFailures(ctx context.Context, name string, methods []access.Method) error

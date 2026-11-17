@@ -62,7 +62,7 @@ func (s *Service) pendTemporary(ctx context.Context, tx Tx, j *journal, r Rules,
 	case modeRefused:
 		return nil, ErrInvalidCredentials, false, s.useTemporaryIn(ctx, tx, j, u, c)
 	}
-	if reenabled, err = resetFailures(ctx, tx, a); err != nil {
+	if reenabled, err = resetFailures(ctx, tx, a.ref, a.lockedAt); err != nil {
 		return nil, nil, false, err
 	}
 	methods, refused, err := s.ticketMethods(ctx, tx, r, u, NextSetCredential, ticketMint{secure: c.Secure})

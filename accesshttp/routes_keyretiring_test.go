@@ -20,8 +20,8 @@ type retiringRequest struct {
 
 func literal(body string) func(testing.TB) string { return func(testing.TB) string { return body } }
 
-// Every route a key can reach, sorted by design Part 2's rule "A retiring
-// secret cannot create or restore a way in" and 5.28. A route in
+// Every route a key can reach, sorted by the rule that a retiring secret
+// cannot create or restore a way in. A route in
 // keyIssuing issues a credential or changes a binding, so a key's
 // superseded secret is refused there; keyGrantsNothing names why a route's
 // writes stay open; keyReads write nothing.
@@ -31,7 +31,8 @@ var (
 		"authAdminUserCreate": {body: func(t testing.TB) string {
 			return jsonBody(t, NewUserRequest{Username: "carol", Password: testPassword})
 		}},
-		"authAdminInvite":            {body: literal(`{"role":"user"}`)},
+		"authAdminInvite": {body: literal(`{"role":"user"}`)},
+		// Its disable and role-only bodies stay open: account's TestGuardRetiringKeyDisableAllowed.
 		"authAdminUserUpdate":        {target: "dave", body: literal(`{"enabled":true}`)},
 		"authAdminTemporaryPassword": {target: "alice", body: literal(`{}`)},
 		"authAdminOIDCUnlink":        {target: "alice", body: literal("")},
@@ -39,7 +40,6 @@ var (
 		"authAdminSecondFactorReset": {target: "alice", body: literal("")},
 	}
 	keyGrantsNothing = map[string]string{
-		"authAdminUserUpdate": "a disable, or a role change alone, removes access",
 		"authAdminUserDelete": "deleting an account leaves no way in",
 		"authAdminKeyRevoke":  "revoking any key is no new power and issues nothing",
 		"authKeyRevoke":       "revoking the caller's own key removes access",
@@ -65,6 +65,8 @@ func TestKeyRoutesClassified(t *testing.T) {
 		switch {
 		case !issues && !open && !read:
 			t.Errorf("%s (%s) admits a key and is in no list of the retiring-secret walk", s.name, s.op)
+		case issues && open:
+			t.Errorf("%s is listed as issuing and as open", s.name)
 		case read && (issues || open):
 			t.Errorf("%s is listed as a read and as a write", s.name)
 		case read != (s.method == http.MethodGet):
@@ -79,9 +81,9 @@ func TestKeyRoutesClassified(t *testing.T) {
 	}
 }
 
-// TestRetiringKeyIssuesNothing is design 5.28 through the wire: a key
-// presenting the secret a rotation superseded gets 403 auth_forbidden,
-// reason key_retiring, from every route in keyIssuing.
+// TestRetiringKeyIssuesNothing checks the retiring-secret rule through the
+// wire: a key presenting the secret a rotation superseded gets 403
+// auth_forbidden, reason key_retiring, from every route in keyIssuing.
 func TestRetiringKeyIssuesNothing(t *testing.T) {
 	t.Parallel()
 	for name, req := range keyIssuing {

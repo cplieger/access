@@ -540,6 +540,9 @@ func deleteCalls(tx account.Tx, sd *seeded) []namedCall {
 		}, "DeleteOneTimeTokens"},
 		{func(ctx context.Context) error { _, err := tx.DeleteOneTimeTokensIssuedBy(ctx, []int64{7}); return err }, "DeleteOneTimeTokensIssuedBy"},
 		{func(ctx context.Context) error {
+			return tx.DeleteAuthFailure(ctx, account.FailureRef{Name: "ctx", Method: access.MethodPassword})
+		}, "DeleteAuthFailure"},
+		{func(ctx context.Context) error {
 			return tx.DeleteAuthFailures(ctx, "ctx", []access.Method{access.MethodPassword})
 		}, "DeleteAuthFailures"},
 		{func(ctx context.Context) error { _, err := tx.PruneAuthFailures(ctx, nil); return err }, "PruneAuthFailures"},

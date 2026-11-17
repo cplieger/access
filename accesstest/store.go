@@ -910,6 +910,11 @@ func (t *memTx) UnreportedLocks(context.Context) ([]account.FailureCount, error)
 	return out, nil
 }
 
+func (t *memTx) DeleteAuthFailure(_ context.Context, ref account.FailureRef) error {
+	delete(t.s.failures, ref)
+	return nil
+}
+
 func (t *memTx) DeleteAuthFailures(_ context.Context, name string, methods []access.Method) error {
 	for _, m := range methods {
 		for _, trusted := range []bool{false, true} {
@@ -1433,6 +1438,11 @@ func (m *MemStore) PutAuthFailure(ctx context.Context, f account.FailureCount) e
 // UnreportedLocks implements [account.FailureStore].
 func (m *MemStore) UnreportedLocks(ctx context.Context) ([]account.FailureCount, error) {
 	return m.view().UnreportedLocks(ctx)
+}
+
+// DeleteAuthFailure implements [account.FailureStore].
+func (m *MemStore) DeleteAuthFailure(ctx context.Context, ref account.FailureRef) error {
+	return m.write(func(tx *memTx) (bool, error) { return true, tx.DeleteAuthFailure(ctx, ref) })
 }
 
 // DeleteAuthFailures implements [account.FailureStore].

@@ -416,7 +416,7 @@ func TestStepOneSettles(t *testing.T) {
 			}
 		}
 		if n := warnings(f.logs); n != 1 || named != 1 {
-			t.Errorf("WARN lines = %d, %d naming RequireSecondFactor, want one (4.8)", n, named)
+			t.Errorf("WARN lines = %d, %d naming RequireSecondFactor, want one", n, named)
 		}
 	})
 }

@@ -248,7 +248,7 @@ func TestSignInWithCode(t *testing.T) {
 			t.Fatalf("SignInWithCode under DisableTOTP = %v, want ErrTOTPDisabled", err)
 		}
 		if _, err := f.svc.SignInWithCode(t.Context(), clientAt(1), access.NewSecret("unknown"), "123456"); !errors.Is(err, account.ErrTOTPDisabled) {
-			t.Errorf("an unknown ticket under DisableTOTP = %v, want ErrTOTPDisabled with no ticket condition (4.38)", err)
+			t.Errorf("an unknown ticket under DisableTOTP = %v, want ErrTOTPDisabled before the ticket is read", err)
 		}
 		f.set(account.Rules{})
 		if _, err := f.svc.SignInWithCode(t.Context(), clientAt(1), ticket, codeNow(secret)); err != nil {

@@ -102,7 +102,7 @@ func (s *Service) changePassword(ctx context.Context, r Rules, c Client, p acces
 		if chErr := s.changeCredential(ctx, tx, r, p, u, &ch); chErr != nil {
 			return chErr
 		}
-		s.addReenabled(j, cleared, p, a.ref.Trusted)
+		j.addReenabled(cleared, a.ref, s.now(), eventActor(As(p)))
 		s.addCredentialChange(j, EventPasswordChanged, p, &ch)
 		return nil
 	})
@@ -121,8 +121,8 @@ func (s *Service) changePassword(ctx context.Context, r Rules, c Client, p acces
 // last-method guard ErrLastMethod, all before any limiter charge or count.
 // current is counted as SetPassword's. The removal commits only while the guard
 // passes and the verified hash is stored, resets the password's failure
-// records, deletes the TOTP record and recovery code it protected, and rotates
-// p's session into Issued with the device cookie.
+// record of c's trust context, deletes the TOTP record and recovery code it
+// protected, and rotates p's session into Issued with the device cookie.
 func (s *Service) RemovePassword(ctx context.Context, c Client, p access.Principal, current access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
 	r, err := s.beginRecentSession(plainRefused, c.Secure && p.Secure, p)
 	if err != nil {
@@ -183,7 +183,7 @@ func (s *Service) removePasswordIn(ctx context.Context, tx Tx, j *journal, r Rul
 	if err != nil {
 		return rotated{}, err
 	}
-	s.addReenabled(j, cleared, p, a.ref.Trusted)
+	j.addReenabled(cleared, a.ref, s.now(), eventActor(As(p)))
 	j.add(Event{Kind: EventPasswordRemoved, At: s.now(), UserID: p.User.ID, Method: access.MethodPassword, Actor: eventActor(As(p))})
 	return rot, s.dropSecondFactors(ctx, tx, j, stored, eventActor(As(p)))
 }
@@ -297,12 +297,4 @@ func (s *Service) addCredentialChange(j *journal, kind EventKind, p access.Princ
 	j.add(Event{Kind: kind, At: s.now(), UserID: userID, Method: access.MethodPassword, Actor: actor})
 	s.addRevoked(j, userID, ch.sessions, actor)
 	s.addKeysRevoked(j, userID, ch.keys, actor)
-}
-
-// addReenabled adds the EventMethodReenabled of a reported lock a verified
-// password's reset cleared.
-func (s *Service) addReenabled(j *journal, reenabled bool, p access.Principal, trusted bool) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	if reenabled {
-		j.add(Event{Kind: EventMethodReenabled, At: s.now(), UserID: p.User.ID, Method: access.MethodPassword, Trusted: trusted, Actor: eventActor(As(p))})
-	}
 }

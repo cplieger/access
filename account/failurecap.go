@@ -249,52 +249,47 @@ func (s *Service) readTemporary(ctx context.Context, tx Tx, a *passwordAttempt, 
 	return nil
 }
 
-// resetFailures runs inside the success Update: of the password's two
-// records of a's name, one that is not locked goes, a locked one keeps its
-// lock at Count 0, and the lock a's own count set goes too, since a's
-// attempt was no failure. LockedAt, stamped at the millisecond, is that
-// lock's identity. It reports whether the lock had been reported, which the
-// caller follows with EventMethodReenabled.
-func resetFailures(ctx context.Context, tx Tx, a *passwordAttempt) (bool, error) {
-	var keep []FailureCount
-	found, reenabled := false, false
-	for _, trusted := range []bool{false, true} {
-		rec, ok, readErr := tx.AuthFailure(ctx, FailureRef{Name: a.ref.Name, Method: access.MethodPassword, Trusted: trusted})
-		if readErr != nil {
-			return false, readErr
-		}
-		if !ok {
-			continue
-		}
-		found = true
-		own := trusted == a.ref.Trusted && rec.Locked && !a.lockedAt.IsZero() && rec.LockedAt.Equal(a.lockedAt)
-		switch {
-		case own:
-			reenabled = !rec.Unreported
-		case rec.Locked:
-			rec.Count = 0
-			keep = append(keep, rec)
-		}
-	}
-	if !found {
-		return false, nil
-	}
-	if err := tx.DeleteAuthFailures(ctx, a.ref.Name, []access.Method{access.MethodPassword}); err != nil {
+// resetFailures is every counted method's reset, inside a correct secret's
+// success Update. It touches ref's record alone, so a success never resets
+// the other trust context's count (OWASP, "Slow Down Online Guessing
+// Attacks with Device Cookies"). The record goes when unlocked or locked at
+// lockedAt, the LockedAt the step's own count stamped; another attempt's
+// lock stays, at Count 0. It reports an own lock the sweep had reported,
+// which the caller journals through addReenabled.
+func resetFailures(ctx context.Context, tx Tx, ref FailureRef, lockedAt time.Time) (reenabled bool, err error) {
+	rec, found, err := tx.AuthFailure(ctx, ref)
+	switch {
+	case err != nil || !found:
 		return false, err
+	case rec.Locked && (lockedAt.IsZero() || !rec.LockedAt.Equal(lockedAt)):
+		rec.FailureRef, rec.Count = ref, 0
+		return false, tx.PutAuthFailure(ctx, rec)
 	}
-	for i := range keep {
-		if err := tx.PutAuthFailure(ctx, keep[i]); err != nil {
-			return false, err
-		}
+	return rec.Locked && !rec.Unreported, tx.DeleteAuthFailure(ctx, ref)
+}
+
+// addReenabled journals, when reenabled, the EventMethodReenabled of the
+// reported lock resetFailures cleared from ref, by actor at at.
+func (j *journal) addReenabled(reenabled bool, ref FailureRef, at time.Time, actor EventActor) {
+	if reenabled {
+		j.add(Event{Kind: EventMethodReenabled, At: at, UserID: actor.UserID, Method: ref.Method, Trusted: ref.Trusted, Actor: actor})
 	}
-	return reenabled, nil
+}
+
+// signInActor is the time and actor of an entry a sign-in journals for u:
+// its session sess, or u alone at now when no session was written.
+func (s *Service) signInActor(u *access.User, sess *access.Session) (time.Time, EventActor) {
+	if sess == nil {
+		return s.now(), EventActor{UserID: u.ID}
+	}
+	return sess.CreatedAt, EventActor{UserID: u.ID, SessionID: sess.ID}
 }
 
 // commitVerified is the head of every verified password's success Update:
 // it goes on only while a's user is still stored, enabled and holding the
 // verified hash (else ErrInvalidCredentials, writing nothing), writes the
-// rehash, and resets the records. It returns the user as stored and resetFailures'
-// answer.
+// rehash, and runs resetFailures on a's record. It returns the user as
+// stored and resetFailures' answer.
 func commitVerified(ctx context.Context, tx Tx, a *passwordAttempt) (*access.User, bool, error) {
 	u, found, err := tx.UserByID(ctx, a.user.ID)
 	switch {
@@ -309,7 +304,7 @@ func commitVerified(ctx context.Context, tx Tx, a *passwordAttempt) (*access.Use
 			return nil, false, updateErr
 		}
 	}
-	reenabled, err := resetFailures(ctx, tx, a)
+	reenabled, err := resetFailures(ctx, tx, a.ref, a.lockedAt)
 	if err != nil {
 		return nil, false, err
 	}

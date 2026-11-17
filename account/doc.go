@@ -140,15 +140,16 @@
 //     that returns an error is treated as having deleted nothing, and
 //     account emits nothing for it (rules 5 and 10).
 //  15. Failure records. AuthFailure reports absence through found (rule 1).
-//     PutAuthFailure upserts one record, and DeleteAuthFailures removes the
-//     listed methods' records of one name in both trust contexts, skipping
+//     PutAuthFailure upserts one record, DeleteAuthFailure removes the one
+//     record its ref names, and DeleteAuthFailures removes the listed
+//     methods' records of one name in both trust contexts; both skip
 //     absent ones. A Name is opaque: the store indexes it and derives
 //     nothing from it. PruneAuthFailures(keep) leaves exactly the records
 //     whose Name is in keep and reports how many it removed.
 //     UnreportedLocks returns exactly the records with Unreported set. The
 //     bound, which the store's prune and account's admission make together:
-//     at any time the store holds at most 2 × len(users) records of user
-//     names (one counted method, two trust contexts), plus
+//     at any time the store holds at most 6 × len(users) records of user
+//     names (three counted methods, two trust contexts), plus
 //     2 × MaxUntrustedCounts (20,000) records of other names, plus the
 //     records of users deleted since the last sweep, plus at most one
 //     trusted record per counted method for each user deleted within the

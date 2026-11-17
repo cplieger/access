@@ -58,11 +58,13 @@ var _ account.Store = (*faultStore)(nil)
 
 // storeCall is one recorded store call. update is the ordinal of the
 // Update it ran in, 0 for a single call; arg is the name a failure-record
-// or username call carries.
+// or username call carries, and ref the record a one-record failure call
+// names.
 type storeCall struct {
 	ctx    context.Context
 	name   string
 	arg    string
+	ref    account.FailureRef
 	update int
 }
 
@@ -191,15 +193,19 @@ func (s *faultStore) resetRecord() {
 	s.calls, s.commits = nil, nil
 }
 
-func (s *faultStore) record(ctx context.Context, update int, name, arg string) {
+func (s *faultStore) record(c storeCall) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.calls = append(s.calls, storeCall{ctx: ctx, name: name, arg: arg, update: update})
+	s.calls = append(s.calls, c)
 }
 
 func (s *faultStore) read(ctx context.Context, update int, name, arg string) {
-	s.record(ctx, update, name, arg)
-	if d := time.Duration(s.readDelay.Load()); update == 0 && d > 0 {
+	s.readCall(storeCall{ctx: ctx, name: name, arg: arg, update: update})
+}
+
+func (s *faultStore) readCall(c storeCall) {
+	s.record(c)
+	if d := time.Duration(s.readDelay.Load()); c.update == 0 && d > 0 {
 		time.Sleep(d) // the sleeping-single-call store: a check outside Update loses its race
 	}
 }
@@ -214,14 +220,18 @@ func (s *faultStore) refusableRead(ctx context.Context, update int, name string)
 }
 
 func (s *faultStore) write(ctx context.Context, update int, name, arg string) error {
-	s.record(ctx, update, name, arg)
-	if r := s.refuseNamed.Load(); r != nil && r.name == name && s.refuseNamed.CompareAndSwap(r, nil) {
+	return s.writeCall(storeCall{ctx: ctx, name: name, arg: arg, update: update})
+}
+
+func (s *faultStore) writeCall(c storeCall) error {
+	s.record(c)
+	if r := s.refuseNamed.Load(); r != nil && r.name == c.name && s.refuseNamed.CompareAndSwap(r, nil) {
 		return r.err
 	}
-	if update == 0 {
+	if c.update == 0 {
 		return nil
 	}
-	if named := s.failNamed.Load(); named != nil && *named == name && s.namedSkip.Add(-1) < 0 && s.failNamed.CompareAndSwap(named, nil) {
+	if named := s.failNamed.Load(); named != nil && *named == c.name && s.namedSkip.Add(-1) < 0 && s.failNamed.CompareAndSwap(named, nil) {
 		return errFault
 	}
 	n := s.writes.Add(1)
@@ -248,7 +258,7 @@ func (s *faultStore) Update(ctx context.Context, fn func(account.Tx) error) erro
 	start := time.Now()
 	defer func() { s.updateNanos.Add(int64(time.Since(start))) }()
 	n := int(s.updates.Add(1))
-	s.record(ctx, n, "Update", "")
+	s.record(storeCall{ctx: ctx, name: "Update", update: n})
 	s.mu.Lock()
 	hook := s.beforeUpdate
 	s.mu.Unlock()
@@ -434,17 +444,17 @@ func (s *faultStore) scrub(keys ...*access.Key) {
 }
 
 func (s *faultStore) CleanupExpiredSessions(ctx context.Context, now time.Time, timeouts access.SessionTimeouts, limit int) ([]access.SessionRef, error) {
-	s.record(ctx, 0, "CleanupExpiredSessions", "")
+	s.record(storeCall{ctx: ctx, name: "CleanupExpiredSessions"})
 	return s.mem.CleanupExpiredSessions(ctx, now, timeouts, limit)
 }
 
 func (s *faultStore) CleanupExpiredOneTimeTokens(ctx context.Context, now time.Time) (int64, error) {
-	s.record(ctx, 0, "CleanupExpiredOneTimeTokens", "")
+	s.record(storeCall{ctx: ctx, name: "CleanupExpiredOneTimeTokens"})
 	return s.mem.CleanupExpiredOneTimeTokens(ctx, now)
 }
 
 func (s *faultStore) ClearRetiredAPIKeySecrets(ctx context.Context, now time.Time, limit int) (int, error) {
-	s.record(ctx, 0, "ClearRetiredAPIKeySecrets", "")
+	s.record(storeCall{ctx: ctx, name: "ClearRetiredAPIKeySecrets"})
 	return s.mem.ClearRetiredAPIKeySecrets(ctx, now, limit)
 }
 
@@ -818,12 +828,12 @@ func (t *faultTx) ListKeyAttributions(ctx context.Context) ([]access.KeyAttribut
 }
 
 func (t *faultTx) AuthFailure(ctx context.Context, ref account.FailureRef) (account.FailureCount, bool, error) {
-	t.s.read(ctx, t.update, "AuthFailure", ref.Name)
+	t.s.readCall(storeCall{ctx: ctx, name: "AuthFailure", arg: ref.Name, ref: ref, update: t.update})
 	return t.inner.AuthFailure(ctx, ref)
 }
 
 func (t *faultTx) PutAuthFailure(ctx context.Context, f account.FailureCount) error {
-	if err := t.s.write(ctx, t.update, "PutAuthFailure", f.Name); err != nil {
+	if err := t.s.writeCall(storeCall{ctx: ctx, name: "PutAuthFailure", arg: f.Name, ref: f.FailureRef, update: t.update}); err != nil {
 		return err
 	}
 	if t.s.msTimes.Load() {
@@ -845,6 +855,13 @@ func (t *faultTx) UnreportedLocks(ctx context.Context) ([]account.FailureCount, 
 		slices.SortStableFunc(locks, func(a, b account.FailureCount) int { return rank(a) - rank(b) })
 	}
 	return locks, err
+}
+
+func (t *faultTx) DeleteAuthFailure(ctx context.Context, ref account.FailureRef) error {
+	if err := t.s.writeCall(storeCall{ctx: ctx, name: "DeleteAuthFailure", arg: ref.Name, ref: ref, update: t.update}); err != nil {
+		return err
+	}
+	return t.inner.DeleteAuthFailure(ctx, ref)
 }
 
 func (t *faultTx) DeleteAuthFailures(ctx context.Context, name string, methods []access.Method) error {

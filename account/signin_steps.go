@@ -93,8 +93,9 @@ func (s *Service) SignInWithCode(ctx context.Context, c Client, ticket access.Se
 		return LoginResult{}, access.ErrTokenInvalid
 	}
 	var (
-		ch codeCheck
-		m  codeMatch
+		ch        codeCheck
+		m         codeMatch
+		reenabled bool
 	)
 	out, err := s.signIn(ctx, r, c, &sessionOp{
 		method: access.MethodPassword,
@@ -115,7 +116,13 @@ func (s *Service) SignInWithCode(ctx context.Context, c Client, ticket access.Se
 			if userErr != nil {
 				return nil, userErr
 			}
-			return u, s.commitCode(ctx, tx, &ch, m)
+			var commitErr error
+			reenabled, commitErr = s.commitCode(ctx, tx, &ch, m)
+			return u, commitErr
+		},
+		announce: func(j *journal, u *access.User, sess *access.Session) {
+			at, actor := s.signInActor(u, sess)
+			j.addReenabled(reenabled, ch.ref, at, actor)
 		},
 	})
 	return s.stepAnswered(ctx, c, ticket, &entry, access.MethodTOTP, out, err)

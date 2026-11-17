@@ -106,7 +106,7 @@ func recoveryFailures(t testing.TB, f *sfFixture, name string, trusted bool) (ac
 // 800-63B-4 §4.2.1.1's saved recovery code, used once after the password.
 func TestSignInWithRecoveryCode(t *testing.T) {
 	t.Parallel()
-	// Design 4.6: the step commits its count, which the match clears,
+	// The step commits its count, which the match clears,
 	// and answers a recovered NextEnrol, never a session.
 	t.Run("answers_a_recovered_enrolment", func(t *testing.T) {
 		t.Parallel()
@@ -224,7 +224,7 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 			t.Errorf("second_factor_failed = %+v, want one recovery_code entry for alice", evs)
 		}
 	})
-	// Design 4.6 and 4.59: a match clears its own trust context's count,
+	// A match clears its own trust context's count,
 	// as a correct TOTP code does, so a right code at FailureCap-1 never
 	// locks and an abandoned recovery leaves the code usable; the other
 	// context's count stays.
@@ -255,14 +255,14 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 			t.Errorf("the count after the abandoned recovery's retry = %+v, want none", rec)
 		}
 	})
-	// Design 4.59: a clear that fails fails the step, which mints no
+	// A clear that fails fails the step, which mints no
 	// ticket and leaves the committed count.
 	t.Run("clear_fails_closed", func(t *testing.T) {
 		t.Parallel()
 		fs := newFaultStore()
 		f := newSF(t, account.Rules{}, pwOptions{store: fs})
 		_, ticket, _ := recoveryTicket(t, f, clientAt(1))
-		fs.failCall("DeleteAuthFailures")
+		fs.failCall("DeleteAuthFailure")
 		out, err := f.svc.SignInWithRecoveryCode(t.Context(), clientAt(1), ticket, knownRecoveryShown)
 		if !errors.Is(err, access.ErrAuthBackend) || out.Pending != nil {
 			t.Fatalf("SignInWithRecoveryCode with a failing clear = %+v, %v; want no ticket and access.ErrAuthBackend", out, err)

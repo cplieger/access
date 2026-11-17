@@ -144,7 +144,7 @@ func (s *Service) PasskeyRegisterBegin(ctx context.Context, c Client, p access.P
 	return PendingCeremony{ID: id, Creation: cc}, nil
 }
 
-// proveIfHeld verifies and commits proof, in its own Update, while u holds
+// proveIfHeld verifies and commits proof, in its own change, while u holds
 // a second factor; it is nil otherwise, any proof sent unread.
 func (s *Service) proveIfHeld(ctx context.Context, r Rules, c Client, p access.Principal, u *access.User, proof SecondFactorProof) error { //nolint:gocritic // hugeParam: the operation's one Rules value, Client and Principal
 	held, err := s.secondFactorHeld(ctx, s.store, r, u)
@@ -158,7 +158,7 @@ func (s *Service) proveIfHeld(ctx context.Context, r Rules, c Client, p access.P
 	if err != nil {
 		return err
 	}
-	err = s.update(ctx, func(tx Tx) error { return pr.commit(ctx, s, tx) })
+	err = s.change(ctx, byClient(As(p), c), func(tx Tx, j *journal) error { return pr.commit(ctx, s, tx, j, p) })
 	pr.settle(err)
 	return err
 }
@@ -415,7 +415,7 @@ func (s *Service) removePasskeyIn(ctx context.Context, tx Tx, j *journal, r Rule
 	if heldNow, heldErr := s.secondFactorHeld(ctx, tx, r, cur); heldErr != nil || heldNow && !held {
 		return cmp.Or(heldErr, refuse(ErrSecondFactorProofRequired))
 	}
-	if commitErr := pr.commit(ctx, s, tx); commitErr != nil {
+	if commitErr := pr.commit(ctx, s, tx, j, p); commitErr != nil {
 		return commitErr
 	}
 	if delErr := tx.DeletePasskey(ctx, access.PasskeyRef{ID: gone.passkeyID, UserID: cur.ID}); delErr != nil {

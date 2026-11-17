@@ -116,6 +116,11 @@ func (s *countingStore) DeleteAPIKey(ctx context.Context, a1 access.KeyRef) erro
 	return s.next.DeleteAPIKey(ctx, a1)
 }
 
+func (s *countingStore) DeleteAuthFailure(ctx context.Context, a1 account.FailureRef) error {
+	s.count(ctx, "DeleteAuthFailure")
+	return s.next.DeleteAuthFailure(ctx, a1)
+}
+
 func (s *countingStore) DeleteAuthFailures(ctx context.Context, a1 string, a2 []access.Method) error {
 	s.count(ctx, "DeleteAuthFailures")
 	return s.next.DeleteAuthFailures(ctx, a1, a2)

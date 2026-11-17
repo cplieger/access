@@ -277,10 +277,13 @@ func TestCapPerTrustContext(t *testing.T) {
 			if !relocked[i].Locked {
 				t.Fatalf("trusted=%t record after the re-enable and %d more failures = %+v, want a new lock", isTrusted, account.FailureCap, relocked[i])
 			}
-			rec, found := record(t, p.mem, p.svc, "alice", isTrusted)
-			if !found || !rec.Locked || rec.Count != 0 || !rec.LockedAt.Equal(relocked[i].LockedAt) {
-				t.Errorf("trusted=%t record after the success = %+v (found %t), want the new lock at %v kept at count 0", isTrusted, rec, found, relocked[i].LockedAt)
-			}
+		}
+		if rec, found := record(t, p.mem, p.svc, "alice", false); !found || !rec.Locked || rec.Count != 0 || !rec.LockedAt.Equal(relocked[0].LockedAt) {
+			t.Errorf("untrusted record after the success = %+v (found %t), want the new lock at %v kept at count 0", rec, found, relocked[0].LockedAt)
+		}
+		// The untrusted success leaves the trusted context's record as it was.
+		if rec, found := record(t, p.mem, p.svc, "alice", true); !found || !rec.Locked || rec.Count != relocked[1].Count || !rec.LockedAt.Equal(relocked[1].LockedAt) {
+			t.Errorf("trusted record after the untrusted success = %+v (found %t), want it untouched at %+v", rec, found, relocked[1])
 		}
 	})
 	t.Run("trusted_success_resets_its_record", func(t *testing.T) {
@@ -317,8 +320,8 @@ func TestCapPerTrustContext(t *testing.T) {
 				t.Errorf("untrusted record = %+v after the success, want the lock it set cleared", rec)
 			}
 			rec, found := record(t, p.mem, p.svc, "alice", true)
-			if !found || !rec.Locked || rec.Count != 0 || !rec.LockedAt.Equal(start.Truncate(time.Millisecond)) {
-				t.Errorf("trusted record after the untrusted success = %+v (found %t), want its lock at %v kept at count 0", rec, found, start.Truncate(time.Millisecond))
+			if !found || !rec.Locked || rec.Count != account.FailureCap || !rec.LockedAt.Equal(start.Truncate(time.Millisecond)) {
+				t.Errorf("trusted record after the untrusted success = %+v (found %t), want its lock at %v untouched at count %d", rec, found, start.Truncate(time.Millisecond), account.FailureCap)
 			}
 		})
 	})

@@ -178,7 +178,7 @@ func (s *Service) storeEnrolment(ctx context.Context, tx Tx, j *journal, r Rules
 	case found != e.replacing || found && !cur.CreatedAt.Equal(e.old.CreatedAt):
 		return Enrolled{}, refuse(access.ErrTokenInvalid)
 	}
-	if commitErr := pr.commit(ctx, s, tx); commitErr != nil {
+	if commitErr := pr.commit(ctx, s, tx, j, p); commitErr != nil {
 		return Enrolled{}, commitErr
 	}
 	sealed, err := s.sealTOTP(u.ID, e.secret)
@@ -249,7 +249,7 @@ func (s *Service) removeTOTPIn(ctx context.Context, tx Tx, j *journal, r Rules, 
 		if guardErr := s.guardSecondFactor(ctx, tx, r, cur, gone); guardErr != nil {
 			return guardErr
 		}
-		if commitErr := pr.commit(ctx, s, tx); commitErr != nil {
+		if commitErr := pr.commit(ctx, s, tx, j, p); commitErr != nil {
 			return commitErr
 		}
 	}
@@ -307,14 +307,17 @@ func (s *Service) StepUpCode(ctx context.Context, c Client, p access.Principal, 
 		if modeErr := requireLocal(ctx, tx, cur, ErrSSOOnly); modeErr != nil {
 			return modeErr
 		}
-		if commitErr := pr.commit(ctx, s, tx); commitErr != nil {
+		reenabled, commitErr := s.commitCode(ctx, tx, pr.check, pr.match)
+		if commitErr != nil {
 			return commitErr
 		}
 		var rotErr error
 		if rot, rotErr = s.rotate(ctx, tx, p, cur.ID, access.MethodTOTP); rotErr != nil {
 			return rotErr
 		}
-		j.add(Event{Kind: EventSteppedUp, At: rot.session.AuthTime, UserID: cur.ID, Method: access.MethodTOTP, SessionIDs: []string{rot.session.ID}, Actor: eventActor(As(p))})
+		actor := eventActor(As(p))
+		j.addReenabled(reenabled, pr.check.ref, rot.session.AuthTime, actor)
+		j.add(Event{Kind: EventSteppedUp, At: rot.session.AuthTime, UserID: cur.ID, Method: access.MethodTOTP, SessionIDs: []string{rot.session.ID}, Actor: actor})
 		return nil
 	})
 	pr.settle(err)

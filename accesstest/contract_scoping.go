@@ -243,6 +243,7 @@ func (c *contract) callerFaults(t *testing.T) {
 // failureRecords: rule 15.
 func (c *contract) failureRecords(t *testing.T) {
 	t.Run("put_get_delete", c.failurePutGetDelete)
+	t.Run("delete_one", c.failureDeleteOne)
 	t.Run("prune", c.failurePrune)
 	t.Run("unreported_locks", c.failureUnreported)
 }
@@ -287,6 +288,53 @@ func (c *contract) failurePutGetDelete(t *testing.T) {
 	}
 	if got := present(); !slices.Equal(got, []int{3, 4}) {
 		t.Errorf("after DeleteAuthFailures(n1, [password oidc]) records left %v, want [3 4]", got)
+	}
+}
+
+// failureDeleteOne: DeleteAuthFailure removes exactly the record its ref
+// names, the same name and method in the other trust context kept, and
+// skips an absent one.
+func (c *contract) failureDeleteOne(t *testing.T) {
+	s, ctx := c.store(t), t.Context()
+	records := []account.FailureCount{
+		{FailureRef: failureRef("n1", access.MethodPassword, false), Count: 1},
+		{FailureRef: failureRef("n1", access.MethodPassword, true), Count: 2, Locked: true, LockedAt: epoch},
+		{FailureRef: failureRef("n1", access.MethodTOTP, false), Count: 3},
+		{FailureRef: failureRef("n2", access.MethodPassword, false), Count: 4},
+	}
+	for _, f := range records {
+		if err := s.PutAuthFailure(ctx, f); err != nil {
+			t.Fatalf("PutAuthFailure: %v", err)
+		}
+	}
+	present := func() []int { return presentFailures(t, s, records) }
+	if err := s.DeleteAuthFailure(ctx, records[0].FailureRef); err != nil {
+		t.Fatalf("DeleteAuthFailure: %v", err)
+	}
+	if got := present(); !slices.Equal(got, []int{2, 3, 4}) {
+		t.Errorf("after DeleteAuthFailure(n1, password, untrusted) records left %v, want [2 3 4]", got)
+	}
+	for _, ref := range []account.FailureRef{records[0].FailureRef, failureRef("absent", access.MethodPassword, true)} {
+		if err := s.DeleteAuthFailure(ctx, ref); err != nil {
+			t.Errorf("DeleteAuthFailure(%v), absent = %v, want nil", ref, err)
+		}
+	}
+	if err := s.Update(ctx, func(tx account.Tx) error {
+		if err := tx.DeleteAuthFailure(ctx, records[1].FailureRef); err != nil {
+			return err
+		}
+		return errContract
+	}); !errors.Is(err, errContract) {
+		t.Fatalf("Update = %v, want the callback's error", err)
+	}
+	if got := present(); !slices.Equal(got, []int{2, 3, 4}) {
+		t.Errorf("a rolled-back DeleteAuthFailure left %v, want [2 3 4]", got)
+	}
+	if err := s.Update(ctx, func(tx account.Tx) error { return tx.DeleteAuthFailure(ctx, records[1].FailureRef) }); err != nil {
+		t.Fatalf("Update(DeleteAuthFailure): %v", err)
+	}
+	if got := present(); !slices.Equal(got, []int{3, 4}) {
+		t.Errorf("after DeleteAuthFailure(n1, password, trusted) in an Update records left %v, want [3 4]", got)
 	}
 }
 

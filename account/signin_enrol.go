@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"slices"
+	"time"
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/internal/crockford"
@@ -23,21 +24,22 @@ type PendingTOTP struct {
 }
 
 // recoveryMatch is what a matched recovery code replaces its ticket with:
-// the NextEnrol methods the count Update decided, and the matched hash.
+// the NextEnrol methods the count Update decided and the matched hash, and
+// the LockedAt the count stamped (zero for none), which resetFailures reads.
 type recoveryMatch struct {
-	hash    access.Hash
-	methods []access.Method
+	lockedAt time.Time
+	hash     access.Hash
+	methods  []access.Method
 }
 
-// SignInWithRecoveryCode spends nothing: a matching recovery code clears
-// its failure count and replaces ticket's pending sign-in with a NextEnrol
-// one marked Recovered, whose enrolment finish spends the code. Its
-// refusals, in order: stepTicket's; no live ticket listing recovery_code,
-// access.ErrTokenInvalid; a code not 16 Crockford symbols once normalised, a
-// *MalformedError; the limiter's and the hasher's; then the count's and the
-// clear's, where a code or user gone ends the ticket. A wrong code keeps the
-// ticket, the first journalling EventSecondFactorFailed; an empty enrolment
-// set is ErrNoUsableMethod.
+// SignInWithRecoveryCode spends nothing: a matching code clears its own
+// failure count and replaces ticket's pending sign-in with a Recovered
+// NextEnrol one, whose enrolment finish spends the code. Refusals, in order:
+// stepTicket's; no live ticket listing recovery_code, access.ErrTokenInvalid;
+// a code not 16 Crockford symbols once normalised, a *MalformedError; the
+// limiter's, the hasher's, the count's and the clear's, a code or user gone
+// ending the ticket. A wrong code keeps it, the first journalling
+// EventSecondFactorFailed; an empty enrolment set is ErrNoUsableMethod.
 func (s *Service) SignInWithRecoveryCode(ctx context.Context, c Client, ticket access.Secret, code string) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	r, entry, found, err := s.stepTicket(ticket, c, plainRefused)
 	switch {
@@ -66,10 +68,10 @@ func (s *Service) SignInWithRecoveryCode(ctx context.Context, c Client, ticket a
 
 // matchRecoveryCode is the recovery-code step's count, in its own committed
 // Update, then its compare against the stored hash outside it, holding a
-// hash permit taken before the count. A match clears ref's failure record
-// in one more Update and cancels the reservation, since the sign-in goes
-// on, then answers the replacement's methods or the refusal of an empty
-// set; a wrong code fails it. A failed clear fails the step.
+// hash permit taken before the count. A match cancels the reservation,
+// since the sign-in goes on, and runs clearRecoveryIn in one more change,
+// then answers the replacement's methods or the refusal of an empty set; a
+// wrong code fails it. A failed clear fails the step.
 func (s *Service) matchRecoveryCode(ctx context.Context, r Rules, c Client, entry *pending, canonical string) (m recoveryMatch, refused, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
 	res, err := s.stepAttempt(c, entry)()
 	if err != nil {
@@ -86,6 +88,9 @@ func (s *Service) matchRecoveryCode(ctx context.Context, r Rules, c Client, entr
 		m, refused, countErr = s.countRecoveryIn(ctx, tx, r, c, entry, ref)
 		return countErr
 	})
+	if s.hooks.codeCounted != nil {
+		s.hooks.codeCounted(ctx)
+	}
 	if err != nil {
 		settleRefused(res, err)
 		return recoveryMatch{}, nil, err
@@ -104,24 +109,30 @@ func (s *Service) matchRecoveryCode(ctx context.Context, r Rules, c Client, entr
 		return recoveryMatch{}, nil, &CodeError{Reason: ReasonCodeInvalid}
 	}
 	res.Cancel()
-	if clearErr := s.update(ctx, func(tx Tx) error { return clearRecoveryIn(ctx, tx, entry.user.ID, m.hash, ref) }); clearErr != nil {
+	clearErr := s.change(ctx, byClient(Actor{}, c), func(tx Tx, j *journal) error {
+		reenabled, err := clearRecoveryIn(ctx, tx, &entry.user, &m, ref)
+		at, actor := s.signInActor(&entry.user, nil)
+		j.addReenabled(reenabled, ref, at, actor)
+		return err
+	})
+	if clearErr != nil {
 		return recoveryMatch{}, nil, clearErr
 	}
 	return m, refused, nil
 }
 
-// clearRecoveryIn deletes ref's failure record once userID's recovery code
-// still has the hash that matched; one replaced or deleted since the count
+// clearRecoveryIn runs resetFailures on ref with m's LockedAt once u's
+// recovery code still has m's hash; one replaced or deleted since the count
 // is access.ErrTokenInvalid, so a stale code clears no newer code's count.
-func clearRecoveryIn(ctx context.Context, tx Tx, userID int64, matched access.Hash, ref FailureRef) error {
-	rec, found, err := tx.RecoveryCodeByUserID(ctx, userID)
+func clearRecoveryIn(ctx context.Context, tx Tx, u *access.User, m *recoveryMatch, ref FailureRef) (reenabled bool, err error) {
+	rec, found, err := tx.RecoveryCodeByUserID(ctx, u.ID)
 	switch {
 	case err != nil:
-		return err
-	case !found || rec.Hash.Key() != matched.Key():
-		return refuse(access.ErrTokenInvalid)
+		return false, err
+	case !found || rec.Hash.Key() != m.hash.Key():
+		return false, refuse(access.ErrTokenInvalid)
 	}
-	return resetOwnFailure(ctx, tx, ref)
+	return resetFailures(ctx, tx, ref, m.lockedAt)
 }
 
 // countRecoveryIn is matchRecoveryCode's Update: the ticket's re-check, the
@@ -140,8 +151,8 @@ func (s *Service) countRecoveryIn(ctx context.Context, tx Tx, r Rules, c Client,
 	case !found:
 		return recoveryMatch{}, nil, refuse(access.ErrTokenInvalid)
 	}
-	if countErr := s.addFailure(ctx, tx, ref); countErr != nil {
-		return recoveryMatch{}, nil, countErr
+	if m.lockedAt, err = s.addFailure(ctx, tx, ref); err != nil {
+		return recoveryMatch{}, nil, err
 	}
 	m.hash = rec.Hash
 	m.methods, refused, err = s.ticketMethods(ctx, tx, r, u, NextEnrol, ticketMint{secure: c.Secure})
