@@ -241,8 +241,9 @@ func (s *Service) pendAt(ctx context.Context, tx Tx, r Rules, c Client, u *acces
 	return &pending{user: *u, ticket: ticket{next: next, methods: methods, digest: u.PasswordHash.Key(), secure: c.Secure}}, nil, nil
 }
 
-// mintTicket puts entry, a pending sign-in, in the cache and answers it.
-func (s *Service) mintTicket(entry *pending) *Pending {
+// mintTicket puts entry, a pending sign-in, in the cache and answers it, or
+// the cache's refusal (pendingCache.put).
+func (s *Service) mintTicket(entry *pending) (*Pending, error) {
 	purpose := purposeSignIn
 	switch d := entry.ticket.draft; {
 	case d == nil:
@@ -251,6 +252,9 @@ func (s *Service) mintTicket(entry *pending) *Pending {
 	default:
 		purpose = purposeDraft
 	}
-	id := s.pending.put(purpose, *entry, s.now())
-	return &Pending{Ticket: access.NewSecret(id), Next: entry.ticket.next, Methods: slices.Clone(entry.ticket.methods), Recovered: entry.ticket.recovered != access.HashKey{}}
+	id, err := s.pending.put(purpose, *entry, s.now())
+	if err != nil {
+		return nil, err
+	}
+	return &Pending{Ticket: access.NewSecret(id), Next: entry.ticket.next, Methods: slices.Clone(entry.ticket.methods), Recovered: entry.ticket.recovered != access.HashKey{}}, nil
 }

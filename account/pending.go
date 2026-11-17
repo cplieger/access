@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/ratelimit"
 	"github.com/cplieger/access/webauthn"
 )
 
@@ -52,21 +53,29 @@ const (
 )
 
 // pendingList is one of the cache's lists. Each has one lifetime, so its
-// oldest entry is at its head, and its own cap, so a put evicts only its own
-// purposes' entries: anonymous ceremonies never evict a pending sign-in.
+// oldest entry is at its head, and its own cap. An owned list holds one
+// entry per owner and purpose and refuses a newcomer while full, so no
+// one's entry is lost to another's begins; an anonymous list evicts its
+// oldest entry.
 type pendingList int
 
 const (
+	// listCeremony is anonymous (passkey sign-in and registration begins), so
+	// it evicts its oldest; the per-IP Request limit bounds its rate.
 	listCeremony pendingList = iota
+	listOwnedCeremony
 	listSignIn
 	listEnrolment
 	listDraft
+	// listRegistrationDraft is anonymous, as listCeremony is.
 	listRegistrationDraft
 	numLists
 )
 
 func (p pendingPurpose) list() pendingList {
 	switch p {
+	case purposeSetup, purposeAddPasskey, purposeStepUp:
+		return listOwnedCeremony
 	case purposeSignIn:
 		return listSignIn
 	case purposeEnrolTOTP:
@@ -75,8 +84,31 @@ func (p pendingPurpose) list() pendingList {
 		return listDraft
 	case purposeRegistrationDraft:
 		return listRegistrationDraft
-	default:
+	default: // purposeLogin, purposeRegistration; a ticket's ceremony is in no list
 		return listCeremony
+	}
+}
+
+// owner is whom an owned list's entry belongs to: its user, or for a draft
+// or a setup ceremony the token it spends, zero for a setup that asked for
+// none, of which only one is in flight at a time.
+type owner struct {
+	token   access.HashKey
+	user    int64
+	purpose pendingPurpose
+}
+
+// ownerOf is v's owner when p's list is owned.
+func (p pendingPurpose) ownerOf(v *pending) (owner, bool) {
+	switch p {
+	case purposeSignIn, purposeEnrolTOTP, purposeAddPasskey, purposeStepUp:
+		return owner{purpose: p, user: v.user.ID}, true
+	case purposeDraft:
+		return owner{purpose: p, token: v.ticket.draft.token.Key()}, true
+	case purposeSetup:
+		return owner{purpose: p, token: v.setupToken.Key()}, true
+	default:
+		return owner{}, false
 	}
 }
 
@@ -109,9 +141,14 @@ type enrolment struct {
 type pendingEntry struct {
 	expires    time.Time
 	prev, next *pendingEntry
-	id         string
-	value      pending
-	purpose    pendingPurpose
+	// ceremony is a pending sign-in's one passkey ceremony, and parent that
+	// ceremony's ticket: it is in no list, and it ends with its ticket.
+	ceremony, parent *pendingEntry
+	id               string
+	value            pending
+	owner            owner
+	purpose          pendingPurpose
+	owned            bool
 }
 
 // entryList is one list, oldest first, threaded through its entries.
@@ -122,19 +159,21 @@ type entryList struct {
 }
 
 // pendingCache holds the begun ceremonies and the pending sign-ins, one
-// list per pendingList, with the sign-ins indexed by user so a credential
-// change drops them without a scan.
+// list per pendingList, with an owned list's entries indexed by owner, so a
+// begin finds its owner's earlier entry and a credential change drops a
+// user's pending sign-in without a scan.
 type pendingCache struct {
-	byID   map[string]*pendingEntry
-	byUser map[int64]*pendingEntry // the user's one live pending sign-in
-	lists  [numLists]entryList
-	mu     sync.Mutex
+	byID    map[string]*pendingEntry
+	byOwner map[owner]*pendingEntry
+	lists   [numLists]entryList
+	mu      sync.Mutex
 }
 
-// newPendingCache bounds the ceremony list at maxCeremonies.
+// newPendingCache bounds each ceremony list at maxCeremonies.
 func newPendingCache(maxCeremonies int) *pendingCache {
-	c := &pendingCache{byID: make(map[string]*pendingEntry), byUser: make(map[int64]*pendingEntry)}
+	c := &pendingCache{byID: make(map[string]*pendingEntry), byOwner: make(map[owner]*pendingEntry)}
 	c.lists[listCeremony] = entryList{lifetime: webauthn.CeremonyTimeout, max: maxCeremonies}
+	c.lists[listOwnedCeremony] = entryList{lifetime: webauthn.CeremonyTimeout, max: maxCeremonies}
 	c.lists[listSignIn] = entryList{lifetime: ticketLifetime, max: maxPendingSignIns}
 	c.lists[listEnrolment] = entryList{lifetime: ticketLifetime, max: maxEnrolments}
 	c.lists[listDraft] = entryList{lifetime: ticketLifetime, max: maxDrafts}
@@ -142,29 +181,40 @@ func newPendingCache(maxCeremonies int) *pendingCache {
 	return c
 }
 
-// put stores v under a new 256-bit random ID for its list's lifetime from
-// now. Expired entries of that list go first; when it is still full, its
-// oldest entry is evicted. A pending sign-in replaces its user's earlier
-// one, so a step 1 posted again leaves only the ticket it answers.
-func (c *pendingCache) put(purpose pendingPurpose, v pending, now time.Time) string { //nolint:gocritic // hugeParam: the entry keeps its own copy
+// newPendingID is a fresh 256-bit random entry ID.
+func newPendingID() string {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b) // crypto/rand.Read never fails (Go 1.24+); it crashes the program instead
+	return hex.EncodeToString(b)
+}
+
+// put stores v under a new ID for its list's lifetime from now, after
+// that list's expired entries go. In an owned list v replaces its owner's
+// earlier entry of purpose, and a newcomer to a full list is refused with a
+// *ratelimit.RefusedError retrying when the earliest entry expires; an
+// anonymous list evicts its oldest entry and never refuses.
+func (c *pendingCache) put(purpose pendingPurpose, v pending, now time.Time) (string, error) { //nolint:gocritic // hugeParam: the entry keeps its own copy
 	l := purpose.list()
-	e := &pendingEntry{id: hex.EncodeToString(b), purpose: purpose, value: v, expires: now.Add(c.lists[l].lifetime)}
+	e := &pendingEntry{id: newPendingID(), purpose: purpose, value: v, expires: now.Add(c.lists[l].lifetime)}
+	e.owner, e.owned = purpose.ownerOf(&e.value)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.pruneListLocked(l, now)
-	if l == listSignIn {
-		if old, ok := c.byUser[v.user.ID]; ok {
-			c.unlinkLocked(old)
+	list := &c.lists[l]
+	switch earlier, mine := c.byOwner[e.owner]; {
+	case !e.owned:
+		for list.n >= list.max {
+			c.unlinkLocked(list.head)
 		}
-		c.byUser[v.user.ID] = e
+	case mine:
+		c.unlinkLocked(earlier)
+	case list.n >= list.max:
+		return "", &ratelimit.RefusedError{Dimension: "pending", RetryAfter: list.head.expires.Sub(now)}
 	}
-	for c.lists[l].n >= c.lists[l].max {
-		c.unlinkLocked(c.lists[l].head)
+	if e.owned {
+		c.byOwner[e.owner] = e
 	}
 	c.byID[e.id] = e
-	list := &c.lists[l]
 	e.prev = list.tail
 	if list.tail != nil {
 		list.tail.next = e
@@ -173,7 +223,27 @@ func (c *pendingCache) put(purpose pendingPurpose, v pending, now time.Time) str
 	}
 	list.tail = e
 	list.n++
-	return e.id
+	return e.id, nil
+}
+
+// putOnTicket stores v, a passkey ceremony of purpose begun for ticketID's
+// live pending sign-in, as that ticket's one ceremony for CeremonyTimeout
+// from now, replacing an earlier one; false when the ticket is gone. The
+// ceremony ends with its ticket, so the ticket lists bound it.
+func (c *pendingCache) putOnTicket(ticketID string, purpose pendingPurpose, v pending, now time.Time) (string, bool) { //nolint:gocritic // hugeParam: the entry keeps its own copy
+	e := &pendingEntry{id: newPendingID(), purpose: purpose, value: v, expires: now.Add(webauthn.CeremonyTimeout)}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t, ok := c.byID[ticketID]
+	if !ok || !t.purpose.isTicket() || !now.Before(t.expires) {
+		return "", false
+	}
+	if t.ceremony != nil {
+		c.unlinkLocked(t.ceremony)
+	}
+	e.parent, t.ceremony = t, e
+	c.byID[e.id] = e
+	return e.id, true
 }
 
 // take removes id's entry and returns it when it is of purpose and not
@@ -268,7 +338,7 @@ func (c *pendingCache) unmarkFailed(id string) {
 func (c *pendingCache) dropUser(userID int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if e, ok := c.byUser[userID]; ok {
+	if e, ok := c.byOwner[owner{purpose: purposeSignIn, user: userID}]; ok {
 		c.unlinkLocked(e)
 	}
 }
@@ -291,7 +361,16 @@ func (c *pendingCache) pruneListLocked(l pendingList, now time.Time) {
 	}
 }
 
+// unlinkLocked removes e, and a ticket's ceremony with it.
 func (c *pendingCache) unlinkLocked(e *pendingEntry) {
+	delete(c.byID, e.id)
+	if e.parent != nil {
+		e.parent.ceremony, e.parent = nil, nil
+		return
+	}
+	if e.ceremony != nil {
+		c.unlinkLocked(e.ceremony)
+	}
 	list := &c.lists[e.purpose.list()]
 	if e.prev != nil {
 		e.prev.next = e.next
@@ -305,8 +384,7 @@ func (c *pendingCache) unlinkLocked(e *pendingEntry) {
 	}
 	e.prev, e.next = nil, nil
 	list.n--
-	delete(c.byID, e.id)
-	if e.purpose == purposeSignIn && c.byUser[e.value.user.ID] == e {
-		delete(c.byUser, e.value.user.ID)
+	if e.owned && c.byOwner[e.owner] == e {
+		delete(c.byOwner, e.owner)
 	}
 }

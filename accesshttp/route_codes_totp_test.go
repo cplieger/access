@@ -4,7 +4,9 @@ import (
 	"cmp"
 	"encoding/base32"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
@@ -33,6 +35,51 @@ func (e *env) giveTOTP(t testing.TB, name string, sealer *access.Sealer) []byte 
 		t.Fatalf("SetTOTP: %v", err)
 	}
 	return secret
+}
+
+// fillEnrolments fills the 10,000-entry list of TOTP enrolments with one
+// begun by each of as many other users, written in one Update under one
+// password hash.
+func (e *env) fillEnrolments(t testing.TB) {
+	t.Helper()
+	hash, err := e.hasher.Hash(t.Context(), testPassword)
+	if err != nil {
+		t.Fatalf("Hash: %v", err)
+	}
+	now := time.Now()
+	tokens := make([]access.Secret, 10000)
+	err = e.mem.Update(t.Context(), func(tx account.Tx) error {
+		for i := range tokens {
+			u := &access.User{Username: "filler" + strconv.Itoa(i), PasswordHash: hash, Role: access.RoleUser, Enabled: true, WebAuthnHandle: access.GenerateWebAuthnHandle(), CreatedAt: now, UpdatedAt: now}
+			if err := tx.CreateUser(t.Context(), u); err != nil {
+				return err
+			}
+			var tokenHash access.Hash
+			tokens[i], tokenHash = access.GenerateSessionToken()
+			sess := &access.Session{ID: fmt.Sprintf("%032x", i+1), TokenHash: tokenHash, UserID: u.ID, AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true}
+			if err := tx.CreateSession(t.Context(), sess); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("writing the fillers: %v", err)
+	}
+	cfg := e.authn.Cookie()
+	for i, token := range tokens {
+		// A passive read writes no session activity, each write being a
+		// copy of the whole MemStore.
+		r := httptest.NewRequestWithContext(access.Passive(t.Context()), http.MethodGet, testOrigin+"/", http.NoBody)
+		r.AddCookie(&http.Cookie{Name: cfg.CookieName(true), Value: token.Reveal()})
+		p, err := e.authn.Authenticate(r)
+		if err != nil {
+			t.Fatalf("Authenticate %d: %v", i, err)
+		}
+		if _, err := e.svc.BeginTOTP(t.Context(), p); err != nil {
+			t.Fatalf("BeginTOTP %d: %v", i, err)
+		}
+	}
 }
 
 // giveRecoveryCode stores a recovery code record for name; nothing here
@@ -309,6 +356,11 @@ func addTOTPEnrolScenarios(out map[scenarioKey]scenario) {
 		return r
 	}}
 	out[scenarioKey{begin, access.CodeUnavailable}] = closing(totpOn, beginOwn)
+	out[scenarioKey{begin, access.CodeRateLimited}] = scenario{opts: totpOn, arrange: func(t *testing.T, e *env) *http.Request {
+		r := beginOwn(t, e)
+		e.fillEnrolments(t)
+		return r
+	}}
 	out[scenarioKey{begin, access.CodeTOTPDisabled}] = scenario{arrange: beginOwn}
 	out[scenarioKey{begin, access.CodeSSOOnly}] = scenario{opts: totpOn, arrange: func(t *testing.T, e *env) *http.Request {
 		r := beginOwn(t, e)

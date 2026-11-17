@@ -186,7 +186,10 @@ func (s *Service) SetCredentialPasskeyBegin(ctx context.Context, c Client, ticke
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id := s.pending.put(purposeSetPasskey, pending{user: *u, ceremony: ceremony, ticketID: ticket}, s.now())
+	id, live := s.pending.putOnTicket(ticket.Reveal(), purposeSetPasskey, pending{user: *u, ceremony: ceremony, ticketID: ticket}, s.now())
+	if !live {
+		return PendingCeremony{}, access.ErrTokenInvalid
+	}
 	return PendingCeremony{ID: id, Creation: cc}, nil
 }
 

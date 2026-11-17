@@ -35,7 +35,9 @@ type Enrolled struct {
 // BeginTOTP starts enrolling an authenticator app for p's own user, for a
 // full session within RecentAuth on a secure request. A TOTP that is not
 // usable is ErrTOTPDisabled, a dormant user ErrSSOOnly and a user holding
-// no password ErrPasswordRequired, each before a secret is drawn.
+// no password ErrPasswordRequired, each before a secret is drawn. The
+// ticket replaces the user's earlier one; while the enrolment list is full
+// a newcomer is a *ratelimit.RefusedError.
 func (s *Service) BeginTOTP(ctx context.Context, p access.Principal) (TOTPEnrolment, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	r, err := s.beginRecentSession(plainRefused, p.Secure, p)
 	if err != nil {
@@ -55,7 +57,10 @@ func (s *Service) BeginTOTP(ctx context.Context, p access.Principal) (TOTPEnrolm
 		return TOTPEnrolment{}, ErrPasswordRequired
 	}
 	secret := totp.NewSecret()
-	id := s.pending.put(purposeEnrolTOTP, pending{user: *u, enrol: enrolment{issued: s.stamp(), sessionID: p.SessionID, secret: access.NewSecret(string(secret))}}, s.now())
+	id, err := s.pending.put(purposeEnrolTOTP, pending{user: *u, enrol: enrolment{issued: s.stamp(), sessionID: p.SessionID, secret: access.NewSecret(string(secret))}}, s.now())
+	if err != nil {
+		return TOTPEnrolment{}, err
+	}
 	return TOTPEnrolment{
 		URI:    access.NewSecret(totp.URI(s.totp.Issuer, u.Username, secret)),
 		Text:   access.NewSecret(totp.Text(secret)),

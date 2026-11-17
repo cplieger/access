@@ -58,7 +58,10 @@ func (s *Service) PasskeyLoginBegin(_ context.Context, c Client, origin webauthn
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id := s.pending.put(purposeLogin, pending{ceremony: ceremony}, s.now())
+	id, err := s.pending.put(purposeLogin, pending{ceremony: ceremony}, s.now())
+	if err != nil {
+		return PendingCeremony{}, err
+	}
 	return PendingCeremony{ID: id, Assertion: assertion}, nil
 }
 
@@ -112,7 +115,8 @@ func (s *Service) PasskeyLoginFinish(ctx context.Context, c Client, ceremonyID s
 // full session within RecentAuth. A plain p is access.ErrHTTPSRequired, a
 // nil RP() ErrPasskeysUnavailable, and a dormant user ErrSSOOnly. While the
 // user holds a second factor it takes proof, which verifyProof answers and
-// spends here.
+// spends here. The ceremony replaces the user's earlier one; while its list
+// is full a newcomer is a *ratelimit.RefusedError.
 func (s *Service) PasskeyRegisterBegin(ctx context.Context, c Client, p access.Principal, origin webauthn.Origin, proof SecondFactorProof) (PendingCeremony, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
 	r, err := s.beginRecentSession(plainRefused, p.Secure, p)
 	if err != nil {
@@ -140,7 +144,10 @@ func (s *Service) PasskeyRegisterBegin(ctx context.Context, c Client, p access.P
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id := s.pending.put(purposeAddPasskey, pending{user: *u, ceremony: ceremony}, s.now())
+	id, err := s.pending.put(purposeAddPasskey, pending{user: *u, ceremony: ceremony}, s.now())
+	if err != nil {
+		return PendingCeremony{}, err
+	}
 	return PendingCeremony{ID: id, Creation: cc}, nil
 }
 
@@ -224,7 +231,9 @@ func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal,
 // StepUpPasskeyBegin starts re-proving p's user with one of its passkeys under
 // the current relying party's ID, for a full session. A plain p is
 // access.ErrHTTPSRequired, a nil RP() ErrPasskeysUnavailable, a dormant user
-// ErrSSOOnly, and a user holding no such passkey ErrNotFound.
+// ErrSSOOnly, and a user holding no such passkey ErrNotFound. The ceremony
+// replaces the user's earlier step-up ceremony; while its list is full a
+// newcomer is a *ratelimit.RefusedError.
 func (s *Service) StepUpPasskeyBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (PendingCeremony, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	if _, err := s.beginOver(plainRefused, p.Secure); err != nil {
 		return PendingCeremony{}, err
@@ -255,7 +264,10 @@ func (s *Service) StepUpPasskeyBegin(ctx context.Context, p access.Principal, or
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id := s.pending.put(purposeStepUp, pending{user: *u, ceremony: ceremony}, s.now())
+	id, err := s.pending.put(purposeStepUp, pending{user: *u, ceremony: ceremony}, s.now())
+	if err != nil {
+		return PendingCeremony{}, err
+	}
 	return PendingCeremony{ID: id, Assertion: assertion}, nil
 }
 

@@ -235,6 +235,9 @@ func TestServicePrinting(t *testing.T) {
 				// and on the entry; finishing a ceremony still needs the
 				// authenticator's signature.
 				"account.pendingEntry.id", "account.pendingCache.byID",
+				// A draft's or a setup ceremony's owner is the HashKey of the
+				// token it spends, which shows no more than the Hash.
+				"account.owner.token",
 				// The app's name in an authenticator, shown in every otpauth URI.
 				"account.TOTPConfig.Issuer",
 				// A pending sign-in's step and methods are its public answer;

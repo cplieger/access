@@ -28,7 +28,8 @@ func (s *Service) newAccount(username string, role access.Role) access.User {
 // refusals and answer the would-be user and its creation; then the ticket's
 // methods, read through the Store; then c's IP attempt and the hash. The
 // ticket holds the account, created only by its enrolment finish, so
-// nothing is written and no token spent.
+// nothing is written and no token spent. A draft replaces its token's
+// earlier one (pendingCache.put).
 func (s *Service) passwordDraft(ctx context.Context, r Rules, c Client, password access.Secret, checks func() (access.User, draftOf, error)) (LoginResult, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
 	var (
 		u       access.User
@@ -59,7 +60,11 @@ func (s *Service) passwordDraft(ctx context.Context, r Rules, c Client, password
 	}
 	u.PasswordHash = hash
 	entry := pending{user: u, ticket: ticket{next: NextEnrol, methods: methods, digest: hash.Key(), secure: c.Secure, draft: &d}}
-	return LoginResult{Pending: s.mintTicket(&entry)}, nil
+	minted, err := s.mintTicket(&entry)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	return LoginResult{Pending: minted}, nil
 }
 
 // enrolAccountIn is a pending enrolment finish's user inside tx under the

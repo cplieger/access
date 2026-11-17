@@ -66,8 +66,9 @@ type Config struct {
 	// security-log entries past LogMaxAge are swept, and locks reported;
 	// zero means 5m.
 	CleanupInterval time.Duration
-	// MaxPending bounds the pending WebAuthn ceremonies; zero means 10000.
-	// Pending sign-ins have a cap of their own.
+	// MaxPending bounds each of the two lists of pending WebAuthn
+	// ceremonies, anonymous begins and a user's or setup's own; zero means
+	// 10000. Pending sign-ins, enrolments and drafts have caps of their own.
 	MaxPending int
 	// LogMaxAge is how long a security-log entry is kept; zero means
 	// DefaultLogMaxAge. Each sweep removes older entries, so one may stay up

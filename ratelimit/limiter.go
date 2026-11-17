@@ -88,7 +88,9 @@ var (
 
 // RefusedError is a refused Attempt or Request. Dimension is "ip",
 // "account", "device" or "request", whichever waits longest, and RetryAfter
-// is exactly how long until that key's oldest live entry ages out.
+// is exactly how long until that key's oldest live entry ages out. Another
+// package may refuse with a dimension of its own and the same RetryAfter
+// rule, as account does for a full table of in-flight entries.
 type RefusedError struct {
 	Dimension  string
 	RetryAfter time.Duration

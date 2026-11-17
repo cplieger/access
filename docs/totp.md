@@ -26,7 +26,7 @@ The `totp` package does the arithmetic on Go's standard library. A code is six d
 
 The Account screen enrols an authenticator app in two calls, because the person scans a QR code between them.
 
-1. `BeginTOTP` (`authTOTPBegin`) draws a secret and answers it as an `otpauth://` URI for the QR code, as base32 text to type in, and a ticket.
+1. `BeginTOTP` (`authTOTPBegin`) draws a secret and answers it as an `otpauth://` URI for the QR code, as base32 text to type in, and a ticket. A user holds one enrolment ticket at a time, so a new `BeginTOTP` replaces the earlier one ([In-flight entries](configuration.md#in-flight-entries)).
 2. `FinishTOTP` (`authTOTPFinish`) takes the ticket and a code from the app, and stores the record.
 
 Enrolling needs a full session signed in within `Rules.RecentAuth`, a secure request and a password on the account. A user with no password gets `ErrPasswordRequired`, answered 403 `auth_forbidden` with reason `totp_needs_password`, because the code is the second factor of a password sign-in. Replacing an existing authenticator app also needs a current code of the old one, sent as `current_code`.

@@ -115,28 +115,66 @@ type PendingCache struct{ c *pendingCache }
 type PendingPurpose = pendingPurpose
 
 const (
-	PurposeLogin      = purposeLogin
-	PurposeSetup      = purposeSetup
-	PurposeAddPasskey = purposeAddPasskey
-	PurposeStepUp     = purposeStepUp
-	PurposeSignIn     = purposeSignIn
-	PurposeDraft      = purposeDraft
+	PurposeLogin             = purposeLogin
+	PurposeSetup             = purposeSetup
+	PurposeAddPasskey        = purposeAddPasskey
+	PurposeStepUp            = purposeStepUp
+	PurposeSignIn            = purposeSignIn
+	PurposeSecondFactor      = purposeSecondFactor
+	PurposeEnrolTOTP         = purposeEnrolTOTP
+	PurposeEnrolPasskey      = purposeEnrolPasskey
+	PurposeDraft             = purposeDraft
+	PurposeSetPasskey        = purposeSetPasskey
+	PurposeRegistration      = purposeRegistration
+	PurposeRegistrationDraft = purposeRegistrationDraft
 )
 
 // DropUser drops userID's pending sign-in.
 func (p PendingCache) DropUser(userID int64) { p.c.dropUser(userID) }
 
+// Drop drops id's entry.
+func (p PendingCache) Drop(id string) { p.c.drop(id) }
+
 func NewPendingCache(maxEntries int) PendingCache { return PendingCache{newPendingCache(maxEntries)} }
 
-// Put stores an entry for user and returns its ID.
-func (p PendingCache) Put(purpose PendingPurpose, user access.User, now time.Time) string {
+// Put stores an entry of purpose for user and returns its ID, or the
+// cache's refusal.
+func (p PendingCache) Put(purpose PendingPurpose, user access.User, now time.Time) (string, error) {
 	return p.c.put(purpose, pending{user: user}, now)
+}
+
+// PutToken stores a setup ceremony or a draft that spends token.
+func (p PendingCache) PutToken(purpose PendingPurpose, token access.Hash, now time.Time) (string, error) {
+	v := pending{setupToken: token}
+	if purpose != purposeSetup {
+		v.ticket.draft = &draftOf{token: token, via: ViaInvite}
+	}
+	return p.c.put(purpose, v, now)
+}
+
+// PutOnTicket stores a ceremony of purpose for user on ticketID's pending
+// sign-in.
+func (p PendingCache) PutOnTicket(ticketID string, purpose PendingPurpose, user access.User, now time.Time) (string, bool) {
+	return p.c.putOnTicket(ticketID, purpose, pending{user: user, ticketID: access.NewSecret(ticketID)}, now)
+}
+
+// SetMax sets the cap of purpose's list to n.
+func (p PendingCache) SetMax(purpose PendingPurpose, n int) {
+	p.c.mu.Lock()
+	defer p.c.mu.Unlock()
+	p.c.lists[purpose.list()].max = n
 }
 
 // Take returns the user stored under id.
 func (p PendingCache) Take(id string, purpose PendingPurpose, now time.Time) (access.User, bool) {
 	v, ok := p.c.take(id, purpose, now)
 	return v.user, ok
+}
+
+// Peek reports whether id's entry of purpose is live, leaving it.
+func (p PendingCache) Peek(id string, purpose PendingPurpose, now time.Time) bool {
+	_, ok := p.c.peek(id, purpose, now)
+	return ok
 }
 
 func (p PendingCache) Prune(now time.Time) { p.c.prune(now) }

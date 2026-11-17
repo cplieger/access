@@ -212,7 +212,10 @@ func (s *Service) SecondFactorPasskeyBegin(ctx context.Context, c Client, ticket
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id := s.pending.put(purposeSecondFactor, pending{user: *u, ceremony: ceremony, ticketID: ticket}, s.now())
+	id, live := s.pending.putOnTicket(ticket.Reveal(), purposeSecondFactor, pending{user: *u, ceremony: ceremony, ticketID: ticket}, s.now())
+	if !live {
+		return PendingCeremony{}, access.ErrTokenInvalid
+	}
 	return PendingCeremony{ID: id, Assertion: assertion}, nil
 }
 

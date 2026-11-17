@@ -695,7 +695,7 @@ func TestSweepPrunesPending(t *testing.T) {
 		f := newFixture(t, options{edit: withInterval})
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
 		cache := account.PendingOf(f.svc)
-		cache.Put(account.PurposeLogin, *u, time.Now())
+		mustPut(t, cache, account.PurposeLogin, *u, time.Now())
 		time.Sleep(webauthn.CeremonyTimeout)
 		tick()
 		if n := cache.Len(); n != 0 {

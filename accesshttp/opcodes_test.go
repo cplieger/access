@@ -418,6 +418,9 @@ var refuted = []struct {
 	{route: "authRegisterPassword", code: access.CodeSecondFactorRequired, invariant: "passwordDraft mints a new account's NextEnrol with ticketMint's unknownDevice false, since only an existing account's enrolment needs a known device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there"},
 	{route: "authLoginRecoveryCode", code: access.CodeSecondFactorRequired, invariant: "countRecoveryIn mints its NextEnrol with ticketMint's unknownDevice false, since step 1 settled the device before minting the ticket the recovery code replaces, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there"},
 	{route: "authLoginSetPassword", code: access.CodeSecondFactorRequired, invariant: "stagePassword mints its NextEnrol with ticketMint's unknownDevice false, since a temporary password is the issuer's trust and its step 1 reads no device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there"},
+	{route: "authSetupPasskeyFinish", code: access.CodeRateLimited, invariant: noPendRefuted},
+	{route: "authLoginPasskeyFinish", code: access.CodeRateLimited, invariant: noPendRefuted},
+	{route: "authRegisterPasskeyFinish", code: access.CodeRateLimited, invariant: noPendRefuted},
 	{route: "authLoginSetPassword", leaf: modulePath + ".ErrHashInvalid", invariant: "chosenPassword verifies against the ticket's temporary-password hash, which step 1 verified on the same Hasher, whose Capacity never changes, so Verify's over-budget ErrHashInvalid arm cannot fire there"},
 	{route: "authKeyCreate", leaf: modulePath + ".ErrInvalidKeyPrefix", invariant: "CreateAPIKey's begin validates the Rules value it mints under, and Rules.Validate's KeyPrefix check refuses a KeyPrefix access.ValidateKeyPrefix refuses, so GenerateAPIKey in CreateAPIKey cannot"},
 	{route: "authKeyRotate", leaf: modulePath + ".ErrInvalidKeyPrefix", invariant: "admitRotation's begin validates the Rules value RotateAPIKey generates under, and Rules.Validate's KeyPrefix check refuses a KeyPrefix access.ValidateKeyPrefix refuses, so GenerateAPIKey in RotateAPIKey cannot"},
@@ -429,6 +432,9 @@ var refuted = []struct {
 }
 
 const modulePath = "github.com/cplieger/access"
+
+// noPendRefuted is why no passkey ceremony's finish mints a pending sign-in.
+const noPendRefuted = "the finish's sessionOp sets no pend, and only op.pend gives complete a pending sign-in to mint, so mintTicket's full-list refusal cannot fire there"
 
 var producerErrors = map[string]error{
 	modulePath + "/accesshttp.errMethodNotAllowed":       errMethodNotAllowed,

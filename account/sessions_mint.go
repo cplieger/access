@@ -223,15 +223,25 @@ func (s *Service) complete(ctx context.Context, r Rules, c Client, op *sessionOp
 		if res != nil {
 			res.Cancel()
 		}
-		if entry == nil {
-			return completion{waiting: user.Clone()}, nil
-		}
-		return completion{Pending: s.mintTicket(entry)}, nil
+		return s.heldBack(user, entry)
 	}
 	if res != nil {
 		res.Succeed()
 	}
 	return completion{SignedIn: SignedIn{User: user.Clone(), Session: d.session, Token: d.token, DeviceCookie: s.deviceCookie(user.Username, c)}}, nil
+}
+
+// heldBack is complete's answer for a sign-in op.pend held back with entry,
+// minted as its ticket, or, with entry nil, for user waiting for approval.
+func (s *Service) heldBack(user *access.User, entry *pending) (completion, error) {
+	if entry == nil {
+		return completion{waiting: user.Clone()}, nil
+	}
+	minted, err := s.mintTicket(entry)
+	if err != nil {
+		return completion{}, err
+	}
+	return completion{Pending: minted}, nil
 }
 
 // deviceCookie is the device cookie a completed sign-in or step-up of

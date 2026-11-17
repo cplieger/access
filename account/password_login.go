@@ -20,7 +20,9 @@ type Credentials struct {
 // user's live temporary password, else PasswordHash unless
 // Rules.DisablePasswordLogin; every other arm is one ErrInvalidCredentials
 // after the same work. A temporary password answers pendTemporary's ticket
-// or refusal; a password signs in or answers pendAt's.
+// or refusal; a password signs in or answers pendAt's. A ticket replaces
+// the user's earlier one; while the list is full a newcomer's is a
+// *ratelimit.RefusedError.
 func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
 	r, err := s.beginOver(plainPerRequest, c.Secure)
 	if err != nil {

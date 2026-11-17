@@ -243,11 +243,12 @@ func TestBeginRequestLimit(t *testing.T) {
 					t.Fatalf("begin %d = %v, want admitted", i+1, err)
 				}
 			}
+			before := account.PendingOf(p.svc).Len()
 			if err := begin(t.Context(), p, localClient); !errors.Is(err, ratelimit.ErrRefused) {
 				t.Errorf("third begin from one IP = %v, want *ratelimit.RefusedError", err)
 			}
-			if n := account.PendingOf(p.svc).Len(); n != 2 {
-				t.Errorf("pending ceremonies = %d, want 2: the refused begin grew the cache", n)
+			if n := account.PendingOf(p.svc).Len(); n != before {
+				t.Errorf("pending ceremonies = %d, want %d: the refused begin grew the cache", n, before)
 			}
 			if err := begin(t.Context(), p, clientAt(1)); err != nil {
 				t.Errorf("a begin from another IP = %v, want admitted", err)

@@ -319,6 +319,9 @@ func addPasswordScenarios(out map[scenarioKey]scenario) {
 	out[scenarioKey{remove, access.CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: right}
 }
 
+// oneCeremony holds one ceremony in each ceremony list.
+var oneCeremony = envOptions{edit: func(c *account.Config) { c.MaxPending = 1 }}
+
 func addPasskeyScenarios(out map[scenarioKey]scenario) {
 	const stepUpBegin, stepUpFinish = "authStepUpPasskeyBegin", "authStepUpPasskeyFinish"
 	// enrolled is alice's password session with a passkey enrolled.
@@ -332,6 +335,16 @@ func addPasskeyScenarios(out map[scenarioKey]scenario) {
 	}
 	out[scenarioKey{stepUpBegin, access.CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: beginWith}
 	out[scenarioKey{stepUpBegin, access.CodeUnavailable}] = closing(passkeys, beginWith)
+	out[scenarioKey{stepUpBegin, access.CodeRateLimited}] = scenario{opts: with(passkeys, oneCeremony), arrange: func(t *testing.T, e *env) *http.Request {
+		r := beginWith(t, e)
+		e.createUser(t, "bob", access.RoleUser)
+		e.enrol(t, "bob")
+		bob := e.sessionCookie(t, "bob")
+		if _, err := e.svc.StepUpPasskeyBegin(t.Context(), e.principal(t, bob), testOriginOf(t)); err != nil {
+			t.Fatalf("bob's StepUpPasskeyBegin: %v", err)
+		}
+		return r
+	}}
 	out[scenarioKey{stepUpBegin, access.CodePasskeysUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, stepUpBegin, "", e.aliceSession(t))
 	}}

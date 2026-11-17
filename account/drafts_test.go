@@ -168,18 +168,18 @@ func TestSetupDraft(t *testing.T) {
 	t.Run("setup_completed_since_the_draft", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, ruleOn, pwOptions{})
-		first := setupDraft(t, f, localClient, setupIn("first"), access.MethodTOTP, access.MethodPasskey)
-		second := setupDraft(t, f, localClient, setupIn("second"), access.MethodTOTP, access.MethodPasskey)
-		if _, _, err := pendingEnrolTOTP(t, f, localClient, first); err != nil {
-			t.Fatalf("the first finish = %v", err)
+		draft := setupDraft(t, f, localClient, setupIn("first"), access.MethodTOTP, access.MethodPasskey)
+		f.set(account.Rules{SetupTokenRequired: tokenless})
+		if _, err := completed(f.svc.SetupWithPassword(t.Context(), localClient, setupIn("second"))); err != nil {
+			t.Fatalf("setup with the rule off = %v, want signed in", err)
 		}
-		if _, _, err := pendingEnrolTOTP(t, f, localClient, second); !errors.Is(err, account.ErrSetupComplete) {
-			t.Fatalf("the second finish = %v, want ErrSetupComplete", err)
+		if _, _, err := pendingEnrolTOTP(t, f, localClient, draft); !errors.Is(err, account.ErrSetupComplete) {
+			t.Fatalf("the draft's finish = %v, want ErrSetupComplete", err)
 		}
-		if n, _ := f.mem.UserCount(t.Context()); n != 1 {
-			t.Errorf("users = %d, want the first draft's only", n)
+		if n, _ := f.mem.UserCount(t.Context()); n != 1 || usernameTakenIn(t, f.mem, "first") {
+			t.Errorf("users = %d, want the direct setup's only", n)
 		}
-		if live(f, second) {
+		if live(f, draft) {
 			t.Error("a draft that can no longer finish kept its ticket")
 		}
 	})
@@ -298,18 +298,18 @@ func TestInviteDraft(t *testing.T) {
 		t.Parallel()
 		f, p := inviteWorld(t, ruleOn)
 		inv := f.invite(t, p, access.RoleUser)
-		first := inviteDraft(t, f, inv, "first")
-		second := inviteDraft(t, f, inv, "second")
-		if _, _, err := pendingEnrolTOTP(t, f, localClient, first); err != nil {
-			t.Fatalf("the first finish = %v", err)
+		draft := inviteDraft(t, f, inv, "first")
+		f.set(account.Rules{})
+		if _, err := completed(f.svc.AcceptInvitePassword(t.Context(), localClient, account.AcceptInvite{Token: inv.Plaintext, Username: "second", Password: access.NewSecret(goodPassword)})); err != nil {
+			t.Fatalf("accepting the invite with the rule off = %v, want signed in", err)
 		}
-		if _, _, err := pendingEnrolTOTP(t, f, localClient, second); !errors.Is(err, access.ErrTokenInvalid) {
-			t.Fatalf("the second finish = %v, want access.ErrTokenInvalid", err)
+		if _, _, err := pendingEnrolTOTP(t, f, localClient, draft); !errors.Is(err, access.ErrTokenInvalid) {
+			t.Fatalf("the draft's finish = %v, want access.ErrTokenInvalid", err)
 		}
-		if usernameTakenIn(t, f.mem, "second") {
+		if usernameTakenIn(t, f.mem, "first") {
 			t.Error("a spent invite created an account")
 		}
-		if live(f, second) {
+		if live(f, draft) {
 			t.Error("a draft whose invite is spent kept its ticket")
 		}
 	})
@@ -430,10 +430,10 @@ func TestDraftList(t *testing.T) {
 	t.Parallel()
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	c := account.NewPendingCache(2)
-	signIn := c.Put(account.PurposeSignIn, access.User{ID: 1}, t0)
-	draft := c.Put(account.PurposeDraft, access.User{Username: "draft"}, t0)
+	signIn := mustPut(t, c, account.PurposeSignIn, access.User{ID: 1}, t0)
+	draft := mustPutToken(t, c, account.PurposeDraft, tokenHash(1), t0)
 	for i := range 5 {
-		c.Put(account.PurposeLogin, access.User{}, t0.Add(time.Duration(i)*time.Second))
+		mustPut(t, c, account.PurposeLogin, access.User{}, t0.Add(time.Duration(i)*time.Second))
 	}
 	if _, ok := c.Take(draft, account.PurposeDraft, t0.Add(time.Minute)); !ok {
 		t.Error("a flood of ceremonies evicted a draft")
@@ -441,7 +441,7 @@ func TestDraftList(t *testing.T) {
 	if _, ok := c.Take(signIn, account.PurposeSignIn, t0.Add(time.Minute)); !ok {
 		t.Error("a draft evicted a pending sign-in")
 	}
-	late := c.Put(account.PurposeDraft, access.User{Username: "late"}, t0)
+	late := mustPutToken(t, c, account.PurposeDraft, tokenHash(2), t0)
 	if _, ok := c.Take(late, account.PurposeDraft, t0.Add(10*time.Minute)); ok {
 		t.Error("a draft outlived its ten minutes")
 	}

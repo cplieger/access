@@ -99,7 +99,10 @@ func (s *Service) RegisterPasskeyBegin(ctx context.Context, c Client, in Registr
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id := s.pending.put(purposeRegistration, pending{user: user, ceremony: ceremony}, s.now())
+	id, err := s.pending.put(purposeRegistration, pending{user: user, ceremony: ceremony}, s.now())
+	if err != nil {
+		return PendingCeremony{}, err
+	}
 	return PendingCeremony{ID: id, Creation: creation}, nil
 }
 

@@ -23,7 +23,8 @@ type SetupPasskey struct {
 // asks for one ErrSetupTokenRequired or access.ErrTokenInvalid, and a refused
 // name *UsernameError. Only a call past those refusals counts against c's IP
 // request limit (*ratelimit.RefusedError). The token is only peeked; the finish
-// spends it.
+// spends it. The ceremony replaces the earlier one for the same token (or for
+// none); while its list is full a newcomer is a *ratelimit.RefusedError.
 func (s *Service) SetupPasskeyBegin(ctx context.Context, c Client, in SetupPasskey) (PendingCeremony, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
 	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {
@@ -53,7 +54,10 @@ func (s *Service) SetupPasskeyBegin(ctx context.Context, c Client, in SetupPassk
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id := s.pending.put(purposeSetup, pending{user: user, setupToken: spend, ceremony: ceremony}, s.now())
+	id, err := s.pending.put(purposeSetup, pending{user: user, setupToken: spend, ceremony: ceremony}, s.now())
+	if err != nil {
+		return PendingCeremony{}, err
+	}
 	return PendingCeremony{ID: id, Creation: creation}, nil
 }
 

@@ -63,7 +63,11 @@ func (s *Service) SignInWithRecoveryCode(ctx context.Context, c Client, ticket a
 	next := entry
 	next.ticket.next, next.ticket.methods, next.ticket.failed = NextEnrol, m.methods, false
 	next.ticket.recovered = m.hash.Key()
-	return LoginResult{Pending: s.mintTicket(&next)}, nil
+	minted, err := s.mintTicket(&next)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	return LoginResult{Pending: minted}, nil
 }
 
 // matchRecoveryCode is the recovery-code step's count, in its own committed
@@ -425,7 +429,10 @@ func (s *Service) PendingPasskeyBegin(ctx context.Context, c Client, ticket acce
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id := s.pending.put(purposeEnrolPasskey, pending{user: *u, ceremony: ceremony, ticketID: ticket}, s.now())
+	id, live := s.pending.putOnTicket(ticket.Reveal(), purposeEnrolPasskey, pending{user: *u, ceremony: ceremony, ticketID: ticket}, s.now())
+	if !live {
+		return PendingCeremony{}, access.ErrTokenInvalid
+	}
 	return PendingCeremony{ID: id, Creation: cc}, nil
 }
 

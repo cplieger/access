@@ -340,7 +340,7 @@ var opAnswers = map[string]answers{
 		with(access.CodeSessionExpired, ReasonSessionGone).
 		open(access.CodeBadRequest).
 		with(access.CodeCodeInvalid, account.ReasonCodeInvalid, account.ReasonCodeReused, account.ReasonMethodLocked),
-	"BeginTOTP": none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodeTOTPDisabled, access.CodeSSOOnly).
+	"BeginTOTP": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodeTOTPDisabled, access.CodeSSOOnly).
 		with(access.CodeSessionExpired, ReasonSessionGone).
 		with(access.CodeForbidden, ReasonTOTPNeedsPassword),
 	"FinishTOTP": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeBusy, access.CodeUnavailable, access.CodeTokenInvalid, access.CodeSecondFactorUnavailable, access.CodeTOTPDisabled, access.CodeSSOOnly).
@@ -401,7 +401,7 @@ var opAnswers = map[string]answers{
 		with(access.CodeBadRequest, textReason(account.TextFieldDisplayName, account.ReasonDisallowedCharacter), textReason(account.TextFieldDisplayName, account.ReasonTooLong)),
 	"ReenableMethod": none(access.CodeUnavailable, access.CodeMethodNotLocked).
 		with(access.CodeRecentAuthRequired, "", ReasonReenableNeedsOtherMethod, access.ReasonSignInAgain),
-	"StepUpPasskeyBegin": none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeNotFound, access.CodeSSOOnly).
+	"StepUpPasskeyBegin": none(access.CodeHTTPSRequired, access.CodeRateLimited, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeNotFound, access.CodeSSOOnly).
 		with(access.CodeSessionExpired, ReasonSessionGone).
 		with(access.CodeOriginRefused, originReasons...),
 	"StepUpPasskeyFinish": none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodePasskeysUnavailable, access.CodeCeremonyInvalid, access.CodeUnknownCredential, access.CodeAssertionFailed, access.CodeSSOOnly).

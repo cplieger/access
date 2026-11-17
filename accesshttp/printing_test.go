@@ -138,6 +138,9 @@ func inventoryAllow(t *testing.T) printcheck.Allow {
 			// A ceremony ID names a pending entry; finishing it still needs
 			// the authenticator's signature.
 			"account.pendingEntry.id", "account.pendingCache.byID",
+			// A draft's or a setup ceremony's owner is the HashKey of the
+			// token it spends, which shows no more than the Hash.
+			"account.owner.token",
 			// The SHA-256 of the username, the limiter's account key.
 			"ratelimit.Account.digest",
 			// The name lock's keys: canonical usernames, each kept only
