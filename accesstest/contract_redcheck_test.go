@@ -90,7 +90,7 @@ var variants = map[string]variant{
 	},
 	"ids-recomputed-on-reopen": {
 		make:  mediumVariant(func(m *medium) { m.reload = recomputeIDs }),
-		fails: []string{"rule_17_ids_and_lineage/reopen_users", "rule_17_ids_and_lineage/reopen_keys"}, only: true,
+		fails: []string{"rule_17_ids_and_lineage/reopen_users", "rule_17_ids_and_lineage/reopen_keys", "via_tx/rule_17_ids_and_lineage/reopen_users", "via_tx/rule_17_ids_and_lineage/reopen_keys"}, only: true,
 	},
 	"issued-by-ignores-list": {
 		make:  memVariant(func(m *MemStore) account.Store { return &issuedByAllStore{m} }),
@@ -130,11 +130,11 @@ var variants = map[string]variant{
 	},
 	"idlecap-lost-on-reopen": {
 		make:  mediumVariant(func(m *medium) { m.reload = dropIdleCaps }),
-		fails: []string{"rule_20_fidelity/reopen"}, mention: []string{"Session.IdleCap"}, only: true,
+		fails: []string{"rule_20_fidelity/reopen", "via_tx/rule_20_fidelity/reopen"}, mention: []string{"Session.IdleCap"}, only: true,
 	},
 	"secure-lost-on-reopen": {
 		make:  mediumVariant(func(m *medium) { m.reload = dropSecure }),
-		fails: []string{"rule_20_fidelity/reopen", "rule_14_cleanup/plain_limits"}, mention: []string{"Session.Secure"}, only: true,
+		fails: []string{"rule_20_fidelity/reopen", "rule_14_cleanup/plain_limits", "via_tx/rule_20_fidelity/reopen"}, mention: []string{"Session.Secure"}, only: true,
 	},
 	"live-lists-expired": {
 		make:  memVariant(func(m *MemStore) account.Store { return &liveListsExpiredStore{m} }),
@@ -212,15 +212,15 @@ var variants = map[string]variant{
 		make: memVariant(func(m *MemStore) account.Store {
 			return &overlapRotationStore{MemStore: m, prev: map[access.HashKey]access.Key{}, viaTx: true}
 		}),
-		fails: []string{"rule_23_key_secrets/rotate_during_overlap"}, only: true,
+		fails: []string{"via_tx/rule_23_key_secrets/rotate_during_overlap"}, only: true,
 	},
 	"tx-label-drops-previous": {
 		make:  memVariant(func(m *MemStore) account.Store { return &txLabelDropsPreviousStore{m} }),
-		fails: []string{"rule_23_key_secrets/label_write"}, only: true,
+		fails: []string{"via_tx/rule_23_key_secrets/label_write"}, only: true,
 	},
 	"secret-ignores-user": {
 		make:  memVariant(func(m *MemStore) account.Store { return &unscopedSecretStore{m} }),
-		fails: []string{"rule_06_scoping/wrong_user", "rule_23_key_secrets/secret_scoped_in_update"}, only: true,
+		fails: []string{"rule_06_scoping/wrong_user", "via_tx/rule_06_scoping/wrong_user"}, only: true,
 	},
 	"delete-keeps-previous-hash": {
 		make:  memVariant(func(m *MemStore) account.Store { return &deleteKeepsPreviousStore{m} }),
@@ -248,7 +248,7 @@ var variants = map[string]variant{
 	},
 	"failure-tx-delete-both-contexts": {
 		make:  memVariant(func(m *MemStore) account.Store { return &txFailureDeleteBothStore{m} }),
-		fails: []string{"rule_15_failure_records/delete_one"}, only: true,
+		fails: []string{"via_tx/rule_15_failure_records/delete_one"}, only: true,
 	},
 	"failure-delete-absent-errors": {
 		make:  memVariant(func(m *MemStore) account.Store { return &failureDeleteAbsentStore{m} }),
@@ -256,7 +256,7 @@ var variants = map[string]variant{
 	},
 	"failure-tx-delete-absent-errors": {
 		make:  memVariant(func(m *MemStore) account.Store { return &txFailureDeleteAbsentStore{m} }),
-		fails: []string{"rule_15_failure_records/delete_one"}, only: true,
+		fails: []string{"via_tx/rule_15_failure_records/delete_one"}, only: true,
 	},
 	"rotate-overwrites-activity": {
 		make:  memVariant(func(m *MemStore) account.Store { return &rotationOverwritesStore{m} }),
@@ -918,7 +918,8 @@ func (s *previousSnapshotStore) APIKeyByHash(ctx context.Context, h access.Hash)
 // overlapRotationStore keeps, under the hash a rotation during an overlap
 // supersedes, the record as it stood while that hash was current: its
 // KeyHash still names the superseded secret. With viaTx it does so only
-// for a rotation inside an Update, else only for the single call.
+// inside an Update, for the rotation and the lookups there, else only on
+// the Store.
 type overlapRotationStore struct {
 	*MemStore
 	prev  map[access.HashKey]access.Key
@@ -965,13 +966,17 @@ func (t overlapRotationTx) UpdateAPIKeySecret(ctx context.Context, ref access.Ke
 	return nil
 }
 
+func (t overlapRotationTx) APIKeyByHash(ctx context.Context, h access.Hash) (*access.Key, bool, error) {
+	return servePrevious(ctx, t.memTx, &t.store.mu, t.store.prev, h)
+}
+
 func (s *overlapRotationStore) APIKeyByHash(ctx context.Context, h access.Hash) (*access.Key, bool, error) {
 	return servePrevious(ctx, s.MemStore, &s.mu, s.prev, h)
 }
 
 // servePrevious answers a lookup that matched a key's previous hash with
 // the copy prev holds for that hash.
-func servePrevious(ctx context.Context, m *MemStore, mu *sync.Mutex, prev map[access.HashKey]access.Key, h access.Hash) (*access.Key, bool, error) {
+func servePrevious(ctx context.Context, m account.KeyStore, mu *sync.Mutex, prev map[access.HashKey]access.Key, h access.Hash) (*access.Key, bool, error) {
 	k, found, err := m.APIKeyByHash(ctx, h)
 	if err != nil || !found || k.KeyHash.Equal(h) {
 		return k, found, err

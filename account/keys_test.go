@@ -267,10 +267,10 @@ func TestAdminKeyListRevoke(t *testing.T) {
 		t.Errorf("the user's own APIKeys = %v, %v", keyIDs(own), err)
 	}
 	if err := f.svc.RevokeAPIKey(t.Context(), upr2, adminKey.key.ID); !errors.Is(err, account.ErrNotFound) {
-		t.Errorf("an owner revoking another user's key = %v, want ErrNotFound", err)
+		t.Errorf("a user revoking another user's key = %v, want ErrNotFound", err)
 	}
 	if err := f.svc.RevokeAPIKey(t.Context(), upr2, ownKey.key.ID); err != nil {
-		t.Errorf("an owner revoking its own key = %v", err)
+		t.Errorf("a user revoking its own key = %v", err)
 	}
 	if n := len(keysOf(t, f.mem, admin.ID)); n != 1 {
 		t.Errorf("the admin's keys = %d, want 1", n)

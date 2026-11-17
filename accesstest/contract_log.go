@@ -55,6 +55,9 @@ func (c *contract) logClauses() []logClause {
 // securityLog: rule 22.
 func (c *contract) securityLog(t *testing.T) {
 	for _, cl := range c.logClauses() {
+		if c.viaTx && storeOnly["rule_22_log/"+cl.name] {
+			continue
+		}
 		t.Run(cl.name, func(t *testing.T) {
 			cl.run(t)
 			if t.Failed() {

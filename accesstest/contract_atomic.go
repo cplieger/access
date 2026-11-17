@@ -276,8 +276,9 @@ func (c *contract) updateReadsOwn(t *testing.T) {
 	err := s.Update(t.Context(), func(tx account.Tx) error {
 		ctx := t.Context()
 		sess, k := writeThree(t, tx, "own")
-		if _, found, err := tx.UserByUsername(ctx, "own"); err != nil || !found {
-			t.Errorf("tx.UserByUsername of the callback's own user = (%t, %v)", found, err)
+		u, found, err := tx.UserByUsername(ctx, "own")
+		if err != nil || !found {
+			return fmt.Errorf("tx.UserByUsername of the callback's own user = (%t, %w)", found, err)
 		}
 		if _, found, err := tx.SessionByHash(ctx, sess.TokenHash); err != nil || !found {
 			t.Errorf("tx.SessionByHash of the callback's own session = (%t, %v)", found, err)
@@ -285,11 +286,27 @@ func (c *contract) updateReadsOwn(t *testing.T) {
 		if _, found, err := tx.APIKeyByHash(ctx, k.KeyHash); err != nil || !found {
 			t.Errorf("tx.APIKeyByHash of the callback's own key = (%t, %v)", found, err)
 		}
+		readsOwnRecord(t, tx, totpKind, u.ID)
+		readsOwnRecord(t, tx, recoveryKind, u.ID)
+		readsOwnRecord(t, tx, temporaryKind, u.ID)
+		check(t, "tx.SetSSOMode", tx.SetSSOMode(ctx, account.SSOOnly))
+		if mode, set, err := tx.SSOMode(ctx); err != nil || mode != account.SSOOnly || !set {
+			t.Errorf("tx.SSOMode after the callback's own SetSSOMode(SSOOnly) = (%d, set %t, %v)", mode, set, err)
+		}
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
+}
+
+// readsOwnRecord sets a record of userID through tx and reads it back
+// through the same tx.
+func readsOwnRecord[T any](t *testing.T, tx account.Tx, k perUser[T], userID int64) {
+	t.Helper()
+	rec := k.version(userID, 1)
+	check(t, "tx set", k.set(t.Context(), tx, rec))
+	expectRecord(t, tx, k, "the callback's own record", userID, &rec)
 }
 
 func (c *contract) updateSerialisable(t *testing.T) {

@@ -294,8 +294,7 @@ func (c *contract) failurePutGetDelete(t *testing.T) {
 
 // failureDeleteOne: DeleteAuthFailure removes exactly the record its ref
 // names, the same name and method in the other trust context kept, and
-// skips an absent one, both on the Store and inside an Update, which is
-// where account calls it.
+// skips an absent one.
 func (c *contract) failureDeleteOne(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
 	records := []account.FailureCount{
@@ -313,7 +312,7 @@ func (c *contract) failureDeleteOne(t *testing.T) {
 	present := func() []int { return presentFailures(t, s, records) }
 	absent := failureRef("absent", access.MethodPassword, true)
 	if err := deleteFailures(ctx, s.DeleteAuthFailure, records[0].FailureRef, records[0].FailureRef, absent); err != nil {
-		t.Fatalf("on the Store, %v; want nil, an absent record skipped", err)
+		t.Fatalf("%v; want nil, an absent record skipped", err)
 	}
 	if got := present(); !slices.Equal(got, []int{2, 3, 4, 5}) {
 		t.Errorf("after DeleteAuthFailure(n1, password, untrusted) records left %v, want [2 3 4 5]", got)
@@ -329,13 +328,11 @@ func (c *contract) failureDeleteOne(t *testing.T) {
 	if got := present(); !slices.Equal(got, []int{2, 3, 4, 5}) {
 		t.Errorf("a rolled-back DeleteAuthFailure left %v, want [2 3 4 5]", got)
 	}
-	if err := s.Update(ctx, func(tx account.Tx) error {
-		return deleteFailures(ctx, tx.DeleteAuthFailure, records[0].FailureRef, absent, records[1].FailureRef, records[3].FailureRef)
-	}); err != nil {
-		t.Fatalf("in an Update, %v; want nil, an absent record skipped", err)
+	if err := deleteFailures(ctx, s.DeleteAuthFailure, records[1].FailureRef, records[3].FailureRef); err != nil {
+		t.Fatalf("%v; want nil", err)
 	}
 	if got := present(); !slices.Equal(got, []int{3, 5}) {
-		t.Errorf("after DeleteAuthFailure of (n1, password, trusted) and (n2, password, untrusted) in an Update records left %v, want [3 5]", got)
+		t.Errorf("after DeleteAuthFailure of (n1, password, trusted) and (n2, password, untrusted) records left %v, want [3 5]", got)
 	}
 }
 

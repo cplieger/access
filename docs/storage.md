@@ -27,7 +27,7 @@ What your store must give that callback:
 
 ## The contract rules
 
-Each rule below is one line of the package documentation's numbered list. `accesstest.StoreContract` runs a case per rule against your store.
+Each rule below is one line of the package documentation's numbered list. `accesstest.StoreContract` runs a case per rule against your store, then runs the rules again with every `Tx` method called inside its own `Update`, because `account` calls most of them inside an `Update`. The second run, the `via_tx` subtests, leaves out the cases whose subject is `Update` itself or a `Sweeper` method: rule 5's `Update` cases, rule 13, rule 14, rule 16, rule 22's never-waits case and rule 23's clear cases.
 
 1. **Absence.** A lookup by key returns `(value, found, err)`. Absence is `found == false` with a nil error, never a nil value with a nil error and never an error. A list is a search, and an empty slice with a nil error is its correct empty answer.
 2. **Ownership.** A lookup returns values the caller owns, deep copies of every slice and pointer field included, and a write never keeps a pointer or slice it was given. The library reads a returned session while another request may update the same one, and a shared pointer there is a data race no lock inside the store can fix. A store that scans each query into a fresh value meets this already. An in-memory or caching store must copy.

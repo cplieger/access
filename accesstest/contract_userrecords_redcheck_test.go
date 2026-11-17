@@ -5,6 +5,7 @@ import (
 	"context"
 	"maps"
 	"slices"
+	"testing"
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
@@ -15,15 +16,15 @@ import (
 var recordVariants = map[string]variant{
 	"totp-delete-keeps-record": {
 		make:  memVariant(func(m *MemStore) account.Store { return &totpDeleteNoopStore{m} }),
-		fails: []string{"rule_24_user_records/totp/store", "rule_24_user_records/list_totp"}, only: true,
+		fails: []string{"rule_24_user_records/totp/one_per_user", "rule_24_user_records/list_totp"}, only: true,
 	},
 	"recovery-set-keeps-first": {
 		make:  memVariant(func(m *MemStore) account.Store { return &recoveryKeepsFirstStore{m} }),
-		fails: []string{"rule_24_user_records/recovery_code/store"}, only: true,
+		fails: []string{"rule_24_user_records/recovery_code/one_per_user"}, only: true,
 	},
 	"temporary-delete-clears-all": {
 		make:  memVariant(func(m *MemStore) account.Store { return &temporaryDeleteAllStore{m} }),
-		fails: []string{"rule_24_user_records/temporary_password/store"}, only: true,
+		fails: []string{"rule_24_user_records/temporary_password/one_per_user"}, only: true,
 	},
 	"list-totp-includes-after": {
 		make:  memVariant(func(m *MemStore) account.Store { return &listTOTPInclusiveStore{m} }),
@@ -39,11 +40,11 @@ var recordVariants = map[string]variant{
 	},
 	"drops-totp-last-step": {
 		make:  memVariant(func(m *MemStore) account.Store { return &dropLastStepStore{m} }),
-		fails: []string{"rule_20_fidelity/write_read", "rule_24_user_records/totp/store"}, mention: []string{"TOTP.LastStep"},
+		fails: []string{"rule_20_fidelity/write_read", "rule_24_user_records/totp/one_per_user"}, mention: []string{"TOTP.LastStep"},
 	},
 	"drops-temporary-dormant": {
 		make:  memVariant(func(m *MemStore) account.Store { return &dropDormantStore{m} }),
-		fails: []string{"rule_20_fidelity/write_read", "rule_24_user_records/temporary_password/store"}, mention: []string{"TemporaryPassword.Dormant"},
+		fails: []string{"rule_20_fidelity/write_read", "rule_24_user_records/temporary_password/one_per_user"}, mention: []string{"TemporaryPassword.Dormant"},
 	},
 	"drops-user-owner": {
 		make:  memVariant(func(m *MemStore) account.Store { return &dropOwnerStore{m} }),
@@ -63,23 +64,43 @@ var recordVariants = map[string]variant{
 	},
 	"sso-set-lost-on-reopen": {
 		make:  mediumVariant(func(m *medium) { m.reload = dropSSOSet }),
-		fails: []string{"rule_26_sso_mode/reopen"}, only: true,
+		fails: []string{"rule_26_sso_mode/reopen", "via_tx/rule_26_sso_mode/reopen"}, only: true,
 	},
 	"tx-totp-set-keeps-first": {
 		make:  memVariant(func(m *MemStore) account.Store { return &txTOTPKeepsFirstStore{m} }),
-		fails: []string{"rule_24_user_records/totp/in_update"}, only: true,
+		fails: []string{"via_tx/rule_24_user_records/totp/one_per_user"}, only: true,
 	},
 	"tx-recovery-delete-keeps-record": {
 		make:  memVariant(func(m *MemStore) account.Store { return &txRecoveryDeleteNoopStore{m} }),
-		fails: []string{"rule_24_user_records/recovery_code/in_update"}, only: true,
+		fails: []string{"via_tx/rule_24_user_records/recovery_code/one_per_user"}, only: true,
 	},
 	"tx-temporary-delete-keeps-record": {
 		make:  memVariant(func(m *MemStore) account.Store { return &txTemporaryDeleteNoopStore{m} }),
-		fails: []string{"rule_24_user_records/temporary_password/in_update"}, only: true,
+		fails: []string{"via_tx/rule_24_user_records/temporary_password/one_per_user"}, only: true,
+	},
+	"tx-totp-read-blind": {
+		make:  txBlindVariant(blindTOTP),
+		fails: []string{"rule_05_update/reads_own_writes", "via_tx/rule_05_atomicity/delete_user_cascade", "via_tx/rule_11_time", "via_tx/rule_20_fidelity/write_read", "via_tx/rule_24_user_records/totp/one_per_user", "via_tx/rule_24_user_records/totp/rolls_back"}, only: true,
+	},
+	"tx-recovery-read-blind": {
+		make:  txBlindVariant(blindRecoveryCode),
+		fails: []string{"rule_05_update/reads_own_writes", "via_tx/rule_04_uniqueness/hash_round_trip", "via_tx/rule_05_atomicity/delete_user_cascade", "via_tx/rule_11_time", "via_tx/rule_20_fidelity/write_read", "via_tx/rule_24_user_records/recovery_code/one_per_user", "via_tx/rule_24_user_records/recovery_code/rolls_back"}, only: true,
+	},
+	"tx-temporary-read-blind": {
+		make:  txBlindVariant(blindTemporaryPassword),
+		fails: []string{"rule_05_update/reads_own_writes", "via_tx/rule_04_uniqueness/hash_round_trip", "via_tx/rule_05_atomicity/delete_user_cascade", "via_tx/rule_11_time", "via_tx/rule_20_fidelity/write_read", "via_tx/rule_24_user_records/temporary_password/one_per_user", "via_tx/rule_24_user_records/temporary_password/rolls_back"}, only: true,
+	},
+	"tx-sso-mode-read-unset": {
+		make:  txBlindVariant(blindSSOMode),
+		fails: []string{"rule_05_update/reads_own_writes", "rule_26_sso_mode/rolls_back", "via_tx/rule_26_sso_mode/set_alongside", "via_tx/rule_26_sso_mode/each_mode", "via_tx/rule_26_sso_mode/rolls_back"}, only: true,
+	},
+	"tx-user-by-id-not-found": {
+		make:  txBlindVariant(blindUserByID),
+		fails: []string{"via_tx/rule_02_ownership/user", "via_tx/rule_03_canonical_usernames", "via_tx/rule_11_time", "via_tx/rule_20_fidelity/write_read"}, only: true,
 	},
 	"tx-sso-mode-not-committed": {
 		make:  memVariant(func(m *MemStore) account.Store { return &txSSOModeUncommittedStore{m} }),
-		fails: []string{"rule_26_sso_mode/in_update"}, only: true,
+		fails: []string{"via_tx/rule_26_sso_mode/set_alongside", "via_tx/rule_26_sso_mode/each_mode"}, only: true,
 	},
 }
 
@@ -245,4 +266,70 @@ func dropSSOSet(committed *state) *state {
 	s := committed.clone()
 	s.ssoSet = false
 	return s
+}
+
+// blindRead names the one Tx read a txBlindStore answers as absent.
+type blindRead int
+
+const (
+	blindTOTP blindRead = iota
+	blindRecoveryCode
+	blindTemporaryPassword
+	blindSSOMode
+	blindUserByID
+)
+
+func txBlindVariant(read blindRead) func() (func(*testing.T) account.Store, ContractConfig) {
+	return memVariant(func(m *MemStore) account.Store { return &txBlindStore{MemStore: m, read: read} })
+}
+
+// txBlindStore answers its read as absent (an unset SSO mode for
+// blindSSOMode) inside an Update, and only there, whatever the store holds.
+type txBlindStore struct {
+	*MemStore
+	read blindRead
+}
+
+type txBlindTx struct {
+	*memTx
+	read blindRead
+}
+
+func (s *txBlindStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.MemStore.Update(ctx, func(tx account.Tx) error { return fn(txBlindTx{tx.(*memTx), s.read}) })
+}
+
+func (t txBlindTx) TOTPByUserID(ctx context.Context, id int64) (access.TOTP, bool, error) {
+	if t.read == blindTOTP {
+		return access.TOTP{}, false, nil
+	}
+	return t.memTx.TOTPByUserID(ctx, id)
+}
+
+func (t txBlindTx) RecoveryCodeByUserID(ctx context.Context, id int64) (access.RecoveryCode, bool, error) {
+	if t.read == blindRecoveryCode {
+		return access.RecoveryCode{}, false, nil
+	}
+	return t.memTx.RecoveryCodeByUserID(ctx, id)
+}
+
+func (t txBlindTx) TemporaryPasswordByUserID(ctx context.Context, id int64) (access.TemporaryPassword, bool, error) {
+	if t.read == blindTemporaryPassword {
+		return access.TemporaryPassword{}, false, nil
+	}
+	return t.memTx.TemporaryPasswordByUserID(ctx, id)
+}
+
+func (t txBlindTx) SSOMode(ctx context.Context) (account.SSOMode, bool, error) {
+	if t.read == blindSSOMode {
+		return account.SSOAlongside, false, nil
+	}
+	return t.memTx.SSOMode(ctx)
+}
+
+func (t txBlindTx) UserByID(ctx context.Context, id int64) (*access.User, bool, error) {
+	if t.read == blindUserByID {
+		return nil, false, nil
+	}
+	return t.memTx.UserByID(ctx, id)
 }

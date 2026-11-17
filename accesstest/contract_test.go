@@ -38,6 +38,14 @@ func TestStoreContractMemStoreSkips(t *testing.T) {
 		"TestStoreContractMemStore/rule_22_log/seq_re_run",
 		"TestStoreContractMemStore/rule_22_log/stats_reopen",
 		"TestStoreContractMemStore/rule_26_sso_mode/reopen",
+		"TestStoreContractMemStore/via_tx/rule_10_durability",
+		"TestStoreContractMemStore/via_tx/rule_17_ids_and_lineage/reopen_keys",
+		"TestStoreContractMemStore/via_tx/rule_17_ids_and_lineage/reopen_users",
+		"TestStoreContractMemStore/via_tx/rule_20_fidelity/reopen",
+		"TestStoreContractMemStore/via_tx/rule_22_log/seq_never_reused_reopen",
+		"TestStoreContractMemStore/via_tx/rule_22_log/seq_re_run",
+		"TestStoreContractMemStore/via_tx/rule_22_log/stats_reopen",
+		"TestStoreContractMemStore/via_tx/rule_26_sso_mode/reopen",
 	}
 	if got := reported(out, "SKIP"); !slices.Equal(got, want) {
 		t.Errorf("skipped subtests = %v, want exactly %v", got, want)

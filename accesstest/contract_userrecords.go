@@ -13,8 +13,7 @@ import (
 	"github.com/cplieger/access/account"
 )
 
-// userRecords: rule 24, the per-user records, on the Store and inside an
-// Update, since account writes them only through a Tx.
+// userRecords: rule 24, the per-user records.
 func (c *contract) userRecords(t *testing.T) {
 	t.Run("totp", func(t *testing.T) { perUserCases(t, c, totpKind) })
 	t.Run("recovery_code", func(t *testing.T) { perUserCases(t, c, recoveryKind) })
@@ -23,8 +22,7 @@ func (c *contract) userRecords(t *testing.T) {
 }
 
 func perUserCases[T any](t *testing.T, c *contract, k perUser[T]) {
-	t.Run("store", func(t *testing.T) { checkPerUser(t, c.store(t), k, onStore) })
-	t.Run("in_update", func(t *testing.T) { checkPerUser(t, c.store(t), k, inUpdate) })
+	t.Run("one_per_user", func(t *testing.T) { checkPerUser(t, c.store(t), k) })
 	t.Run("rolls_back", func(t *testing.T) { perUserRollsBack(t, c.store(t), k) })
 }
 
@@ -34,16 +32,6 @@ type perUser[T any] struct {
 	get     func(ctx context.Context, tx account.Tx, userID int64) (T, bool, error)
 	set     func(ctx context.Context, tx account.Tx, rec T) error
 	del     func(ctx context.Context, tx account.Tx, userID int64) error
-}
-
-// writeVia runs one write on s: on the Store itself, or inside a committed
-// Update.
-type writeVia func(ctx context.Context, s account.Store, write func(account.Tx) error) error
-
-func onStore(_ context.Context, s account.Store, write func(account.Tx) error) error { return write(s) }
-
-func inUpdate(ctx context.Context, s account.Store, write func(account.Tx) error) error {
-	return s.Update(ctx, write)
 }
 
 var totpKind = perUser[access.TOTP]{
@@ -113,11 +101,11 @@ func expectRecord[T any](t *testing.T, s account.Tx, k perUser[T], when string, 
 }
 
 // checkPerUser: one record per user, written whole over the last, read by
-// its user alone, and deleted idempotently, each write made through via.
-func checkPerUser[T any](t *testing.T, s account.Store, k perUser[T], via writeVia) {
+// its user alone, and deleted idempotently.
+func checkPerUser[T any](t *testing.T, s account.Store, k perUser[T]) {
 	ctx := t.Context()
-	set := func(rec T) error { return via(ctx, s, func(tx account.Tx) error { return k.set(ctx, tx, rec) }) }
-	del := func(id int64) error { return via(ctx, s, func(tx account.Tx) error { return k.del(ctx, tx, id) }) }
+	set := func(rec T) error { return k.set(ctx, s, rec) }
+	del := func(id int64) error { return k.del(ctx, s, id) }
 	u, other := mustUser(t, s, "holder"), mustUser(t, s, "bystander")
 	kept := k.version(other.ID, 9)
 	check(t, "set the bystander's record", set(kept))
@@ -281,13 +269,6 @@ func (c *contract) ssoMode(t *testing.T) {
 			check(t, "SetSSOMode", s.SetSSOMode(t.Context(), m))
 			read(t, s, "after a SetSSOMode", m, true)
 		}
-	})
-	t.Run("in_update", func(t *testing.T) {
-		s := c.store(t)
-		check(t, "Update(SetSSOMode)", s.Update(t.Context(), func(tx account.Tx) error {
-			return tx.SetSSOMode(t.Context(), account.SSOForLinked)
-		}))
-		read(t, s, "after a committed Update that set SSOForLinked", account.SSOForLinked, true)
 	})
 	t.Run("rolls_back", func(t *testing.T) {
 		s := c.store(t)
