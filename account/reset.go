@@ -9,11 +9,12 @@ import (
 
 // ResetSecondFactor deletes userID's TOTP record and recovery code, with
 // their failure records, sessions and pending sign-ins, for an admin
-// principal, a ManageUsersScope key on a RoleUser (admin_target) or an
-// out-of-band actor, under OpResetSecondFactor and the owner protections;
-// the password, passkeys and keys stay. A principal's own user is
-// ReasonSelfRecovery. A refusal answers before existence, and a missing
-// user or one holding neither record is ErrNotFound, writing nothing.
+// principal, a ManageUsersScope key presenting its current secret
+// (key_retiring) on a RoleUser (admin_target) or an out-of-band actor, under
+// OpResetSecondFactor and the owner protections; the password, passkeys and
+// keys stay. A principal's own user is ReasonSelfRecovery. A refusal answers
+// before existence, and a missing user or one holding neither record is
+// ErrNotFound, writing nothing.
 func (s *Service) ResetSecondFactor(ctx context.Context, a Actor, userID int64) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	r, err := s.begin()
 	if err != nil {
@@ -32,14 +33,19 @@ func (s *Service) ResetSecondFactor(ctx context.Context, a Actor, userID int64) 
 	return err
 }
 
-// resetIn is ResetSecondFactor's change: the actor's authority, the Policy
-// and owner protections, existence and admin_target, then the deletions. A
+// resetIn is ResetSecondFactor's change: the actor's authority, a key's
+// current secret, the Policy and owner protections, existence and
+// admin_target, then the deletions. A
 // record kept dormant, by TOTP unwired or off or by the SSO mode, is
 // deleted like a usable one.
 func (s *Service) resetIn(ctx context.Context, tx Tx, j *journal, a Actor, userID int64) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	ua, err := s.userAdminIn(ctx, tx, j, OpResetSecondFactor, a)
 	if err != nil {
 		return err
+	}
+	p, _ := a.Principal()
+	if keyErr := requireCurrentSecret(OpResetSecondFactor, ua.key, p); keyErr != nil {
+		return keyErr
 	}
 	target, found, users, err := targetIn(ctx, tx, userID)
 	if err != nil {

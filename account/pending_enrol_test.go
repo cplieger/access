@@ -2,6 +2,7 @@ package account_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -105,8 +106,8 @@ func recoveryFailures(t testing.TB, f *sfFixture, name string, trusted bool) (ac
 // 800-63B-4 §4.2.1.1's saved recovery code, used once after the password.
 func TestSignInWithRecoveryCode(t *testing.T) {
 	t.Parallel()
-	// The step commits nothing but the count and answers a
-	// recovered NextEnrol, never a session.
+	// Design 4.6: the step commits its count, which the match clears,
+	// and answers a recovered NextEnrol, never a session.
 	t.Run("answers_a_recovered_enrolment", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{})
@@ -129,8 +130,8 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 		if sessions, _ := f.mem.SessionsByUserID(t.Context(), u.ID); len(sessions) != 0 {
 			t.Errorf("the step created %d sessions, want none", len(sessions))
 		}
-		if rec, _ := recoveryFailures(t, f, "alice", false); rec.Count != 1 {
-			t.Errorf("recovery-code failure count = %d, want the step's one count", rec.Count)
+		if rec, found := recoveryFailures(t, f, "alice", false); found {
+			t.Errorf("recovery-code failure record after a match = %+v, want none", rec)
 		}
 		if n := len(eventsOf(f.events, account.EventRecoveryCodeUsed)); n != 0 {
 			t.Errorf("recovery_code_used events = %d, want 0 before the finish", n)
@@ -221,6 +222,77 @@ func TestSignInWithRecoveryCode(t *testing.T) {
 		evs := eventsOf(f.events, account.EventSecondFactorFailed)
 		if len(evs) != 1 || evs[0].Method != access.MethodRecoveryCode || evs[0].UserID != u.ID {
 			t.Errorf("second_factor_failed = %+v, want one recovery_code entry for alice", evs)
+		}
+	})
+	// Design 4.6 and 4.59: a match clears its own trust context's count,
+	// as a correct TOTP code does, so a right code at FailureCap-1 never
+	// locks and an abandoned recovery leaves the code usable; the other
+	// context's count stays.
+	t.Run("match_clears_its_count", func(t *testing.T) {
+		t.Parallel()
+		f := newSF(t, account.Rules{}, pwOptions{})
+		_, ticket, _ := recoveryTicket(t, f, clientAt(1))
+		name := account.FailureName(f.svc, "alice")
+		for _, rec := range []account.FailureCount{
+			{Name: name, Method: access.MethodRecoveryCode, Count: account.FailureCap - 1},
+			{Name: name, Method: access.MethodRecoveryCode, Trusted: true, Count: 5},
+		} {
+			if err := f.mem.PutAuthFailure(t.Context(), rec); err != nil {
+				t.Fatalf("PutAuthFailure: %v", err)
+			}
+		}
+		out, err := f.svc.SignInWithRecoveryCode(t.Context(), clientAt(1), ticket, knownRecoveryShown)
+		recovered(t, out, err, access.MethodTOTP, access.MethodPasskey)
+		if rec, found := recoveryFailures(t, f, "alice", false); found {
+			t.Errorf("the step's own count after a match = %+v, want none", rec)
+		}
+		if rec, _ := recoveryFailures(t, f, "alice", true); rec.Count != 5 || rec.Locked {
+			t.Errorf("the other trust context's record = %+v, want its count of 5 kept", rec)
+		}
+		out, err = f.svc.SignInWithRecoveryCode(t.Context(), clientAt(1), again(t, f, clientAt(1)), knownRecoveryShown)
+		recovered(t, out, err, access.MethodTOTP, access.MethodPasskey)
+		if rec, found := recoveryFailures(t, f, "alice", false); found {
+			t.Errorf("the count after the abandoned recovery's retry = %+v, want none", rec)
+		}
+	})
+	// Design 4.59: a clear that fails fails the step, which mints no
+	// ticket and leaves the committed count.
+	t.Run("clear_fails_closed", func(t *testing.T) {
+		t.Parallel()
+		fs := newFaultStore()
+		f := newSF(t, account.Rules{}, pwOptions{store: fs})
+		_, ticket, _ := recoveryTicket(t, f, clientAt(1))
+		fs.failCall("DeleteAuthFailures")
+		out, err := f.svc.SignInWithRecoveryCode(t.Context(), clientAt(1), ticket, knownRecoveryShown)
+		if !errors.Is(err, access.ErrAuthBackend) || out.Pending != nil {
+			t.Fatalf("SignInWithRecoveryCode with a failing clear = %+v, %v; want no ticket and access.ErrAuthBackend", out, err)
+		}
+		if rec, _ := recoveryFailures(t, f, "alice", false); rec.Count != 1 {
+			t.Errorf("recovery-code failure count = %d, want the committed 1", rec.Count)
+		}
+	})
+	// The clear re-reads the code, as the finish does: one replaced since
+	// the count ends the ticket and clears nothing.
+	t.Run("code_replaced_before_the_clear", func(t *testing.T) {
+		t.Parallel()
+		fs := newFaultStore()
+		f := newSF(t, account.Rules{}, pwOptions{store: fs})
+		u, ticket, _ := recoveryTicket(t, f, clientAt(1))
+		updates := 0
+		fs.onUpdate(func(context.Context, int) {
+			if updates++; updates == 2 {
+				fs.onUpdate(nil)
+				storeRecoveryCode(t, f.mem, u)
+			}
+		})
+		if _, err := f.svc.SignInWithRecoveryCode(t.Context(), clientAt(1), ticket, knownRecoveryShown); !errors.Is(err, access.ErrTokenInvalid) {
+			t.Fatalf("a match on a code replaced since its count = %v, want access.ErrTokenInvalid", err)
+		}
+		if live(f, ticket) {
+			t.Error("the ticket outlived its replaced code")
+		}
+		if rec, _ := recoveryFailures(t, f, "alice", false); rec.Count != 1 {
+			t.Errorf("recovery-code failure count = %d, want the committed 1", rec.Count)
 		}
 	})
 	t.Run("locked", func(t *testing.T) {

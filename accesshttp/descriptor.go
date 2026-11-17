@@ -466,7 +466,7 @@ var opAnswers = map[string]answers{
 		with(access.CodeBadRequest, ReasonTTLNegative, ReasonTTLTooLong).
 		with(access.CodeSSOOnly, ReasonLinked),
 	"ResetSecondFactor": none(access.CodeUnavailable, access.CodeNotFound).
-		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonOwnerTarget, account.ReasonSelfRecovery),
+		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonKeyRetiring, account.ReasonOwnerTarget, account.ReasonSelfRecovery),
 	"SSOReadiness": none(access.CodeHTTPSRequired, access.CodeUnavailable, access.CodeOIDCUnavailable).
 		open(access.CodeForbidden, account.ReasonKeyNotCurrent).
 		with(access.CodeBadRequest, ""),

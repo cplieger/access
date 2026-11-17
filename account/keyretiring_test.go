@@ -10,8 +10,8 @@ import (
 )
 
 // retireWorld is boss, an admin holding one key with the user and key
-// permissions, alice, an enabled RoleUser linked to an OIDC identity, and
-// dave, a disabled one, over a faultStore.
+// permissions, alice, an enabled RoleUser linked to an OIDC identity and
+// holding a TOTP record, and dave, a disabled one, over a faultStore.
 type retireWorld struct {
 	f                 *fixture
 	fs                *faultStore
@@ -31,6 +31,7 @@ func newRetireWorld(t *testing.T) retireWorld {
 		t.Fatalf("disable dave: %v", err)
 	}
 	linkUser(t, w.f.mem, w.alice, "https://idp.example.com")
+	storeTOTP(t, w.f.mem, w.alice)
 	created, err := w.f.svc.CreateAPIKey(t.Context(), account.OutOfBand("admin socket"), w.boss.ID,
 		account.NewKey{Label: "Automation", Scopes: []string{scopeUsers, scopeKeys}})
 	if err != nil {
@@ -122,6 +123,9 @@ func issuingOperations() []issuing {
 			_, err := w.f.svc.AdminRelinkOIDC(ctx, account.As(p), w.alice.ID, account.TemporaryPasswordOptions{})
 			return err
 		}},
+		{name: "ResetSecondFactor", op: account.OpResetSecondFactor, run: func(ctx context.Context, w retireWorld, p access.Principal) error {
+			return w.f.svc.ResetSecondFactor(ctx, account.As(p), w.alice.ID)
+		}},
 	}
 }
 
@@ -188,47 +192,16 @@ func TestGuardRetiringKeyDisableAllowed(t *testing.T) {
 	}
 }
 
-// TestGuardRetiringKeyRemovalsAllowed: a retiring key's DeleteUser and
-// ResetSecondFactor only remove access and are not refused.
-func TestGuardRetiringKeyRemovalsAllowed(t *testing.T) {
+// TestGuardRetiringKeyDeleteAllowed: a retiring key's DeleteUser leaves
+// no way in and is not refused.
+func TestGuardRetiringKeyDeleteAllowed(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct {
-		run  func(ctx context.Context, w retireWorld, p access.Principal) error
-		gone func(t *testing.T, w retireWorld) bool
-		name string
-	}{
-		{
-			name: "DeleteUser",
-			run: func(ctx context.Context, w retireWorld, p access.Principal) error {
-				return w.f.svc.DeleteUser(ctx, p, w.alice.ID)
-			},
-			gone: func(t *testing.T, w retireWorld) bool {
-				_, found, err := w.f.mem.UserByID(t.Context(), w.alice.ID)
-				return err == nil && !found
-			},
-		},
-		{
-			name: "ResetSecondFactor",
-			run: func(ctx context.Context, w retireWorld, p access.Principal) error {
-				return w.f.svc.ResetSecondFactor(ctx, account.As(p), w.alice.ID)
-			},
-			gone: func(t *testing.T, w retireWorld) bool {
-				_, found, err := w.f.mem.TOTPByUserID(t.Context(), w.alice.ID)
-				return err == nil && !found
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			w := newRetireWorld(t)
-			storeTOTP(t, w.f.mem, w.alice)
-			if err := tc.run(t.Context(), w, w.retiring(t)); err != nil {
-				t.Fatalf("%s = %v, want nil", tc.name, err)
-			}
-			if !tc.gone(t, w) {
-				t.Errorf("%s by a retiring key left what it removes", tc.name)
-			}
-		})
+	w := newRetireWorld(t)
+	if err := w.f.svc.DeleteUser(t.Context(), w.retiring(t), w.alice.ID); err != nil {
+		t.Fatalf("DeleteUser = %v, want nil", err)
+	}
+	if _, found, err := w.f.mem.UserByID(t.Context(), w.alice.ID); err != nil || found {
+		t.Errorf("alice after a retiring key's DeleteUser: found %t (%v), want deleted", found, err)
 	}
 }
 

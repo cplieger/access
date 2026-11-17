@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/cplieger/access/account"
@@ -73,11 +74,14 @@ func TestTxCallsCoverTx(t *testing.T) {
 
 // rerun runs the top-level test name in a child of this test binary, with
 // env added, and returns its output and exit error. The child runs another
-// top-level test, so it cannot recurse.
+// top-level test, so it cannot recurse. A race-built child sleeps a second
+// at exit unless GORACE sets atexit_sleep_ms
+// (https://go.dev/doc/articles/race_detector#Options); the inherited
+// options stay.
 func rerun(t *testing.T, name string, env ...string) (string, error) {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run", "^"+name+"$", "-test.v", "-test.count=1")
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(append(os.Environ(), "GORACE="+strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0")), env...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }

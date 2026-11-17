@@ -29,14 +29,15 @@ type recoveryMatch struct {
 	methods []access.Method
 }
 
-// SignInWithRecoveryCode spends nothing but a count: a matching recovery
-// code replaces ticket's pending sign-in with a NextEnrol one marked
-// Recovered, whose enrolment finish spends the code. Its refusals, in order:
-// stepTicket's; no live ticket listing recovery_code, access.ErrTokenInvalid;
-// a code not 16 Crockford symbols once normalised, a *MalformedError; the
-// limiter's and the hasher's; then the count's, where a code or user gone
-// ends the ticket. A wrong code keeps the ticket, the first journalling
-// EventSecondFactorFailed; an empty enrolment set is ErrNoUsableMethod.
+// SignInWithRecoveryCode spends nothing: a matching recovery code clears
+// its failure count and replaces ticket's pending sign-in with a NextEnrol
+// one marked Recovered, whose enrolment finish spends the code. Its
+// refusals, in order: stepTicket's; no live ticket listing recovery_code,
+// access.ErrTokenInvalid; a code not 16 Crockford symbols once normalised, a
+// *MalformedError; the limiter's and the hasher's; then the count's and the
+// clear's, where a code or user gone ends the ticket. A wrong code keeps the
+// ticket, the first journalling EventSecondFactorFailed; an empty enrolment
+// set is ErrNoUsableMethod.
 func (s *Service) SignInWithRecoveryCode(ctx context.Context, c Client, ticket access.Secret, code string) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	r, entry, found, err := s.stepTicket(ticket, c, plainRefused)
 	switch {
@@ -65,9 +66,10 @@ func (s *Service) SignInWithRecoveryCode(ctx context.Context, c Client, ticket a
 
 // matchRecoveryCode is the recovery-code step's count, in its own committed
 // Update, then its compare against the stored hash outside it, holding a
-// hash permit taken before the count. A match cancels the reservation,
-// since the sign-in goes on, and answers the replacement's methods or the
-// refusal of an empty set; a wrong code fails it.
+// hash permit taken before the count. A match clears ref's failure record
+// in one more Update and cancels the reservation, since the sign-in goes
+// on, then answers the replacement's methods or the refusal of an empty
+// set; a wrong code fails it. A failed clear fails the step.
 func (s *Service) matchRecoveryCode(ctx context.Context, r Rules, c Client, entry *pending, canonical string) (m recoveryMatch, refused, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
 	res, err := s.stepAttempt(c, entry)()
 	if err != nil {
@@ -102,7 +104,24 @@ func (s *Service) matchRecoveryCode(ctx context.Context, r Rules, c Client, entr
 		return recoveryMatch{}, nil, &CodeError{Reason: ReasonCodeInvalid}
 	}
 	res.Cancel()
+	if clearErr := s.update(ctx, func(tx Tx) error { return clearRecoveryIn(ctx, tx, entry.user.ID, m.hash, ref) }); clearErr != nil {
+		return recoveryMatch{}, nil, clearErr
+	}
 	return m, refused, nil
+}
+
+// clearRecoveryIn deletes ref's failure record once userID's recovery code
+// still has the hash that matched; one replaced or deleted since the count
+// is access.ErrTokenInvalid, so a stale code clears no newer code's count.
+func clearRecoveryIn(ctx context.Context, tx Tx, userID int64, matched access.Hash, ref FailureRef) error {
+	rec, found, err := tx.RecoveryCodeByUserID(ctx, userID)
+	switch {
+	case err != nil:
+		return err
+	case !found || rec.Hash.Key() != matched.Key():
+		return refuse(access.ErrTokenInvalid)
+	}
+	return resetOwnFailure(ctx, tx, ref)
 }
 
 // countRecoveryIn is matchRecoveryCode's Update: the ticket's re-check, the
