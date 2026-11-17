@@ -140,6 +140,9 @@ func inventoryAllow(t *testing.T) printcheck.Allow {
 			"account.pendingEntry.id", "account.pendingCache.byID",
 			// The SHA-256 of the username, the limiter's account key.
 			"ratelimit.Account.digest",
+			// The name lock's keys: canonical usernames, each kept only
+			// while its verifier runs.
+			"keylock.Set[string].m",
 			"accesshttp.TokenView.Purpose", "accesshttp.TokenView.Role", "accesshttp.TokenView.IssuerLineage",
 		},
 	}

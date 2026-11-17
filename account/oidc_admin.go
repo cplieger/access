@@ -46,7 +46,7 @@ func (s *Service) LinkPendingOIDCByAdmin(ctx context.Context, c Client, pl Pendi
 			canonical, nameErr := canonicalUsername(username)
 			if nameErr == nil {
 				var lockErr error
-				if unlock, lockErr = s.names.lock(ctx, ratelimit.AccountKey(canonical)); lockErr != nil {
+				if unlock, lockErr = s.lockName(ctx, canonical); lockErr != nil {
 					return busy(lockErr)
 				}
 			}

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/ratelimit"
 	"github.com/cplieger/access/webauthn"
+	"github.com/cplieger/go/keylock"
 )
 
 // Service runs the account operations over one Store. Build it with New and
@@ -33,7 +35,10 @@ type Service struct {
 	log     *slog.Logger
 	clock   func() time.Time
 	pending *pendingCache
-	names   *nameLocks
+	// names orders the verifiers of one account's temporary password: at
+	// most one holds a canonical username's lock, from admission through
+	// its success Update.
+	names *keylock.Set[string]
 	// allowance bounds the untrusted counted password attempts between two
 	// failure-record prunes.
 	allowance *allowance
@@ -73,6 +78,8 @@ type testHooks struct {
 	beforeVerify func(ctx context.Context)
 	// afterVerify runs once Verify returned true, before the rehash.
 	afterVerify func(ctx context.Context)
+	// nameLockWait runs before a verifier waits on canonical's name lock.
+	nameLockWait func(ctx context.Context, canonical string)
 }
 
 // New refuses a nil Store, Policy, Authenticator, Hasher, Limiter or Rules, a
@@ -115,7 +122,7 @@ func newService(ctx context.Context, cfg Config, hooks testHooks) (*Service, err
 		logSessions: cmp.Or(cfg.LogMaxSessions, DefaultLogMaxSessions),
 		done:        make(chan struct{}),
 		allowance:   newAllowance(),
-		names:       newNameLocks(),
+		names:       keylock.New(strings.Compare),
 		singleUser:  cfg.Policy.SingleUser(),
 		totp:        cfg.TOTP,
 	}

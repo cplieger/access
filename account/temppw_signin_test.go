@@ -560,8 +560,8 @@ func TestTemporaryPasswordLock(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewHashBudget: %v", err)
 		}
-		fs := newFaultStore()
-		f := newSF(t, account.Rules{}, pwOptions{store: fs, budget: budget})
+		fs, waits := newFaultStore(), newNameWaits()
+		f := newSF(t, account.Rules{}, pwOptions{store: fs, budget: budget, hooks: waits.hooks()})
 		mustOwner(t, f.mem, "root")
 		alice := passwordUser(t, f.mem, nil, "alice", "")
 		passwordUser(t, f.mem, f.hasher, "bob", goodPassword)
@@ -582,13 +582,7 @@ func TestTemporaryPasswordLock(t *testing.T) {
 			_, err := f.step1(t.Context(), localClient, "Alice", wrongPassword)
 			queued <- err
 		}()
-		deadline := time.Now().Add(10 * time.Second)
-		for account.NameLockRefs(f.svc, "alice") != 2 && time.Now().Before(deadline) {
-			time.Sleep(time.Millisecond)
-		}
-		if n := account.NameLockRefs(f.svc, "alice"); n != 2 {
-			t.Fatalf("alice's lock refs = %d, want the holder and the queued post", n)
-		}
+		waits.wait(t, "alice", 2)
 		bob := make(chan error, 1)
 		go func() {
 			_, err := f.login(t.Context(), localClient, "bob", goodPassword)
@@ -602,6 +596,7 @@ func TestTemporaryPasswordLock(t *testing.T) {
 		case <-time.After(30 * time.Second):
 			t.Error("bob's sign-in waited on alice's queued post")
 		}
+		requireQueued(t, queued, "the queued post")
 		close(release)
 		if err := <-first; err != nil {
 			t.Errorf("the holder's step 1 = %v, want its pending sign-in", err)
@@ -609,16 +604,14 @@ func TestTemporaryPasswordLock(t *testing.T) {
 		if err := <-queued; !errors.Is(err, account.ErrInvalidCredentials) {
 			t.Errorf("the queued post = %v, want ErrInvalidCredentials", err)
 		}
-		if n := account.NameLocks(f.svc); n != 0 {
-			t.Errorf("name locks = %d after every post settled, want 0", n)
-		}
+		requireNameFree(t, f.svc, "alice")
 	})
 	// A cancelled wait calls Cancel and answers as an ended context
 	// does.
 	t.Run("cancelled_wait", func(t *testing.T) {
 		t.Parallel()
-		fs := newFaultStore()
-		f := newSF(t, account.Rules{}, pwOptions{store: fs, limiter: ipLimit(2)})
+		fs, waits := newFaultStore(), newNameWaits()
+		f := newSF(t, account.Rules{}, pwOptions{store: fs, limiter: ipLimit(2), hooks: waits.hooks()})
 		mustOwner(t, f.mem, "root")
 		alice := passwordUser(t, f.mem, nil, "alice", "")
 		secret := issueTemp(t, f, account.OutOfBand("cli"), alice)
@@ -639,10 +632,7 @@ func TestTemporaryPasswordLock(t *testing.T) {
 			_, err := f.step1(ctx, localClient, "alice", wrongPassword)
 			waited <- err
 		}()
-		deadline := time.Now().Add(10 * time.Second)
-		for account.NameLockRefs(f.svc, "alice") != 2 && time.Now().Before(deadline) {
-			time.Sleep(time.Millisecond)
-		}
+		waits.wait(t, "alice", 2)
 		cancel()
 		if err := <-waited; !errors.Is(err, context.Canceled) || !errors.Is(err, access.ErrHashBusy) {
 			t.Errorf("a cancelled wait = %v, want access.ErrHashBusy with context.Canceled", err)

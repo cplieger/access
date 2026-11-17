@@ -70,18 +70,6 @@ func holdUpdate(fs *faultStore, key any, nth int64) (entered, release chan struc
 	return entered, release
 }
 
-// waitRefs waits until name's lock counts n holders and waiters.
-func waitRefs(t *testing.T, svc *account.Service, name string, n int) {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for account.NameLockRefs(svc, name) != n && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	if got := account.NameLockRefs(svc, name); got != n {
-		t.Fatalf("%s's lock refs = %d, want %d", name, got, n)
-	}
-}
-
 // TestLinkPendingOIDCByAdmin: with an admin's consent, under SSOOnly
 // only, the pending identity is linked to the account an
 // admin's temporary password names, and signed in by OIDC.
@@ -238,9 +226,7 @@ func TestLinkPendingOIDCByAdmin(t *testing.T) {
 				if n := len(f.counted.verified()) - before; n != 1 {
 					t.Errorf("%d derivations, want 1", n)
 				}
-				if n := account.NameLocks(f.svc); n != 0 {
-					t.Errorf("name locks = %d after the answer, want 0", n)
-				}
+				requireNameFree(t, f.svc, "alice")
 				requireUnlinked(t, f, alice)
 			})
 		}
@@ -425,11 +411,11 @@ func TestLinkPendingOIDCByAdmin(t *testing.T) {
 func TestLinkPendingOIDCByAdminLock(t *testing.T) {
 	t.Parallel()
 	type mark struct{}
-	setup := func(t *testing.T) (*oidcFixture, *faultStore, *access.User, string) {
+	setup := func(t *testing.T) (*oidcFixture, *faultStore, *nameWaits, *access.User, string) {
 		t.Helper()
-		fs := newFaultStore()
-		f, _, alice := adminLinkFixture(t, pwOptions{store: fs, posture: access.PosturePerRequest}, nil)
-		return f, fs, alice, issueFor(t, f, socket, alice, account.TemporaryPasswordOptions{}).Password.Reveal()
+		fs, waits := newFaultStore(), newNameWaits()
+		f, _, alice := adminLinkFixture(t, pwOptions{store: fs, posture: access.PosturePerRequest, hooks: waits.hooks()}, nil)
+		return f, fs, waits, alice, issueFor(t, f, socket, alice, account.TemporaryPasswordOptions{}).Password.Reveal()
 	}
 	burnedAndUnlinked := func(t *testing.T, f *oidcFixture, alice *access.User, step, link error) {
 		t.Helper()
@@ -443,15 +429,13 @@ func TestLinkPendingOIDCByAdminLock(t *testing.T) {
 			t.Error("the burned record survived")
 		}
 		requireUnlinked(t, f, alice)
-		if n := account.NameLocks(f.svc); n != 0 {
-			t.Errorf("name locks = %d after both settled, want 0", n)
-		}
+		requireNameFree(t, f.svc, "alice")
 	}
 	// A plain step 1 under SSOOnly mid-verification and an
 	// admin link of the same secret for "ALICE" admitted during it.
 	t.Run("burn_then_link", func(t *testing.T) {
 		t.Parallel()
-		f, fs, alice, secret := setup(t)
+		f, fs, waits, alice, secret := setup(t)
 		entered, release := holdUpdate(fs, mark{}, 2)
 		step := make(chan error, 1)
 		go func() {
@@ -468,7 +452,8 @@ func TestLinkPendingOIDCByAdminLock(t *testing.T) {
 			_, err := f.adminLink(t.Context(), localClient, pendingFor("alice-sub"), "ALICE", secret)
 			link <- err
 		}()
-		waitRefs(t, f.svc, "alice", 2)
+		waits.wait(t, "alice", 2)
+		requireQueued(t, link, "the admin link")
 		close(release)
 		burnedAndUnlinked(t, f, alice, <-step, <-link)
 	})
@@ -476,7 +461,7 @@ func TestLinkPendingOIDCByAdminLock(t *testing.T) {
 	// first.
 	t.Run("another_step_holds_first", func(t *testing.T) {
 		t.Parallel()
-		f, fs, alice, secret := setup(t)
+		f, fs, waits, alice, secret := setup(t)
 		entered, release := holdUpdate(fs, mark{}, 1)
 		first := make(chan error, 1)
 		go func() {
@@ -493,13 +478,15 @@ func TestLinkPendingOIDCByAdminLock(t *testing.T) {
 			_, err := f.step1(t.Context(), plain(localClient), "alice", secret)
 			step <- err
 		}()
-		waitRefs(t, f.svc, "alice", 2)
+		waits.wait(t, "alice", 2)
+		requireQueued(t, step, "the plain step 1")
 		link := make(chan error, 1)
 		go func() {
 			_, err := f.adminLink(t.Context(), localClient, pendingFor("alice-sub"), "alice", secret)
 			link <- err
 		}()
-		waitRefs(t, f.svc, "alice", 3)
+		waits.wait(t, "alice", 3)
+		requireQueued(t, link, "the admin link")
 		close(release)
 		if err := <-first; !errors.Is(err, account.ErrInvalidCredentials) {
 			t.Errorf("the first step 1 = %v, want ErrInvalidCredentials", err)
@@ -509,7 +496,7 @@ func TestLinkPendingOIDCByAdminLock(t *testing.T) {
 	// Two parallel admin-link posts of one secret link once.
 	t.Run("two_posts_link_once", func(t *testing.T) {
 		t.Parallel()
-		f, _, alice, secret := setup(t)
+		f, _, _, alice, secret := setup(t)
 		errs := make(chan error, 2)
 		for _, sub := range []string{"one-sub", "two-sub"} {
 			go func() {

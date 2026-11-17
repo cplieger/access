@@ -4,7 +4,7 @@
 
 access gives your Go web service its sign-in: Argon2id passwords, passkeys, authenticator-app codes, OIDC sign-in, sessions, API keys and invites, served as JSON routes you mount on your own mux, with a typed browser client. You write the storage and the pages.
 
-It reads no environment variables, and every setting lives on the value you construct. It is licensed under Apache-2.0. It has four direct dependencies at run time: `golang.org/x/crypto`, `golang.org/x/oauth2`, `golang.org/x/sync` and `golang.org/x/text`.
+It reads no environment variables, and every setting lives on the value you construct. It is licensed under Apache-2.0. It has five direct dependencies at run time: `github.com/cplieger/go/keylock`, `golang.org/x/crypto`, `golang.org/x/oauth2`, `golang.org/x/sync` and `golang.org/x/text`.
 
 ## Why use it
 

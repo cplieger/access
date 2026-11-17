@@ -3,6 +3,7 @@ module github.com/cplieger/access
 go 1.27.4
 
 require (
+	github.com/cplieger/go/keylock v1.1.0
 	golang.org/x/crypto v0.59.0
 	golang.org/x/oauth2 v0.38.0
 	golang.org/x/sync v0.25.0

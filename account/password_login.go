@@ -52,7 +52,7 @@ func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (
 		},
 		prepare: func(res *ratelimit.Reservation) error {
 			var lockErr error
-			if unlock, lockErr = s.names.lock(ctx, ratelimit.AccountKey(canonical)); lockErr != nil {
+			if unlock, lockErr = s.lockName(ctx, canonical); lockErr != nil {
 				return busy(lockErr)
 			}
 			a = s.newAttempt(res, canonical)

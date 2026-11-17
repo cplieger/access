@@ -6,6 +6,15 @@ import (
 	"github.com/cplieger/access"
 )
 
+// lockName waits for canonical's name lock (Service.names) until ctx ends,
+// which answers ctx.Err(); unlock releases it.
+func (s *Service) lockName(ctx context.Context, canonical string) (unlock func(), err error) {
+	if s.hooks.nameLockWait != nil {
+		s.hooks.nameLockWait(ctx, canonical)
+	}
+	return s.names.Lock(ctx, canonical)
+}
+
 // liveTemporaryIn is the head of every write after a temporary password
 // verified, step 1's and the admin link's: it goes on only while userID is
 // stored and enabled and its record is live and holds the verified hash,

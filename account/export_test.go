@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/cplieger/access"
-	"github.com/cplieger/access/ratelimit"
 )
 
 // Hooks are the test hooks of testHooks; each nil one is skipped.
@@ -17,6 +16,7 @@ type Hooks struct {
 	Admitted            func(ctx context.Context)
 	BeforeVerify        func(ctx context.Context)
 	AfterVerify         func(ctx context.Context)
+	NameLockWait        func(ctx context.Context, canonical string)
 }
 
 // Hashing is the hasher boundary WrapHasher wraps.
@@ -30,6 +30,7 @@ func NewWithHooks(ctx context.Context, cfg Config, h Hooks) (*Service, error) {
 	return newService(ctx, cfg, testHooks{
 		wrapHasher: h.WrapHasher, betweenSessionCalls: h.BetweenSessionCalls, failureSweep: h.FailureSweep,
 		admitted: h.Admitted, beforeVerify: h.BeforeVerify, afterVerify: h.AfterVerify,
+		nameLockWait: h.NameLockWait,
 	})
 }
 
@@ -212,25 +213,11 @@ func TemporaryPasswordFrom(random [temporaryPasswordRandomBytes]byte) string {
 // TemporaryPasswordForm is a presented value's canonical form, and whether it is one.
 func TemporaryPasswordForm(presented string) (string, bool) { return temporaryPasswordForm(presented) }
 
-// NameLocks is the number of names s's name lock holds an entry for.
-func NameLocks(s *Service) int { return s.names.held() }
-
-// NameLockRefs is the holder and waiters of username's name lock.
-func NameLockRefs(s *Service, username string) int {
-	return s.names.refs(ratelimit.AccountKey(username))
-}
-
-func (l *nameLocks) refs(key ratelimit.Account) int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if e, ok := l.byKey[key]; ok {
-		return e.refs
+// LockName takes s's name lock on username's canonical form.
+func LockName(ctx context.Context, s *Service, username string) (unlock func(), err error) {
+	canonical, err := canonicalUsername(username)
+	if err != nil {
+		return nil, err
 	}
-	return 0
-}
-
-func (l *nameLocks) held() int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return len(l.byKey)
+	return s.names.Lock(ctx, canonical)
 }
