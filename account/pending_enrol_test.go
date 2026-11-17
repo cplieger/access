@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
+	"github.com/cplieger/access/ratelimit"
 )
 
 // knownRecoveryCode is a recovery code's 16 Crockford symbols
@@ -513,6 +515,23 @@ func TestPendingEnrolment(t *testing.T) {
 		}
 		if !live(f, ticket) {
 			t.Error("a refused code ended the enrolment ticket")
+		}
+	})
+	// NIST SP 800-63B-4 §3.2.2: the finish is rate-limited like its begin,
+	// so a spent IP request budget refuses a well-formed wrong code.
+	t.Run("finish_limited", func(t *testing.T) {
+		t.Parallel()
+		limited := func(err error) bool { _, ok := errors.AsType[*ratelimit.RefusedError](err); return ok }
+		f := newSF(t, rule, pwOptions{limiter: func(c *ratelimit.Config) { c.Request = ratelimit.Rate{Limit: 1, Window: time.Hour} }})
+		_, ticket := enrolTicket(t, f)
+		if _, err := f.svc.PendingTOTPBegin(t.Context(), clientAt(1), ticket); err != nil {
+			t.Fatalf("PendingTOTPBegin = %v", err)
+		}
+		if _, err := f.svc.PendingTOTPFinish(t.Context(), clientAt(1), ticket, "000000"); !limited(err) {
+			t.Errorf("a wrong code with the IP request budget spent = %v, want a *ratelimit.RefusedError", err)
+		}
+		if !live(f, ticket) {
+			t.Error("the limiter's refusal ended the enrolment ticket")
 		}
 	})
 	t.Run("finish_before_begin", func(t *testing.T) {

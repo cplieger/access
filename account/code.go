@@ -22,6 +22,9 @@ type codeCheck struct {
 	// missing answers a user with no record: the code step's ticket ends,
 	// every other site refuses the code.
 	missing error
+	// recheck, when set, runs first in the count's Update, so a refusal
+	// there writes no failure record: the code step's ticket re-check.
+	recheck func(tx Tx) error
 	raw     string
 	field   string     // the input's name, for a MalformedError
 	invalid string     // the CodeError Reason of a code that matches no step
@@ -43,9 +46,10 @@ func (s *Service) newCodeCheck(res *ratelimit.Reservation, u *access.User, raw s
 
 // countCode is ch's count, in its own committed Update, and its match:
 // RFC 6238 §5.2's one acceptance needs the count to survive whatever the
-// match then answers (Vikunja GHSA-fgfv-pv97-6cmj). A record no key opens
-// is ErrSecondFactorUnavailable and a malformed code a *MalformedError,
-// both writing nothing; a locked record is method_locked whatever the code.
+// match then answers (Vikunja GHSA-fgfv-pv97-6cmj). A refused recheck, a
+// record no key opens (ErrSecondFactorUnavailable) and a malformed code (a
+// *MalformedError) write nothing; a locked record is method_locked whatever
+// the code.
 // Otherwise it adds one, locking at FailureCap, and answers the matched
 // step or the code's *CodeError. It settles res on every refusal.
 func (s *Service) countCode(ctx context.Context, res *ratelimit.Reservation, ch *codeCheck) (int64, error) {
@@ -81,6 +85,11 @@ type counted struct {
 
 // countIn is countCode's Update, inside tx.
 func (s *Service) countIn(ctx context.Context, tx Tx, ch *codeCheck) (counted, error) {
+	if ch.recheck != nil {
+		if err := ch.recheck(tx); err != nil {
+			return counted{}, err
+		}
+	}
 	rec, found, err := tx.TOTPByUserID(ctx, ch.userID)
 	switch {
 	case err != nil:

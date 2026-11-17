@@ -22,17 +22,13 @@ type RegistrationPasskey struct {
 }
 
 // RegisterPassword creates a regular account with a password under
-// Rules.Registration. Its refusals before the limiter and the hash, in
-// order: access.ErrHTTPSRequired over plain HTTP, ErrRegistrationClosed while
-// the mode is off, the username and password rules, the Policy
-// (OpCreateUser, ViaRegistration), ErrSSOOnly under the stored mode SSOOnly,
-// and under RegistrationApproval ErrRegistrationFull at
-// Rules.MaxWaitingRegistrations; then c's IP attempt. Under
-// Rules.RequireSecondFactor it answers a Pending NextEnrol whose finish
-// creates the account. Otherwise one Update re-checks the stored mode and
-// the cap and creates it: under RegistrationOpen enabled and signed in,
-// under RegistrationApproval Waiting, with no session; a taken name is
-// ErrUsernameTaken.
+// Rules.Registration, signed in under RegistrationOpen and Waiting under
+// RegistrationApproval, in one Update re-checking the mode and the cap, or
+// as a Pending NextEnrol under Rules.RequireSecondFactor. Refusals, in
+// order: plain access.ErrHTTPSRequired; ErrRegistrationClosed; the username
+// and password rules; the Policy (ViaRegistration); ErrSSOOnly;
+// ErrRegistrationFull at RegistrationApproval's MaxWaitingRegistrations;
+// c's IP attempt; a taken name ErrUsernameTaken.
 func (s *Service) RegisterPassword(ctx context.Context, c Client, in Registration) (RegistrationResult, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
 	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {

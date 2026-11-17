@@ -409,6 +409,7 @@ func (s *Service) oidcLink(ctx context.Context, r Rules, c Client, flow oidc.Flo
 	case !admitted:
 		return OIDCOutcome{}, ErrNotAdmitted
 	}
+	s.dropDormant(&l)
 	return OIDCOutcome{Kind: OutcomeLinked, Issued: Issued{Token: l.rot.token, Session: l.rot.session}}, nil
 }
 
@@ -492,7 +493,7 @@ func sessionActor(u *access.User, sess *access.Session) Actor {
 // user ErrSessionGone, a linked user ErrAlreadyLinked, an identity of another
 // user ErrOIDCIdentityTaken. A link that leaves the user's local methods
 // dormant under the stored SSO mode moves p's session onto MethodOIDC, its
-// AuthTime kept, and ends the user's other sessions of a local method.
+// AuthTime kept, and ends the user's other local sessions and pending sign-ins.
 func (s *Service) LinkPendingOIDC(ctx context.Context, p access.Principal, pending PendingLink) (Issued, Me, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	r, err := s.beginRecentSession(plainRefused, p.Secure, p)
 	if err != nil {
@@ -533,16 +534,20 @@ func (s *Service) LinkPendingOIDC(ctx context.Context, p access.Principal, pendi
 	if err != nil {
 		return Issued{}, Me{}, err
 	}
+	s.dropDormant(&l)
 	return Issued{Token: l.rot.token, Session: l.rot.session}, me, nil
 }
 
 // linked is what a link's Update wrote besides the link: the rotated
-// session and the sessions the stored mode then forbids, ended.
+// session and the sessions the stored mode then forbids, ended. dormant
+// reports the link left the user's local methods dormant, so the caller
+// drops the user's pending sign-ins once the Update commits.
 type linked struct {
 	actor    EventActor
 	sessions []string
 	rot      rotated
 	userID   int64
+	dormant  bool
 }
 
 // linkSession is the session a link rotates, as tx read it. expect is the
@@ -587,8 +592,17 @@ func (s *Service) linkIn(ctx context.Context, tx Tx, actor Actor, u *access.User
 	if l.rot, err = s.rotateSession(ctx, tx, ls.sess, ls.expect, access.MethodOIDC, ls.fresh); err != nil {
 		return err
 	}
+	l.dormant = true
 	l.sessions, err = endForbiddenSessions(ctx, tx, u)
 	return err
+}
+
+// dropDormant drops the pending sign-ins of a user the committed link l
+// left dormant.
+func (s *Service) dropDormant(l *linked) {
+	if l.dormant {
+		s.pending.dropUser(l.userID)
+	}
 }
 
 // addLinked adds a link's entries: EventOIDCLinked, then

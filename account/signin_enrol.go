@@ -164,9 +164,9 @@ func enrolling(entry *pending, found bool, m access.Method) bool {
 	return found && entry.ticket.next == NextEnrol && slices.Contains(entry.ticket.methods, m)
 }
 
-// enrolUser is a pending enrolment begin's user: a draft's would-be
-// account, or the ticket's user re-checked, dropping a ticket that ends.
-func (s *Service) enrolUser(ctx context.Context, ticket access.Secret, entry *pending) (*access.User, error) {
+// beginUser is a pending step begin's user: a draft's would-be account, or
+// the ticket's user re-checked, dropping a ticket that ends.
+func (s *Service) beginUser(ctx context.Context, ticket access.Secret, entry *pending) (*access.User, error) {
 	if entry.ticket.draft != nil {
 		u := entry.user
 		return &u, nil
@@ -190,7 +190,7 @@ func (s *Service) PendingTOTPBegin(ctx context.Context, c Client, ticket access.
 	if _, limitErr := s.requestLimit(c)(); limitErr != nil {
 		return PendingTOTP{}, limitErr
 	}
-	u, err := s.enrolUser(ctx, ticket, &entry)
+	u, err := s.beginUser(ctx, ticket, &entry)
 	if err != nil {
 		return PendingTOTP{}, err
 	}
@@ -202,13 +202,13 @@ func (s *Service) PendingTOTPBegin(ctx context.Context, c Client, ticket access.
 }
 
 // PendingTOTPFinish binds the secret PendingTOTPBegin drew once code matches
-// it, its step spent, completing ticket's pending sign-in as a MethodPassword
-// session, or a registration draft's under RegistrationApproval as Waiting,
-// with the recovery code issueRecoveryIn issued. Its refusals:
-// totpEnrolTicket's; no secret drawn, access.ErrTokenInvalid; a malformed or
-// wrong code before the limiter, the ticket kept; the limiter's, the
-// hasher's, and enrolAccountIn's, ending the ticket. A Recovered ticket's
-// finish spends the recovery code and deletes the lost TOTP in its Update.
+// it, its step spent, completing ticket's sign-in as a MethodPassword session,
+// or a registration draft under RegistrationApproval as Waiting, with
+// issueRecoveryIn's code. A Recovered ticket's finish spends the recovery code
+// and deletes the lost TOTP. Its refusals: totpEnrolTicket's; no secret drawn,
+// access.ErrTokenInvalid; c's IP request limit; a malformed or wrong code,
+// counted nowhere; then the step limiter's, the hasher's and enrolAccountIn's,
+// of which those enrolAnswered lists end the ticket.
 func (s *Service) PendingTOTPFinish(ctx context.Context, c Client, ticket access.Secret, code string) (EnrolmentResult, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	r, entry, err := s.totpEnrolTicket(ticket, c)
 	if err != nil {
@@ -217,6 +217,9 @@ func (s *Service) PendingTOTPFinish(ctx context.Context, c Client, ticket access
 	secret := []byte(entry.enrol.secret.Reveal())
 	if len(secret) == 0 {
 		return EnrolmentResult{}, access.ErrTokenInvalid
+	}
+	if _, limitErr := s.requestLimit(c)(); limitErr != nil {
+		return EnrolmentResult{}, limitErr
 	}
 	step, result := totp.Match(secret, code, s.now(), math.MinInt64)
 	switch result {
@@ -380,7 +383,7 @@ func (s *Service) PendingPasskeyBegin(ctx context.Context, c Client, ticket acce
 	if _, limitErr := s.requestLimit(c)(); limitErr != nil {
 		return PendingCeremony{}, limitErr
 	}
-	u, err := s.enrolUser(ctx, ticket, &entry)
+	u, err := s.beginUser(ctx, ticket, &entry)
 	if err != nil {
 		return PendingCeremony{}, err
 	}
@@ -399,10 +402,10 @@ func (s *Service) PendingPasskeyBegin(ctx context.Context, c Client, ticket acce
 // PendingPasskeyFinish completes the pending sign-in ceremonyID's ticket
 // names by registering the passkey in body, as a session of
 // MethodPassword with the recovery code it issued (issueRecoveryIn), or as
-// PendingTOTPFinish's Waiting account. An
-// unknown, spent or expired ceremony is ErrCeremonyInvalid; then
-// enrolTicket's refusals, the limiter's, the registration's, the hasher's,
-// ErrDuplicateCredential, and enrolAccountIn's, ending the ticket. A
+// PendingTOTPFinish's Waiting account. An unknown, spent or expired
+// ceremony is ErrCeremonyInvalid; then enrolTicket's refusals, the
+// limiter's, the registration's, the hasher's, ErrDuplicateCredential and
+// enrolAccountIn's, of which those enrolAnswered lists end the ticket. A
 // Recovered ticket's finish spends the recovery as PendingTOTPFinish does.
 func (s *Service) PendingPasskeyFinish(ctx context.Context, c Client, ceremonyID string, body io.Reader) (EnrolmentResult, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	cer, ok := s.pending.take(ceremonyID, purposeEnrolPasskey, s.now())

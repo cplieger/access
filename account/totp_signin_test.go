@@ -126,6 +126,48 @@ func TestSignInWithCode(t *testing.T) {
 			t.Error("the success left the failure record")
 		}
 	})
+	// NIST SP 800-63B-4 §3.2.2 counts failed attempts against the
+	// subscriber's own authenticator: a ticket whose step 1 no longer holds
+	// is ended at the count, so its wrong codes never reach the user's lock.
+	for _, tc := range []struct {
+		name   string
+		change func(t *testing.T, f *sfFixture, u *access.User)
+	}{
+		{name: "mode_made_dormant", change: func(t *testing.T, f *sfFixture, _ *access.User) { storeMode(t, f.mem, account.SSOOnly) }},
+		{name: "password_changed", change: func(t *testing.T, f *sfFixture, u *access.User) {
+			hash, err := f.hasher.Hash(t.Context(), goodPassword)
+			if err != nil {
+				t.Fatalf("Hash: %v", err)
+			}
+			u.PasswordHash = hash
+			if err := f.mem.UpdateUser(t.Context(), u); err != nil {
+				t.Fatalf("UpdateUser: %v", err)
+			}
+		}},
+		{name: "disabled", change: func(t *testing.T, f *sfFixture, u *access.User) {
+			u.Enabled = false
+			if err := f.mem.UpdateUser(t.Context(), u); err != nil {
+				t.Fatalf("UpdateUser: %v", err)
+			}
+		}},
+	} {
+		t.Run("wrong_code_after_"+tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newSF(t, account.Rules{}, pwOptions{})
+			u, ticket, secret := codeTicket(t, f, clientAt(1))
+			tc.change(t, f, storedUser(t, f.mem, u.ID))
+			wrong := codeAt(secret, time.Now().Add(-10*totp.Period))
+			if _, err := f.svc.SignInWithCode(t.Context(), clientAt(1), ticket, wrong); !errors.Is(err, access.ErrTokenInvalid) {
+				t.Errorf("a wrong code on the stale ticket = %v, want access.ErrTokenInvalid", err)
+			}
+			if live(f, ticket) {
+				t.Error("the stale ticket outlived its refused step")
+			}
+			if rec, found := totpFailures(t, f.mem, f.svc, "alice", false); found {
+				t.Errorf("the stale ticket's wrong code wrote a failure record %+v", rec)
+			}
+		})
+	}
 	// logto GHSA-6wj7-c66m-6c82: a used code was accepted again in its window.
 	t.Run("replay_refused", func(t *testing.T) {
 		t.Parallel()
@@ -469,8 +511,7 @@ func TestSignInWithCode(t *testing.T) {
 			t.Errorf("TOTP failure count after the rolled-back success = %d, want the committed 1", rec.Count)
 		}
 	})
-	// Design 4.15 and adv-grok-r10-3's case: an old-parameter hash migrates
-	// at step 1 of a two-step sign-in.
+	// Step 1 of a two-step sign-in rewrites an old-parameter password hash.
 	t.Run("rehashed_at_step_one", func(t *testing.T) {
 		t.Parallel()
 		f := newSF(t, account.Rules{}, pwOptions{})
@@ -634,6 +675,37 @@ func TestSecondFactorPasskey(t *testing.T) {
 			t.Errorf("a passkey step on a totp-only ticket = %v, want access.ErrTokenInvalid", err)
 		}
 	})
+	// The begin re-checks the ticket's user as every step does: a password
+	// changed or a mode made dormant since step 1 ends the ticket before a
+	// ceremony starts.
+	for _, tc := range []struct {
+		name   string
+		change func(t *testing.T, f *sfFixture, u *access.User)
+	}{
+		{name: "password_changed", change: func(t *testing.T, f *sfFixture, u *access.User) {
+			hash, err := f.hasher.Hash(t.Context(), goodPassword)
+			if err != nil {
+				t.Fatalf("Hash: %v", err)
+			}
+			u.PasswordHash = hash
+			if err := f.mem.UpdateUser(t.Context(), u); err != nil {
+				t.Fatalf("UpdateUser: %v", err)
+			}
+		}},
+		{name: "mode_made_dormant", change: func(t *testing.T, f *sfFixture, _ *access.User) { storeMode(t, f.mem, account.SSOOnly) }},
+	} {
+		t.Run("begin_after_"+tc.name, func(t *testing.T) {
+			t.Parallel()
+			f, u, _, ticket := setup(t)
+			tc.change(t, f, storedUser(t, f.mem, u.ID))
+			if _, err := f.svc.SecondFactorPasskeyBegin(t.Context(), clientAt(1), ticket, f.origin); !errors.Is(err, access.ErrTokenInvalid) {
+				t.Errorf("SecondFactorPasskeyBegin on the stale ticket = %v, want access.ErrTokenInvalid", err)
+			}
+			if live(f, ticket) {
+				t.Error("the stale ticket outlived its refused begin")
+			}
+		})
+	}
 }
 
 // TestOIDCSignInNeverAskedForTheCode is Vikunja GHSA-8jvc-mcx6-r4cg's

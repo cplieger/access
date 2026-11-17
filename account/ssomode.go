@@ -274,7 +274,8 @@ func (s *Service) CheckSSOReady(ctx context.Context, a Actor, mode SSOMode) erro
 // Config.OIDC outside it: CheckSSOReady's refusals on what the Update read,
 // then the mode, the end of every non-owner session the mode forbids, the
 // withdrawal of each dormant temporary password the mode brings back to
-// use, and an EventSSOModeChanged. A refusal writes nothing, so the old mode
+// use, and an EventSSOModeChanged; once it commits, the dormant users'
+// pending sign-ins are dropped. A refusal writes nothing, so the old mode
 // stays in force across restarts; the mode it already holds, set, writes
 // nothing.
 func (s *Service) ApplySSO(ctx context.Context, a Actor, mode SSOMode) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
@@ -323,30 +324,39 @@ func (s *Service) writeSSO(ctx context.Context, a Actor, mode SSOMode, migrate b
 		return err
 	}
 	provider := s.provider()
-	return s.change(ctx, by(a), func(tx Tx, j *journal) error {
-		cur, set, err := tx.SSOMode(ctx)
-		if err != nil || (migrate && set) {
-			return err
+	var dormant []int64
+	err = s.change(ctx, by(a), func(tx Tx, j *journal) error {
+		dormant = nil
+		cur, set, txErr := tx.SSOMode(ctx)
+		if txErr != nil || (migrate && set) {
+			return txErr
 		}
 		ch := ssoChange{from: cur, to: mode}
-		rd, err := s.changeReadinessIn(ctx, tx, r, a, provider, ch)
+		rd, txErr := s.changeReadinessIn(ctx, tx, r, a, provider, ch)
 		switch {
-		case err != nil:
-			return err
+		case txErr != nil:
+			return txErr
 		case rd.Refusal != nil:
 			return refuse(rd.Refusal)
 		case set && cur == mode:
 			return nil
 		}
-		if err := tx.SetSSOMode(ctx, mode); err != nil {
-			return err
+		if setErr := tx.SetSSOMode(ctx, mode); setErr != nil {
+			return setErr
 		}
-		if err := s.applyModeIn(ctx, tx, j, a, ch); err != nil {
-			return err
+		if dormant, txErr = s.applyModeIn(ctx, tx, j, a, ch); txErr != nil {
+			return txErr
 		}
 		j.add(Event{Kind: EventSSOModeChanged, At: s.now(), SSOMode: mode, PreviousSSOMode: cur, Actor: eventActor(a)})
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	for _, id := range dormant {
+		s.pending.dropUser(id)
+	}
+	return nil
 }
 
 // ssoChange is a change of the stored mode.
@@ -354,35 +364,39 @@ type ssoChange struct{ from, to SSOMode }
 
 // applyModeIn is the change's effect on every user tx reads: the sessions
 // of each user the new mode makes dormant that it forbids, and the dormant
-// temporary password of each user it brings back.
-func (s *Service) applyModeIn(ctx context.Context, tx Tx, j *journal, a Actor, ch ssoChange) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
+// temporary password of each user it brings back. It returns the IDs of
+// the users the new mode keeps dormant.
+func (s *Service) applyModeIn(ctx context.Context, tx Tx, j *journal, a Actor, ch ssoChange) ([]int64, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	users, err := tx.ListUsers(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var dormant []int64
 	for i := range users {
 		u := &users[i]
 		switch was, is := ch.from.dormantFor(u), ch.to.dormantFor(u); {
 		case is:
 			ended, endErr := endForbiddenSessions(ctx, tx, u)
 			if endErr != nil {
-				return endErr
+				return nil, endErr
 			}
 			s.addRevoked(j, u.ID, ended, eventActor(a))
+			dormant = append(dormant, u.ID)
 		case was:
 			if err := s.withdrawDormant(ctx, tx, j, u.ID, eventActor(a)); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
-	return nil
+	return dormant, nil
 }
 
 // endForbiddenSessions ends, inside tx, each session of u whose AuthMethod
 // is a local method, for a u whose local methods the stored mode now keeps
 // dormant, and returns their IDs for the caller's entry. AuthMethod is the
-// session's latest proof, which a step-up replaces. The user's pending
-// sign-ins are refused by their completion's own requireLocal.
+// session's latest proof, which a step-up replaces. Each caller drops the
+// user's pending sign-ins once its Update commits, the cache being outside
+// the store; each completion's own requireLocal stays the guard.
 func endForbiddenSessions(ctx context.Context, tx Tx, u *access.User) ([]string, error) {
 	sessions, err := tx.SessionsByUserID(ctx, u.ID)
 	if err != nil {

@@ -78,9 +78,10 @@ func (s *Service) stepAttempt(c Client, entry *pending) func() (*ratelimit.Reser
 // code, as a session of MethodPassword. Its refusals, in order: stepTicket's;
 // a TOTP that is not usable, ErrTOTPDisabled with the ticket kept; no live
 // ticket listing totp, access.ErrTokenInvalid; a *ratelimit.RefusedError;
-// then countCode's, where a record that is gone, a disabled user or a
-// changed password ends the ticket as access.ErrTokenInvalid. A wrong code
-// keeps the ticket, and the first one journals EventSecondFactorFailed.
+// then countCode's, where a user ticketUserIn no longer passes, checked
+// before anything is counted, or a record that is gone ends the ticket as
+// access.ErrTokenInvalid. A wrong code keeps the ticket, and the first one
+// journals EventSecondFactorFailed.
 func (s *Service) SignInWithCode(ctx context.Context, c Client, ticket access.Secret, code string) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	r, entry, found, err := s.stepTicket(ticket, c, plainPerRequest)
 	switch {
@@ -101,6 +102,10 @@ func (s *Service) SignInWithCode(ctx context.Context, c Client, ticket access.Se
 		prepare: func(res *ratelimit.Reservation) error {
 			ch = s.newCodeCheck(res, &entry.user, code)
 			ch.missing = access.ErrTokenInvalid
+			ch.recheck = func(tx Tx) error {
+				_, userErr := s.ticketUserIn(ctx, tx, &entry)
+				return userErr
+			}
 			var countErr error
 			step, countErr = s.countCode(ctx, res, &ch)
 			return countErr
@@ -166,9 +171,10 @@ func refusedProof(err error, m access.Method) bool {
 // SecondFactorPasskeyBegin starts the passkey second step of the pending
 // sign-in ticket names, at origin, limited to the user's passkeys under the
 // relying party's ID. Its refusals: stepTicket's under a secure-only rule;
-// no live ticket listing passkey, or a user it no longer signs in,
-// access.ErrTokenInvalid; a nil RP() ErrPasskeysUnavailable; c's IP
-// request limit; the relying party's *webauthn.OriginError.
+// no live ticket listing passkey, access.ErrTokenInvalid; a nil RP()
+// ErrPasskeysUnavailable; c's IP request limit; a user ticketUserIn no
+// longer passes, access.ErrTokenInvalid ending the ticket; no passkey under
+// the relying party's ID, access.ErrTokenInvalid; its *webauthn.OriginError.
 func (s *Service) SecondFactorPasskeyBegin(ctx context.Context, c Client, ticket access.Secret, origin webauthn.Origin) (PendingCeremony, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	_, entry, found, err := s.stepTicket(ticket, c, plainRefused)
 	if err != nil {
@@ -184,13 +190,9 @@ func (s *Service) SecondFactorPasskeyBegin(ctx context.Context, c Client, ticket
 	if _, limitErr := s.requestLimit(c)(); limitErr != nil {
 		return PendingCeremony{}, limitErr
 	}
-	u, found, err := s.store.UserByID(ctx, entry.user.ID)
-	switch {
-	case err != nil:
-		return PendingCeremony{}, storeErr(err)
-	case !found || !u.Enabled:
-		s.pending.drop(ticket.Reveal())
-		return PendingCeremony{}, access.ErrTokenInvalid
+	u, err := s.beginUser(ctx, ticket, &entry)
+	if err != nil {
+		return PendingCeremony{}, err
 	}
 	wu, err := s.webauthnUser(ctx, u)
 	if err != nil {

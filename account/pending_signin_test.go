@@ -12,6 +12,7 @@ import (
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
+	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/ratelimit"
 	"github.com/cplieger/access/totp"
 )
@@ -579,6 +580,81 @@ func TestTicketsEnd(t *testing.T) {
 			t.Fatalf("AdminUnlinkOIDC: %v", err)
 		}
 		gone(t, f, p)
+	})
+	// A change that leaves a user's local methods dormant drops the user's
+	// pending sign-ins with the sessions it ends.
+	dormant := func(t *testing.T, mode account.SSOMode, owner bool) (*sfFixture, *oidcRig, *access.User, *account.Pending) {
+		t.Helper()
+		rig := rigFor(t, "subject-a")
+		f := newSF(t, account.Rules{}, pwOptions{edit: rig.withOIDC})
+		passwordOwner(t, f.pwFixture, "root")
+		u := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
+		if owner {
+			u.Role, u.Owner = access.RoleAdmin, true
+			if err := f.mem.UpdateUser(t.Context(), u); err != nil {
+				t.Fatalf("UpdateUser: %v", err)
+			}
+		}
+		storeTOTP(t, f.mem, u)
+		if mode != account.SSOAlongside {
+			storeMode(t, f.mem, mode)
+		}
+		out, err := f.step1(t.Context(), clientAt(1), "alice", goodPassword)
+		return f, rig, storedUser(t, f.mem, u.ID), pending(t, out, err, account.NextSecondFactor, access.MethodTOTP)
+	}
+	t.Run("apply_sso_only", func(t *testing.T) {
+		t.Parallel()
+		f, _, _, p := dormant(t, account.SSOAlongside, false)
+		if err := f.svc.ApplySSO(t.Context(), socket, account.SSOOnly); err != nil {
+			t.Fatalf("ApplySSO: %v", err)
+		}
+		gone(t, f, p)
+	})
+	t.Run("migrate_sso_only", func(t *testing.T) {
+		t.Parallel()
+		f, _, _, p := dormant(t, account.SSOAlongside, false)
+		if err := f.svc.MigrateSSO(t.Context(), account.SSOOnly); err != nil {
+			t.Fatalf("MigrateSSO: %v", err)
+		}
+		gone(t, f, p)
+	})
+	t.Run("set_owner_false_under_sso_only", func(t *testing.T) {
+		t.Parallel()
+		f, _, u, p := dormant(t, account.SSOOnly, true)
+		if _, err := f.svc.SetOwner(t.Context(), socket, u.ID, false); err != nil {
+			t.Fatalf("SetOwner(false): %v", err)
+		}
+		gone(t, f, p)
+	})
+	t.Run("link_intent_under_for_linked", func(t *testing.T) {
+		t.Parallel()
+		f, rig, u, p := dormant(t, account.SSOForLinked, false)
+		sess := putSession(t, f.mem, liveSession(t, u))
+		flow, claims := rig.sessionFlow(t, oidc.IntentLink, u, sess.ID)
+		if out, err := f.svc.OIDCComplete(t.Context(), localClient, flow, claims); err != nil || out.Kind != account.OutcomeLinked {
+			t.Fatalf("OIDCComplete = %+v, %v; want Linked", out, err)
+		}
+		gone(t, f, p)
+	})
+	t.Run("link_pending_under_for_linked", func(t *testing.T) {
+		t.Parallel()
+		f, rig, u, p := dormant(t, account.SSOForLinked, false)
+		pr, _ := f.signedInVia(t, u, access.MethodPassword)
+		if _, _, err := f.svc.LinkPendingOIDC(t.Context(), pr, account.PendingLink{Identity: rig.identity()}); err != nil {
+			t.Fatalf("LinkPendingOIDC: %v", err)
+		}
+		gone(t, f, p)
+	})
+	t.Run("link_under_alongside_keeps_the_ticket", func(t *testing.T) {
+		t.Parallel()
+		f, rig, u, p := dormant(t, account.SSOAlongside, false)
+		pr, _ := f.signedInVia(t, u, access.MethodPassword)
+		if _, _, err := f.svc.LinkPendingOIDC(t.Context(), pr, account.PendingLink{Identity: rig.identity()}); err != nil {
+			t.Fatalf("LinkPendingOIDC: %v", err)
+		}
+		if _, ok := account.TicketOf(f.svc, p.Ticket); !ok {
+			t.Error("a link that left the password usable ended the pending sign-in")
+		}
 	})
 }
 

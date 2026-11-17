@@ -25,17 +25,14 @@ func (s *Service) setCredentialTicket(ticket access.Secret, c Client, rule plain
 	return r, entry, nil
 }
 
-// SetCredentialPassword completes the NextSetCredential pending sign-in
-// ticket names with password, of the user's own choosing. Its refusals, in
-// order: stepTicket's; no live NextSetCredential ticket,
-// access.ErrTokenInvalid; one not listing password, or password sign-in
-// off, ErrPasswordLoginDisabled; the limiter's; a *access.PasswordError
-// (PasswordIsTemporary for the temporary password that minted the ticket,
-// then checkPassword's), keeping the ticket; the hasher's; then a user the
-// ticket no longer signs in, ending it. With Rules.RequireSecondFactor off
-// it writes the password and signs in; with it on it writes nothing and
-// answers a NextEnrol ticket holding the password, which the enrolment
-// finish writes.
+// SetCredentialPassword completes ticket's NextSetCredential sign-in with a
+// password the user chose: with Rules.RequireSecondFactor off it writes it
+// and signs in; on, it writes nothing and answers a NextEnrol ticket holding
+// it for the enrolment finish. Refusals, in order: stepTicket's; no live
+// NextSetCredential ticket, access.ErrTokenInvalid; password not listed or
+// sign-in off, ErrPasswordLoginDisabled; the limiter's; *access.PasswordError
+// (PasswordIsTemporary, then checkPassword's), keeping the ticket; the
+// hasher's; a user the ticket no longer signs in, ending it.
 func (s *Service) SetCredentialPassword(ctx context.Context, c Client, ticket, password access.Secret) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	r, entry, err := s.setCredentialTicket(ticket, c, plainPerRequest)
 	if err != nil {
@@ -177,7 +174,7 @@ func (s *Service) SetCredentialPasskeyBegin(ctx context.Context, c Client, ticke
 	if _, limitErr := s.requestLimit(c)(); limitErr != nil {
 		return PendingCeremony{}, limitErr
 	}
-	u, err := s.enrolUser(ctx, ticket, &entry)
+	u, err := s.beginUser(ctx, ticket, &entry)
 	if err != nil {
 		return PendingCeremony{}, err
 	}
