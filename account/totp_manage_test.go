@@ -492,6 +492,30 @@ func TestStepUpCode(t *testing.T) {
 			t.Errorf("record after 101 step-ups = %+v, want none", rec)
 		}
 	})
+	// RFC 6238 §5.2: the proof sites share the code step's commit, so a
+	// record replaced since the count takes no step of the old secret.
+	t.Run("record_replaced_since_the_count", func(t *testing.T) {
+		t.Parallel()
+		var (
+			f *sfFixture
+			u *access.User
+		)
+		o := pwOptions{}
+		o.hooks.CodeCounted = func(context.Context) { replaceTOTP(t, f.mem, f.sealer, u) }
+		f = newSF(t, account.Rules{}, o)
+		u = passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
+		secret := sealTOTP(t, f.mem, f.sealer, u)
+		pr := f.sessionPrincipal(t, u, time.Now().Add(-time.Hour))
+		if _, err := f.svc.StepUpCode(t.Context(), clientAt(1), pr, codeNow(secret)); codeReason(err) != account.ReasonCodeInvalid {
+			t.Errorf("the old secret's code = %v, want code_invalid", err)
+		}
+		if evs := eventsOf(f.events, account.EventSteppedUp); len(evs) != 0 {
+			t.Errorf("stepped_up events = %d, want none", len(evs))
+		}
+		if rec, _ := totpRecord(t, f.mem, u.ID); rec.LastStep != 0 {
+			t.Errorf("the new record's LastStep = %d, want 0", rec.LastStep)
+		}
+	})
 	for _, tc := range []struct {
 		name  string
 		rules account.Rules

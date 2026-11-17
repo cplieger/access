@@ -213,6 +213,31 @@ func TestSignInWithCode(t *testing.T) {
 			t.Error("a malformed code ended the ticket")
 		}
 	})
+	// RFC 6238 §5.2 accepts a code against the prover's secret: a step
+	// matched from a record replaced between the count and the success
+	// Update (an enrolment elsewhere, or a reset and a new one) is refused.
+	t.Run("record_replaced_since_the_count", func(t *testing.T) {
+		t.Parallel()
+		var (
+			f *sfFixture
+			u *access.User
+		)
+		o := pwOptions{}
+		o.hooks.CodeCounted = func(context.Context) { replaceTOTP(t, f.mem, f.sealer, u) }
+		f = newSF(t, account.Rules{}, o)
+		var ticket access.Secret
+		var secret []byte
+		u, ticket, secret = codeTicket(t, f, clientAt(1))
+		if _, err := f.svc.SignInWithCode(t.Context(), clientAt(1), ticket, codeNow(secret)); !errors.Is(err, access.ErrTokenInvalid) {
+			t.Errorf("the old secret's code = %v, want access.ErrTokenInvalid", err)
+		}
+		if ss := sessionsOf(t, f.mem, u.ID); len(ss) != 0 {
+			t.Errorf("sessions = %d, want none", len(ss))
+		}
+		if rec, _ := totpRecord(t, f.mem, u.ID); rec.LastStep != 0 {
+			t.Errorf("the new record's LastStep = %d, want 0 (no step of the old secret spent on it)", rec.LastStep)
+		}
+	})
 	// The switch refuses the code step and keeps the ticket.
 	t.Run("disable_totp_keeps_the_ticket", func(t *testing.T) {
 		t.Parallel()

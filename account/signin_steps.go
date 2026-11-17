@@ -93,8 +93,8 @@ func (s *Service) SignInWithCode(ctx context.Context, c Client, ticket access.Se
 		return LoginResult{}, access.ErrTokenInvalid
 	}
 	var (
-		ch   codeCheck
-		step int64
+		ch codeCheck
+		m  codeMatch
 	)
 	out, err := s.signIn(ctx, r, c, &sessionOp{
 		method: access.MethodPassword,
@@ -107,7 +107,7 @@ func (s *Service) SignInWithCode(ctx context.Context, c Client, ticket access.Se
 				return userErr
 			}
 			var countErr error
-			step, countErr = s.countCode(ctx, res, &ch)
+			m, countErr = s.countCode(ctx, res, &ch)
 			return countErr
 		},
 		in: func(tx Tx) (*access.User, error) {
@@ -115,7 +115,7 @@ func (s *Service) SignInWithCode(ctx context.Context, c Client, ticket access.Se
 			if userErr != nil {
 				return nil, userErr
 			}
-			return u, s.commitCode(ctx, tx, &ch, step)
+			return u, s.commitCode(ctx, tx, &ch, m)
 		},
 	})
 	return s.stepAnswered(ctx, c, ticket, &entry, access.MethodTOTP, out, err)

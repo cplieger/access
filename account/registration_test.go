@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
+	"github.com/cplieger/access/ratelimit"
 )
 
 // regRules is Rules with registration in mode and the rule as given.
@@ -579,4 +581,107 @@ func TestSweepRegistrations(t *testing.T) {
 	if out, err := f.svc.RegisterPassword(t.Context(), localClient, newcomer("old")); err != nil || out.Waiting == nil {
 		t.Errorf("registering the freed name = %+v, %v; want it waiting", out, err)
 	}
+}
+
+// requestRefused reports whether err is the limiter's refusal on the
+// request dimension.
+func requestRefused(err error) bool {
+	re, ok := errors.AsType[*ratelimit.RefusedError](err)
+	return ok && re.Dimension == "request"
+}
+
+// TestRegistrationRequestLimit checks registration's per-address bound:
+// each begin charges the IP request limit after the transport check and
+// before any other, refused calls included, and the finish charges nothing.
+func TestRegistrationRequestLimit(t *testing.T) {
+	t.Parallel()
+	defaultRequest := func(c *ratelimit.Config) { c.Request = ratelimit.DefaultConfig().Request }
+	for _, rule := range []bool{false, true} {
+		t.Run(fmt.Sprintf("password_61st_refused_rule_%t", rule), func(t *testing.T) {
+			t.Parallel()
+			h := &hibp{}
+			r := regRules(account.RegistrationOpen, rule)
+			r.Breach = account.BreachFailOpen
+			f := newSF(t, r, pwOptions{limiter: defaultRequest, edit: func(c *account.Config) { c.Breach = &http.Client{Transport: h} }})
+			limit := ratelimit.DefaultConfig().Request.Limit
+			for i := range limit {
+				if _, err := f.svc.RegisterPassword(t.Context(), clientAt(1), newcomer(fmt.Sprintf("newcomer%d", i))); err != nil {
+					t.Fatalf("registration %d = %v, want admitted", i+1, err)
+				}
+			}
+			if _, err := f.svc.RegisterPassword(t.Context(), clientAt(1), newcomer("onetoomany")); !requestRefused(err) {
+				t.Errorf("registration %d from one address = %v, want the request refusal", limit+1, err)
+			}
+			if n := h.requests.Load(); n != int32(limit) {
+				t.Errorf("breach lookups = %d, want %d (none for the refused call)", n, limit)
+			}
+			if _, err := f.svc.RegisterPassword(t.Context(), clientAt(2), newcomer("elsewhere")); err != nil {
+				t.Errorf("a registration from another address = %v, want admitted", err)
+			}
+		})
+	}
+	oneRequest := func(c *ratelimit.Config) { c.Request = ratelimit.Rate{Limit: 1, Window: time.Hour} }
+	t.Run("refused_password_call_spends_a_slot", func(t *testing.T) {
+		t.Parallel()
+		f := newSF(t, regRules(account.RegistrationOpen, false), pwOptions{limiter: oneRequest})
+		if _, err := f.svc.RegisterPassword(t.Context(), clientAt(1), newcomer("two words")); !errors.As(err, new(*account.UsernameError)) {
+			t.Fatalf("an invalid username = %v, want a UsernameError", err)
+		}
+		if _, err := f.svc.RegisterPassword(t.Context(), clientAt(1), newcomer("newcomer")); !requestRefused(err) {
+			t.Errorf("the next registration = %v, want the request refusal", err)
+		}
+		requireNoUsers(t, f.mem)
+	})
+	t.Run("refused_passkey_begin_spends_a_slot", func(t *testing.T) {
+		t.Parallel()
+		f := newSF(t, regRules(account.RegistrationOpen, false), pwOptions{limiter: oneRequest})
+		begin := func(name string) error {
+			_, err := f.svc.RegisterPasskeyBegin(t.Context(), clientAt(1), account.RegistrationPasskey{Username: name, Origin: f.origin})
+			return err
+		}
+		if err := begin("two words"); !errors.As(err, new(*account.UsernameError)) {
+			t.Fatalf("an invalid username = %v, want a UsernameError", err)
+		}
+		if err := begin("newcomer"); !requestRefused(err) {
+			t.Errorf("the next begin = %v, want the request refusal", err)
+		}
+	})
+	t.Run("transport_refusal_spends_nothing", func(t *testing.T) {
+		t.Parallel()
+		f := newSF(t, regRules(account.RegistrationOpen, false), pwOptions{limiter: oneRequest})
+		plain := clientAt(1)
+		plain.Secure = false
+		if _, err := f.svc.RegisterPassword(t.Context(), plain, newcomer("newcomer")); !errors.Is(err, access.ErrHTTPSRequired) {
+			t.Fatalf("a plain registration = %v, want access.ErrHTTPSRequired", err)
+		}
+		if _, err := f.svc.RegisterPassword(t.Context(), clientAt(1), newcomer("newcomer")); err != nil {
+			t.Errorf("the secure registration after it = %v, want admitted", err)
+		}
+	})
+	t.Run("finish_spends_nothing", func(t *testing.T) {
+		t.Parallel()
+		f := newSF(t, regRules(account.RegistrationOpen, false), pwOptions{limiter: oneRequest})
+		if _, err := registerPasskey(t, f, clientAt(1), "newcomer", accesstest.NewPasskeyDevice(t)); err != nil {
+			t.Errorf("a begin and its finish on one slot = %v, want the account", err)
+		}
+	})
+	// A flood from one address stops at the limit, so it never reaches the
+	// draft list's cap and evicts no other registrant's draft.
+	t.Run("flood_evicts_no_other_draft", func(t *testing.T) {
+		t.Parallel()
+		f := newSF(t, regRules(account.RegistrationOpen, true), pwOptions{limiter: defaultRequest})
+		out, err := f.svc.RegisterPassword(t.Context(), clientAt(2), newcomer("bystander"))
+		if err != nil || out.Pending == nil {
+			t.Fatalf("the bystander's registration = %+v, %v, want a draft", out, err)
+		}
+		const draftCap = 1000
+		for i := range draftCap {
+			if _, err := f.svc.RegisterPassword(t.Context(), clientAt(1), newcomer(fmt.Sprintf("flood%d", i))); err != nil && !requestRefused(err) {
+				t.Fatalf("flood registration %d = %v", i+1, err)
+			}
+		}
+		if !live(f, out.Pending.Ticket) {
+			t.Error("the flood evicted the bystander's draft")
+		}
+	})
 }

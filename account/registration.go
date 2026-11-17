@@ -25,12 +25,12 @@ type RegistrationPasskey struct {
 // Rules.Registration, signed in under RegistrationOpen and Waiting under
 // RegistrationApproval, in one Update re-checking the mode and the cap, or
 // as a Pending NextEnrol under Rules.RequireSecondFactor. Refusals, in
-// order: plain access.ErrHTTPSRequired; ErrRegistrationClosed; the username
-// and password rules; the Policy (ViaRegistration); ErrSSOOnly;
-// ErrRegistrationFull at RegistrationApproval's MaxWaitingRegistrations;
-// c's IP attempt; a taken name ErrUsernameTaken.
+// order: plain access.ErrHTTPSRequired; c's IP request limit;
+// ErrRegistrationClosed; the username and password rules; the Policy
+// (ViaRegistration); ErrSSOOnly; ErrRegistrationFull at RegistrationApproval's
+// MaxWaitingRegistrations; c's IP attempt; a taken name ErrUsernameTaken.
 func (s *Service) RegisterPassword(ctx context.Context, c Client, in Registration) (RegistrationResult, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
-	r, err := s.beginOver(plainRefused, c.Secure)
+	r, err := s.registrationBegin(c)
 	if err != nil {
 		return RegistrationResult{}, err
 	}
@@ -77,31 +77,22 @@ func (s *Service) RegisterPassword(ctx context.Context, c Client, in Registratio
 }
 
 // RegisterPasskeyBegin starts registering a regular account with a passkey
-// under Rules.Registration: a nil RP() is ErrPasskeysUnavailable, then
-// RegisterPassword's refusals but the password rule, then c's IP request
-// limit. A passkey meets Rules.RequireSecondFactor, so no draft is kept.
+// under Rules.Registration: after the transport refusal and c's IP request
+// limit, a nil RP() is ErrPasskeysUnavailable, then RegisterPassword's
+// refusals before its IP attempt but the password rule. A passkey meets
+// Rules.RequireSecondFactor, so no draft is kept.
 func (s *Service) RegisterPasskeyBegin(ctx context.Context, c Client, in RegistrationPasskey) (PendingCeremony, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
-	r, err := s.beginOver(plainRefused, c.Secure)
+	r, err := s.registrationBegin(c)
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	var (
-		rp       *webauthn.RelyingParty
-		username string
-	)
-	gate := admission{
-		refusals: func() error {
-			if rp = s.relyingParty(); rp == nil {
-				return ErrPasskeysUnavailable
-			}
-			var checkErr error
-			username, checkErr = s.registrationChecks(ctx, r, in.Username)
-			return checkErr
-		},
-		limit: s.requestLimit(c),
+	rp := s.relyingParty()
+	if rp == nil {
+		return PendingCeremony{}, ErrPasskeysUnavailable
 	}
-	if _, admitErr := gate.admit(); admitErr != nil {
-		return PendingCeremony{}, admitErr
+	username, err := s.registrationChecks(ctx, r, in.Username)
+	if err != nil {
+		return PendingCeremony{}, err
 	}
 	user := s.newAccount(username, access.RoleUser)
 	creation, ceremony, err := webauthn.BeginRegistration(rp, &webauthn.User{AuthUser: &user}, in.Origin)
@@ -166,7 +157,23 @@ func (s *Service) RegisterPasskeyFinish(ctx context.Context, c Client, ceremonyI
 	return EnrolmentResult{SignedIn: out.SignedIn}, nil
 }
 
-// registrationChecks is a registration's refusals before the limiter, but
+// registrationBegin is the head of each registration begin: the transport
+// refusal, then c's IP request limit before every other check, so a refused
+// call is counted too and one address bounds its breach lookups, store
+// reads and hashes. RegisterPasskeyFinish charges nothing: it completes
+// only the take-once ceremony a charged begin stored.
+func (s *Service) registrationBegin(c Client) (Rules, error) { //nolint:gocritic // hugeParam: the request's Client
+	r, err := s.beginOver(plainRefused, c.Secure)
+	if err != nil {
+		return Rules{}, err
+	}
+	if _, err := s.requestLimit(c)(); err != nil {
+		return Rules{}, err
+	}
+	return r, nil
+}
+
+// registrationChecks is a registration's refusals before its IP attempt, but
 // the password rule: the mode, the username rule, the Policy, the stored SSO
 // mode, and the waiting cap. It returns the canonical username.
 func (s *Service) registrationChecks(ctx context.Context, r Rules, name string) (string, error) { //nolint:gocritic // hugeParam: the operation's one Rules value

@@ -31,6 +31,19 @@ func sealTOTP(t testing.TB, s account.Store, sealer *access.Sealer, u *access.Us
 	return secret
 }
 
+// replaceTOTP stores a new enrolment's record for u in place of its own: a
+// new secret, created now, no step used.
+func replaceTOTP(t testing.TB, s account.Store, sealer *access.Sealer, u *access.User) {
+	t.Helper()
+	sealed, err := sealer.SealAtRest("totp:"+strconv.FormatInt(u.ID, 10), totp.NewSecret())
+	if err != nil {
+		t.Fatalf("SealAtRest: %v", err)
+	}
+	if err := s.SetTOTP(t.Context(), access.TOTP{UserID: u.ID, Sealed: sealed, CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("SetTOTP: %v", err)
+	}
+}
+
 // codeAt is secret's code for the RFC 6238 §4.2 step of at.
 func codeAt(secret []byte, at time.Time) string { return totp.Code(secret, totp.Step(at)) }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"time"
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/ratelimit"
@@ -50,22 +51,25 @@ func (s *Service) newCodeCheck(res *ratelimit.Reservation, u *access.User, raw s
 // record no key opens (ErrSecondFactorUnavailable) and a malformed code (a
 // *MalformedError) write nothing; a locked record is method_locked whatever
 // the code.
-// Otherwise it adds one, locking at FailureCap, and answers the matched
-// step or the code's *CodeError. It settles res on every refusal.
-func (s *Service) countCode(ctx context.Context, res *ratelimit.Reservation, ch *codeCheck) (int64, error) {
+// Otherwise it adds one, locking at FailureCap, and answers the match or
+// the code's *CodeError. It settles res on every refusal.
+func (s *Service) countCode(ctx context.Context, res *ratelimit.Reservation, ch *codeCheck) (codeMatch, error) {
 	var got counted
 	err := s.update(ctx, func(tx Tx) error {
 		var countErr error
 		got, countErr = s.countIn(ctx, tx, ch)
 		return countErr
 	})
+	if s.hooks.codeCounted != nil {
+		s.hooks.codeCounted(ctx)
+	}
 	if got.unopenable {
 		s.logger().Error("account: a TOTP record opens under no sealer key; restore the key or reset the user's second factor", "user_id", ch.userID)
 	}
 	if err == nil {
 		switch got.result {
 		case totp.Matched:
-			return got.step, nil
+			return got.codeMatch, nil
 		case totp.Reused:
 			err = &CodeError{Reason: ReasonCodeReused}
 		default:
@@ -73,12 +77,19 @@ func (s *Service) countCode(ctx context.Context, res *ratelimit.Reservation, ch 
 		}
 	}
 	settleRefused(res, err)
-	return 0, err
+	return codeMatch{}, err
+}
+
+// codeMatch is a matched step and the CreatedAt of the record it matched,
+// which identifies the enrolment whose secret produced the code.
+type codeMatch struct {
+	record time.Time
+	step   int64
 }
 
 // counted is what countCode's Update found.
 type counted struct {
-	step       int64
+	codeMatch
 	result     totp.Result
 	unopenable bool
 }
@@ -101,7 +112,7 @@ func (s *Service) countIn(ctx context.Context, tx Tx, ch *codeCheck) (counted, e
 	if err != nil {
 		return counted{unopenable: true}, refuse(ErrSecondFactorUnavailable)
 	}
-	var got counted
+	got := counted{record: rec.CreatedAt}
 	if got.step, got.result = totp.Match(secret, ch.raw, s.now(), rec.LastStep); got.result == totp.Malformed {
 		return counted{}, refuse(&MalformedError{Field: ch.field})
 	}
@@ -137,18 +148,19 @@ func settleRefused(res *ratelimit.Reservation, err error) {
 }
 
 // commitCode is the head of a matched code's success Update, inside tx: it
-// re-reads the record, refuses a step at or below its LastStep, so of two
-// parallel matches only one commits (Gitea GHSA-gx3v-q759-g323), then
-// writes the step with the secret sealed under the first key and deletes
-// the method's failure record of the check's trust context.
-func (s *Service) commitCode(ctx context.Context, tx Tx, ch *codeCheck, step int64) error {
+// re-reads the record, answers one replaced since the count as gone (ch's
+// missing), refuses a step at or below its LastStep, so of two parallel
+// matches only one commits (Gitea GHSA-gx3v-q759-g323), then writes the
+// step with the secret sealed under the first key and deletes the
+// method's failure record of the check's trust context.
+func (s *Service) commitCode(ctx context.Context, tx Tx, ch *codeCheck, m codeMatch) error {
 	rec, found, err := tx.TOTPByUserID(ctx, ch.userID)
 	switch {
 	case err != nil:
 		return err
-	case !found:
+	case !found, !rec.CreatedAt.Equal(m.record):
 		return refuse(ch.missing)
-	case rec.LastStep >= step:
+	case rec.LastStep >= m.step:
 		return refuse(&CodeError{Reason: ReasonCodeReused})
 	}
 	secret, _, err := s.openTOTP(&rec)
@@ -158,7 +170,7 @@ func (s *Service) commitCode(ctx context.Context, tx Tx, ch *codeCheck, step int
 	if rec.Sealed, err = s.sealTOTP(ch.userID, secret); err != nil {
 		return err
 	}
-	rec.LastStep = step
+	rec.LastStep = m.step
 	if err := tx.SetTOTP(ctx, rec); err != nil {
 		return err
 	}
@@ -198,13 +210,13 @@ func (s *Service) openTOTP(rec *access.TOTP) (secret []byte, current bool, err e
 	return s.totp.Sealer.OpenAtRest(totpPurpose(rec.UserID), rec.Sealed)
 }
 
-// proven is a verified code or assertion: a code's step, which the site's
+// proven is a verified code or assertion: a code's match, which the site's
 // own Update commits, and the reservation its commit settles. An assertion
 // holds neither, since its ceremony was spent when it verified.
 type proven struct {
 	res   *ratelimit.Reservation
 	check *codeCheck
-	step  int64
+	match codeMatch
 }
 
 // commit is commitCode for a code; nothing for an assertion.
@@ -212,7 +224,7 @@ func (pr *proven) commit(ctx context.Context, s *Service, tx Tx) error {
 	if pr.check == nil {
 		return nil
 	}
-	return s.commitCode(ctx, tx, pr.check, pr.step)
+	return s.commitCode(ctx, tx, pr.check, pr.match)
 }
 
 // settle settles a code's reservation by its site's result.

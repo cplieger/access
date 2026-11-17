@@ -17,6 +17,7 @@ type Hooks struct {
 	BeforeVerify        func(ctx context.Context)
 	AfterVerify         func(ctx context.Context)
 	NameLockWait        func(ctx context.Context, canonical string)
+	CodeCounted         func(ctx context.Context)
 }
 
 // Hashing is the hasher boundary WrapHasher wraps.
@@ -30,7 +31,7 @@ func NewWithHooks(ctx context.Context, cfg Config, h Hooks) (*Service, error) {
 	return newService(ctx, cfg, testHooks{
 		wrapHasher: h.WrapHasher, betweenSessionCalls: h.BetweenSessionCalls, failureSweep: h.FailureSweep,
 		admitted: h.Admitted, beforeVerify: h.BeforeVerify, afterVerify: h.AfterVerify,
-		nameLockWait: h.NameLockWait,
+		nameLockWait: h.NameLockWait, codeCounted: h.CodeCounted,
 	})
 }
 

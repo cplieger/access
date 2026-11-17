@@ -80,6 +80,9 @@ type testHooks struct {
 	afterVerify func(ctx context.Context)
 	// nameLockWait runs before a verifier waits on canonical's name lock.
 	nameLockWait func(ctx context.Context, canonical string)
+	// codeCounted runs after a code's count Update committed, before its
+	// success Update.
+	codeCounted func(ctx context.Context)
 }
 
 // New refuses a nil Store, Policy, Authenticator, Hasher, Limiter or Rules, a

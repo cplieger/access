@@ -79,11 +79,11 @@ func (s *Service) verifyCode(ctx context.Context, c Client, u *access.User, raw,
 	ch := s.newCodeCheck(res, u, raw)
 	ch.field, ch.invalid = field, invalid
 	ch.missing = &CodeError{Reason: invalid}
-	step, err := s.countCode(ctx, res, &ch)
+	m, err := s.countCode(ctx, res, &ch)
 	if err != nil {
 		return proven{}, err
 	}
-	return proven{res: res, check: &ch, step: step}, nil
+	return proven{res: res, check: &ch, match: m}, nil
 }
 
 // heldWithout is secondFactorHeld once gone is gone: a TOTP that is no
