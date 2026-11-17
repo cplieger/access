@@ -285,7 +285,7 @@ func TestRouteSuccess(t *testing.T) {
 // passes c.spec.success with c the request's *call. Refusals are written
 // by internal/refusal.
 func TestSuccessWrittenFromSpec(t *testing.T) {
-	writers := map[string]int{"WriteHeader": 0, "writeJSON": 1, "writeShownOnce": 1, "redirect": 1}
+	writers := map[string]int{"WriteHeader": 0, "writeJSON": 1, "redirect": 1}
 	names, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)

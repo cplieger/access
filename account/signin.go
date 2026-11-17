@@ -21,13 +21,14 @@ const (
 	NextEnrol Next = "enrol"
 )
 
-// Pending is a sign-in whose first factor verified and that needs Next.
-// Ticket names it for ten minutes, held by the client in memory and sent in
-// a body only; a restart, the user's next password sign-in, SetPassword,
+// Pending is a sign-in whose first factor verified and that needs Next. Its
+// Ticket lasts ten minutes, held by the client in memory and sent in a body
+// only. A restart, the user's next password sign-in, SetPassword,
 // RemovePassword, ResetSecondFactor, SetTemporaryPassword, disabling,
-// deleting, AdminUnlinkOIDC and AdminRelinkOIDC drop it. Methods are what
-// Next accepts on this request's transport, the only one it finishes on. Recovered marks the NextEnrol a recovery code answered,
-// whose finish completes the recovery.
+// deleting, AdminUnlinkOIDC and AdminRelinkOIDC drop it, as do an OIDC link,
+// ApplySSO, MigrateSSO and SetOwner when they leave the user's local methods
+// dormant. Methods are what Next accepts on this request's transport, the only
+// one it finishes on. Recovered marks a NextEnrol that completes a recovery.
 type Pending struct {
 	Ticket    access.Secret
 	Next      Next

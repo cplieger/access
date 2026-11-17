@@ -133,8 +133,3 @@ func (c *call) done() { c.w.WriteHeader(c.spec.success) }
 // redirect sends the browser to location, the one answer of a redirect
 // route, its refusals included.
 func (c *call) redirect(location string) { redirect(c.w, c.spec.success, location) }
-
-// answerShownOnce answers resp with its one plaintext (writeShownOnce).
-func answerShownOnce[R shownOnce](c *call, resp R, plaintext access.Secret) {
-	writeShownOnce(c.w, c.spec.success, resp, plaintext)
-}

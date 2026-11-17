@@ -158,10 +158,11 @@ func temporaryPasswordOptions(req TemporaryPasswordOptions) account.TemporaryPas
 // writeTemporaryPassword answers issued once, https_only read after the
 // issue commits (account owns why).
 func writeTemporaryPassword(h *Handler, c *call, issued account.IssuedTemporaryPassword) {
-	answerShownOnce(c, TemporaryPasswordResponse{
-		ExpiresAt: issued.ExpiresAt, HTTPSOrigin: issued.HTTPSOrigin, HTTPSOnly: h.acct.TemporaryPasswordHTTPSOnly(issued),
+	c.answer(TemporaryPasswordResponse{
+		ExpiresAt: issued.ExpiresAt, Password: issued.Password.Reveal(),
+		HTTPSOrigin: issued.HTTPSOrigin, HTTPSOnly: h.acct.TemporaryPasswordHTTPSOnly(issued),
 		Dormant: issued.Dormant, PasswordKept: issued.PasswordKept,
-	}, issued.Password)
+	})
 }
 
 // serveAdminOIDCRelink unlinks a user and issues the temporary password the
@@ -255,5 +256,5 @@ func serveAdminSecurityLog(h *Handler, c *call) error {
 // writeToken answers a minted invite token, its expiry the one
 // account stored.
 func writeToken(c *call, it account.IssuedToken) {
-	answerShownOnce(c, TokenResponse{ExpiresAt: it.ExpiresAt}, it.Plaintext)
+	c.answer(TokenResponse{ExpiresAt: it.ExpiresAt, Token: it.Plaintext.Reveal()})
 }

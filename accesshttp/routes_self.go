@@ -273,7 +273,7 @@ func serveKeyCreate(h *Handler, c *call) error {
 	if !created.Issued.Token.IsZero() {
 		h.setIssued(c.w, c.client.Secure, created.Issued)
 	}
-	answerShownOnce(c, KeyCreatedResponse{Details: keyView(&created.Key, "", time.Now())}, created.Plaintext)
+	c.answer(KeyCreatedResponse{Key: created.Plaintext.Reveal(), Details: keyView(&created.Key, "", time.Now())})
 	return nil
 }
 
@@ -297,7 +297,7 @@ func serveKeyRotate(h *Handler, c *call) error {
 		return err
 	}
 	h.setIssued(c.w, c.client.Secure, rotated.Issued)
-	answerShownOnce(c, KeyCreatedResponse{Details: keyView(&rotated.Key, "", time.Now())}, rotated.Plaintext)
+	c.answer(KeyCreatedResponse{Key: rotated.Plaintext.Reveal(), Details: keyView(&rotated.Key, "", time.Now())})
 	return nil
 }
 

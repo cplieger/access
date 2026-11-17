@@ -36,8 +36,6 @@ const wireDir = "../web/testdata/wire"
 // browser sends or receives it.
 type fixture struct {
 	value any
-	// shown is the plaintext writeShownOnce puts in a show-once response.
-	shown access.Secret
 	name  string
 	// absent is the JSON key a variant leaves out; such a variant is not a
 	// type's main fixture and is not walked for zero fields.
@@ -181,13 +179,13 @@ func fixtures() []fixture {
 			CreatedAt: goldenTime, LastActivity: goldenTime, AuthTime: goldenTime, IdleDeadline: goldenLater, AbsoluteDeadline: goldenLater,
 		}},
 		{name: "KeyView", value: goldenKey()},
-		{name: "KeyCreatedResponse", value: KeyCreatedResponse{Details: goldenKey()}, shown: access.NewSecret("fixture-api-key")},
+		{name: "KeyCreatedResponse", value: KeyCreatedResponse{Key: "fixture-api-key", Details: goldenKey()}},
 		{name: "UserView", value: goldenUser()},
-		{name: "TokenResponse", value: TokenResponse{ExpiresAt: goldenLater}, shown: access.NewSecret("fixture-token")},
+		{name: "TokenResponse", value: TokenResponse{ExpiresAt: goldenLater, Token: "fixture-token"}},
 		{name: "TemporaryPasswordResponse", value: TemporaryPasswordResponse{
-			ExpiresAt: goldenLater, HTTPSOrigin: "https://app.example.com", HTTPSOnly: true, Dormant: true, PasswordKept: true,
-		}, shown: access.NewSecret("ABCD-EFGH-JKMN-PQRS")},
-		{name: "TemporaryPasswordResponse.noOrigin", absent: "https_origin", value: TemporaryPasswordResponse{ExpiresAt: goldenLater}, shown: access.NewSecret("ABCD-EFGH-JKMN-PQRS")},
+			ExpiresAt: goldenLater, Password: "ABCD-EFGH-JKMN-PQRS", HTTPSOrigin: "https://app.example.com", HTTPSOnly: true, Dormant: true, PasswordKept: true,
+		}},
+		{name: "TemporaryPasswordResponse.noOrigin", absent: "https_origin", value: TemporaryPasswordResponse{ExpiresAt: goldenLater, Password: "ABCD-EFGH-JKMN-PQRS"}},
 		{name: "TokenView", value: TokenView{
 			CreatedAt: goldenTime, ExpiresAt: goldenLater, Purpose: access.PurposeInvite, Role: access.RoleUser,
 			IssuerLineage: []int64{3, 5}, IssuedByKey: 5,
@@ -212,7 +210,7 @@ func fixtures() []fixture {
 }
 
 // fixtureBytes is f as it crosses the wire: a request as the client
-// encodes it, a response through the writer its handler uses.
+// encodes it, a response as writeJSON writes every success body.
 func fixtureBytes(t *testing.T, f *fixture) []byte {
 	t.Helper()
 	if f.request {
@@ -223,16 +221,7 @@ func fixtureBytes(t *testing.T, f *fixture) []byte {
 		return append(b, '\n')
 	}
 	w := httptest.NewRecorder()
-	switch v := f.value.(type) {
-	case KeyCreatedResponse:
-		writeShownOnce(w, http.StatusCreated, v, f.shown)
-	case TokenResponse:
-		writeShownOnce(w, http.StatusCreated, v, f.shown)
-	case TemporaryPasswordResponse:
-		writeShownOnce(w, http.StatusOK, v, f.shown)
-	default:
-		writeJSON(w, http.StatusOK, v)
-	}
+	writeJSON(w, http.StatusOK, f.value)
 	return w.Body.Bytes()
 }
 
@@ -701,9 +690,9 @@ func writeWireDir(t *testing.T, files map[string][]byte) {
 }
 
 // checkFixture decodes f's wire bytes strictly back into its type: a
-// request equals the value that wrote it, a show-once response carries its
-// plaintext, a variant lacks its absent key, and every main fixture sets
-// every field, so no omitempty key is missing from the file.
+// request equals the value that wrote it, a variant lacks its absent key,
+// and every main fixture sets every field, so no omitempty key is missing
+// from the file.
 func checkFixture(t *testing.T, f *fixture) {
 	t.Helper()
 	b := fixtureBytes(t, f)
@@ -716,16 +705,6 @@ func checkFixture(t *testing.T, f *fixture) {
 	}
 	if f.request && !reflect.DeepEqual(got.Elem().Interface(), f.value) {
 		t.Errorf("decodes to %+v, want %+v", got.Elem().Interface(), f.value)
-	}
-	switch v := got.Elem().Interface().(type) {
-	case KeyCreatedResponse:
-		if v.Key != f.shown.Reveal() {
-			t.Errorf("key %q, want the plaintext", v.Key)
-		}
-	case TokenResponse:
-		if v.Token != f.shown.Reveal() {
-			t.Errorf("token %q, want the plaintext", v.Token)
-		}
 	}
 	if f.absent != "" {
 		var keys map[string]json.RawMessage

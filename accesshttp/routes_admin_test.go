@@ -534,8 +534,9 @@ func TestKeysAdminOnlyRoute(t *testing.T) {
 	})
 }
 
-// TestShownOnceRoutes: each show-once body holds its plaintext exactly
-// once, in its key or token field, and that plaintext works.
+// TestShownOnceRoutes: each answer of a minted key, invite token or
+// temporary password holds its plaintext exactly once, and a key or token
+// works.
 func TestShownOnceRoutes(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	root := e.rootSession(t)
@@ -552,6 +553,18 @@ func TestShownOnceRoutes(t *testing.T) {
 		once(t, w.Body.String(), resp.Key)
 		if p := e.keyPrincipal(t, access.NewSecret(resp.Key)); p.KeyID != resp.Details.ID {
 			t.Errorf("the key authenticates as key %d, want %d", p.KeyID, resp.Details.ID)
+		}
+	})
+	t.Run("authKeyRotate", func(t *testing.T) {
+		key := e.mintKey(t, "alice", account.NewKey{Label: "rotated"})
+		w := do(e.route(t, "authKeyRotate"), e.at(t, "authKeyRotate", strconv.FormatInt(key.Key.ID, 10), "", e.sessionCookie(t, "alice")))
+		resp := decoded[KeyCreatedResponse](t, e, w, http.StatusOK)
+		once(t, w.Body.String(), resp.Key)
+		if resp.Key == key.Plaintext.Reveal() {
+			t.Fatal("the rotated key answers the old secret")
+		}
+		if p := e.keyPrincipal(t, access.NewSecret(resp.Key)); p.KeyID != key.Key.ID {
+			t.Errorf("the rotated key authenticates as key %d, want %d", p.KeyID, key.Key.ID)
 		}
 	})
 	t.Run("authAdminTemporaryPassword", func(t *testing.T) {

@@ -75,12 +75,13 @@ const (
 )
 
 // Match removes ASCII spaces from raw, so "123 456" is the same code as
-// "123456" for replay and for the count, then compares it in constant time
-// with every step in [Step(now)-Skew, Step(now)+Skew]. It returns Matched
-// with the highest matching step above after; else Reused when a step at or
-// below after matches; else NoMatch. The step is meaningful only with
-// Matched, and the caller stores it as the next after. Taking the highest
-// step keeps a replay refused when two steps in the window share a code.
+// "123456" for replay and for the count, then compares it with each step
+// from Step(now)+Skew down to Step(now)-Skew by subtle.ConstantTimeCompare,
+// stopping at the first match above after. It returns Matched with that
+// step; else Reused when a step at or below after matches; else NoMatch.
+// The step is meaningful only with Matched, and the caller stores it as the
+// next after. Scanning from the newest step keeps a replay refused when two
+// steps in the window share a code.
 func Match(secret []byte, raw string, now time.Time, after int64) (step int64, r Result) {
 	code, ok := normalize(raw)
 	if !ok {

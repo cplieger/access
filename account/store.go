@@ -186,7 +186,7 @@ type FailureCount struct {
 	LockedAt time.Time // set with Locked; the time the lock was reached
 	FailureRef
 	Count  int
-	Locked bool // Count reached the failure cap; stays set until ReenableMethod clears it
+	Locked bool // Count reached the failure cap; the record stays locked until account deletes it (ReenableMethod, or an operation that resets the method)
 	// Unreported is set with Locked; the sweep reports the lock when Name
 	// is a user's and clears it.
 	Unreported bool

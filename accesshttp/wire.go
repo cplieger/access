@@ -282,7 +282,6 @@ type TemporaryPasswordOptions struct {
 }
 
 // TemporaryPasswordResponse is account.IssuedTemporaryPassword on the wire.
-// Only writeShownOnce fills Password.
 type TemporaryPasswordResponse struct {
 	ExpiresAt   time.Time `json:"expires_at"`
 	Password    string    `json:"password"` // XXXX-XXXX-XXXX-XXXX, shown once
@@ -523,14 +522,13 @@ type KeyView struct {
 	ParentKeyID   int64     `json:"parent_key_id,omitempty"` // Key.ParentKeyID()
 }
 
-// KeyCreatedResponse is a minted key. Only writeShownOnce fills Key.
+// KeyCreatedResponse is a minted key.
 type KeyCreatedResponse struct {
 	Key     string  `json:"key"` // the plaintext, shown once
 	Details KeyView `json:"details"`
 }
 
-// TokenResponse is a minted invite token. Only writeShownOnce
-// fills Token.
+// TokenResponse is a minted invite token.
 type TokenResponse struct {
 	ExpiresAt time.Time `json:"expires_at"`
 	Token     string    `json:"token"` // the plaintext, shown once
@@ -641,25 +639,6 @@ type AdminSecurityLogQuery struct {
 	Before      int64  `json:"before,omitempty"`       // LogFilter.BeforeSeq
 	Limit       int64  `json:"limit,omitempty"`        // LogFilter.Limit
 	OldestFirst bool   `json:"oldest_first,omitempty"` // LogFilter.OldestFirst
-}
-
-// shownOnce is a response that carries one plaintext.
-type shownOnce interface {
-	KeyCreatedResponse | TokenResponse | TemporaryPasswordResponse
-}
-
-// writeShownOnce reveals resp's one plaintext: it enters resp inside this
-// call, which encodes it to w and drops it.
-func writeShownOnce[R shownOnce](w http.ResponseWriter, status int, resp R, plaintext access.Secret) {
-	switch v := any(&resp).(type) {
-	case *KeyCreatedResponse:
-		v.Key = plaintext.Reveal()
-	case *TokenResponse:
-		v.Token = plaintext.Reveal()
-	case *TemporaryPasswordResponse:
-		v.Password = plaintext.Reveal()
-	}
-	writeJSON(w, status, resp)
 }
 
 // writeJSON encodes a success body. The status line is already sent when

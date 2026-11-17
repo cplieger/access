@@ -3,8 +3,6 @@ package accesshttp
 import (
 	"encoding/json"
 	"maps"
-	"net/http"
-	"net/http/httptest"
 	"net/netip"
 	"reflect"
 	"slices"
@@ -60,33 +58,6 @@ func TestRequestTypesHoldNoSecret(t *testing.T) {
 		got := heldSecrets(reflect.TypeFor[outer](), "outer", map[reflect.Type]bool{})
 		if !slices.Equal(got, []string{"outer.Items[].Key"}) {
 			t.Errorf("walker = %v, want [outer.Items[].Key]", got)
-		}
-	})
-}
-
-func TestShownOnceWriter(t *testing.T) {
-	const plaintext = "shown-once-plaintext-value"
-	t.Run("key", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		writeShownOnce(w, http.StatusCreated, KeyCreatedResponse{Details: KeyView{ID: 7, Label: "ci"}}, access.NewSecret(plaintext))
-		if w.Code != http.StatusCreated || strings.Count(w.Body.String(), plaintext) != 1 {
-			t.Fatalf("status %d body %s, want 201 holding the plaintext once", w.Code, w.Body.String())
-		}
-		var got KeyCreatedResponse
-		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Key != plaintext || got.Details.ID != 7 {
-			t.Errorf("decoded %+v, %v; want key %q and details", got, err, plaintext)
-		}
-	})
-	t.Run("token", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		exp := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
-		writeShownOnce(w, http.StatusOK, TokenResponse{ExpiresAt: exp}, access.NewSecret(plaintext))
-		if strings.Count(w.Body.String(), plaintext) != 1 {
-			t.Fatalf("body %s, want the plaintext once", w.Body.String())
-		}
-		var got TokenResponse
-		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Token != plaintext || !got.ExpiresAt.Equal(exp) {
-			t.Errorf("decoded %+v, %v; want token %q expiring %v", got, err, plaintext, exp)
 		}
 	})
 }
