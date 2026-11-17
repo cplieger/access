@@ -110,7 +110,7 @@ func TestRolePolicyTable(t *testing.T) {
 			{op: account.OpRotateKey, target: new(adminA), allowed: adminOrOOB},
 		})
 	})
-	t.Run("rotate_key_disabled_owner", func(t *testing.T) {
+	t.Run("rotate_key_disabled_user", func(t *testing.T) {
 		t.Parallel()
 		v := userV
 		d := account.Decision{Op: account.OpRotateKey, Actor: account.As(access.Principal{User: &v, Method: access.MethodPassword}), Target: new(userV)}

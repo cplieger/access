@@ -14,7 +14,7 @@ import (
 // raceEnv is one row's world: an admin A whose session-minted root P
 // carries the operation's scope S, and K, minted by P with S, expiring at
 // T an hour after the row starts. The operation acts through K; a second
-// admin B makes the owner and target changes.
+// admin B makes the changes to A and to the target.
 type raceEnv struct {
 	f      *fixture
 	fs     *faultStore
@@ -86,14 +86,14 @@ var keyChanges = []keyChange{
 	{n: 4, name: "descope", run: func(t *testing.T, e *raceEnv) error {
 		return e.fs.descope(t.Context(), e.k.key.ID, e.k.scope())
 	}},
-	{n: 5, name: "disable_owner", run: func(t *testing.T, e *raceEnv) error {
+	{n: 5, name: "disable_user", run: func(t *testing.T, e *raceEnv) error {
 		_, err := e.f.svc.UpdateUser(t.Context(), e.bp, e.admin.ID, account.UserChange{Enabled: new(false)})
 		return err
 	}},
-	{n: 6, name: "delete_owner", run: func(t *testing.T, e *raceEnv) error {
+	{n: 6, name: "delete_user", run: func(t *testing.T, e *raceEnv) error {
 		return e.f.svc.DeleteUser(t.Context(), e.bp, e.admin.ID)
 	}},
-	{n: 7, name: "demote_owner", run: func(t *testing.T, e *raceEnv) error {
+	{n: 7, name: "demote_user", run: func(t *testing.T, e *raceEnv) error {
 		_, err := e.f.svc.UpdateUser(t.Context(), e.bp, e.admin.ID, account.UserChange{Role: new(access.RoleUser)})
 		return err
 	}},
@@ -443,7 +443,7 @@ func TestKeyWriteRaces(t *testing.T) {
 			switch n {
 			case 7:
 				if !errors.Is(err, account.ErrPolicyRefused) || reason(err) == "key_not_current" {
-					t.Errorf("the write after its owner's demotion = %v, want the Policy's ErrPolicyRefused", err)
+					t.Errorf("the write after its user's demotion = %v, want the Policy's ErrPolicyRefused", err)
 				}
 			case 8:
 				if reason(err) != "admin_target" {

@@ -475,10 +475,10 @@ func TestMemStoreAbsentRows(t *testing.T) {
 func TestMemStoreLog(t *testing.T) {
 	t.Parallel()
 	ctx, store := t.Context(), accesstest.NewMemStore()
-	owner := mustCreateUser(t, store, &access.User{Username: "log-owner", Role: access.RoleAdmin, Enabled: true, CreatedAt: t0, UpdatedAt: t0})
+	holder := mustCreateUser(t, store, &access.User{Username: "log-holder", Role: access.RoleAdmin, Enabled: true, CreatedAt: t0, UpdatedAt: t0})
 	appendAt := func(class account.LogClass, at time.Time) uint64 {
 		t.Helper()
-		e := &account.LogEntry{At: at, Class: class, Event: account.Event{Kind: account.EventKeyMinted, UserID: owner.ID, SessionIDs: []string{"s1"}}}
+		e := &account.LogEntry{At: at, Class: class, Event: account.Event{Kind: account.EventKeyMinted, UserID: holder.ID, SessionIDs: []string{"s1"}}}
 		if err := store.AppendLog(ctx, e); err != nil {
 			t.Fatalf("AppendLog: %v", err)
 		}
@@ -556,7 +556,7 @@ func TestMemStoreLog(t *testing.T) {
 	if got := stats(); !slices.Equal(got, want) {
 		t.Errorf("after a Before prune LogStats = %+v, want %+v (Evicted unchanged)", got, want)
 	}
-	if err := store.DeleteUser(ctx, owner.ID); err != nil {
+	if err := store.DeleteUser(ctx, holder.ID); err != nil {
 		t.Fatalf("DeleteUser: %v", err)
 	}
 	if got := list(account.LogRange{Limit: 10}); !slices.Equal(got, []uint64{c}) {

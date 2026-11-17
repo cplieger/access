@@ -20,7 +20,7 @@ func checkKeyLabel(label string) error {
 }
 
 // requireLabelFree refuses with ErrKeyLabelTaken a label an unexpired key
-// of keys other than except carries at now. keys is the owner's keys as
+// of keys other than except carries at now. keys is the user's keys as
 // read in the Update that writes the label, so no other write lands between.
 func requireLabelFree(keys []access.Key, label string, now time.Time, except int64) error {
 	want := labelKey(label)

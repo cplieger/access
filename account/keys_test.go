@@ -92,7 +92,7 @@ func TestKeyPermissionScopesAdminOnly(t *testing.T) {
 		}
 		release()
 		if err := <-done; reason(err) != "permission_not_admin" {
-			t.Errorf("a mint held across its owner's demotion = %v, want permission_not_admin", err)
+			t.Errorf("a mint held across its user's demotion = %v, want permission_not_admin", err)
 		}
 		if n := len(keysOf(t, f.mem, admin.ID)); n != 0 {
 			t.Errorf("keys = %d, want none", n)
@@ -264,7 +264,7 @@ func TestAdminKeyListRevoke(t *testing.T) {
 	}
 	own, err := f.svc.APIKeys(t.Context(), upr2)
 	if err != nil || !slices.Equal(keyIDs(own), []int64{ownKey.key.ID}) {
-		t.Errorf("the owner's APIKeys = %v, %v", keyIDs(own), err)
+		t.Errorf("the user's own APIKeys = %v, %v", keyIDs(own), err)
 	}
 	if err := f.svc.RevokeAPIKey(t.Context(), upr2, adminKey.key.ID); !errors.Is(err, account.ErrNotFound) {
 		t.Errorf("an owner revoking another user's key = %v, want ErrNotFound", err)
@@ -664,12 +664,12 @@ func TestRevokeDeletesIssuedTokens(t *testing.T) {
 	})
 }
 
-// ownerTear is a Store whose Update transactions list no user gone, and
+// userTear is a Store whose Update transactions list no user gone, and
 // which renames user rename to "robert" once a key read ends: when the
 // Update whose transaction read the keys returns, or when a key list read
 // outside a transaction returns. Any snapshot taken after the key read
-// sees a different owner than the one the key read saw.
-type ownerTear struct {
+// sees a different user than the one the key read saw.
+type userTear struct {
 	account.Store
 	gone, rename *atomic.Int64
 }
@@ -690,7 +690,7 @@ func (tx goneTx) ListAPIKeys(ctx context.Context) ([]access.Key, error) {
 	return tx.Tx.ListAPIKeys(ctx)
 }
 
-func (s ownerTear) Update(ctx context.Context, fn func(tx account.Tx) error) error {
+func (s userTear) Update(ctx context.Context, fn func(tx account.Tx) error) error {
 	var keysRead bool
 	err := s.Store.Update(ctx, func(tx account.Tx) error {
 		return fn(goneTx{Tx: tx, keysRead: &keysRead, gone: s.gone.Load()})
@@ -704,7 +704,7 @@ func (s ownerTear) Update(ctx context.Context, fn func(tx account.Tx) error) err
 	return err
 }
 
-func (s ownerTear) ListAPIKeys(ctx context.Context) ([]access.Key, error) {
+func (s userTear) ListAPIKeys(ctx context.Context) ([]access.Key, error) {
 	keys, err := s.Store.ListAPIKeys(ctx)
 	if rErr := s.renameNow(ctx); rErr != nil {
 		return nil, rErr
@@ -712,7 +712,7 @@ func (s ownerTear) ListAPIKeys(ctx context.Context) ([]access.Key, error) {
 	return keys, err
 }
 
-func (s ownerTear) renameNow(ctx context.Context) error {
+func (s userTear) renameNow(ctx context.Context) error {
 	if id := s.rename.Swap(0); id != 0 {
 		u, found, uErr := s.UserByID(ctx, id)
 		if uErr != nil || !found {
@@ -724,10 +724,10 @@ func (s ownerTear) renameNow(ctx context.Context) error {
 	return nil
 }
 
-func TestAllAPIKeysOwner(t *testing.T) {
+func TestAllAPIKeysUsername(t *testing.T) {
 	t.Parallel()
 	var gone, rename atomic.Int64
-	f := newFixture(t, keyOptions(options{edit: func(c *account.Config) { c.Store = ownerTear{Store: c.Store, gone: &gone, rename: &rename} }}, nil))
+	f := newFixture(t, keyOptions(options{edit: func(c *account.Config) { c.Store = userTear{Store: c.Store, gone: &gone, rename: &rename} }}, nil))
 	admin := mustUser(t, f.mem, "root", access.RoleAdmin)
 	alice := mustUser(t, f.mem, "alice", access.RoleUser)
 	bob := mustUser(t, f.mem, "bob", access.RoleUser)
@@ -738,29 +738,29 @@ func TestAllAPIKeysOwner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AllAPIKeys = %v", err)
 	}
-	want := []account.ListedKey{{Key: aliceKey.key, Owner: "alice"}, {Key: bobKey.key, Owner: "bob"}}
+	want := []account.ListedKey{{Key: aliceKey.key, Username: "alice"}, {Key: bobKey.key, Username: "bob"}}
 	if len(all) != len(want) {
 		t.Fatalf("AllAPIKeys = %d rows, want %d", len(all), len(want))
 	}
 	for i := range want {
-		if all[i].Key.ID != want[i].Key.ID || all[i].Key.UserID != want[i].Key.UserID || all[i].Owner != want[i].Owner {
-			t.Errorf("row %d = key %d of user %d owned by %q, want key %d of user %d owned by %q", i, all[i].Key.ID, all[i].Key.UserID, all[i].Owner, want[i].Key.ID, want[i].Key.UserID, want[i].Owner)
+		if all[i].Key.ID != want[i].Key.ID || all[i].Key.UserID != want[i].Key.UserID || all[i].Username != want[i].Username {
+			t.Errorf("row %d = key %d of user %d named %q, want key %d of user %d named %q", i, all[i].Key.ID, all[i].Key.UserID, all[i].Username, want[i].Key.ID, want[i].Key.UserID, want[i].Username)
 		}
 	}
 	t.Run("rename_after_key_read", func(t *testing.T) {
 		rename.Store(bob.ID)
 		defer rename.Store(0)
 		all, err := f.svc.AllAPIKeys(t.Context(), account.As(apr))
-		if err != nil || len(all) != 2 || all[0].Owner != "alice" || all[1].Owner != "bob" {
-			t.Errorf("AllAPIKeys = %+v, %v; want the owners of the key read's snapshot, alice and bob", all, err)
+		if err != nil || len(all) != 2 || all[0].Username != "alice" || all[1].Username != "bob" {
+			t.Errorf("AllAPIKeys = %+v, %v; want the usernames of the key read's snapshot, alice and bob", all, err)
 		}
 	})
-	t.Run("owner_row_gone", func(t *testing.T) {
+	t.Run("user_row_gone", func(t *testing.T) {
 		gone.Store(bob.ID)
 		defer gone.Store(0)
 		all, err := f.svc.AllAPIKeys(t.Context(), account.As(apr))
-		if err != nil || len(all) != 2 || all[0].Owner != "alice" || all[1].Owner != "" {
-			t.Errorf("AllAPIKeys with bob absent from the snapshot = %+v, %v; want alice's owner and an empty one", all, err)
+		if err != nil || len(all) != 2 || all[0].Username != "alice" || all[1].Username != "" {
+			t.Errorf("AllAPIKeys with bob absent from the snapshot = %+v, %v; want alice's name and an empty one", all, err)
 		}
 	})
 }
@@ -774,7 +774,7 @@ func TestAllKeysActors(t *testing.T) {
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
 		k := f.mint(t, socket, u.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 		all, err := f.svc.AllAPIKeys(t.Context(), socket)
-		if err != nil || !slices.Equal(listedKeyIDs(all), []int64{k.key.ID}) || all[0].Owner != "alice" {
+		if err != nil || !slices.Equal(listedKeyIDs(all), []int64{k.key.ID}) || all[0].Username != "alice" {
 			t.Errorf("AllAPIKeys(OutOfBand) = %+v, %v; want alice's key", all, err)
 		}
 		if err := f.svc.RevokeAnyAPIKey(t.Context(), socket, k.key.ID); err != nil {

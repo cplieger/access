@@ -132,7 +132,7 @@ func TestAcceptInviteOtherPurposeToken(t *testing.T) {
 
 // keyIssuer is a world whose admin root holds a session-minted parent P
 // (both permissions) and P's child K (manage_users) expiring in expiresIn,
-// with a second admin boss for the owner changes.
+// with a second admin boss for the changes to root.
 type keyIssuer struct {
 	*adminWorld
 	clock *testClock
@@ -204,20 +204,20 @@ func TestKeyIssuedTokens(t *testing.T) {
 			}
 			return ki.f.svc
 		},
-		"owner_disabled": func(t *testing.T, ki *keyIssuer) *account.Service {
+		"user_disabled": func(t *testing.T, ki *keyIssuer) *account.Service {
 			if _, err := ki.f.svc.UpdateUser(t.Context(), ki.bp, ki.root.ID, account.UserChange{Enabled: new(false)}); err != nil {
-				t.Fatalf("disable the owner = %v", err)
+				t.Fatalf("disable the key's user = %v", err)
 			}
 			return ki.f.svc
 		},
-		"owner_demoted": func(t *testing.T, ki *keyIssuer) *account.Service {
+		"user_demoted": func(t *testing.T, ki *keyIssuer) *account.Service {
 			// An owner's role never changes; demoting one
 			// removes the owner flag first.
 			if _, err := ki.f.svc.SetOwner(t.Context(), account.As(ki.bp), ki.root.ID, false); err != nil {
 				t.Fatalf("remove the owner flag = %v", err)
 			}
 			if _, err := ki.f.svc.UpdateUser(t.Context(), ki.bp, ki.root.ID, account.UserChange{Role: new(access.RoleUser)}); err != nil {
-				t.Fatalf("demote the owner = %v", err)
+				t.Fatalf("demote the key's user = %v", err)
 			}
 			return ki.f.svc
 		},

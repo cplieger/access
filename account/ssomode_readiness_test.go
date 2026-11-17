@@ -76,7 +76,7 @@ func TestSSOReadinessReaders(t *testing.T) {
 			t.Fatalf("UpdateUser: %v", err)
 		}
 		if err := read(t, f, p); !errors.Is(err, account.ErrPolicyRefused) || reasonOf(err) != account.ReasonKeyNotCurrent {
-			t.Errorf("SSOReadiness by a key whose owner was disabled = %v, want key_not_current", err)
+			t.Errorf("SSOReadiness by a key whose user was disabled = %v, want key_not_current", err)
 		}
 	})
 	t.Run("non_owner_admin_without_step_up", func(t *testing.T) {

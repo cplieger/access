@@ -84,7 +84,7 @@
 //     run's writes. The same rules hold when the callback's writes are
 //     single-call writes through tx. A store with a durable medium groups
 //     concurrently pending Updates into shared durable commits.
-//  6. Scoping. User-scoped operations affect nothing when the owner does
+//  6. Scoping. User-scoped operations affect nothing when the user does
 //     not match, and they report [ErrNotFound] as for an absent row, so
 //     there is no ownership oracle. The operations: DeletePasskey,
 //     RenamePasskey, UpdatePasskeyAfterLogin, DeleteSession,

@@ -68,7 +68,7 @@ func TestSessionVerifierRefusals(t *testing.T) {
 			name: "past absolute", want: ErrSessionExpired, reason: failreason.SessionExpired,
 			session: Session{ID: "s", CreatedAt: sessionT0.Add(-24*time.Hour - time.Nanosecond), LastActivity: sessionT0, Secure: true},
 		},
-		{name: "owner disabled", want: ErrSessionNotFound, reason: failreason.AccountDisabled, session: live, disabled: true},
+		{name: "user disabled", want: ErrSessionNotFound, reason: failreason.AccountDisabled, session: live, disabled: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()

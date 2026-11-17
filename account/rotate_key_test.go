@@ -311,23 +311,23 @@ func TestRotateAPIKey(t *testing.T) {
 	})
 }
 
-// ownerlessStore runs every Update over an ownerHidden Tx.
-type ownerlessStore struct{ account.Store }
+// userHiddenStore runs every Update over an userHidden Tx.
+type userHiddenStore struct{ account.Store }
 
-func (s ownerlessStore) Update(ctx context.Context, fn func(account.Tx) error) error {
-	return s.Store.Update(ctx, func(tx account.Tx) error { return fn(ownerHidden{tx}) })
+func (s userHiddenStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.Store.Update(ctx, func(tx account.Tx) error { return fn(userHidden{tx}) })
 }
 
-func TestRotateAPIKeyOwnerMissing(t *testing.T) {
+func TestRotateAPIKeyUserMissing(t *testing.T) {
 	t.Parallel()
 	w := newRotWorld(t, nil)
-	svc := newFixture(t, keyOptions(options{store: w.fs, edit: func(c *account.Config) { c.Store = ownerlessStore{c.Store} }}, w.pol)).svc
+	svc := newFixture(t, keyOptions(options{store: w.fs, edit: func(c *account.Config) { c.Store = userHiddenStore{c.Store} }}, w.pol)).svc
 	w.pol.arm("")
 	if _, err := svc.RotateAPIKey(t.Context(), account.OutOfBand("admin socket"), w.key.Key.ID); !errors.Is(err, account.ErrNotFound) {
-		t.Errorf("RotateAPIKey of a key whose owner row is gone = %v, want ErrNotFound", err)
+		t.Errorf("RotateAPIKey of a key whose user row is gone = %v, want ErrNotFound", err)
 	}
 	if d := w.pol.taken(); len(d) != 0 {
-		t.Errorf("Policy decisions = %+v, want none for a key with no owner", d)
+		t.Errorf("Policy decisions = %+v, want none for a key with no user", d)
 	}
 	w.unchanged(t)
 }

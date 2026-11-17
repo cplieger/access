@@ -512,7 +512,7 @@ type KeyView struct {
 	// PreviousUntil is the overlap's bound, set only while the superseded
 	// secret still verifies at the response's now.
 	PreviousUntil time.Time `json:"previous_until,omitzero"`
-	Owner         string    `json:"owner,omitempty"` // username; set on the admin list only
+	Username      string    `json:"username,omitempty"` // set on the admin list only
 	Label         string    `json:"label"`
 	Prefix        string    `json:"prefix"`
 	Suffix        string    `json:"suffix"`
@@ -709,10 +709,10 @@ func sessionView(s *access.Session, t access.SessionTimeouts, current string) Se
 	}
 }
 
-// keyView is k at now without its hashes; owner is set on the admin list only.
-func keyView(k *access.Key, owner string, now time.Time) KeyView {
+// keyView is k at now without its hashes; username is set on the admin list only.
+func keyView(k *access.Key, username string, now time.Time) KeyView {
 	v := KeyView{
-		ID: k.ID, UserID: k.UserID, Owner: owner, Label: k.Label, Prefix: k.KeyPrefix, Suffix: k.KeySuffix,
+		ID: k.ID, UserID: k.UserID, Username: username, Label: k.Label, Prefix: k.KeyPrefix, Suffix: k.KeySuffix,
 		Scopes: append([]string{}, k.Scopes...), CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt, LastUsedAt: k.LastUsedAt,
 		ParentKeyID: k.ParentKeyID(),
 	}

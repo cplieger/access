@@ -35,16 +35,16 @@ func (c *contract) idsAndLineage(t *testing.T) {
 	})
 	t.Run("reopen_keys", func(t *testing.T) {
 		c.needReopen(t, "rule 17")
-		var owner int64
+		var holder int64
 		c.neverReusedAcrossReopen(t, func(s account.Store) int64 {
-			if owner == 0 {
-				owner = mustUser(t, s, "holder").ID
+			if holder == 0 {
+				holder = mustUser(t, s, "holder").ID
 			}
-			k := newKey(owner)
+			k := newKey(holder)
 			mustKey(t, s, k)
 			return k.ID
 		}, func(s account.Store, id int64) error {
-			return s.DeleteAPIKey(t.Context(), access.KeyRef{ID: id, UserID: owner})
+			return s.DeleteAPIKey(t.Context(), access.KeyRef{ID: id, UserID: holder})
 		})
 	})
 	t.Run("lineage", c.lineage)
@@ -54,13 +54,13 @@ func (c *contract) idsAndLineage(t *testing.T) {
 func (c *contract) idsDistinct(t *testing.T) {
 	const n = 1000
 	s, ctx := c.store(t), t.Context()
-	owner := mustUser(t, s, "owner")
+	holder := mustUser(t, s, "holder")
 	ids := map[string][]int64{}
 	err := s.Update(ctx, func(tx account.Tx) error {
 		clear(ids)
 		for i := range n {
-			u, k, p := newUser(fmt.Sprintf("bulk-%d", i)), newKey(owner.ID), newPasskey(owner.ID)
-			a := &access.KeyAttribution{At: epoch, Action: access.AttributionCreated, KeyLineage: []int64{1}, UserID: owner.ID}
+			u, k, p := newUser(fmt.Sprintf("bulk-%d", i)), newKey(holder.ID), newPasskey(holder.ID)
+			a := &access.KeyAttribution{At: epoch, Action: access.AttributionCreated, KeyLineage: []int64{1}, UserID: holder.ID}
 			if err := errors.Join(tx.CreateUser(ctx, u), tx.CreateAPIKey(ctx, k), tx.CreatePasskey(ctx, p), tx.CreateKeyAttribution(ctx, a)); err != nil {
 				return err
 			}

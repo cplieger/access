@@ -319,7 +319,7 @@ func TestPasskeyCeremonyRefusals(t *testing.T) {
 	})
 }
 
-// TestCeremonyBeginRecordsItsUser pins what the finish calls' owner check
+// TestCeremonyBeginRecordsItsUser pins what the finish calls' user check
 // compares against: each begin that is for a signed-in user leaves that user
 // in its pending entry.
 func TestCeremonyBeginRecordsItsUser(t *testing.T) {

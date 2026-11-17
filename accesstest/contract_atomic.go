@@ -122,16 +122,16 @@ func (c *contract) raceRotateDelete(t *testing.T) {
 func (c *contract) deleteUserCascade(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
 	u, other := mustUser(t, s, "doomed"), mustUser(t, s, "other")
-	for _, owner := range []*access.User{u, other} {
-		mustSession(t, s, newSession(owner.ID, epoch))
-		mustPasskey(t, s, newPasskey(owner.ID))
-		mustKey(t, s, newKey(owner.ID))
-		if err := s.CreateKeyAttribution(ctx, &access.KeyAttribution{At: epoch, Action: access.AttributionCreated, KeyLineage: []int64{1}, UserID: owner.ID}); err != nil {
+	for _, holder := range []*access.User{u, other} {
+		mustSession(t, s, newSession(holder.ID, epoch))
+		mustPasskey(t, s, newPasskey(holder.ID))
+		mustKey(t, s, newKey(holder.ID))
+		if err := s.CreateKeyAttribution(ctx, &access.KeyAttribution{At: epoch, Action: access.AttributionCreated, KeyLineage: []int64{1}, UserID: holder.ID}); err != nil {
 			t.Fatalf("CreateKeyAttribution: %v", err)
 		}
-		check(t, "SetTOTP", s.SetTOTP(ctx, newTOTP(owner.ID, 1)))
-		check(t, "SetRecoveryCode", s.SetRecoveryCode(ctx, newRecoveryCode(owner.ID, 1)))
-		check(t, "SetTemporaryPassword", s.SetTemporaryPassword(ctx, newTemporaryPassword(owner.ID, 1)))
+		check(t, "SetTOTP", s.SetTOTP(ctx, newTOTP(holder.ID, 1)))
+		check(t, "SetRecoveryCode", s.SetRecoveryCode(ctx, newRecoveryCode(holder.ID, 1)))
+		check(t, "SetTemporaryPassword", s.SetTemporaryPassword(ctx, newTemporaryPassword(holder.ID, 1)))
 	}
 	if err := s.DeleteUser(ctx, u.ID); err != nil {
 		t.Fatalf("DeleteUser: %v", err)

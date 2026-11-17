@@ -200,7 +200,7 @@ func serveAdminKeys(h *Handler, c *call) error {
 	}
 	views, now := make([]KeyView, len(keys)), time.Now()
 	for i := range keys {
-		views[i] = keyView(&keys[i].Key, keys[i].Owner, now)
+		views[i] = keyView(&keys[i].Key, keys[i].Username, now)
 	}
 	c.answer(views)
 	return nil

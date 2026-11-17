@@ -271,8 +271,8 @@ func (c *contract) clearBound(t *testing.T) {
 
 func (c *contract) secretScopedInUpdate(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
-	owner, other := mustUser(t, s, "owner"), mustUser(t, s, "other")
-	k := touched(t, s, owner.ID, epoch)
+	holder, other := mustUser(t, s, "holder"), mustUser(t, s, "other")
+	k := touched(t, s, holder.ID, epoch)
 	wrong := access.KeyRef{ID: k.ID, UserID: other.ID}
 	err := s.Update(ctx, func(tx account.Tx) error {
 		if err := tx.UpdateAPIKeySecret(ctx, wrong, rotation(k, overlapEnd)); !errors.Is(err, account.ErrNotFound) {

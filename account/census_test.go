@@ -269,7 +269,7 @@ func TestKeyAuthorityEveryWrite(t *testing.T) {
 					}
 				}
 				if !slices.Equal(first, []string{"ListAPIKeysByUserID", "UserByID"}) {
-					t.Errorf("%s's writing Update %d first read %v, want the key's ListAPIKeysByUserID and its owner's UserByID", op.name, n, first)
+					t.Errorf("%s's writing Update %d first read %v, want the key's ListAPIKeysByUserID and its user's UserByID", op.name, n, first)
 				}
 			}
 		})

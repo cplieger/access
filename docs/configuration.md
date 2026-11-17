@@ -345,7 +345,7 @@ An app may refuse a sign-in method in its own gate before `account` sees the att
 - The accounts the key or any key below it created or invited stay, with their credentials. Each is attributed by an append-only record that carries the acting key's whole lineage, which `Service.Users` with `UserFilter.AttributedToKey` (`GET /users?key=`) filters by any key in that lineage, a revoked one included. Review and disable those accounts after revoking a leaked key.
 - A key's lineage holds at most `account.MaxKeyLineage` IDs, 8: a root key and seven generations of keys minted by keys. Minting below a full lineage is refused with the reason `lineage_too_deep`.
 
-Every key-authorized write re-reads the key and its owner inside its own transaction, so a key revoked or expired, or an owner disabled, deleted or demoted, authorises nothing that commits after the change. Leaving both scopes empty keeps all of these operations session-only under a recent sign-in.
+Every key-authorized write re-reads the key and its user inside its own transaction, so a key revoked or expired, or its user disabled, deleted or demoted, authorises nothing that commits after the change. Leaving both scopes empty keeps all of these operations session-only under a recent sign-in.
 
 ### Local clients
 

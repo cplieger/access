@@ -12,7 +12,7 @@ import (
 // NewKey is the input of CreateAPIKey.
 type NewKey struct {
 	// Label is required, one line of at most 128 runes, and no label of the
-	// owner's unexpired keys after NFC and case folding (ErrKeyLabelTaken).
+	// user's unexpired keys after NFC and case folding (ErrKeyLabelTaken).
 	Label     string
 	Scopes    []string
 	ExpiresIn time.Duration // 0 = never; a negative value is ErrKeyExpiryInvalid
@@ -37,7 +37,7 @@ func (m *minter) principal() access.Principal {
 // principal of userID's own user that RequireKeyPermission admits under
 // CreateKeysScope (OpCreateOwnKey; another user is other_user; plain:
 // access.ErrHTTPSRequired). Scopes come from Rules().Scopes (ErrUnknownScope),
-// a permission scope only on a RoleAdmin owner (permission_not_admin); Label
+// a permission scope only on a RoleAdmin user (permission_not_admin); Label
 // and ExpiresIn meet NewKey's rules. A key actor's parent is re-read in the
 // Update, needs its current secret (key_retiring), and bounds the child's
 // scopes, expiry and depth.
@@ -134,7 +134,7 @@ func checkKeyInput(r Rules, in NewKey) error { //nolint:gocritic // hugeParam: t
 }
 
 // authorizeMint decides a mint inside its Update. A key minter's parent is
-// re-read first, and key takes its path; then the Policy, then the owner as
+// re-read first, and key takes its path; then the Policy, then the key's user as
 // tx reads it must be enabled and, for a permission scope, RoleAdmin.
 func (s *Service) authorizeMint(ctx context.Context, tx Tx, j *journal, m minter, key *access.Key) error { //nolint:gocritic // hugeParam: the minter admitMinter built
 	actor := m.actor
@@ -156,13 +156,13 @@ func (s *Service) authorizeMint(ctx context.Context, tx Tx, j *journal, m minter
 		}
 		key.LineageIDs = slices.Clone(parent.LineageIDs)
 	}
-	owner, found, err := tx.UserByID(ctx, key.UserID)
+	holder, found, err := tx.UserByID(ctx, key.UserID)
 	if err != nil {
 		return err
 	}
 	var target *access.User
 	if found {
-		target = owner
+		target = holder
 	}
 	if polErr := s.authorize(ctx, Decision{Op: m.op, Actor: actor, Target: target}); polErr != nil {
 		return refuse(polErr)
@@ -172,10 +172,10 @@ func (s *Service) authorizeMint(ctx context.Context, tx Tx, j *journal, m minter
 		return refuse(ErrNotFound)
 	case !found:
 		return refuse(ErrSessionGone)
-	case !owner.Enabled:
+	case !holder.Enabled:
 		return refuse(&PolicyError{Op: m.op, Reason: ReasonTargetNotEligible})
 	}
-	return s.permissionScopes(m.op, owner, key.Scopes)
+	return s.permissionScopes(m.op, holder, key.Scopes)
 }
 
 // childOf is the rule on a key a key mints: no scope its parent lacks, no
@@ -196,9 +196,9 @@ func childOf(op Operation, parent, child *access.Key) error {
 }
 
 // permissionScopes refuses a configured permission scope on a key whose
-// owner is not RoleAdmin: the permissions are an admin's grant alone.
-func (s *Service) permissionScopes(op Operation, owner *access.User, scopes []string) error {
-	if owner.Role == access.RoleAdmin {
+// user is not RoleAdmin: the permissions are an admin's grant alone.
+func (s *Service) permissionScopes(op Operation, holder *access.User, scopes []string) error {
+	if holder.Role == access.RoleAdmin {
 		return nil
 	}
 	for _, permission := range []string{s.adminScope, s.usersScope, s.keysScope} {
@@ -262,8 +262,8 @@ func (s *Service) ownKeysIn(ctx context.Context, tx Tx, p access.Principal, read
 	if err != nil {
 		return err
 	}
-	owner, _ := actor.user()
-	if polErr := s.authorize(ctx, Decision{Op: OpCreateOwnKey, Actor: actor, Target: owner}); polErr != nil {
+	holder, _ := actor.user()
+	if polErr := s.authorize(ctx, Decision{Op: OpCreateOwnKey, Actor: actor, Target: holder}); polErr != nil {
 		return refuse(polErr)
 	}
 	return nil
@@ -325,14 +325,14 @@ func (s *Service) RenameAPIKey(ctx context.Context, p access.Principal, id int64
 	})
 }
 
-// AllAPIKeys returns every user's keys by ID, each with its owner's
+// AllAPIKeys returns every user's keys by ID, each with its user's
 // username, for an out-of-band actor or a principal RequireKeyScope
 // admits under AdminScope; the zero Actor is ErrSessionRequired. Inside one read
 // transaction a key principal's authority is re-read with AdminScope
 // (key_not_current), and the actor meets Policy (OpManageAllKeys). The keys
-// and the users are read in that transaction, so each Owner is the name the
-// key's own snapshot holds; a key whose owner that snapshot lacks lists an
-// empty Owner.
+// and the users are read in that transaction, so each Username is the name
+// the key's own snapshot holds; a key whose user that snapshot lacks lists
+// an empty Username.
 func (s *Service) AllAPIKeys(ctx context.Context, a Actor) ([]ListedKey, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	if err := s.admitAllKeys(a); err != nil {
 		return nil, err
@@ -359,8 +359,8 @@ func (s *Service) AllAPIKeys(ctx context.Context, a Actor) ([]ListedKey, error) 
 	return listed, nil
 }
 
-// listKeys reads every key by ID with its owner's username from tx; a key
-// whose owner tx lacks gets an empty Owner.
+// listKeys reads every key by ID with its user's username from tx; a key
+// whose user tx lacks gets an empty Username.
 func listKeys(ctx context.Context, tx Tx) ([]ListedKey, error) {
 	keys, err := tx.ListAPIKeys(ctx)
 	if err != nil {
@@ -370,14 +370,14 @@ func listKeys(ctx context.Context, tx Tx) ([]ListedKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	owners := make(map[int64]string, len(users))
+	names := make(map[int64]string, len(users))
 	for i := range users {
-		owners[users[i].ID] = users[i].Username
+		names[users[i].ID] = users[i].Username
 	}
 	keys = byID(keys)
 	listed := make([]ListedKey, len(keys))
 	for i := range keys {
-		listed[i] = ListedKey{Key: keys[i], Owner: owners[keys[i].UserID]}
+		listed[i] = ListedKey{Key: keys[i], Username: names[keys[i].UserID]}
 	}
 	return listed, nil
 }
@@ -411,12 +411,12 @@ func (s *Service) RevokeAnyAPIKey(ctx context.Context, a Actor, id int64) error 
 		if i < 0 {
 			return refuse(ErrNotFound)
 		}
-		owner := keys[i].UserID
-		revoked, err := revokeSubtree(ctx, tx, owner, id)
+		holder := keys[i].UserID
+		revoked, err := revokeSubtree(ctx, tx, holder, id)
 		if err != nil {
 			return err
 		}
-		s.addKeysRevoked(j, owner, revoked, eventActor(a))
+		s.addKeysRevoked(j, holder, revoked, eventActor(a))
 		return nil
 	})
 }

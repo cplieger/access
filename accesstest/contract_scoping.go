@@ -15,7 +15,7 @@ import (
 
 // scoping: rule 6.
 func (c *contract) scoping(t *testing.T) {
-	t.Run("wrong_owner", c.wrongOwner)
+	t.Run("wrong_user", c.wrongUser)
 	t.Run("issued_by", c.issuedBy)
 }
 
@@ -77,17 +77,17 @@ func (o owned) unchanged(t *testing.T, s account.Store) []string {
 	return changed
 }
 
-func (c *contract) wrongOwner(t *testing.T) {
+func (c *contract) wrongUser(t *testing.T) {
 	s := c.store(t)
-	owner, other := mustUser(t, s, "owner"), mustUser(t, s, "other")
-	o := owned{passkey: newPasskey(owner.ID), session: newSession(owner.ID, epoch), key: newKey(owner.ID)}
+	holder, other := mustUser(t, s, "holder"), mustUser(t, s, "other")
+	o := owned{passkey: newPasskey(holder.ID), session: newSession(holder.ID, epoch), key: newKey(holder.ID)}
 	mustPasskey(t, s, o.passkey)
 	mustSession(t, s, o.session)
 	mustKey(t, s, o.key)
 	mine := target{sessionID: o.session.ID, passkeyID: o.passkey.ID, keyID: o.key.ID}
 	wrong, partial := mine, mine
 	wrong.userID = other.ID
-	for name, tg := range map[string]target{"wrong owner": wrong, "zero ref": {}, "partial ref": partial} {
+	for name, tg := range map[string]target{"wrong user": wrong, "zero ref": {}, "partial ref": partial} {
 		for op, call := range o.ops(t, s, tg) {
 			if err := call(); !errors.Is(err, account.ErrNotFound) {
 				t.Errorf("%s with a %s = %v, want ErrNotFound", op, name, err)
@@ -95,7 +95,7 @@ func (c *contract) wrongOwner(t *testing.T) {
 		}
 	}
 	if changed := o.unchanged(t, s); len(changed) > 0 {
-		t.Errorf("refused ops changed the owner's %v", changed)
+		t.Errorf("refused ops changed the holder's %v", changed)
 	}
 }
 

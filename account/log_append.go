@@ -80,7 +80,7 @@ func checkAppEntry(e *AppEntry) error {
 	return nil
 }
 
-// cacheKeyActor caches a key actor's Label and Suffix from the owner's
+// cacheKeyActor caches a key actor's Label and Suffix from its user's
 // stored keys, as empty when the key is already gone. An operation caches
 // its key actor through currentKeyActor instead; AppendLog has no key
 // authority to check.

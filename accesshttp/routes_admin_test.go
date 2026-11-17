@@ -193,9 +193,9 @@ func TestRouteAuthAdminInvite(t *testing.T) {
 	})
 }
 
-// TestAdminKeysOwner: the admin key list names each key's owner, and the
+// TestAdminKeysUsername: the admin key list names each key's user, and the
 // caller's own list names none.
-func TestAdminKeysOwner(t *testing.T) {
+func TestAdminKeysUsername(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	cookie := e.rootSession(t)
 	e.createUser(t, "bob", access.RoleUser)
@@ -206,14 +206,14 @@ func TestAdminKeysOwner(t *testing.T) {
 	views := decoded[[]KeyView](t, e, do(e.route(t, "authAdminKeys"), e.post(t, "authAdminKeys", "", cookie)), http.StatusOK)
 	got := map[int64]string{}
 	for _, v := range views {
-		got[v.ID] = v.Owner
+		got[v.ID] = v.Username
 	}
 	if !maps.Equal(got, want) {
-		t.Errorf("owners %v, want %v", got, want)
+		t.Errorf("usernames %v, want %v", got, want)
 	}
 	own := decoded[[]KeyView](t, e, do(e.route(t, "authKeys"), e.post(t, "authKeys", "", cookie)), http.StatusOK)
-	if len(own) != 1 || own[0].Owner != "" {
-		t.Errorf("own keys %+v, want root's one with no owner", own)
+	if len(own) != 1 || own[0].Username != "" {
+		t.Errorf("own keys %+v, want root's one with no username", own)
 	}
 }
 

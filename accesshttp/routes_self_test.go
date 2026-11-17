@@ -613,8 +613,8 @@ func TestRouteAuthKeys(t *testing.T) {
 		own := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
 		e.mintKey(t, "bob", account.NewKey{Label: "bob's"})
 		views := decoded[[]KeyView](t, e, do(e.route(t, "authKeys"), e.post(t, "authKeys", "", cookie)), http.StatusOK)
-		if want := keyView(&own.Key, "", time.Now()); len(views) != 1 || views[0].ID != want.ID || views[0].Label != "ci" || views[0].Owner != "" || views[0].Prefix != want.Prefix {
-			t.Errorf("keys %+v, want alice's one %+v with no owner", views, want)
+		if want := keyView(&own.Key, "", time.Now()); len(views) != 1 || views[0].ID != want.ID || views[0].Label != "ci" || views[0].Username != "" || views[0].Prefix != want.Prefix {
+			t.Errorf("keys %+v, want alice's one %+v with no username", views, want)
 		}
 	})
 }
@@ -632,14 +632,14 @@ func TestRouteAuthKeyCreate(t *testing.T) {
 		if d.ID != keys[0].ID || d.Label != "ci" || d.UserID != keys[0].UserID || !d.ExpiresAt.Equal(keys[0].ExpiresAt) || time.Until(d.ExpiresAt).Round(time.Hour) != 48*time.Hour {
 			t.Errorf("details %+v, want the stored key expiring in 2 days", d)
 		}
-		if d.Prefix != keys[0].KeyPrefix || d.Suffix != keys[0].KeySuffix || !d.CreatedAt.Equal(keys[0].CreatedAt) || d.Owner != "" {
-			t.Errorf("details %+v, want the stored key's prefix, suffix and creation time with no owner", d)
+		if d.Prefix != keys[0].KeyPrefix || d.Suffix != keys[0].KeySuffix || !d.CreatedAt.Equal(keys[0].CreatedAt) || d.Username != "" {
+			t.Errorf("details %+v, want the stored key's prefix, suffix and creation time with no username", d)
 		}
 	})
 }
 
 // TestRouteAuthKeyCreateLabel: a label is required and unique among the
-// owner's unexpired keys, compared after NFC and case folding.
+// user's unexpired keys, compared after NFC and case folding.
 func TestRouteAuthKeyCreateLabel(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		e := newEnv(t, envOptions{})

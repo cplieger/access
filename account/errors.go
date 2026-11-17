@@ -44,7 +44,7 @@ var (
 	ErrCurrentPasswordRequired = errors.New("account: the current password is required")
 	ErrKeyExpiryInvalid        = errors.New("account: key expiry must not be negative")
 	// ErrKeyLabelTaken is a key label another unexpired key of the same
-	// owner already carries, compared after NFC and Unicode case folding.
+	// user already carries, compared after NFC and Unicode case folding.
 	ErrKeyLabelTaken = errors.New("account: a key with this label already exists")
 	// ErrRulesInvalid is matched by every *RulesError: New refusing the
 	// Rules() value, and an operation refusing a later invalid one.

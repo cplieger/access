@@ -40,7 +40,7 @@ Each operation appends its entries in the order it reports its events to `OnEven
 | `oidc_not_admitted` | session | `OIDCComplete` refusing a token `Rules.OIDCAdmission` does not admit, at a sign-in, link, invite acceptance or step-up; `UserID` names the account it was for, zero at an invite acceptance and at the sign-in of an identity no account is linked to |
 | `role_synced`, `role_sync_skipped` | change | an OIDC sign-in under `Rules.Provisioning.SyncRole`: `role_synced` with the new `Role` and the user's other sessions it ended when the claim changed it, `role_sync_skipped` with the kept `Role` when the claim was absent or unreadable |
 | `key_minted` | change | `CreateAPIKey` |
-| `key_rotated` | change | `RotateAPIKey`, naming the key and its owner. The end of the overlap appends nothing: it happens when a request verifies the new secret, and the key list shows it |
+| `key_rotated` | change | `RotateAPIKey`, naming the key and its user. The end of the overlap appends nothing: it happens when a request verifies the new secret, and the key list shows it |
 | `key_revoked` | change | one per key: `RevokeAPIKey` and `RevokeAnyAPIKey`, with the keys minted below the revoked key. A `RevokeAnyAPIKey` by `account.OutOfBand(channel)` names that channel in `Event.Actor.OutOfBand`; a disable through `UpdateUser`; `DeleteUser`; `SetTemporaryPassword` and `AdminRelinkOIDC` unless `KeepKeys`; and, only when `Rules.RevokeKeysOnCredentialChange` is set, `SetPassword`. Removing a password and adding or removing a passkey revoke no key |
 | `role_changed`, `user_disabled`, `user_enabled` | change | `UpdateUser` |
 | `user_approved` | change | `UpdateUser` enabling an account that waits for approval, in place of `user_enabled` |

@@ -189,7 +189,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 		PreviousHash: access.APIKeyHash("superseded"), PreviousUntil: at(5),
 	}
 	wantKey := KeyView{
-		ID: 5, UserID: 7, Owner: "alice", Label: "ci", Prefix: "ak_7", Suffix: "wxyz", Scopes: []string{"read"},
+		ID: 5, UserID: 7, Username: "alice", Label: "ci", Prefix: "ak_7", Suffix: "wxyz", Scopes: []string{"read"},
 		CreatedAt: at(1), ExpiresAt: at(4), LastUsedAt: at(2), ParentKeyID: 3,
 	}
 	rotated := key

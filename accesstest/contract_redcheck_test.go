@@ -218,9 +218,9 @@ var variants = map[string]variant{
 		make:  memVariant(func(m *MemStore) account.Store { return &txLabelDropsPreviousStore{m} }),
 		fails: []string{"rule_23_key_secrets/label_write"}, only: true,
 	},
-	"secret-ignores-owner": {
-		make:  memVariant(func(m *MemStore) account.Store { return &ownerlessSecretStore{m} }),
-		fails: []string{"rule_06_scoping/wrong_owner", "rule_23_key_secrets/secret_scoped_in_update"}, only: true,
+	"secret-ignores-user": {
+		make:  memVariant(func(m *MemStore) account.Store { return &unscopedSecretStore{m} }),
+		fails: []string{"rule_06_scoping/wrong_user", "rule_23_key_secrets/secret_scoped_in_update"}, only: true,
 	},
 	"delete-keeps-previous-hash": {
 		make:  memVariant(func(m *MemStore) account.Store { return &deleteKeepsPreviousStore{m} }),
@@ -984,23 +984,23 @@ func servePrevious(ctx context.Context, m *MemStore, mu *sync.Mutex, prev map[ac
 	return k, true, nil
 }
 
-// ownerlessSecretStore rotates a key whatever ref.UserID names, in a
+// unscopedSecretStore rotates a key whatever ref.UserID names, in a
 // single call and inside an Update.
-type ownerlessSecretStore struct{ *MemStore }
+type unscopedSecretStore struct{ *MemStore }
 
-type ownerlessSecretTx struct{ *memTx }
+type unscopedSecretTx struct{ *memTx }
 
-func (t ownerlessSecretTx) UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, sec access.KeySecret) error {
+func (t unscopedSecretTx) UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, sec access.KeySecret) error {
 	ref.UserID = t.s.keys[ref.ID].UserID
 	return t.memTx.UpdateAPIKeySecret(ctx, ref, sec)
 }
 
-func (s *ownerlessSecretStore) Update(ctx context.Context, fn func(account.Tx) error) error {
-	return s.MemStore.Update(ctx, func(tx account.Tx) error { return fn(ownerlessSecretTx{tx.(*memTx)}) })
+func (s *unscopedSecretStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.MemStore.Update(ctx, func(tx account.Tx) error { return fn(unscopedSecretTx{tx.(*memTx)}) })
 }
 
-func (s *ownerlessSecretStore) UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, sec access.KeySecret) error {
-	return s.write(func(tx *memTx) (bool, error) { return true, ownerlessSecretTx{tx}.UpdateAPIKeySecret(ctx, ref, sec) })
+func (s *unscopedSecretStore) UpdateAPIKeySecret(ctx context.Context, ref access.KeyRef, sec access.KeySecret) error {
+	return s.write(func(tx *memTx) (bool, error) { return true, unscopedSecretTx{tx}.UpdateAPIKeySecret(ctx, ref, sec) })
 }
 
 // deleteKeepsPreviousStore leaves a deleted key's previous hash indexed.

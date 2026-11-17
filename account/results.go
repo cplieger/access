@@ -278,8 +278,8 @@ type ListedUser struct {
 
 // ListedKey is one row of the admin key list.
 type ListedKey struct {
-	Owner string // the owner's username; empty when its user row is gone
-	Key   access.Key
+	Username string // the key's user's username; empty when its user row is gone
+	Key      access.Key
 }
 
 // ListedToken is one row of the admin token list.

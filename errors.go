@@ -47,7 +47,7 @@ type InvalidCredentialError struct {
 	// grant.
 	Method Method
 	// KeyID is the ID of the stored key a refused API key named, set only
-	// when the store found it (expired, owner missing or disabled) and zero
+	// when the store found it (expired, its user missing or disabled) and zero
 	// otherwise, so a refusal carries no byte of a presented value.
 	KeyID int64
 }

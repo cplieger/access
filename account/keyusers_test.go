@@ -558,12 +558,12 @@ func TestUsersAttributedToKey(t *testing.T) {
 		t.Errorf("unfiltered Users = %d rows, want every user", len(all))
 	}
 	if err := w.f.svc.DeleteUser(ctx, bp, w.root.ID); err != nil {
-		t.Fatalf("DeleteUser(K's owner) = %v", err)
+		t.Fatalf("DeleteUser(K's user) = %v", err)
 	}
 	if _, err := w.f.svc.UpdateUser(ctx, bp, u1.ID, account.UserChange{Enabled: new(false)}); err != nil {
 		t.Fatalf("disable u1 = %v", err)
 	}
-	filters("after the owner's deletion and u1's disable")
+	filters("after K's user's deletion and u1's disable")
 	before := len(attributionsOf(t, w.f, u1.ID))
 	if err := w.f.svc.DeleteUser(ctx, bp, u2.ID); err != nil {
 		t.Fatalf("DeleteUser(u2) = %v", err)

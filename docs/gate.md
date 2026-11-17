@@ -106,7 +106,7 @@ Set `Config.Audit` to receive one `access.AuditEvent` for each refusal of a pres
 | `key_unknown` | a Bearer value no stored key has as either secret |
 | `key_expired` | an API key at or past its `ExpiresAt` |
 | `key_retired` | a rotated key's previous secret, once its overlap has ended or the new secret has been used |
-| `account_disabled` | a key or session whose owner is missing or disabled |
+| `account_disabled` | a key or session whose user is missing or disabled |
 | `session_expired` | a session cookie past its idle or absolute limit |
 | `session_unknown` | a session cookie no stored session has |
 | `transport_changed` | a session cookie whose session was created on the other transport, plain HTTP or HTTPS; the session is revoked |

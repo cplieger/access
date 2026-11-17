@@ -433,6 +433,15 @@ describe("field narrowing", () => {
     expect(parseKeyView({ ...key, scopes: ["read", 1] })).toBeUndefined();
   });
 
+  // owner on the wire is only the owner flag (UserView, MeResponse).
+  it("names a key's user username and refuses owner", () => {
+    const key = fixture("KeyView") as Record<string, unknown>;
+    expect(parseKeyView(key)?.username).toBe("alice");
+    const { username, ...own } = key;
+    expect(parseKeyView(own)?.username).toBeUndefined();
+    expect(parseKeyView({ ...own, owner: username })).toBeUndefined();
+  });
+
   it("reads a key's previous_until and refuses one that is not a time", () => {
     const key = fixture("KeyView") as Record<string, unknown>;
     expect(parseKeyView(key)?.previous_until).toBe(key["previous_until"]);

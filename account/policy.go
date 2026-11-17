@@ -69,7 +69,7 @@ type Decision struct {
 // OutOfBand actor reaches it for OpCreateUser, OpCreateKeyFor,
 // OpManageAllKeys, OpRotateKey, OpSetOwner, OpSetTemporaryPassword,
 // OpResetSecondFactor and OpUnlinkOIDC, so an app's own Policy decides each.
-// OpRotateKey's Target is the key's owner as stored. account applies the
+// OpRotateKey's Target is the key's user as stored. account applies the
 // owner protections itself, after Authorize allows, whatever the Policy.
 type Policy interface {
 	// Authorize returns nil, or a *PolicyError.

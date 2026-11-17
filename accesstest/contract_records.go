@@ -103,7 +103,7 @@ func (c *contract) ownership(t *testing.T) {
 
 func (c *contract) ownUser(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
-	u := mustUser(t, s, "owner")
+	u := mustUser(t, s, "holder")
 	want := slices.Clone(u.WebAuthnHandle)
 	flip(u.WebAuthnHandle)
 	read := func() []byte {
@@ -124,7 +124,7 @@ func (c *contract) ownUser(t *testing.T) {
 
 func (c *contract) ownKey(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
-	u := mustUser(t, s, "owner")
+	u := mustUser(t, s, "holder")
 	k := newKey(u.ID)
 	k.LineageIDs = []int64{5}
 	mustKey(t, s, k)
@@ -157,7 +157,7 @@ func (c *contract) ownKey(t *testing.T) {
 
 func (c *contract) ownAttribution(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
-	u := mustUser(t, s, "owner")
+	u := mustUser(t, s, "holder")
 	a := &access.KeyAttribution{At: epoch, Action: access.AttributionCreated, KeyLineage: []int64{1, 2}, UserID: u.ID}
 	if err := s.CreateKeyAttribution(ctx, a); err != nil {
 		t.Fatalf("CreateKeyAttribution: %v", err)
@@ -182,7 +182,7 @@ func passkeyBytes(p *access.PasskeyCredential) [][]byte {
 
 func (c *contract) ownPasskey(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
-	u := mustUser(t, s, "owner")
+	u := mustUser(t, s, "holder")
 	p := newPasskey(u.ID)
 	p.Discoverable = new(true)
 	mustPasskey(t, s, p)

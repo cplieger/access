@@ -191,9 +191,9 @@ func newCensus(t *testing.T, set, bypass bool) *census {
 	c.createUser(t, "kim", access.RoleAdmin)
 	cookie := func(ck *http.Cookie) func(*http.Request) { return func(r *http.Request) { r.AddCookie(ck) } }
 	minted := 0
-	key := func(owner string, scopes ...string) func(*http.Request) {
+	key := func(username string, scopes ...string) func(*http.Request) {
 		minted++
-		k := c.mintKey(t, owner, account.NewKey{Label: owner + " " + strconv.Itoa(minted), Scopes: scopes})
+		k := c.mintKey(t, username, account.NewKey{Label: username + " " + strconv.Itoa(minted), Scopes: scopes})
 		return func(r *http.Request) { bearer(r, k.Plaintext) }
 	}
 	agent := func(scopes string) func(*http.Request) {

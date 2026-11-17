@@ -21,11 +21,11 @@ func (s *Service) currentKeyActor(ctx context.Context, tx Tx, j *journal, op Ope
 
 // keyAuthority decides a key's authority inside the caller's Update from
 // the stored records alone, never from the request's Principal. ref names a
-// principal's key by owner and ID, or a token issuer by ID alone. The key
+// principal's key by user and ID, or a token issuer by ID alone. The key
 // must exist, be unexpired at Config.Now and carry the non-empty scope, and
-// its owner must exist and be enabled; any failure is a refused
+// its user must exist and be enabled; any failure is a refused
 // key_not_current, and a store error is returned as it is, for the caller's
-// Update. The Actor is rebuilt with the owner's stored role, and the key's
+// Update. The Actor is rebuilt with the user's stored role, and the key's
 // LineageIDs is the path the write attributes.
 func (s *Service) keyAuthority(ctx context.Context, tx Tx, op Operation, ref access.KeyRef, scope string) (Actor, *access.Key, error) {
 	notCurrent := refuse(&PolicyError{Op: op, Reason: ReasonKeyNotCurrent})
@@ -52,15 +52,15 @@ func (s *Service) keyAuthority(ctx context.Context, tx Tx, op Operation, ref acc
 		!slices.Contains(key.Scopes, scope) {
 		return Actor{}, nil, notCurrent
 	}
-	owner, found, err := tx.UserByID(ctx, key.UserID)
+	holder, found, err := tx.UserByID(ctx, key.UserID)
 	if err != nil {
 		return Actor{}, nil, err
 	}
-	if !found || !owner.Enabled {
+	if !found || !holder.Enabled {
 		return Actor{}, nil, notCurrent
 	}
 	return As(access.Principal{
-		User:             owner,
+		User:             holder,
 		Method:           access.MethodAPIKey,
 		KeyID:            key.ID,
 		KeyLabel:         key.Label,

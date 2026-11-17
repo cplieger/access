@@ -149,7 +149,7 @@ func TestOwnKeysByKey(t *testing.T) {
 		}
 		for name, err := range ownKeyCalls(t, w, w.p) {
 			if !errors.Is(err, account.ErrPolicyRefused) || reasonOf(err) != account.ReasonKeyNotCurrent {
-				t.Errorf("%s after the owner was disabled = %v, want key_not_current", name, err)
+				t.Errorf("%s after the key's user was disabled = %v, want key_not_current", name, err)
 			}
 		}
 		requireUntouched(t, w)

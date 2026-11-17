@@ -44,7 +44,7 @@ func (s *Service) admitUserAdmin(r Rules, a Actor) error { //nolint:gocritic // 
 }
 
 // userAdminIn decides a's authority first inside the write's Update: a key
-// principal's from its stored key and owner under ManageUsersScope
+// principal's from its stored key and user under ManageUsersScope
 // (key_not_current), any other actor as it is.
 func (s *Service) userAdminIn(ctx context.Context, tx Tx, j *journal, op Operation, a Actor) (userAdmin, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	p, ok := a.Principal()

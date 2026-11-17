@@ -311,16 +311,16 @@ func TestDisableDeletesKeysAndSessions(t *testing.T) {
 	}
 }
 
-func TestDisableOwnerRevokesMintedKeys(t *testing.T) {
+func TestDisableUserRevokesMintedKeys(t *testing.T) {
 	t.Parallel()
 	for _, op := range []string{"disable", "delete"} {
 		t.Run(op, func(t *testing.T) {
 			t.Parallel()
 			w := newAdminWorld(t, options{}, nil)
-			owner := mustUser(t, w.f.mem, "owner", access.RoleAdmin)
-			op1 := w.f.sessionPrincipal(t, owner, time.Now())
-			root := w.f.mint(t, account.As(op1), owner.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
-			child := w.f.mint(t, account.As(root.p), owner.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
+			holder := mustUser(t, w.f.mem, "holder", access.RoleAdmin)
+			op1 := w.f.sessionPrincipal(t, holder, time.Now())
+			root := w.f.mint(t, account.As(op1), holder.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
+			child := w.f.mint(t, account.As(root.p), holder.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 			invite, err := w.f.svc.CreateInvite(t.Context(), child.p, access.RoleUser, 0)
 			if err != nil {
 				t.Fatalf("CreateInvite from the child = %v", err)
@@ -332,15 +332,15 @@ func TestDisableOwnerRevokesMintedKeys(t *testing.T) {
 			w.fs.resetRecord()
 			switch op {
 			case "disable":
-				_, err = w.f.svc.UpdateUser(t.Context(), w.pr, owner.ID, account.UserChange{Enabled: new(false)})
+				_, err = w.f.svc.UpdateUser(t.Context(), w.pr, holder.ID, account.UserChange{Enabled: new(false)})
 			default:
-				err = w.f.svc.DeleteUser(t.Context(), w.pr, owner.ID)
+				err = w.f.svc.DeleteUser(t.Context(), w.pr, holder.ID)
 			}
 			if err != nil {
-				t.Fatalf("%s the owner = %v", op, err)
+				t.Fatalf("%s the holder = %v", op, err)
 			}
-			if k := keysOf(t, w.f.mem, owner.ID); len(k) != 0 {
-				t.Errorf("after the %s the owner keeps keys %v", op, keyIDs(k))
+			if k := keysOf(t, w.f.mem, holder.ID); len(k) != 0 {
+				t.Errorf("after the %s the holder keeps keys %v", op, keyIDs(k))
 			}
 			live, err := w.f.mem.LiveOneTimeTokens(t.Context(), []access.TokenPurpose{access.PurposeInvite}, time.Now())
 			if err != nil {
