@@ -47,13 +47,13 @@ type IssuedTemporaryPassword struct {
 }
 
 // SetTemporaryPassword issues userID a temporary password, returned to show
-// once, for an admin principal, a ManageUsersScope key on a RoleUser
-// (admin_target) or an out-of-band actor, under OpSetTemporaryPassword and
-// the owner protections, on a secure request; a principal's own user is
-// ReasonSelfRecovery and a linked dormant user ErrSSOLinked. Its one Update
-// replaces any record, clears the password, TOTP and recovery code (keeps
-// them, marking the record Dormant, for a dormant user), deletes passkeys
-// under RevokePasskeys and keys unless KeepKeys, and ends sessions and locks.
+// once, for an admin principal, a ManageUsersScope key presenting its
+// current secret (key_retiring) on a RoleUser (admin_target) or an
+// out-of-band actor, under OpSetTemporaryPassword and the owner protections,
+// on a secure request; a principal's own user is ReasonSelfRecovery and a
+// linked dormant user ErrSSOLinked. Its one Update replaces any record,
+// clears or, for a dormant user, keeps (Dormant) the password, TOTP and
+// recovery code, applies the options, and ends sessions and locks.
 func (s *Service) SetTemporaryPassword(ctx context.Context, a Actor, userID int64, in TemporaryPasswordOptions) (IssuedTemporaryPassword, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	r, iss, err := s.prepareIssue(ctx, a, userID, in)
 	if err != nil {
@@ -132,12 +132,17 @@ func (s *Service) issueTemporaryIn(ctx context.Context, tx Tx, j *journal, a Act
 }
 
 // issueTargetIn is an issue's authority inside tx, before any write: the
-// actor's, the Policy and owner protections, existence and admin_target.
-// It returns the actor's authority and the target.
+// actor's, a key's current secret, the Policy and owner protections,
+// existence and admin_target. It returns the actor's authority and the
+// target.
 func (s *Service) issueTargetIn(ctx context.Context, tx Tx, j *journal, a Actor, userID int64) (userAdmin, *access.User, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	ua, err := s.userAdminIn(ctx, tx, j, OpSetTemporaryPassword, a)
 	if err != nil {
 		return userAdmin{}, nil, err
+	}
+	p, _ := a.Principal()
+	if keyErr := requireCurrentSecret(OpSetTemporaryPassword, ua.key, p); keyErr != nil {
+		return userAdmin{}, nil, keyErr
 	}
 	target, found, users, err := targetIn(ctx, tx, userID)
 	if err != nil {

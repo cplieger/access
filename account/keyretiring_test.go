@@ -10,8 +10,8 @@ import (
 )
 
 // retireWorld is boss, an admin holding one key with the user and key
-// permissions, alice, an enabled RoleUser, and dave, a disabled one, over a
-// faultStore.
+// permissions, alice, an enabled RoleUser linked to an OIDC identity, and
+// dave, a disabled one, over a faultStore.
 type retireWorld struct {
 	f                 *fixture
 	fs                *faultStore
@@ -30,6 +30,7 @@ func newRetireWorld(t *testing.T) retireWorld {
 	if err := w.f.mem.Update(t.Context(), func(tx account.Tx) error { return tx.UpdateUser(t.Context(), w.dave) }); err != nil {
 		t.Fatalf("disable dave: %v", err)
 	}
+	linkUser(t, w.f.mem, w.alice, "https://idp.example.com")
 	created, err := w.f.svc.CreateAPIKey(t.Context(), account.OutOfBand("admin socket"), w.boss.ID,
 		account.NewKey{Label: "Automation", Scopes: []string{scopeUsers, scopeKeys}})
 	if err != nil {
@@ -110,6 +111,17 @@ func issuingOperations() []issuing {
 		}},
 		{name: "UpdateUser_enable", op: account.OpSetEnabled, run: update(account.UserChange{Enabled: &enable})},
 		{name: "UpdateUser_role_and_enable", op: account.OpSetEnabled, run: update(account.UserChange{Role: &role, Enabled: &enable})},
+		{name: "SetTemporaryPassword", op: account.OpSetTemporaryPassword, run: func(ctx context.Context, w retireWorld, p access.Principal) error {
+			_, err := w.f.svc.SetTemporaryPassword(ctx, account.As(p), w.alice.ID, account.TemporaryPasswordOptions{})
+			return err
+		}},
+		{name: "AdminUnlinkOIDC", op: account.OpUnlinkOIDC, run: func(ctx context.Context, w retireWorld, p access.Principal) error {
+			return w.f.svc.AdminUnlinkOIDC(ctx, account.As(p), w.alice.ID)
+		}},
+		{name: "AdminRelinkOIDC", op: account.OpUnlinkOIDC, run: func(ctx context.Context, w retireWorld, p access.Principal) error {
+			_, err := w.f.svc.AdminRelinkOIDC(ctx, account.As(p), w.alice.ID, account.TemporaryPasswordOptions{})
+			return err
+		}},
 	}
 }
 
@@ -171,6 +183,50 @@ func TestGuardRetiringKeyDisableAllowed(t *testing.T) {
 			}
 			if u.Enabled != (ch.Enabled == nil) || u.Role != access.RoleUser {
 				t.Errorf("user = %+v, want the change applied", u)
+			}
+		})
+	}
+}
+
+// TestGuardRetiringKeyRemovalsAllowed: a retiring key's DeleteUser and
+// ResetSecondFactor only remove access and are not refused.
+func TestGuardRetiringKeyRemovalsAllowed(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		run  func(ctx context.Context, w retireWorld, p access.Principal) error
+		gone func(t *testing.T, w retireWorld) bool
+		name string
+	}{
+		{
+			name: "DeleteUser",
+			run: func(ctx context.Context, w retireWorld, p access.Principal) error {
+				return w.f.svc.DeleteUser(ctx, p, w.alice.ID)
+			},
+			gone: func(t *testing.T, w retireWorld) bool {
+				_, found, err := w.f.mem.UserByID(t.Context(), w.alice.ID)
+				return err == nil && !found
+			},
+		},
+		{
+			name: "ResetSecondFactor",
+			run: func(ctx context.Context, w retireWorld, p access.Principal) error {
+				return w.f.svc.ResetSecondFactor(ctx, account.As(p), w.alice.ID)
+			},
+			gone: func(t *testing.T, w retireWorld) bool {
+				_, found, err := w.f.mem.TOTPByUserID(t.Context(), w.alice.ID)
+				return err == nil && !found
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := newRetireWorld(t)
+			storeTOTP(t, w.f.mem, w.alice)
+			if err := tc.run(t.Context(), w, w.retiring(t)); err != nil {
+				t.Fatalf("%s = %v, want nil", tc.name, err)
+			}
+			if !tc.gone(t, w) {
+				t.Errorf("%s by a retiring key left what it removes", tc.name)
 			}
 		})
 	}

@@ -643,12 +643,13 @@ func (s *Service) UnlinkOIDC(ctx context.Context, p access.Principal) error { //
 }
 
 // AdminUnlinkOIDC removes userID's OIDC link for an admin principal, a
-// ManageUsersScope key or an out-of-band actor, under Policy
-// (OpUnlinkOIDC) and the owner protections, in one Update that also ends
-// every session of the user. A key unlinks RoleUser targets only
-// (admin_target). A refusal answers before existence; a missing or
-// unlinked user is ErrNotFound. No last-method guard applies: a link to a
-// lost or reassigned provider account goes even when nothing else remains.
+// ManageUsersScope key presenting its current secret (key_retiring) or an
+// out-of-band actor, under Policy (OpUnlinkOIDC) and the owner protections,
+// in one Update that also ends every session of the user. A key unlinks
+// RoleUser targets only (admin_target). A refusal answers before existence;
+// a missing or unlinked user is ErrNotFound. No last-method guard applies:
+// a link to a lost or reassigned provider account goes even when nothing
+// else remains.
 func (s *Service) AdminUnlinkOIDC(ctx context.Context, a Actor, userID int64) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	r, err := s.begin()
 	if err != nil {
@@ -688,13 +689,18 @@ func (s *Service) unlinkWriteIn(ctx context.Context, tx Tx, j *journal, a Actor,
 	return nil
 }
 
-// unlinkTargetIn is AdminUnlinkOIDC's authority inside tx: the Policy and
-// the owner protections, then existence, the key's admin_target rule and
-// a link to remove, returning the target.
+// unlinkTargetIn is AdminUnlinkOIDC's authority inside tx: a key's current
+// secret, since an unlink under SSOForLinked restores dormant methods, the
+// Policy and the owner protections, then existence, the key's admin_target
+// rule and a link to remove, returning the target.
 func (s *Service) unlinkTargetIn(ctx context.Context, tx Tx, j *journal, a Actor, userID int64) (*access.User, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	ua, err := s.userAdminIn(ctx, tx, j, OpUnlinkOIDC, a)
 	if err != nil {
 		return nil, err
+	}
+	p, _ := a.Principal()
+	if keyErr := requireCurrentSecret(OpUnlinkOIDC, ua.key, p); keyErr != nil {
+		return nil, keyErr
 	}
 	target, found, users, err := targetIn(ctx, tx, userID)
 	if err != nil {

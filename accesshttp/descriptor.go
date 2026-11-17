@@ -457,12 +457,12 @@ var opAnswers = map[string]answers{
 	"SetOwner": none(access.CodeUnavailable, access.CodeNotFound).
 		open(access.CodeForbidden, account.ReasonLastOwner, account.ReasonOwnerNeedsLocalMethod, account.ReasonOwnerTarget),
 	"AdminUnlinkOIDC": none(access.CodeUnavailable, access.CodeNotFound).
-		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonOwnerTarget),
+		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonKeyRetiring, account.ReasonOwnerTarget),
 	"AdminRelinkOIDC": none(access.CodeHTTPSRequired, access.CodeBusy, access.CodeUnavailable, access.CodeNotFound).
-		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonOwnerTarget, account.ReasonSelfRecovery).
+		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonKeyRetiring, account.ReasonOwnerTarget, account.ReasonSelfRecovery).
 		with(access.CodeBadRequest, ReasonTTLNegative, ReasonTTLTooLong),
 	"SetTemporaryPassword": none(access.CodeHTTPSRequired, access.CodeBusy, access.CodeUnavailable, access.CodeNotFound).
-		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonOwnerTarget, account.ReasonSelfRecovery).
+		open(access.CodeForbidden, account.ReasonAdminTarget, account.ReasonKeyNotCurrent, account.ReasonKeyRetiring, account.ReasonOwnerTarget, account.ReasonSelfRecovery).
 		with(access.CodeBadRequest, ReasonTTLNegative, ReasonTTLTooLong).
 		with(access.CodeSSOOnly, ReasonLinked),
 	"ResetSecondFactor": none(access.CodeUnavailable, access.CodeNotFound).
