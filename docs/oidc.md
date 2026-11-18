@@ -49,7 +49,7 @@ Decode the callback's query once and pass its `state`, `code` and `error` values
 1. It opens the cookie. A cookie that is missing, forged, expired or duplicated fails with `ErrFlowInvalid`, and so does one sealed by a provider with another issuer, client ID or redirect URL.
 2. It compares the state, and only then reads the provider's error. That error becomes a `*ProviderError` whose `Code` is one of the RFC 6749 codes or `other`. The `error_description` is never read.
 3. It exchanges the code with the PKCE verifier. A failure is `ErrExchange`.
-4. It verifies the ID token's signature, as "Parsing a token" describes, then checks its claims, as "The ID-token claims" describes. A refused token is `ErrTokenInvalid`, a nonce that differs from the sealed one is `ErrNonceMismatch`, and a link or step-up without fresh authentication is `ErrStaleAuthentication`.
+4. It verifies the ID token's signature, as "Parsing a token" describes, then checks its claims, as "The ID-token claims" describes. A refused token is `ErrTokenInvalid`, a nonce that differs from the sealed one is `ErrNonceMismatch`, and a link, step-up or invite without fresh authentication is `ErrStaleAuthentication`.
 
 An error from step 2 on comes with the opened `Flow`, so you can send the browser back to the page the flow began on. Before that, the `Flow` is zero.
 
@@ -133,7 +133,7 @@ A required claim that is missing, or a claim of the wrong type, refuses the toke
 | `iat` | yes | a time no later than now plus 5 minutes |
 | `nbf` | no | a time no later than now plus 5 minutes |
 | `nonce` | yes | a string equal to the sealed nonce |
-| `auth_time` | for a link and a step-up | a time no earlier than 60 seconds before the flow began |
+| `auth_time` | for a link, a step-up and an invite | a time no earlier than 60 seconds before the flow began |
 | `email`, `preferred_username`, `name` | no | a string |
 | `email_verified` | no | a boolean, or the string `"true"` or `"false"` |
 

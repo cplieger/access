@@ -494,13 +494,13 @@ func TestIDToken_GoogleIssuer(t *testing.T) {
 	}
 }
 
-// OpenID Connect Core 1.0 §3.1.3.7 step 12: a link or step-up asked for
-// max_age=0, so auth_time is required and must not be before the flow
+// OpenID Connect Core 1.0 §3.1.3.7 step 12: a link, step-up or invite asked
+// for max_age=0, so auth_time is required and must not be before the flow
 // began, less 60 seconds of skew; a sign-in needs none.
 func TestIDToken_AuthTime(t *testing.T) {
 	t.Parallel()
 	began := rulesFor(IntentLink).flow.BeganAt
-	for _, intent := range []Intent{IntentLink, IntentStepUp} {
+	for _, intent := range []Intent{IntentLink, IntentStepUp, IntentInvite} {
 		t.Run(string(intent), func(t *testing.T) {
 			t.Parallel()
 			for _, before := range []time.Duration{59 * time.Second, 60 * time.Second, 0, -10 * time.Second} {

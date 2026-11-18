@@ -30,7 +30,7 @@ A local method the mode forbids is dormant. It is kept, never deleted, and a loo
 
 Before an owner applies a mode, the settings screen shows `Service.SSOReadiness` (`authAdminSSOReadiness`). It counts the accounts the mode leaves unable to sign in, those that lose or regain their local methods, and the temporary passwords it withdraws. `ApplySSO` ends each session the new mode forbids, in the same change.
 
-`ApplySSO` refuses `SSOOnly` until an owner holds a password or passkey it signs in with, and while `Rules.Registration` is anything but `RegistrationOff`. It refuses every mode but `SSOAlongside` in a single-user app, whose one account is an owner.
+`ApplySSO` refuses `SSOOnly` until the owner applying it holds a password or passkey it signs in with, or, for an out-of-band caller, until any owner does, and while `Rules.Registration` is anything but `RegistrationOff`. It refuses every mode but `SSOAlongside` in a single-user app, whose one account is an owner.
 
 API keys stay allowed under every mode. An app that wants none for its users sets `RolePolicy.KeysAdminOnly`.
 

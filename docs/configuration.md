@@ -219,7 +219,7 @@ Once per `Prune` interval, each dimension that evicted keys at their limit logs 
 | `Now` | The clock for the flow cookie, the ID token's time claims and the key set's refresh timing | `time.Now` |
 | `Logger` | The `*slog.Logger` for the key set's warnings | `slog.Default()` at each call |
 
-An ephemeral `FlowSealer` means a flow begun under one provider cannot finish under a rebuilt one. An app that rebuilds its provider when its settings change passes one sealer that outlives them. The flow cookie lives 10 minutes, the return path is at most 512 bytes, and a step-up accepts 60 s of `auth_time` skew. [OIDC sign-in](oidc.md) explains the flow.
+An ephemeral `FlowSealer` means a flow begun under one provider cannot finish under a rebuilt one. An app that rebuilds its provider when its settings change passes one sealer that outlives them. The flow cookie lives 10 minutes, the return path is at most 512 bytes, and a link, step-up or invite accepts 60 s of `auth_time` skew. [OIDC sign-in](oidc.md) explains the flow.
 
 ## Account service
 

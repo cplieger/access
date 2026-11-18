@@ -156,8 +156,9 @@ type sessionOp struct {
 	// sign-in completes now: nil and nil do; a pending entry to mint, or a
 	// refusal to answer, commits the Update with no session and pend's
 	// entries, so a correct first factor's failure reset stands. full is
-	// reserve's refusal: pend answers it as its refusal before it spends
-	// anything, and complete answers that refusal before any mint.
+	// reserve's refusal: a pend that would return an entry answers full
+	// instead, before it spends what the entry would carry, and complete
+	// answers that refusal before any mint.
 	pend func(tx Tx, j *journal, u *access.User, full error) (entry *pending, refused, err error)
 	// reserve, when set, runs after prepare and holds the place of the
 	// pending sign-in a pend that spends a single-use credential mints:
