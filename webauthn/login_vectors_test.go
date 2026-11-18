@@ -12,9 +12,9 @@ import (
 	"github.com/cplieger/access/webauthn/internal/cose"
 )
 
-// vectorCredential is the record of section's registration half as
-// published, read at §6.1's and §6.5.1's offsets: its credential ID, the
-// key's bytes as received and its flags octet.
+// vectorCredential is the record of section's registration half as published,
+// read at WebAuthn §6.1's and §6.5.1's offsets: its credential ID, the key's
+// bytes as received and its flags octet.
 func vectorCredential(t testing.TB, section string) access.PasskeyCredential {
 	t.Helper()
 	v := s16Section(t, section)
@@ -25,14 +25,14 @@ func vectorCredential(t testing.TB, section string) access.PasskeyCredential {
 
 // TestVerifyLogin_WebAuthn16_asPublished runs every §16 authentication half
 // through both finishes as published, against its registration's record:
-// §16.6, §16.7 and §16.13 sign in, and every other half stops at its first
-// refusal in §7.2's step order.
+// WebAuthn §16.6, §16.7 and §16.13 sign in, and every other half stops at its
+// first refusal in WebAuthn §7.2's step order.
 func TestVerifyLogin_WebAuthn16_asPublished(t *testing.T) {
 	t.Parallel()
 	// From each half's published client data, flags octet and its
-	// registration's credential key: §16.4 and §16.5 are framed; §16.2,
-	// §16.3, §16.9, §16.10, §16.11, §16.14, §16.15 and §16.16 have UV clear;
-	// §16.8's key is ES384 (-35) and §16.12's Ed448.
+	// registration's credential key (WebAuthn §16): vectors 16.4 and 16.5 are
+	// framed; 16.2, 16.3, 16.9, 16.10, 16.11, 16.14, 16.15 and 16.16 have UV
+	// clear; 16.8's key is ES384 (-35) and 16.12's Ed448.
 	refusals := map[string]error{
 		"16.2": errUserVerification, "16.3": errUserVerification, "16.4": errFramed, "16.5": errFramed,
 		"16.8": cose.ErrUnsupported, "16.9": errUserVerification, "16.10": errUserVerification,
@@ -62,11 +62,11 @@ func TestVerifyLogin_WebAuthn16_asPublished(t *testing.T) {
 	}
 }
 
-// TestVerifyLogin_WebAuthn16_resigned signs in §16.2's and §16.3's ES256,
-// §16.10's RS256 and §16.11's Ed25519 credentials through both finishes,
-// against the records finishRegistration stored: each authentication half
-// with UV set and BE as registered, signed anew with the vector's private
-// key.
+// TestVerifyLogin_WebAuthn16_resigned signs in the ES256 credentials of
+// WebAuthn §16.2 and §16.3, the RS256 of WebAuthn §16.10 and the Ed25519 of
+// WebAuthn §16.11 through both finishes, against the records
+// finishRegistration stored: each authentication half with UV set and BE as
+// registered, signed anew with the vector's private key.
 func TestVerifyLogin_WebAuthn16_resigned(t *testing.T) {
 	t.Parallel()
 	for _, section := range []string{"16.2", "16.3", "16.10", "16.11"} {

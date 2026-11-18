@@ -18,7 +18,7 @@ func TestUpdateProfileViewReadRollsBack(t *testing.T) {
 	var armed atomic.Bool
 	f := newFixture(t, options{edit: func(c *account.Config) { c.Store = passkeyReadsFail{c.Store, &armed} }})
 	u := mustUser(t, f.mem, "alice", access.RoleUser)
-	pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+	pr := f.sessionPrincipal(t, u, time.Now())
 	if _, err := f.svc.UpdateProfile(t.Context(), pr, "Before"); err != nil {
 		t.Fatalf("UpdateProfile = %v", err)
 	}

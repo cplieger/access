@@ -4,11 +4,9 @@ import (
 	"errors"
 	"net/http"
 	"slices"
-	"strconv"
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
-	"github.com/cplieger/access/internal/failreason"
 	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/ratelimit"
 	"github.com/cplieger/access/webauthn"
@@ -45,10 +43,13 @@ var sentinelCodes = []struct {
 	{errCrossOrigin, access.CodeCrossOrigin, ""},
 	{account.ErrSessionRequired, access.CodeSessionRequired, ""},
 	{account.ErrScopeRequired, access.CodeScopeRequired, ""},
-	{account.ErrSSOGoverned, access.CodeForbidden, ReasonSSOGoverned},
 	{access.ErrHashBusy, access.CodeBusy, ""},
 	{access.ErrBreachCheckUnavailable, access.CodeBreachCheckUnavailable, ""},
 	{account.ErrRulesInvalid, access.CodeUnavailable, ""},
+	// Service.Owner's answers reach no route; an app handler mapping one
+	// answers a store the operator must repair, or a misconfigured Policy.
+	{account.ErrNoOwner, access.CodeUnavailable, ""},
+	{account.ErrNotSingleUser, access.CodeUnavailable, ""},
 	{account.ErrTTLTooLong, access.CodeBadRequest, ReasonTTLTooLong},
 	{account.ErrTTLNegative, access.CodeBadRequest, ReasonTTLNegative},
 	{account.ErrNoChange, access.CodeBadRequest, ReasonNoChange},
@@ -62,6 +63,7 @@ var sentinelCodes = []struct {
 	{account.ErrSetupComplete, access.CodeSetupComplete, ""},
 	{account.ErrSetupTokenRequired, access.CodeSetupTokenRequired, ""},
 	{access.ErrTokenInvalid, access.CodeTokenInvalid, ""},
+	{account.ErrLastSecondFactor, access.CodeLastMethod, ReasonLastSecondFactor},
 	{account.ErrLastMethod, access.CodeLastMethod, ""},
 	{account.ErrOIDCIdentityTaken, access.CodeIdentityTaken, ""},
 	{account.ErrAlreadyLinked, access.CodeAlreadyLinked, ""},
@@ -77,15 +79,29 @@ var sentinelCodes = []struct {
 	{errPendingTooLarge, access.CodeOIDCFailed, ReasonPendingTooLarge},
 	{oidc.ErrStaleAuthentication, access.CodeOIDCFailed, ReasonStaleAuthentication},
 	{oidc.ErrFlowInvalid, access.CodeOIDCFailed, ReasonFlowInvalid},
-	{oidc.ErrDiscovery, access.CodeOIDCFailed, ReasonDiscoveryFailed},
 	{oidc.ErrExchange, access.CodeOIDCFailed, ReasonExchangeFailed},
 	{oidc.ErrTokenInvalid, access.CodeOIDCFailed, ReasonTokenInvalid},
 	{oidc.ErrNonceMismatch, access.CodeOIDCFailed, ReasonNonceMismatch},
-	{oidc.ErrNoUsername, access.CodeOIDCFailed, ReasonNoUsername},
-	{oidc.ErrProvisioningDisabled, access.CodeOIDCFailed, ReasonProvisioningDisabled},
-	{oidc.ErrNotAdmitted, access.CodeOIDCFailed, ReasonNotAdmitted},
+	{account.ErrProvisioningDisabled, access.CodeForbidden, ReasonProvisioningDisabled},
+	{account.ErrNotAdmitted, access.CodeForbidden, ReasonNotAdmitted},
 	{account.ErrNotFound, access.CodeNotFound, ""},
 	{account.ErrInvalidCredentials, access.CodeInvalidCredentials, ""},
+	{account.ErrCodeInvalid, access.CodeCodeInvalid, ""},
+	{account.ErrCodeMalformed, access.CodeBadRequest, ""},
+	{account.ErrSecondFactorProofRequired, access.CodeBadRequest, ReasonSecondFactorProofRequired},
+	{account.ErrSecondFactorHeld, access.CodeSecondFactorRequired, ReasonSecondFactorHeld},
+	{account.ErrPasswordRequired, access.CodeForbidden, ReasonTOTPNeedsPassword},
+	{account.ErrEnrolNeedsKnownDevice, access.CodeSecondFactorRequired, ReasonEnrolNeedsKnownDevice},
+	{account.ErrEnableWithoutSecondFactor, access.CodeSecondFactorRequired, ReasonEnableWithoutSecondFactor},
+	{account.ErrSecondFactorRequired, access.CodeSecondFactorRequired, ""},
+	{account.ErrNoUsableMethod, access.CodeForbidden, ReasonNoUsableMethod},
+	{account.ErrSecondFactorUnavailable, access.CodeSecondFactorUnavailable, ""},
+	{account.ErrTOTPDisabled, access.CodeTOTPDisabled, ""},
+	{account.ErrRegistrationClosed, access.CodeRegistrationClosed, ""},
+	{account.ErrRegistrationFull, access.CodeRegistrationFull, ""},
+	{account.ErrSSOLinked, access.CodeSSOOnly, ReasonLinked},
+	{account.ErrSSOOnly, access.CodeSSOOnly, ""},
+	{account.ErrUnknownSSOMode, access.CodeBadRequest, ""},
 }
 
 // routeError maps err for a route answering codes. broken reports a code
@@ -111,15 +127,9 @@ func classify(err error, cer ceremony) (access.Error, bool) {
 			return access.Error{}, false
 		}
 	}
-	if code == access.CodeSessionRequired {
-		reason = failreason.Of(err)
-	}
 	e := access.NewError(code, reason, err)
 	if refused, isRefused := errors.AsType[*ratelimit.RefusedError](err); isRefused {
 		e.RetryAfter = refused.RetryAfter
-	}
-	if pe, isPassword := errors.AsType[*access.PasswordError](err); isPassword && (pe.Min != 0 || pe.Max != 0) {
-		e.Detail += " Length: " + strconv.Itoa(pe.Min) + " to " + strconv.Itoa(pe.Max) + " characters."
 	}
 	return e, true
 }
@@ -171,14 +181,17 @@ func typedCode(err error) (code access.Code, reason string, ok bool) {
 	if oe, is := errors.AsType[*webauthn.OriginError](err); is {
 		return access.CodeOriginRefused, string(oe.Reason), true
 	}
+	if ce, is := errors.AsType[*account.CodeError](err); is {
+		return access.CodeCodeInvalid, ce.Reason, true
+	}
+	if me, is := errors.AsType[*account.MalformedError](err); is {
+		return access.CodeBadRequest, me.Field, true
+	}
 	if pe, is := errors.AsType[*account.PolicyError](err); is {
 		return access.CodeForbidden, pe.Reason, true
 	}
 	if pe, is := errors.AsType[*oidc.ProviderError](err); is {
 		return access.CodeOIDCFailed, providerErrorPrefix + pe.Code, true
-	}
-	if _, is := errors.AsType[*oidc.UsernameError](err); is {
-		return access.CodeOIDCFailed, ReasonUsernameInvalid, true
 	}
 	return "", "", false
 }

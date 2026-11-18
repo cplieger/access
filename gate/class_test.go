@@ -27,7 +27,7 @@ var classRoutes = []gate.Route{
 // ok is an admitted request in a class table.
 const ok access.Code = ""
 
-// TestClasses is the class table of design 2.2 for each principal, under
+// TestClasses is the class table for each principal, under
 // the default Allow: no principal passes implicitly, and a bypass or custom
 // verifier's principal passes only where Allow says so.
 func TestClasses(t *testing.T) {
@@ -153,7 +153,6 @@ func TestRefusedCredentials(t *testing.T) {
 			{"session_gone", goneCred, access.CodeSessionExpired, 401, `Bearer realm="access"`},
 			{"key_unknown", unknownKey, access.CodeKeyInvalid, 401, `Bearer realm="access", error="invalid_token"`},
 			{"custom_refusal", withAgent("bad"), access.CodeInvalidCredentials, 401, `Bearer realm="access"`},
-			{"recovery_cookie", recoveryCred, access.CodeSessionRequired, 403, ""},
 			{"unmapped_error", withAgent("boom"), access.CodeUnavailable, 503, ""},
 		} {
 			t.Run(strings.TrimPrefix(strings.ReplaceAll(path, "/", "_"), "_")+"_"+tc.name, func(t *testing.T) {
@@ -182,7 +181,7 @@ func TestRefusedCredentials(t *testing.T) {
 	})
 	t.Run("public_ignores_credentials", func(t *testing.T) {
 		t.Parallel()
-		for _, c := range []cred{unknownKey, goneCred, withAgent("boom"), recoveryCred} {
+		for _, c := range []cred{unknownKey, goneCred, withAgent("boom")} {
 			if a := do(t, f, g, http.MethodGet, "/pub", c); a.status != http.StatusOK {
 				t.Errorf("GET /pub = %d %q, want 200 whatever the credential", a.status, a.code)
 			}

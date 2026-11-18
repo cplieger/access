@@ -1,34 +1,54 @@
 /// <reference types="vite/client" />
 import {
   parseCeremonyResponse,
+  parseCodeRequest,
   parseInviteAcceptRequest,
   parseInviteRequest,
   parseKeyCreatedResponse,
   parseKeyView,
   parseLoginRequest,
+  parseRegisterPasskeyBeginRequest,
+  parseRegisterPasswordRequest,
+  parseRegistrationOutcome,
   parseMeResponse,
   parseNameRequest,
   parseNewKeyRequest,
   parseNewUserRequest,
   parseOIDCStartResponse,
+  parseOwnerRequest,
+  parsePendingCreateRequest,
+  parsePendingLinkByAdminRequest,
+  parseReadiness,
+  parseSSORequest,
   parsePasskeyView,
   parsePasswordChangeRequest,
   parsePasswordRemoveRequest,
   parsePasswordRequest,
   parsePendingLinkResponse,
   parseProfileRequest,
-  parseRecoverPasswordRequest,
-  parseRecoveryResponse,
   parseRedirectRequest,
+  parseSecondFactorProof,
   parseSecurityLogView,
   parseSessionView,
   parseSetupPasskeyBeginRequest,
   parseSetupPasswordRequest,
+  parseSignInOutcome,
   parseSignedInResponse,
   parseStateResponse,
-  parseTTLRequest,
+  parseStepUpCodeRequest,
+  parseTOTPBeginResponse,
+  parsePendingTOTPBeginResponse,
+  parseEnrolmentOutcome,
+  parseTOTPFinishRequest,
+  parseRecoveryCodeIssuedResponse,
+  parseRecoveryCodeResponse,
+  parsePasskeyRegisteredResponse,
+  parseSetPasswordRequest,
+  parseTicketRequest,
   parseTokenRequest,
   parseTokenResponse,
+  parseTemporaryPasswordOptions,
+  parseTemporaryPasswordResponse,
   parseTokenView,
   parseUserUpdateRequest,
   parseUserView,
@@ -40,6 +60,7 @@ import type { Validator } from "../wire.js";
 // pins the keys against index.json in both directions.
 export const validators: Readonly<Record<string, Validator<unknown>>> = {
   CeremonyResponse: parseCeremonyResponse,
+  CodeRequest: parseCodeRequest,
   InviteAcceptRequest: parseInviteAcceptRequest,
   InviteRequest: parseInviteRequest,
   KeyCreatedResponse: parseKeyCreatedResponse,
@@ -50,25 +71,44 @@ export const validators: Readonly<Record<string, Validator<unknown>>> = {
   NewKeyRequest: parseNewKeyRequest,
   NewUserRequest: parseNewUserRequest,
   OIDCStartResponse: parseOIDCStartResponse,
+  OwnerRequest: parseOwnerRequest,
+  PendingCreateRequest: parsePendingCreateRequest,
+  PendingLinkByAdminRequest: parsePendingLinkByAdminRequest,
+  Readiness: parseReadiness,
+  SSORequest: parseSSORequest,
   PasskeyView: parsePasskeyView,
   PasswordChangeRequest: parsePasswordChangeRequest,
   PasswordRemoveRequest: parsePasswordRemoveRequest,
   PasswordRequest: parsePasswordRequest,
   PendingLinkResponse: parsePendingLinkResponse,
   ProfileRequest: parseProfileRequest,
-  RecoverPasswordRequest: parseRecoverPasswordRequest,
-  RecoveryResponse: parseRecoveryResponse,
   RedirectRequest: parseRedirectRequest,
+  SecondFactorProof: parseSecondFactorProof,
   SecurityLogView: parseSecurityLogView,
   SessionView: parseSessionView,
+  SetPasswordRequest: parseSetPasswordRequest,
   SetupPasskeyBeginRequest: parseSetupPasskeyBeginRequest,
   SetupPasswordRequest: parseSetupPasswordRequest,
   Signals: parseWebAuthnSignals,
+  SignInOutcome: parseSignInOutcome,
   SignedInResponse: parseSignedInResponse,
   StateResponse: parseStateResponse,
-  TTLRequest: parseTTLRequest,
+  StepUpCodeRequest: parseStepUpCodeRequest,
+  TOTPBeginResponse: parseTOTPBeginResponse,
+  PendingTOTPBeginResponse: parsePendingTOTPBeginResponse,
+  EnrolmentOutcome: parseEnrolmentOutcome,
+  RegistrationOutcome: parseRegistrationOutcome,
+  RegisterPasswordRequest: parseRegisterPasswordRequest,
+  RegisterPasskeyBeginRequest: parseRegisterPasskeyBeginRequest,
+  TOTPFinishRequest: parseTOTPFinishRequest,
+  RecoveryCodeIssuedResponse: parseRecoveryCodeIssuedResponse,
+  RecoveryCodeResponse: parseRecoveryCodeResponse,
+  PasskeyRegisteredResponse: parsePasskeyRegisteredResponse,
+  TicketRequest: parseTicketRequest,
   TokenRequest: parseTokenRequest,
   TokenResponse: parseTokenResponse,
+  TemporaryPasswordOptions: parseTemporaryPasswordOptions,
+  TemporaryPasswordResponse: parseTemporaryPasswordResponse,
   TokenView: parseTokenView,
   UserUpdateRequest: parseUserUpdateRequest,
   UserView: parseUserView,
@@ -146,6 +186,8 @@ export interface WireField {
   readonly open: boolean;
   /** The fields of a struct-typed field, or of each element of a struct-list field. */
   readonly fields?: readonly WireField[];
+  /** The arm of a union type the field belongs to: exactly one arm's fields are present. */
+  readonly arm?: string;
 }
 
 function wireFields(at: string, fields: unknown): WireField[] {
@@ -169,10 +211,17 @@ function wireFields(at: string, fields: unknown): WireField[] {
     if (f["open"] === true && values === undefined) {
       throw new Error(`types.json ${at}.${f["name"]} has an open marker without values`);
     }
+    const arm = f["arm"];
+    if (arm !== undefined && (typeof arm !== "string" || arm === "" || f["optional"] !== true)) {
+      throw new Error(
+        `types.json ${at}.${f["name"]} has an arm that is not a name on an optional field`,
+      );
+    }
     return {
       name: f["name"],
       optional: f["optional"] === true,
       open: f["open"] === true,
+      ...(typeof arm === "string" ? { arm } : {}),
       ...(values === undefined ? {} : { values }),
       ...(f["fields"] === undefined
         ? {}
@@ -198,6 +247,7 @@ export interface WireRoute {
   readonly request: string | null;
   readonly response: string | null;
   readonly array: boolean;
+  readonly doc: string;
 }
 
 /** routes.json: accesshttp's route table, paths under {prefix} or {oidcPrefix}. */
@@ -216,7 +266,9 @@ export const routes: readonly WireRoute[] = (() => {
       (r["kind"] !== "json" && r["kind"] !== "redirect") ||
       !nullableString(r["request"]) ||
       !nullableString(r["response"]) ||
-      typeof r["array"] !== "boolean"
+      typeof r["array"] !== "boolean" ||
+      typeof r["doc"] !== "string" ||
+      r["doc"] === ""
     ) {
       throw new Error(`routes.json has a malformed row: ${JSON.stringify(r)}`);
     }
@@ -228,6 +280,7 @@ export const routes: readonly WireRoute[] = (() => {
       request: r["request"],
       response: r["response"],
       array: r["array"],
+      doc: r["doc"],
     };
   });
 })();

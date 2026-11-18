@@ -30,13 +30,10 @@ func censusPrincipals() []censusPrincipal {
 	return []censusPrincipal{
 		{name: "zero", make: func(*testing.T, *opWorld) access.Principal { return access.Principal{} }},
 		{name: "full", make: func(t *testing.T, w *opWorld) access.Principal {
-			return w.sessionPrincipal(t, w.root, access.SessionFull, time.Now().Add(-time.Hour))
+			return w.sessionPrincipal(t, w.root, time.Now().Add(-time.Hour))
 		}},
 		{name: "recent", make: func(t *testing.T, w *opWorld) access.Principal { return w.recent(t, w.root) }},
 		{name: "recent_user", make: func(t *testing.T, w *opWorld) access.Principal { return w.recent(t, w.alice) }},
-		{name: "recovery", make: func(t *testing.T, w *opWorld) access.Principal {
-			return w.sessionPrincipal(t, w.root, access.SessionRecovery, time.Now())
-		}},
 		{name: "admin_key", make: key(root, scopeAdmin)},
 		{name: "unscoped_key", make: key(root)},
 		{name: "user_admin_key", make: key(alice, scopeAdmin)},
@@ -71,8 +68,6 @@ func censusAnswer(op *operation, scoped bool, who string) error {
 		switch who {
 		case key:
 			return nil
-		case "recovery":
-			return account.ErrSessionRequired
 		case "zero", "unscoped_key", "admin_key", "user_admin_key", "users_key", "keys_key", "custom_none", "custom_every", "bypass":
 			return account.ErrScopeRequired
 		}
@@ -82,12 +77,10 @@ func censusAnswer(op *operation, scoped bool, who string) error {
 	case classSession:
 		return sessionAnswer("full", "recent", "recent_user")
 	case classRecentAuth:
-		return sessionAnswer("recent", "recent_user")
-	case classRecovery:
-		if who == "recovery" {
-			return nil
+		if op.ownerOnly && who == "recent_user" {
+			return account.ErrPolicyRefused
 		}
-		return account.ErrSessionRequired
+		return sessionAnswer("recent", "recent_user")
 	case classAdminScope:
 		session := sessionAnswer("full", "recent", "recent_user")
 		if who == "recent_user" {
@@ -109,6 +102,12 @@ func censusAnswer(op *operation, scoped bool, who string) error {
 			return session
 		}
 		return keyAnswer("users_key", session)
+	case classOwnKeys:
+		session := sessionAnswer("full", "recent", "recent_user")
+		if !scoped {
+			return session
+		}
+		return keyAnswer("keys_key", session)
 	case classCreateKeys:
 		session := sessionAnswer("recent", "recent_user")
 		if !scoped {
@@ -161,9 +160,9 @@ func TestDirectCensusMatrix(t *testing.T) {
 	t.Run("user_naming", censusUserNaming)
 }
 
-// censusUserNaming holds the cells of the three operations that name a
-// user: a non-admin's recent session is refused alike for an existing and
-// a missing user, and a manage_users key acts on a RoleUser target only.
+// censusUserNaming holds the cells of the operations that name a user: a
+// non-admin's recent session is refused alike for an existing and a
+// missing user, and a manage_users key acts on a RoleUser target only.
 func censusUserNaming(t *testing.T) {
 	t.Parallel()
 	const missing = int64(1) << 40
@@ -183,9 +182,22 @@ func censusUserNaming(t *testing.T) {
 		{name: "DeleteUser", call: func(t *testing.T, w *opWorld, p access.Principal, id int64) error {
 			return w.svc.DeleteUser(t.Context(), p, id)
 		}},
-		{name: "IssueRecovery", call: func(t *testing.T, w *opWorld, p access.Principal, id int64) error {
-			_, err := w.svc.IssueRecovery(t.Context(), account.As(p), id, 0)
+		{name: "SetTemporaryPassword", call: func(t *testing.T, w *opWorld, p access.Principal, id int64) error {
+			_, err := w.svc.SetTemporaryPassword(t.Context(), account.As(p), id, account.TemporaryPasswordOptions{})
 			return err
+		}},
+		{name: "AdminRelinkOIDC", call: func(t *testing.T, w *opWorld, p access.Principal, id int64) error {
+			if u, found, err := w.mem.UserByID(t.Context(), id); err == nil && found {
+				linkIdentity(t, w.mem, u, access.OIDCIdentity{Issuer: oidcIssuer, Subject: w.name("relinked-")})
+			}
+			_, err := w.svc.AdminRelinkOIDC(t.Context(), account.As(p), id, account.TemporaryPasswordOptions{})
+			return err
+		}},
+		{name: "ResetSecondFactor", call: func(t *testing.T, w *opWorld, p access.Principal, id int64) error {
+			if u, found, err := w.mem.UserByID(t.Context(), id); err == nil && found {
+				storeTOTP(t, w.mem, u)
+			}
+			return w.svc.ResetSecondFactor(t.Context(), account.As(p), id)
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -223,7 +235,7 @@ func censusUserNaming(t *testing.T) {
 
 func TestKeyAuthorityEveryWrite(t *testing.T) {
 	t.Parallel()
-	want := []string{"CreateAPIKey", "CreateInvite", "CreateUser", "DeleteUser", "IssueRecovery", "RevokeAnyAPIKey", "UpdateUser"}
+	want := []string{"AdminRelinkOIDC", "AdminUnlinkOIDC", "CreateAPIKey", "CreateInvite", "CreateUser", "DeleteUser", "RenameAPIKey", "ResetSecondFactor", "RevokeAPIKey", "RevokeAnyAPIKey", "SetTemporaryPassword", "UpdateUser"}
 	var (
 		mu      sync.Mutex
 		reached []string
@@ -257,7 +269,7 @@ func TestKeyAuthorityEveryWrite(t *testing.T) {
 					}
 				}
 				if !slices.Equal(first, []string{"ListAPIKeysByUserID", "UserByID"}) {
-					t.Errorf("%s's writing Update %d first read %v, want the key's ListAPIKeysByUserID and its owner's UserByID", op.name, n, first)
+					t.Errorf("%s's writing Update %d first read %v, want the key's ListAPIKeysByUserID and its user's UserByID", op.name, n, first)
 				}
 			}
 		})

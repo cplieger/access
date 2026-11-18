@@ -101,25 +101,36 @@ func inventoryAllow(t *testing.T) printcheck.Allow {
 			"access.User.Username", "access.User.DisplayName", "access.User.Email", "access.User.Role",
 			// The user handle a passkey ceremony sends to every authenticator.
 			"access.User.WebAuthnHandle",
-			"access.Session.ID", "access.Session.Kind", "access.Session.AuthMethod", "access.Session.Label",
+			"access.Session.ID", "access.Session.AuthMethod", "access.Session.Label",
 			"access.Session.LastIP", "access.Session.UserAgent",
 			"access.Key.KeyPrefix", "access.Key.KeySuffix", "access.Key.Label", "access.Key.LineageIDs", "access.Key.Scopes",
 			"access.GeneratedKey.DisplayPrefix", "access.GeneratedKey.DisplaySuffix",
 			"access.OneTimeToken.Purpose", "access.OneTimeToken.Role",
 			// A session ID names a session; using one still needs its token.
-			"access.Principal.SessionID", "access.Principal.SessionKind", "access.Principal.Method", "access.Principal.Scopes",
+			"access.Principal.SessionID", "access.Principal.Method", "access.Principal.Scopes",
 			"access.Principal.KeyLabel",
 			"access.OIDCIdentity.Issuer", "access.OIDCIdentity.Subject",
 			"oidc.Config.IssuerURL", "oidc.Config.ClientID", "oidc.Config.RedirectURL", "oidc.Config.Scopes",
 			// The discovered public endpoints and algorithm rows, and the key
 			// set: the jwks_uri and the public keys fetched from it.
 			"oidc.Provider.endpoint", "oidc.Provider.algs", "oidc.Provider.keys",
-			"account.Rotation.ID", "account.Recovery.Username", "account.OIDCOutcome.Redirect",
-			"account.PendingLink.Email", "account.PendingLink.UsernameHint", "account.MethodLock.Method",
+			"account.Rotation.ID", "account.OIDCOutcome.Redirect",
+			"account.PendingLink.Email", "account.PendingLink.UsernameHint", "account.PendingLink.SuggestedUsername", "account.Provision.Role",
 			"account.Client.Host", "account.Client.UserAgent",
 			"account.Credentials.Username", "account.SetupPassword.Username", "account.SetupPasskey.Username",
 			"account.AcceptInvite.Username", "account.NewUser.Username", "account.NewUser.Role",
 			"account.ListedToken.IssuerLineage",
+			// The app's name in an authenticator, shown in every otpauth URI.
+			"account.TOTPConfig.Issuer",
+			// A pending sign-in's step and methods are its public answer;
+			// the digest and the matched recovery code's key are HashKeys,
+			// which show no more than the Hash.
+			"account.ticket.next", "account.ticket.methods", "account.ticket.digest", "account.ticket.recovered",
+			// A draft's creation path is a public route's name for it.
+			"account.draftOf.via",
+			// A session ID names a session; only its token signs in.
+			"account.enrolment.sessionID",
+			"account.Pending.Next", "account.Pending.Methods",
 			// The app's store, policy and Argon2 hasher behind their interfaces,
 			// and the configured scope names.
 			"account.Service.store", "account.Service.policy", "account.Service.hasher",
@@ -127,8 +138,14 @@ func inventoryAllow(t *testing.T) printcheck.Allow {
 			// A ceremony ID names a pending entry; finishing it still needs
 			// the authenticator's signature.
 			"account.pendingEntry.id", "account.pendingCache.byID",
+			// A draft's or a setup ceremony's owner is the HashKey of the
+			// token it spends, which shows no more than the Hash.
+			"account.owner.token",
 			// The SHA-256 of the username, the limiter's account key.
 			"ratelimit.Account.digest",
+			// The name lock's keys: canonical usernames, each kept only
+			// while its verifier runs.
+			"keylock.Set[string].m",
 			"accesshttp.TokenView.Purpose", "accesshttp.TokenView.Role", "accesshttp.TokenView.IssuerLineage",
 		},
 	}
@@ -165,10 +182,10 @@ func inventory(t *testing.T) []inventoryRow {
 	e.createUser(t, "root", access.RoleAdmin)
 	e.createUser(t, "alice", access.RoleUser)
 	alice := e.user(t, "alice")
-	if _, err := e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: "alice", Password: access.NewSecret(printingPassword)}); err == nil {
+	if _, err := completed(e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: "alice", Password: access.NewSecret(printingPassword)})); err == nil {
 		t.Fatal("PasswordLogin with a wrong password succeeded")
 	}
-	signed, err := e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: "alice", Password: access.NewSecret(testPassword)})
+	signed, err := completed(e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: "alice", Password: access.NewSecret(testPassword)}))
 	if err != nil {
 		t.Fatalf("PasswordLogin: %v", err)
 	}
@@ -180,14 +197,6 @@ func inventory(t *testing.T) []inventoryRow {
 	}
 	created := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
 	keyPrincipal := e.keyPrincipal(t, created.Plaintext)
-	recoveryLink, err := e.svc.IssueRecovery(t.Context(), account.OutOfBand("test"), alice.ID, 0)
-	if err != nil {
-		t.Fatalf("IssueRecovery: %v", err)
-	}
-	recovery, err := e.svc.StartRecovery(t.Context(), account.Client{Secure: true}, recoveryLink.Plaintext)
-	if err != nil {
-		t.Fatalf("StartRecovery: %v", err)
-	}
 	invite, err := e.svc.CreateInvite(t.Context(), e.principal(t, e.sessionCookie(t, "root")), access.RoleUser, 0)
 	if err != nil {
 		t.Fatalf("CreateInvite: %v", err)
@@ -204,7 +213,7 @@ func inventory(t *testing.T) []inventoryRow {
 	}
 	sessionPlain, sessionHash := access.GenerateSessionToken()
 	opaquePlain, opaqueHash := access.GenerateOpaqueToken()
-	otPlain, ot := access.NewOneTimeToken(access.PurposeInvite, 0, time.Hour, time.Now())
+	otPlain, ot := access.NewOneTimeToken(access.PurposeInvite, time.Hour, time.Now())
 	byToken := access.SessionHash(printingToken)
 	byKey := access.APIKeyHash(printingToken)
 	principalHash := principal.SessionTokenHash()
@@ -222,12 +231,8 @@ func inventory(t *testing.T) []inventoryRow {
 	}
 	pw, tok := access.NewSecret(printingPassword), access.NewSecret(printingToken)
 	attempt := ratelimit.Attempt{IP: ratelimit.IPKey(netip.MustParseAddr("192.0.2.1")), Device: signed.DeviceCookie, Account: ratelimit.AccountKey("alice")}
-	res, err := e.limiter.Attempt(ratelimit.Attempt{IP: ratelimit.IPKey(netip.MustParseAddr("192.0.2.2")), Account: ratelimit.AccountKey("carol")})
-	if err != nil {
-		t.Fatalf("limiter.Attempt: %v", err)
-	}
-	succeeded := res.Succeed()
-	deviceCookie := e.limiter.DeviceCookie(ratelimit.AccountKey("carol"), access.Secret{})
+	deviceCookie := e.limiter.DeviceCookie(ratelimit.AccountKey("carol"), access.Secret{}, true)
+	pendingLogin := account.LoginResult{Pending: &account.Pending{Ticket: access.NewSecret(printingToken), Next: account.NextSecondFactor, Methods: []access.Method{access.MethodTOTP}}}
 
 	return []inventoryRow{
 		row("access.User", alice, alice.PasswordHash.Reveal(), testPassword),
@@ -251,7 +256,6 @@ func inventory(t *testing.T) []inventoryRow {
 		row("account.Rotation", &rotation, signed.Session.TokenHash.Reveal(), nextHash.Reveal(), nextPlain.Reveal()),
 		row("account.SignedIn", &signed, signed.Token.Reveal(), signed.DeviceCookie.Reveal(), signed.Session.TokenHash.Reveal()),
 		row("account.Issued", &issued, issued.Token.Reveal(), issued.DeviceCookie.Reveal(), issued.Session.TokenHash.Reveal()),
-		row("account.Recovery", &recovery, recovery.Issued.Token.Reveal(), recovery.Issued.Session.TokenHash.Reveal(), recoveryLink.Plaintext.Reveal()),
 		row("account.OIDCOutcome", &outcome, issued.Token.Reveal(), signed.Token.Reveal(), signed.DeviceCookie.Reveal()),
 		row("account.CreatedKey", &created, created.Plaintext.Reveal(), created.Key.KeyHash.Reveal()),
 		row("account.Client", &client, signed.DeviceCookie.Reveal()),
@@ -262,12 +266,11 @@ func inventory(t *testing.T) []inventoryRow {
 		row("account.NewUser", &account.NewUser{Password: pw, Username: "alice"}, printingPassword),
 		row("account.Service", e.svc, printingFailureKey),
 		row("IssueSetupToken", &setupToken, setupToken.Reveal()),
-		row("IssueRecovery", &recoveryLink, recoveryLink.Plaintext.Reveal()),
 		row("CreateInvite", &invite, invite.Plaintext.Reveal()),
 		row("NewOneTimeToken plaintext", &otPlain, otPlain.Reveal()),
 		row("ratelimit.Attempt", &attempt, signed.DeviceCookie.Reveal()),
-		row("Reservation.Succeed", &succeeded, succeeded.Reveal()),
 		row("Limiter.DeviceCookie", &deviceCookie, deviceCookie.Reveal()),
+		row("account.LoginResult", &pendingLogin, pendingLogin.Pending.Ticket.Reveal()),
 		row("account.ListedToken", &listed[0], listed[0].Token.Hash.Reveal(), invite.Plaintext.Reveal()),
 		row("TokenView", &view, listed[0].Token.Hash.Reveal(), invite.Plaintext.Reveal()),
 	}

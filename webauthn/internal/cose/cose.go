@@ -1,7 +1,7 @@
-// Package cose reads a WebAuthn credential public key, a COSE_Key (RFC 9052
-// §7), for the algorithms access offers, and verifies an assertion or self
-// attestation signature under it. Each algorithm has one exact label set
-// (WebAuthn §6.5.1: alg is required and no other optional parameter is
+// Package cose reads a WebAuthn credential public key, a COSE_Key
+// (RFC 9052 §7), for the algorithms access offers, and verifies an assertion
+// or self attestation signature under it. Each algorithm has one exact label
+// set (WebAuthn §6.5.1: alg is required and no other optional parameter is
 // allowed), so a key carrying a private member or any extra label is refused.
 package cose
 
@@ -28,8 +28,8 @@ var (
 	ErrSignature   = errors.New("cose: signature does not verify")
 )
 
-// COSE_Key common and key-type labels (RFC 9052 §7.1, RFC 9053 §7, RFC 8230
-// §4, RFC 9964 §3).
+// COSE_Key common and key-type labels (RFC 9052 §7.1, RFC 9053 §7,
+// RFC 8230 §4, RFC 9964 §3).
 const (
 	labelKty = 1
 	labelAlg = 3

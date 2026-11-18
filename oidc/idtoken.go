@@ -50,8 +50,9 @@ type idClaims struct {
 // (OpenID Connect Core 1.0 §2, §3.1.3.7 steps 2 to 12) and decodes its
 // Claims. Every claim is read and type-checked before any is compared. A
 // malformed or failing claim is ErrTokenInvalid, a nonce that is a string
-// other than the sealed one ErrNonceMismatch, and a link or step-up whose
-// auth_time is absent or before the flow began ErrStaleAuthentication.
+// other than the sealed one ErrNonceMismatch, and any intent but sign-in whose
+// auth_time is absent or more than 60 seconds before the flow began
+// ErrStaleAuthentication.
 func checkIDToken(payload []byte, r *claimRules) (Claims, error) {
 	m, err := jsonmember.Object(payload)
 	if err != nil {
@@ -75,7 +76,7 @@ func checkIDToken(payload []byte, r *claimRules) (Claims, error) {
 	return c, nil
 }
 
-// readIDClaims reads, by kind, the claims Core §2 and §3.1.3.7 require or
+// readIDClaims reads, by kind, the claims Core 1.0 §2 and §3.1.3.7 require or
 // bound: a missing required claim, or one of the wrong kind, null included
 // except on nbf, is ErrTokenInvalid.
 func readIDClaims(m map[string]jsontext.Value) (idClaims, error) {

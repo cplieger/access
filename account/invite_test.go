@@ -15,6 +15,8 @@ import (
 // refuseInvited refuses only an invite acceptance's OpCreateUser.
 type refuseInvited struct{}
 
+func (refuseInvited) SingleUser() bool { return false }
+
 func (refuseInvited) Authorize(ctx context.Context, d account.Decision) error {
 	if d.Op == account.OpCreateUser && d.Via == account.ViaInvite {
 		return &account.PolicyError{Op: d.Op, Reason: "no_invites"}
@@ -115,22 +117,22 @@ func TestInviteRefusalsLeaveTokenUsable(t *testing.T) {
 func TestAcceptInviteOtherPurposeToken(t *testing.T) {
 	t.Parallel()
 	w := newAdminWorld(t, options{}, nil)
-	rec, err := w.f.svc.IssueRecovery(t.Context(), account.OutOfBand("socket"), w.alice.ID, 0)
-	if err != nil {
-		t.Fatalf("IssueRecovery = %v", err)
+	plaintext, rec := access.NewOneTimeToken(access.PurposeSetup, time.Hour, time.Now())
+	if err := w.f.mem.CreateOneTimeToken(t.Context(), rec); err != nil {
+		t.Fatalf("CreateOneTimeToken: %v", err)
 	}
-	in := account.AcceptInvite{Token: rec.Plaintext, Username: "newcomer", Password: access.NewSecret("short")}
+	in := account.AcceptInvite{Token: plaintext, Username: "newcomer", Password: access.NewSecret("short")}
 	if _, err := w.f.svc.AcceptInvitePassword(t.Context(), localClient, in); !errors.Is(err, access.ErrTokenInvalid) {
-		t.Errorf("a recovery token presented as an invite = %v, want access.ErrTokenInvalid before the password rules", err)
+		t.Errorf("a setup token presented as an invite = %v, want access.ErrTokenInvalid before the password rules", err)
 	}
 	if usernameTaken(t, w.f, "newcomer") {
-		t.Error("a recovery token created a user")
+		t.Error("a setup token created a user")
 	}
 }
 
 // keyIssuer is a world whose admin root holds a session-minted parent P
 // (both permissions) and P's child K (manage_users) expiring in expiresIn,
-// with a second admin boss for the owner changes.
+// with a second admin boss for the changes to root.
 type keyIssuer struct {
 	*adminWorld
 	clock *testClock
@@ -143,8 +145,8 @@ func newKeyIssuer(t *testing.T, expiresIn time.Duration) *keyIssuer {
 	t.Helper()
 	clock := laterClock()
 	w := newAdminWorld(t, options{edit: func(c *account.Config) { c.Now = clock.now }}, nil)
-	ki := &keyIssuer{adminWorld: w, clock: clock, boss: mustUser(t, w.f.mem, "boss", access.RoleAdmin)}
-	ki.bp = w.f.sessionPrincipal(t, ki.boss, access.SessionFull, time.Now())
+	ki := &keyIssuer{adminWorld: w, clock: clock, boss: mustOwner(t, w.f.mem, "boss")}
+	ki.bp = w.f.sessionPrincipal(t, ki.boss, time.Now())
 	ki.p = w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
 	ki.k = w.f.mint(t, account.As(ki.p.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}, ExpiresIn: expiresIn})
 	return ki
@@ -159,28 +161,18 @@ func TestKeyIssuedTokens(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateInvite = %v", err)
 		}
-		rec, err := ki.f.svc.IssueRecovery(t.Context(), account.As(ki.k.p), ki.alice.ID, 24*time.Hour)
-		if err != nil {
-			t.Fatalf("IssueRecovery = %v", err)
+		stored, found, err := ki.f.mem.OneTimeTokenByHash(t.Context(), hashOf(inv))
+		if err != nil || !found {
+			t.Fatalf("invite not stored: %v", err)
 		}
-		for name, tok := range map[string]account.IssuedToken{"invite": inv, "recovery": rec} {
-			stored, found, err := ki.f.mem.OneTimeTokenByHash(t.Context(), hashOf(tok))
-			if err != nil || !found {
-				t.Fatalf("%s not stored: %v", name, err)
-			}
-			if stored.IssuedByKey != ki.k.key.ID || !stored.ExpiresAt.Equal(ki.k.key.ExpiresAt) || !tok.ExpiresAt.Equal(stored.ExpiresAt) {
-				t.Errorf("%s: issued by %d, stored expiry %v, returned %v; want K %d and K's %v", name, stored.IssuedByKey, stored.ExpiresAt, tok.ExpiresAt, ki.k.key.ID, ki.k.key.ExpiresAt)
-			}
+		if stored.IssuedByKey != ki.k.key.ID || !stored.ExpiresAt.Equal(ki.k.key.ExpiresAt) || !inv.ExpiresAt.Equal(stored.ExpiresAt) {
+			t.Errorf("invite: issued by %d, stored expiry %v, returned %v; want K %d and K's %v", stored.IssuedByKey, stored.ExpiresAt, inv.ExpiresAt, ki.k.key.ID, ki.k.key.ExpiresAt)
 		}
 		open := newKeyIssuer(t, 0)
 		now := open.clock.now()
 		inv, err = open.f.svc.CreateInvite(t.Context(), open.k.p, access.RoleUser, 0)
 		if err != nil || !inv.ExpiresAt.Equal(now.Add(7*24*time.Hour)) {
 			t.Errorf("an unexpiring key's default invite = %v, %v; want 7 days", inv.ExpiresAt, err)
-		}
-		rec, err = open.f.svc.IssueRecovery(t.Context(), account.As(open.k.p), open.alice.ID, 0)
-		if err != nil || !rec.ExpiresAt.Equal(now.Add(24*time.Hour)) {
-			t.Errorf("an unexpiring key's default recovery = %v, %v; want 24 h", rec.ExpiresAt, err)
 		}
 	})
 	restart := func(scope string) func(t *testing.T, ki *keyIssuer) *account.Service {
@@ -212,15 +204,20 @@ func TestKeyIssuedTokens(t *testing.T) {
 			}
 			return ki.f.svc
 		},
-		"owner_disabled": func(t *testing.T, ki *keyIssuer) *account.Service {
+		"user_disabled": func(t *testing.T, ki *keyIssuer) *account.Service {
 			if _, err := ki.f.svc.UpdateUser(t.Context(), ki.bp, ki.root.ID, account.UserChange{Enabled: new(false)}); err != nil {
-				t.Fatalf("disable the owner = %v", err)
+				t.Fatalf("disable the key's user = %v", err)
 			}
 			return ki.f.svc
 		},
-		"owner_demoted": func(t *testing.T, ki *keyIssuer) *account.Service {
+		"user_demoted": func(t *testing.T, ki *keyIssuer) *account.Service {
+			// An owner's role never changes; demoting one
+			// removes the owner flag first.
+			if _, err := ki.f.svc.SetOwner(t.Context(), account.As(ki.bp), ki.root.ID, false); err != nil {
+				t.Fatalf("remove the owner flag = %v", err)
+			}
 			if _, err := ki.f.svc.UpdateUser(t.Context(), ki.bp, ki.root.ID, account.UserChange{Role: new(access.RoleUser)}); err != nil {
-				t.Fatalf("demote the owner = %v", err)
+				t.Fatalf("demote the key's user = %v", err)
 			}
 			return ki.f.svc
 		},
@@ -295,7 +292,6 @@ func TestKeyExpiryRefusesEveryUse(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		w := newAdminWorld(t, options{edit: func(c *account.Config) { c.CleanupInterval = 2 * time.Hour }}, nil)
 		ctx := t.Context()
-		bob := mustUser(t, w.f.mem, "bob", access.RoleUser)
 		kc, err := w.f.svc.CreateAPIKey(ctx, account.As(w.pr), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}, ExpiresIn: time.Hour})
 		if err != nil {
 			t.Fatalf("mint K = %v", err)
@@ -314,23 +310,17 @@ func TestKeyExpiryRefusesEveryUse(t *testing.T) {
 			t.Fatalf("Authenticate(K2) = %v", err)
 		}
 		var tokens []account.IssuedToken
-		for subject, p := range map[int64]access.Principal{w.alice.ID: k, bob.ID: k2} {
+		for _, p := range []access.Principal{k, k2} {
 			inv, err := w.f.svc.CreateInvite(ctx, p, access.RoleUser, 0)
 			if err != nil {
 				t.Fatalf("CreateInvite = %v", err)
 			}
-			rec, err := w.f.svc.IssueRecovery(ctx, account.As(p), subject, 0)
-			if err != nil {
-				t.Fatalf("IssueRecovery = %v", err)
+			if !inv.ExpiresAt.Equal(at) {
+				t.Errorf("an invite expires at %v, want the cap %v", inv.ExpiresAt, at)
 			}
-			for _, tok := range []account.IssuedToken{inv, rec} {
-				if !tok.ExpiresAt.Equal(at) {
-					t.Errorf("a token expires at %v, want the cap %v", tok.ExpiresAt, at)
-				}
-			}
-			tokens = append(tokens, inv, rec)
+			tokens = append(tokens, inv)
 		}
-		seeded, seededRec := access.NewOneTimeToken(access.PurposeInvite, 0, 2*time.Hour, time.Now())
+		seeded, seededRec := access.NewOneTimeToken(access.PurposeInvite, 2*time.Hour, time.Now())
 		seededRec.IssuedByKey, seededRec.Role = kc.Key.ID, access.RoleUser
 		if err := w.f.mem.CreateOneTimeToken(ctx, seededRec); err != nil {
 			t.Fatalf("CreateOneTimeToken: %v", err)
@@ -351,10 +341,6 @@ func TestKeyExpiryRefusesEveryUse(t *testing.T) {
 				},
 				"CreateInvite": func() error {
 					_, err := w.f.svc.CreateInvite(ctx, p, access.RoleUser, 0)
-					return err
-				},
-				"IssueRecovery": func() error {
-					_, err := w.f.svc.IssueRecovery(ctx, account.As(p), w.alice.ID, 0)
 					return err
 				},
 				"CreateAPIKey": func() error {

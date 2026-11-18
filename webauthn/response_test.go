@@ -14,8 +14,8 @@ import (
 
 var b64 = base64.RawURLEncoding.EncodeToString
 
-// regMembers is §16.2's registration as a RegistrationResponseJSON (§5.1),
-// as a browser's toJSON() writes it.
+// regMembers is WebAuthn §16.2's registration as a RegistrationResponseJSON
+// (WebAuthn §5.1), as a browser's toJSON() writes it.
 func regMembers(t testing.TB) map[string]any {
 	t.Helper()
 	v := s16Section(t, "16.2").Registration
@@ -34,8 +34,8 @@ func regMembers(t testing.TB) map[string]any {
 	}
 }
 
-// assertMembers is §16.2's authentication as an AuthenticationResponseJSON
-// (§5.1), with the user handle given.
+// assertMembers is WebAuthn §16.2's authentication as an
+// AuthenticationResponseJSON (WebAuthn §5.1), with the user handle given.
 func assertMembers(t testing.TB, userHandle any) map[string]any {
 	t.Helper()
 	v := s16Section(t, "16.2")
@@ -179,9 +179,10 @@ func TestParseResponse_RFC8259(t *testing.T) {
 }
 
 // TestParseResponse_WebAuthn5_1_8_unknownMembers checks that members the
-// parser does not read are ignored, since the JSON forms grow (§5.1.8):
-// registration's authenticatorData, publicKey and publicKeyAlgorithm
-// conveniences, and an assertion's extension outputs and attachment.
+// parser does not read are ignored, since the JSON forms grow
+// (WebAuthn §5.1.8): registration's authenticatorData, publicKey and
+// publicKeyAlgorithm conveniences, and an assertion's extension outputs and
+// attachment.
 func TestParseResponse_WebAuthn5_1_8_unknownMembers(t *testing.T) {
 	t.Parallel()
 	m := regMembers(t)
@@ -323,9 +324,10 @@ func TestParseResponse_binaryMembers(t *testing.T) {
 }
 
 // TestParseRegistrationResponse_transports checks what the record keeps of
-// getTransports() (§5.2.1.1, §7.1's transports item): at most 8 values, each
-// non-empty, at most 32 bytes and comma-free, since the record joins them
-// with commas; a value outside §5.8.4's enumeration is kept as returned.
+// getTransports() (WebAuthn §5.2.1.1, §7.1's transports item): at most 8
+// values, each non-empty, at most 32 bytes and comma-free, since the record
+// joins them with commas; a value outside WebAuthn §5.8.4's enumeration is
+// kept as returned.
 func TestParseRegistrationResponse_transports(t *testing.T) {
 	t.Parallel()
 	nine := []string{"usb", "nfc", "ble", "smart-card", "hybrid", "internal", "cable", "t8", "t9"}
@@ -358,8 +360,8 @@ func TestParseRegistrationResponse_transports(t *testing.T) {
 }
 
 // TestParseRegistrationResponse_WebAuthn2_1_1_attachment checks that the two
-// attachment modalities (§5.4.5) are kept and an unknown value is ignored
-// (§2.1.1).
+// attachment modalities (WebAuthn §5.4.5) are kept and an unknown value is
+// ignored (WebAuthn §2.1.1).
 func TestParseRegistrationResponse_WebAuthn2_1_1_attachment(t *testing.T) {
 	t.Parallel()
 	for in, want := range map[any]access.AuthenticatorAttachment{
@@ -381,8 +383,9 @@ func TestParseRegistrationResponse_WebAuthn2_1_1_attachment(t *testing.T) {
 }
 
 // TestParseRegistrationResponse_WebAuthn7_1_extensions checks the client
-// extension outputs: credProps.rk is read (§10.1.3), and an unsolicited
-// output such as §16.17.1.1's prf is ignored, as §7.1's extension step allows.
+// extension outputs: credProps.rk is read (WebAuthn §10.1.3), and an
+// unsolicited output such as WebAuthn §16.17.1.1's prf is ignored, as §7.1's
+// extension step allows.
 func TestParseRegistrationResponse_WebAuthn7_1_extensions(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {

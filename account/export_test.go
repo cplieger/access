@@ -16,6 +16,8 @@ type Hooks struct {
 	Admitted            func(ctx context.Context)
 	BeforeVerify        func(ctx context.Context)
 	AfterVerify         func(ctx context.Context)
+	NameLockWait        func(ctx context.Context, canonical string)
+	CodeCounted         func(ctx context.Context)
 }
 
 // Hashing is the hasher boundary WrapHasher wraps.
@@ -29,11 +31,18 @@ func NewWithHooks(ctx context.Context, cfg Config, h Hooks) (*Service, error) {
 	return newService(ctx, cfg, testHooks{
 		wrapHasher: h.WrapHasher, betweenSessionCalls: h.BetweenSessionCalls, failureSweep: h.FailureSweep,
 		admitted: h.Admitted, beforeVerify: h.BeforeVerify, afterVerify: h.AfterVerify,
+		nameLockWait: h.NameLockWait, codeCounted: h.CodeCounted,
 	})
 }
 
 // SweepFailures runs the failure-record leg once, as the sweep does.
 func SweepFailures(ctx context.Context, s *Service) error { return s.sweepFailures(ctx) }
+
+// SweepRegistrations runs the waiting-registration leg once at
+// Config.Now, as the sweep does, and returns how many it deleted.
+func SweepRegistrations(ctx context.Context, s *Service) int {
+	return s.sweepRegistrations(ctx, s.now())
+}
 
 // SweepLog runs the log leg once at Config.Now, as the sweep does.
 func SweepLog(ctx context.Context, s *Service) { s.sweepLog(ctx, s.now()) }
@@ -106,24 +115,86 @@ type PendingCache struct{ c *pendingCache }
 type PendingPurpose = pendingPurpose
 
 const (
-	PurposeLogin    = purposeLogin
-	PurposeSetup    = purposeSetup
-	PurposeRegister = purposeRegister
-	PurposeStepUp   = purposeStepUp
-	PurposeRecovery = purposeRecovery
+	PurposeLogin             = purposeLogin
+	PurposeSetup             = purposeSetup
+	PurposeAddPasskey        = purposeAddPasskey
+	PurposeStepUp            = purposeStepUp
+	PurposeSignIn            = purposeSignIn
+	PurposeSecondFactor      = purposeSecondFactor
+	PurposeEnrolTOTP         = purposeEnrolTOTP
+	PurposeEnrolPasskey      = purposeEnrolPasskey
+	PurposeDraft             = purposeDraft
+	PurposeSetPasskey        = purposeSetPasskey
+	PurposeRegistration      = purposeRegistration
+	PurposeRegistrationDraft = purposeRegistrationDraft
 )
+
+// DropUser drops userID's pending sign-in.
+func (p PendingCache) DropUser(userID int64) { p.c.dropUser(userID) }
+
+// Drop drops id's entry.
+func (p PendingCache) Drop(id string) { p.c.drop(id) }
 
 func NewPendingCache(maxEntries int) PendingCache { return PendingCache{newPendingCache(maxEntries)} }
 
-// Put stores an entry for user and returns its ID.
-func (p PendingCache) Put(purpose PendingPurpose, user access.User, now time.Time) string {
+// Put stores an entry of purpose for user and returns its ID, or the
+// cache's refusal.
+func (p PendingCache) Put(purpose PendingPurpose, user access.User, now time.Time) (string, error) {
 	return p.c.put(purpose, pending{user: user}, now)
+}
+
+// PutToken stores a setup ceremony or a draft that spends token.
+func (p PendingCache) PutToken(purpose PendingPurpose, token access.Hash, now time.Time) (string, error) {
+	v := pending{setupToken: token}
+	if purpose != purposeSetup {
+		v.ticket.draft = &draftOf{token: token, via: ViaInvite}
+	}
+	return p.c.put(purpose, v, now)
+}
+
+// PutOnTicket stores a ceremony of purpose for user on ticketID's pending
+// sign-in.
+func (p PendingCache) PutOnTicket(ticketID string, purpose PendingPurpose, user access.User, now time.Time) (string, bool) {
+	return p.c.putOnTicket(ticketID, purpose, pending{user: user, ticketID: access.NewSecret(ticketID)}, now)
+}
+
+// Slot is a place held in an owned list.
+type Slot struct{ s *pendingSlot }
+
+// Reserve holds a place for userID's entry of purpose.
+func (p PendingCache) Reserve(purpose PendingPurpose, userID int64, now time.Time) (Slot, error) {
+	s, err := p.c.reserve(purpose, userID, now)
+	return Slot{s}, err
+}
+
+// Fill stores user's entry in s's place and returns its ID.
+func (s Slot) Fill(user access.User, now time.Time) string { return s.s.fill(pending{user: user}, now) }
+
+// Release gives s's place back unused.
+func (s Slot) Release() { s.s.release() }
+
+// Replace stores user's pending sign-in in id's place.
+func (p PendingCache) Replace(id string, user access.User, now time.Time) (string, bool) {
+	return p.c.replace(id, pending{user: user}, now)
+}
+
+// SetMax sets the cap of purpose's list to n.
+func (p PendingCache) SetMax(purpose PendingPurpose, n int) {
+	p.c.mu.Lock()
+	defer p.c.mu.Unlock()
+	p.c.lists[purpose.list()].max = n
 }
 
 // Take returns the user stored under id.
 func (p PendingCache) Take(id string, purpose PendingPurpose, now time.Time) (access.User, bool) {
 	v, ok := p.c.take(id, purpose, now)
 	return v.user, ok
+}
+
+// Peek reports whether id's entry of purpose is live, leaving it.
+func (p PendingCache) Peek(id string, purpose PendingPurpose, now time.Time) bool {
+	_, ok := p.c.peek(id, purpose, now)
+	return ok
 }
 
 func (p PendingCache) Prune(now time.Time) { p.c.prune(now) }
@@ -134,8 +205,8 @@ func (p PendingCache) Len() int {
 	return len(p.c.byID)
 }
 
-// Pending is s's own cache.
-func Pending(s *Service) PendingCache { return PendingCache{s.pending} }
+// PendingOf is s's own cache.
+func PendingOf(s *Service) PendingCache { return PendingCache{s.pending} }
 
 // MintSession creates the session a sign-in would for c and userID,
 // through createSession with no admission.
@@ -152,4 +223,60 @@ func MintSession(ctx context.Context, s *Service, c Client, userID int64) (acces
 		return u, err
 	}})
 	return in.Session, err
+}
+
+// Ticket is a live pending sign-in's entry, as the cache holds it.
+type Ticket struct {
+	Next      Next
+	Methods   []access.Method
+	Digest    access.HashKey
+	UserID    int64
+	Secure    bool
+	Recovered bool
+	// Draft is the creation a draft's finish runs, with Username its
+	// account's name; "" for an existing user's ticket.
+	Draft    CreateVia
+	Username string
+	// Temporary is a ticket a temporary password minted.
+	Temporary bool
+}
+
+// TicketOf returns the live entry ticket names in s's cache, removing
+// nothing.
+func TicketOf(s *Service, ticket access.Secret) (Ticket, bool) {
+	s.pending.mu.Lock()
+	defer s.pending.mu.Unlock()
+	e, ok := s.pending.byID[ticket.Reveal()]
+	if !ok || !s.now().Before(e.expires) {
+		return Ticket{}, false
+	}
+	v := e.value
+	out := Ticket{Next: v.ticket.next, Methods: v.ticket.methods, Digest: v.ticket.digest, UserID: v.user.ID, Secure: v.ticket.secure, Recovered: v.ticket.recovered != access.HashKey{}, Username: v.user.Username, Temporary: !v.ticket.temporary.IsZero()}
+	if d := v.ticket.draft; d != nil {
+		out.Draft = d.via
+	}
+	return out, true
+}
+
+// CountedMethods is the methods with failure records.
+func CountedMethods() []access.Method { return countedMethods }
+
+// NewTemporaryPassword draws a temporary password: its shown and canonical forms.
+func NewTemporaryPassword() (access.Secret, string) { return newTemporaryPassword() }
+
+// TemporaryPasswordFrom is the canonical temporary password of eight random bytes.
+func TemporaryPasswordFrom(random [temporaryPasswordRandomBytes]byte) string {
+	return temporaryPasswordFrom(random)
+}
+
+// TemporaryPasswordForm is a presented value's canonical form, and whether it is one.
+func TemporaryPasswordForm(presented string) (string, bool) { return temporaryPasswordForm(presented) }
+
+// LockName takes s's name lock on username's canonical form.
+func LockName(ctx context.Context, s *Service, username string) (unlock func(), err error) {
+	canonical, err := canonicalUsername(username)
+	if err != nil {
+		return nil, err
+	}
+	return s.names.Lock(ctx, canonical)
 }

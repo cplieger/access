@@ -16,6 +16,10 @@ const (
 	// SignInAgain is a recent-auth refusal of a plain session: nothing over
 	// plain HTTP refreshes its AuthTime, so only a fresh sign-in passes.
 	SignInAgain = "sign_in_again"
+	// TemporaryPasswordExposed is an HTTPS-required refusal of a temporary
+	// password sent over plain HTTP where it could not finish, which the
+	// refusal cancelled since it crossed in clear.
+	TemporaryPasswordExposed = "temporary_password_exposed"
 
 	// KeyUnknown is a Bearer value no stored key has as either secret. The
 	// verifiers' reasons are audit-only: the client sees the sentinel, so a
@@ -26,7 +30,7 @@ const (
 	// KeyRetired is a rotated key's previous secret once it no longer
 	// verifies.
 	KeyRetired = "key_retired"
-	// AccountDisabled is a credential whose owner is missing or disabled.
+	// AccountDisabled is a credential whose user is missing or disabled.
 	AccountDisabled = "account_disabled"
 	// SessionExpired is a session cookie past its idle or absolute limit.
 	SessionExpired = "session_expired"

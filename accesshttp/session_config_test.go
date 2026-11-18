@@ -55,7 +55,7 @@ func (c *clock) advance(d time.Duration) {
 	c.at.Store(&at)
 }
 
-// TestOneSessionConfiguration is §9.5 "One session configuration": an idle
+// TestOneSessionConfiguration checks one session configuration: an idle
 // limit moved from 2h to 1h at runtime is the verifier's, the sweep's and
 // the OIDC session check's alike, a source answering zero falling back to
 // the static value in all three; and the cookie a password sign-in sets is
@@ -128,10 +128,11 @@ func TestOneSessionConfiguration(t *testing.T) {
 			b := newBrowserAt(t, tc.origin)
 			login := e.route(t, "authLoginPassword")
 			w := b.send(login, b.request(login, signInBody(t, "alice")))
-			var in SignedInResponse
-			if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &in) != nil {
+			var out SignInOutcome
+			if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &out) != nil || out.SignedIn == nil {
 				t.Fatalf("sign-in: status %d, errors %+v", w.Code, e.errs.all())
 			}
+			in := out.SignedIn
 			if me := e.meOf(t, b); me.Session.ID != in.SessionID || me.User.Username != "alice" {
 				t.Errorf("the next request's session %+v of %s, want %s of alice", me.Session, me.User.Username, in.SessionID)
 			}

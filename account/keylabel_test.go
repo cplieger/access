@@ -75,7 +75,7 @@ func TestKeyLabelUnique(t *testing.T) {
 		f.mint(t, oob, u.ID, account.NewKey{Label: "Agent", Scopes: []string{"read"}})
 		f.mint(t, oob, u.ID, account.NewKey{Label: "Agent 2", Scopes: []string{"read"}})
 	})
-	t.Run("another_owner", func(t *testing.T) {
+	t.Run("another_user", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t, keyOptions(options{}, nil))
 		alice := mustUser(t, f.mem, "alice", access.RoleUser)
@@ -109,7 +109,7 @@ func TestKeyLabelUnique(t *testing.T) {
 			t.Fatalf("UpdateUser: %v", err)
 		}
 		if _, err := f.svc.CreateAPIKey(t.Context(), oob, u.ID, account.NewKey{Label: "Agent", Scopes: []string{"read"}}); reason(err) != account.ReasonTargetNotEligible {
-			t.Errorf("CreateAPIKey for a disabled owner over a taken label = %v, want target_not_eligible", err)
+			t.Errorf("CreateAPIKey for a disabled user over a taken label = %v, want target_not_eligible", err)
 		}
 	})
 }
@@ -126,7 +126,7 @@ func TestGuardExistingDuplicateLabelsReadable(t *testing.T) {
 		seedKey(t, f.mem, u.ID, "agent", time.Time{}),
 		seedKey(t, f.mem, u.ID, "", time.Time{}),
 	}
-	pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+	pr := f.sessionPrincipal(t, u, time.Now())
 	keys, err := f.svc.APIKeys(t.Context(), pr)
 	if err != nil || len(keys) != len(seeded) {
 		t.Fatalf("APIKeys = %d keys, %v; want %d", len(keys), err, len(seeded))

@@ -11,7 +11,7 @@ import (
 	"pgregory.net/rapid"
 )
 
-// classModel is what one class must hold by E35 §5: the entries it was
+// classModel is what one class must hold: the entries it was
 // given, oldest dropped beyond the cap and counted, and those older than
 // LogMaxAge dropped uncounted at a sweep.
 type classModel struct {
@@ -83,7 +83,7 @@ func TestLogBoundAtAnyTime(t *testing.T) {
 					rt.Skip("no user")
 				}
 				step(rt)
-				id := rapid.SampledFrom(live).Draw(rt, "keyOwner")
+				id := rapid.SampledFrom(live).Draw(rt, "keyUser")
 				if _, err := f.svc.CreateAPIKey(t.Context(), account.OutOfBand("prop"), id, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}}); err != nil {
 					rt.Fatalf("CreateAPIKey: %v", err)
 				}
@@ -95,7 +95,7 @@ func TestLogBoundAtAnyTime(t *testing.T) {
 				}
 				step(rt)
 				i := rapid.IntRange(0, len(live)-1).Draw(rt, "deleted")
-				p := f.sessionPrincipal(t, root, access.SessionFull, clock.now())
+				p := f.sessionPrincipal(t, root, clock.now())
 				if err := f.svc.DeleteUser(t.Context(), p, live[i]); err != nil {
 					rt.Fatalf("DeleteUser: %v", err)
 				}
@@ -104,8 +104,8 @@ func TestLogBoundAtAnyTime(t *testing.T) {
 			},
 			"revoke_session": func(rt *rapid.T) {
 				step(rt)
-				p := f.sessionPrincipal(t, root, access.SessionFull, clock.now())
-				other := f.sessionPrincipal(t, root, access.SessionFull, clock.now())
+				p := f.sessionPrincipal(t, root, clock.now())
+				other := f.sessionPrincipal(t, root, clock.now())
 				if err := f.svc.RevokeSession(t.Context(), p, other.SessionID); err != nil {
 					rt.Fatalf("RevokeSession: %v", err)
 				}

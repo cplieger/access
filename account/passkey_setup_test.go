@@ -73,8 +73,8 @@ func TestPasskeySetup(t *testing.T) {
 				t.Errorf("the owner's passkeys = %+v, want one named Passkey 1 under %s", pks, rpID)
 			}
 			sess := storedSession(t, p.mem, u.ID, in.Session.ID)
-			if sess.AuthMethod != access.MethodPasskey || sess.Kind != access.SessionFull || in.DeviceCookie.IsZero() {
-				t.Errorf("session %q %v, device cookie set %t; want a full passkey session and a cookie", sess.AuthMethod, sess.Kind, !in.DeviceCookie.IsZero())
+			if sess.AuthMethod != access.MethodPasskey || in.DeviceCookie.IsZero() {
+				t.Errorf("session %q, device cookie set %t; want a passkey session and a cookie", sess.AuthMethod, !in.DeviceCookie.IsZero())
 			}
 			if tc.token {
 				if _, found, err := p.mem.OneTimeTokenByHash(t.Context(), access.NewHash(access.HexSHA256(tok.Reveal()))); err != nil || found {
@@ -118,7 +118,7 @@ func TestPasskeySetupRefusals(t *testing.T) {
 				} else if !errors.Is(err, tc.want) {
 					t.Errorf("SetupPasskeyBegin = %v, want %v", err, tc.want)
 				}
-				if n := account.Pending(p.svc).Len(); n != 0 {
+				if n := account.PendingOf(p.svc).Len(); n != 0 {
 					t.Errorf("pending ceremonies = %d, want none after a refused begin", n)
 				}
 			})

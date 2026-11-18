@@ -156,8 +156,8 @@ func TestSweepUsesAuthenticatorTimeouts(t *testing.T) {
 		src := newTimeoutSource(2*time.Hour, 24*time.Hour)
 		f := newFixture(t, options{timeouts: src.get, edit: withInterval})
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
-		idle90 := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
-		idle30 := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+		idle90 := f.sessionPrincipal(t, u, time.Now())
+		idle30 := f.sessionPrincipal(t, u, time.Now())
 		time.Sleep(time.Hour)
 		if err := f.mem.UpdateSessionActivity(t.Context(), idle30.SessionTokenHash(), access.SessionActivity{At: time.Now()}); err != nil {
 			t.Fatalf("UpdateSessionActivity: %v", err)
@@ -298,8 +298,8 @@ func TestShutdownStopsSweep(t *testing.T) {
 		if _, err := account.Begin(f.svc); !errors.Is(err, account.ErrServiceClosed) || !errors.Is(err, access.ErrAuthBackend) {
 			t.Errorf("an operation after Shutdown = %v, want ErrServiceClosed matching access.ErrAuthBackend", err)
 		}
-		if err := f.svc.RequireAdminScope(access.Principal{}); !errors.Is(err, account.ErrServiceClosed) {
-			t.Errorf("RequireAdminScope after Shutdown = %v, want ErrServiceClosed", err)
+		if err := f.svc.RequireKeyScope(access.Principal{}, ""); !errors.Is(err, account.ErrServiceClosed) {
+			t.Errorf("RequireKeyScope after Shutdown = %v, want ErrServiceClosed", err)
 		}
 		if err := f.svc.Shutdown(t.Context()); err != nil {
 			t.Errorf("a second Shutdown = %v, want nil", err)
@@ -694,8 +694,8 @@ func TestSweepPrunesPending(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		f := newFixture(t, options{edit: withInterval})
 		u := mustUser(t, f.mem, "alice", access.RoleUser)
-		cache := account.Pending(f.svc)
-		cache.Put(account.PurposeLogin, *u, time.Now())
+		cache := account.PendingOf(f.svc)
+		mustPut(t, cache, account.PurposeLogin, *u, time.Now())
 		time.Sleep(webauthn.CeremonyTimeout)
 		tick()
 		if n := cache.Len(); n != 0 {

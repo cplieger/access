@@ -91,9 +91,9 @@ func labelReason(label string) string {
 	return ""
 }
 
-// isNumber reports whether a non-empty lowercase label is a number in WHATWG
-// URL §3.5's "ends in a number" sense: all digits, or "0x" followed by zero or
-// more hex digits, the forms its IPv4 number parser accepts.
+// isNumber reports whether a non-empty lowercase label is a number in
+// WHATWG URL §3.5's "ends in a number" sense: all digits, or "0x" followed by
+// zero or more hex digits, the forms its IPv4 number parser accepts.
 func isNumber(label string) bool {
 	if hex, ok := strings.CutPrefix(label, "0x"); ok {
 		return strings.Trim(hex, "0123456789abcdef") == ""

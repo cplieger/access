@@ -13,31 +13,35 @@ type Credentials struct {
 	Username string
 }
 
-// PasswordLogin signs a user in with a password. Before any store call it answers
-// access.ErrHTTPSRequired (plain c, PostureSecure), ErrPasswordLoginDisabled, a
-// *UsernameError, a *ratelimit.RefusedError (the limiter's, or Dimension "untrusted" past
-// its allowance) or access.ErrHashBusy. Each later attempt is counted before the compare,
-// and FailureCap failures lock the password in their trust context. An unknown, disabled,
-// passwordless, locked or wrong-password arm is one ErrInvalidCredentials after the same
-// work; a stored hash costlier than the hasher's can be access.ErrHashBusy after the
-// count. A success resets the failure records and rehashes an old hash.
-func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
+// PasswordLogin is a password sign-in's step 1. It refuses before any store
+// call a plain c under PostureSecure, a bad name, a *ratelimit.RefusedError
+// and access.ErrHashBusy (ctx ending a wait for the name's lock included).
+// It compares one hash, counted, locking at FailureCap: the user's live
+// temporary password, else PasswordHash unless Rules.DisablePasswordLogin;
+// every other arm is one ErrInvalidCredentials after the same work. A
+// temporary password answers pendTemporary's ticket or refusal, a password
+// a session or pendAt's ticket; each ticket replaces the user's earlier one.
+func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
 	r, err := s.beginOver(plainPerRequest, c.Secure)
 	if err != nil {
-		return SignedIn{}, err
+		return LoginResult{}, err
 	}
 	var (
 		canonical string
 		a         *passwordAttempt
 		reenabled bool
+		temporary access.TemporaryPassword
+		unlock    func()
 	)
-	return s.createSession(ctx, r, c, &sessionOp{
+	defer func() {
+		if unlock != nil {
+			unlock()
+		}
+	}()
+	return s.signIn(ctx, r, c, &sessionOp{
 		method: access.MethodPassword,
 		gate: admission{
 			refusals: func() error {
-				if r.DisablePasswordLogin {
-					return ErrPasswordLoginDisabled
-				}
 				var nameErr error
 				canonical, nameErr = canonicalUsername(in.Username)
 				return nameErr
@@ -47,21 +51,45 @@ func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (
 			},
 		},
 		prepare: func(res *ratelimit.Reservation) error {
+			var lockErr error
+			if unlock, lockErr = s.lockName(ctx, canonical); lockErr != nil {
+				return busy(lockErr)
+			}
 			a = s.newAttempt(res, canonical)
+			a.signIn, a.passwordOff = true, r.DisablePasswordLogin
 			return s.verifyCounted(ctx, a, canonical, in.Password, !res.Trusted())
 		},
+		reserve: func() (*pendingSlot, error) {
+			if !a.viaTemporary {
+				return nil, nil
+			}
+			return s.pending.reserve(purposeSignIn, a.user.ID, s.now())
+		},
 		in: func(tx Tx) (*access.User, error) {
+			reenabled = false
+			if a.viaTemporary {
+				u, rec, err := s.liveTemporaryIn(ctx, tx, a.user.ID, a.verified)
+				temporary = rec
+				return u, err
+			}
 			u, cleared, err := commitVerified(ctx, tx, a)
+			if err != nil {
+				return nil, err
+			}
 			reenabled = cleared
-			return u, err
+			return u, requireLocal(ctx, tx, u, ErrInvalidCredentials)
+		},
+		pend: func(tx Tx, j *journal, u *access.User, full error) (*pending, error, error) {
+			if !a.viaTemporary {
+				return s.pendAt(ctx, tx, r, c, u, a.res.KnownDevice())
+			}
+			entry, refused, cleared, err := s.pendTemporary(ctx, tx, j, r, c, a, u, &temporary, full)
+			reenabled = cleared
+			return entry, refused, err
 		},
 		announce: func(j *journal, u *access.User, sess *access.Session) {
-			if reenabled {
-				j.add(Event{
-					Kind: EventMethodReenabled, At: sess.CreatedAt, UserID: u.ID, Method: access.MethodPassword, Trusted: a.ref.Trusted,
-					Actor: EventActor{SessionID: sess.ID, UserID: u.ID},
-				})
-			}
+			at, actor := s.signInActor(u, sess)
+			j.addReenabled(reenabled, a.ref, at, actor)
 		},
 	})
 }

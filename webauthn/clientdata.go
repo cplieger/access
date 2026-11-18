@@ -32,14 +32,15 @@ const (
 	clientDataGet    clientDataType = "webauthn.get"
 )
 
-// utf8BOM is stripped before parsing, as §7.1's UTF-8 decode step requires.
+// utf8BOM is stripped before parsing, as WebAuthn §7.1's UTF-8 decode step
+// requires.
 var utf8BOM = []byte{0xef, 0xbb, 0xbf}
 
 // verifyClientData checks clientDataJSON against the ceremony it answers and
-// returns its hash, SHA-256 of raw as received (§7.1 and §7.2's hash step).
-// origin is the one the ceremony began at; its serialization is the only
-// origin accepted, and access is never framed, so crossOrigin true and any
-// topOrigin are refused.
+// returns its hash, SHA-256 of raw as received (WebAuthn §7.1 and §7.2's hash
+// step). origin is the one the ceremony began at; its serialization is the
+// only origin accepted, and access is never framed, so crossOrigin true and
+// any topOrigin are refused.
 func verifyClientData(raw []byte, typ clientDataType, challenge []byte, origin Origin) ([sha256.Size]byte, error) {
 	if len(raw) > maxClientDataBytes {
 		return [sha256.Size]byte{}, fmt.Errorf("%w: %d bytes", errClientData, len(raw))

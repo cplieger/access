@@ -53,9 +53,9 @@ func FuzzParseOrigin_roundtrip(f *testing.F) {
 	})
 }
 
-// rfc6454Serialization is the ASCII serialization of raw's origin (RFC 6454
-// §4 and §6.2): the scheme and host lowercased, the scheme's default port
-// omitted.
+// rfc6454Serialization is the ASCII serialization of raw's origin
+// (RFC 6454 §4 and §6.2): the scheme and host lowercased, the scheme's
+// default port omitted.
 func rfc6454Serialization(t *testing.T, raw string) string {
 	t.Helper()
 	u, err := url.Parse(raw)

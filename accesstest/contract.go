@@ -17,40 +17,13 @@ var _ access.AuthenticatorStore = account.Store(nil)
 
 // StoreContract runs every contract rule of account's package doc against
 // stores made by newStore; each call must return an empty, independent store.
+// It then runs the rules again in the via_tx subtests, each Tx method called
+// inside its own Update, since account calls most of them inside one.
 func StoreContract(t *testing.T, newStore func(t *testing.T) account.Store, cfg ContractConfig) {
 	t.Helper()
 	c := &contract{newStore: newStore, cfg: cfg}
-	for _, r := range []struct {
-		run  func(t *testing.T)
-		name string
-	}{
-		{c.absence, "rule_01_absence"},
-		{c.ownership, "rule_02_ownership"},
-		{c.canonicalUsernames, "rule_03_canonical_usernames"},
-		{c.uniqueness, "rule_04_uniqueness"},
-		{c.atomicity, "rule_05_atomicity"},
-		{c.update, "rule_05_update"},
-		{c.scoping, "rule_06_scoping"},
-		{c.expiry, "rule_07_expiry"},
-		{c.flags, "rule_08_flags"},
-		{c.handleProbing, "rule_09_handle_probing"},
-		{c.durability, "rule_10_durability"},
-		{c.timeRoundTrip, "rule_11_time"},
-		{c.callerFaults, "rule_12_errors"},
-		{c.concurrency, "rule_13_concurrency"},
-		{c.cleanup, "rule_14_cleanup"},
-		{c.failureRecords, "rule_15_failure_records"},
-		{c.readsNeverWait, "rule_16_reads_never_wait"},
-		{c.idsAndLineage, "rule_17_ids_and_lineage"},
-		{c.contexts, "rule_18_context"},
-		{c.absentRows, "rule_19_absent_rows"},
-		{c.fidelity, "rule_20_fidelity"},
-		{c.activity, "rule_21_activity"},
-		{c.securityLog, "rule_22_log"},
-		{c.keySecrets, "rule_23_key_secrets"},
-	} {
-		t.Run(r.name, r.run)
-	}
+	c.rules(t)
+	t.Run("via_tx", func(t *testing.T) { c.throughUpdate().rules(t) })
 }
 
 // ContractConfig configures StoreContract. Every zero value is the default:
@@ -65,8 +38,8 @@ type ContractConfig struct {
 	// Reopen closes old, a store newStore made and the suite wrote to, and
 	// returns a store over the same medium; rule 20's fidelity case, rule
 	// 14's deleted-set case, rule 17's never-reused cases for users and
-	// keys and rule 22's Seq and stats cases run across it. Nil skips those
-	// subtests.
+	// keys, rule 22's Seq and stats cases and rule 26's mode case run
+	// across it. Nil skips those subtests.
 	Reopen func(t *testing.T, old account.Store) account.Store
 }
 
@@ -102,6 +75,84 @@ type cleanupWindow interface {
 type contract struct {
 	newStore func(t *testing.T) account.Store
 	cfg      ContractConfig
+	viaTx    bool // every store newStore makes is a throughUpdate
+}
+
+// throughUpdate is c with every store it makes wrapped by [throughUpdate].
+func (c *contract) throughUpdate() *contract {
+	cfg := ContractConfig{}
+	if f := c.cfg.NewFaulty; f != nil {
+		cfg.NewFaulty = func(t *testing.T) (account.Store, DurabilityFaults) {
+			s, faults := f(t)
+			return throughUpdate(s), faults
+		}
+	}
+	if r := c.cfg.Reopen; r != nil {
+		cfg.Reopen = func(t *testing.T, old account.Store) account.Store {
+			v, ok := old.(viaTx)
+			if !ok {
+				t.Fatalf("via_tx: Reopen was given a %T, not a throughUpdate store", old)
+			}
+			return throughUpdate(r(t, v.s))
+		}
+	}
+	return &contract{newStore: func(t *testing.T) account.Store { return throughUpdate(c.store(t)) }, cfg: cfg, viaTx: true}
+}
+
+// storeOnly names the rules and cases the via_tx run leaves out. Through
+// throughUpdate every call is its own Update, so a read waits behind a held
+// writer by construction (rule 16, rule 22's list_never_waits), rule 5's
+// Update cases and rule 13's concurrent calls would test Update twice, and
+// the Sweeper methods of rule 14 and rule 23's clear cases pass through
+// untouched.
+var storeOnly = map[string]bool{
+	"rule_05_update":                    true,
+	"rule_13_concurrency":               true,
+	"rule_14_cleanup":                   true,
+	"rule_16_reads_never_wait":          true,
+	"rule_22_log/list_never_waits":      true,
+	"rule_23_key_secrets/clear_retired": true,
+	"rule_23_key_secrets/clear_bound":   true,
+}
+
+func (c *contract) rules(t *testing.T) {
+	t.Helper()
+	for _, r := range []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{c.absence, "rule_01_absence"},
+		{c.ownership, "rule_02_ownership"},
+		{c.canonicalUsernames, "rule_03_canonical_usernames"},
+		{c.uniqueness, "rule_04_uniqueness"},
+		{c.atomicity, "rule_05_atomicity"},
+		{c.update, "rule_05_update"},
+		{c.scoping, "rule_06_scoping"},
+		{c.expiry, "rule_07_expiry"},
+		{c.flags, "rule_08_flags"},
+		{c.handleProbing, "rule_09_handle_probing"},
+		{c.durability, "rule_10_durability"},
+		{c.timeRoundTrip, "rule_11_time"},
+		{c.callerFaults, "rule_12_errors"},
+		{c.concurrency, "rule_13_concurrency"},
+		{c.cleanup, "rule_14_cleanup"},
+		{c.failureRecords, "rule_15_failure_records"},
+		{c.readsNeverWait, "rule_16_reads_never_wait"},
+		{c.idsAndLineage, "rule_17_ids_and_lineage"},
+		{c.contexts, "rule_18_context"},
+		{c.absentRows, "rule_19_absent_rows"},
+		{c.fidelity, "rule_20_fidelity"},
+		{c.activity, "rule_21_activity"},
+		{c.securityLog, "rule_22_log"},
+		{c.keySecrets, "rule_23_key_secrets"},
+		{c.userRecords, "rule_24_user_records"},
+		{c.waitingUsers, "rule_25_waiting_users"},
+		{c.ssoMode, "rule_26_sso_mode"},
+	} {
+		if !c.viaTx || !storeOnly[r.name] {
+			t.Run(r.name, r.run)
+		}
+	}
 }
 
 // store makes a fresh store and fails the test when newStore returns nil.
@@ -152,6 +203,9 @@ const (
 	mutated    = "mutated"
 	unknownID  = "unknown"
 	testIssuer = "https://idp"
+	// purposeApp is an app-defined token purpose, which a store keeps as
+	// it keeps the library's own.
+	purposeApp access.TokenPurpose = "contract-app"
 
 	opSessionByHash  = "SessionByHash"
 	opUserByUsername = "UserByUsername"
@@ -230,13 +284,12 @@ func mustKey(t *testing.T, s account.Store, k *access.Key) {
 	}
 }
 
-func newToken(purpose access.TokenPurpose, subject int64, expires time.Time) access.OneTimeToken {
+func newToken(purpose access.TokenPurpose, expires time.Time) access.OneTimeToken {
 	return access.OneTimeToken{
 		CreatedAt: epoch,
 		ExpiresAt: expires,
 		Hash:      access.NewHash(fresh("token")),
 		Purpose:   purpose,
-		Subject:   subject,
 	}
 }
 

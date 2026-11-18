@@ -42,7 +42,7 @@ func exactlyOne(t *testing.T, what string, fn func(i int) bool) {
 
 func (c *contract) raceConsume(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
-	tok := newToken(access.PurposeInvite, 0, epoch.Add(time.Hour))
+	tok := newToken(access.PurposeInvite, epoch.Add(time.Hour))
 	mustToken(t, s, tok)
 	exactlyOne(t, "consumes", func(int) bool {
 		_, found, err := s.ConsumeOneTimeToken(ctx, tok.Hash, epoch)
@@ -122,41 +122,49 @@ func (c *contract) raceRotateDelete(t *testing.T) {
 func (c *contract) deleteUserCascade(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
 	u, other := mustUser(t, s, "doomed"), mustUser(t, s, "other")
-	for _, owner := range []*access.User{u, other} {
-		mustSession(t, s, newSession(owner.ID, epoch))
-		mustPasskey(t, s, newPasskey(owner.ID))
-		mustKey(t, s, newKey(owner.ID))
-		mustToken(t, s, newToken(access.PurposeRecovery, owner.ID, epoch.Add(time.Hour)))
-		if err := s.CreateKeyAttribution(ctx, &access.KeyAttribution{At: epoch, Action: access.AttributionCreated, KeyLineage: []int64{1}, UserID: owner.ID}); err != nil {
+	for _, holder := range []*access.User{u, other} {
+		mustSession(t, s, newSession(holder.ID, epoch))
+		mustPasskey(t, s, newPasskey(holder.ID))
+		mustKey(t, s, newKey(holder.ID))
+		if err := s.CreateKeyAttribution(ctx, &access.KeyAttribution{At: epoch, Action: access.AttributionCreated, KeyLineage: []int64{1}, UserID: holder.ID}); err != nil {
 			t.Fatalf("CreateKeyAttribution: %v", err)
 		}
+		check(t, "SetTOTP", s.SetTOTP(ctx, newTOTP(holder.ID, 1)))
+		check(t, "SetRecoveryCode", s.SetRecoveryCode(ctx, newRecoveryCode(holder.ID, 1)))
+		check(t, "SetTemporaryPassword", s.SetTemporaryPassword(ctx, newTemporaryPassword(holder.ID, 1)))
 	}
 	if err := s.DeleteUser(ctx, u.ID); err != nil {
 		t.Fatalf("DeleteUser: %v", err)
 	}
-	if got := userRows(t, s, u.ID); got != [5]int{} {
-		t.Errorf("after DeleteUser, sessions, passkeys, keys, subject tokens, attributions = %v, want none", got)
+	if got := userRows(t, s, u.ID); got != [7]int{} {
+		t.Errorf("after DeleteUser, sessions, passkeys, keys, attributions, TOTP, recovery code, temporary password = %v, want none", got)
 	}
-	if got := userRows(t, s, other.ID); got != [5]int{1, 1, 1, 1, 1} {
+	if got := userRows(t, s, other.ID); got != [7]int{1, 1, 1, 1, 1, 1, 1} {
 		t.Errorf("another user's rows = %v, want one of each untouched", got)
 	}
 }
 
-// userRows counts id's sessions, passkeys, keys, live recovery tokens with
-// id as Subject, and key attributions.
-func userRows(t *testing.T, s account.Store, id int64) [5]int {
+// userRows counts id's sessions, passkeys, keys, key attributions, TOTP
+// record, recovery code and temporary password.
+func userRows(t *testing.T, s account.Store, id int64) [7]int {
 	t.Helper()
 	ctx := t.Context()
 	sessions, err1 := s.SessionsByUserID(ctx, id)
 	passkeys, err2 := s.PasskeysByUserID(ctx, id)
 	keys, err3 := s.ListAPIKeysByUserID(ctx, id)
-	tokens, err4 := s.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeRecovery}, epoch)
-	attributions, err5 := s.ListKeyAttributions(ctx)
-	check(t, "reading the user's rows", errors.Join(err1, err2, err3, err4, err5))
-	n := [5]int{len(sessions), len(passkeys), len(keys)}
-	n[3] = countIf(tokens, func(tok *access.OneTimeToken) bool { return tok.Subject == id })
-	n[4] = countIf(attributions, func(a *access.KeyAttribution) bool { return a.UserID == id })
-	return n
+	attributions, err4 := s.ListKeyAttributions(ctx)
+	_, totp, err5 := s.TOTPByUserID(ctx, id)
+	_, code, err6 := s.RecoveryCodeByUserID(ctx, id)
+	_, temp, err7 := s.TemporaryPasswordByUserID(ctx, id)
+	check(t, "reading the user's rows", errors.Join(err1, err2, err3, err4, err5, err6, err7))
+	held := func(found bool) int {
+		if found {
+			return 1
+		}
+		return 0
+	}
+	attributed := countIf(attributions, func(a *access.KeyAttribution) bool { return a.UserID == id })
+	return [7]int{len(sessions), len(passkeys), len(keys), attributed, held(totp), held(code), held(temp)}
 }
 
 func countIf[T any](xs []T, match func(*T) bool) int {
@@ -268,8 +276,9 @@ func (c *contract) updateReadsOwn(t *testing.T) {
 	err := s.Update(t.Context(), func(tx account.Tx) error {
 		ctx := t.Context()
 		sess, k := writeThree(t, tx, "own")
-		if _, found, err := tx.UserByUsername(ctx, "own"); err != nil || !found {
-			t.Errorf("tx.UserByUsername of the callback's own user = (%t, %v)", found, err)
+		u, found, err := tx.UserByUsername(ctx, "own")
+		if err != nil || !found {
+			return fmt.Errorf("tx.UserByUsername of the callback's own user = (%t, %w)", found, err)
 		}
 		if _, found, err := tx.SessionByHash(ctx, sess.TokenHash); err != nil || !found {
 			t.Errorf("tx.SessionByHash of the callback's own session = (%t, %v)", found, err)
@@ -277,11 +286,27 @@ func (c *contract) updateReadsOwn(t *testing.T) {
 		if _, found, err := tx.APIKeyByHash(ctx, k.KeyHash); err != nil || !found {
 			t.Errorf("tx.APIKeyByHash of the callback's own key = (%t, %v)", found, err)
 		}
+		readsOwnRecord(t, tx, totpKind, u.ID)
+		readsOwnRecord(t, tx, recoveryKind, u.ID)
+		readsOwnRecord(t, tx, temporaryKind, u.ID)
+		check(t, "tx.SetSSOMode", tx.SetSSOMode(ctx, account.SSOOnly))
+		if mode, set, err := tx.SSOMode(ctx); err != nil || mode != account.SSOOnly || !set {
+			t.Errorf("tx.SSOMode after the callback's own SetSSOMode(SSOOnly) = (%d, set %t, %v)", mode, set, err)
+		}
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
+}
+
+// readsOwnRecord sets a record of userID through tx and reads it back
+// through the same tx.
+func readsOwnRecord[T any](t *testing.T, tx account.Tx, k perUser[T], userID int64) {
+	t.Helper()
+	rec := k.version(userID, 1)
+	check(t, "tx set", k.set(t.Context(), tx, rec))
+	expectRecord(t, tx, k, "the callback's own record", userID, &rec)
 }
 
 func (c *contract) updateSerialisable(t *testing.T) {
@@ -424,7 +449,7 @@ func (c *contract) durability(t *testing.T) {
 func writeUpdateThree(t *testing.T, s account.Store) (func() bool, error) {
 	ctx := t.Context()
 	sess := newSession(0, epoch)
-	tok := newToken(access.PurposeInvite, 0, epoch.Add(time.Hour))
+	tok := newToken(access.PurposeInvite, epoch.Add(time.Hour))
 	err := s.Update(ctx, func(tx account.Tx) error {
 		u := newUser("durable")
 		if err := tx.CreateUser(ctx, u); err != nil {

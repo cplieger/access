@@ -56,10 +56,10 @@ func (e *env) keyPrincipal(t testing.TB, key access.Secret) access.Principal {
 	return p
 }
 
-// liveTokens is every live invite and recovery token as stored.
+// liveTokens is every live invite token as stored.
 func (e *env) liveTokens(t testing.TB) []access.OneTimeToken {
 	t.Helper()
-	tokens, err := e.mem.LiveOneTimeTokens(t.Context(), []access.TokenPurpose{access.PurposeInvite, access.PurposeRecovery}, time.Now())
+	tokens, err := e.mem.LiveOneTimeTokens(t.Context(), []access.TokenPurpose{access.PurposeInvite}, time.Now())
 	if err != nil {
 		t.Fatalf("LiveOneTimeTokens: %v", err)
 	}
@@ -172,41 +172,6 @@ func TestRouteAuthAdminUserDelete(t *testing.T) {
 	})
 }
 
-func TestRouteAuthAdminRecovery(t *testing.T) {
-	t.Run("success", func(t *testing.T) {
-		e := newEnv(t, envOptions{})
-		cookie := e.rootSession(t)
-		start := time.Now()
-		resp := decoded[TokenResponse](t, e, do(e.route(t, "authAdminRecovery"), e.at(t, "authAdminRecovery", e.userID(t, "alice"), `{"hours":2}`, cookie)), http.StatusCreated)
-		if resp.Token == "" || resp.ExpiresAt.Before(start.Add(2*time.Hour).Truncate(time.Second)) || resp.ExpiresAt.After(time.Now().Add(2*time.Hour)) {
-			t.Errorf("response %+v, want a token expiring in 2 h", resp)
-		}
-	})
-	t.Run("negative_hours", func(t *testing.T) {
-		e := newEnv(t, envOptions{})
-		cookie := e.rootSession(t)
-		w := do(e.route(t, "authAdminRecovery"), e.at(t, "authAdminRecovery", e.userID(t, "alice"), `{"hours":-1}`, cookie))
-		if got := e.requireRefused(t, w, access.CodeBadRequest); got.Reason != ReasonTTLNegative || len(e.liveTokens(t)) != 0 {
-			t.Errorf("reason %q, %d live tokens; want %s and none", got.Reason, len(e.liveTokens(t)), ReasonTTLNegative)
-		}
-	})
-}
-
-// TestAdminRecoverySelfRefused: an admin session's recovery link for its
-// own user is refused with no token, while one for another user is issued.
-func TestAdminRecoverySelfRefused(t *testing.T) {
-	e := newEnv(t, envOptions{})
-	cookie := e.rootSession(t)
-	w := do(e.route(t, "authAdminRecovery"), e.at(t, "authAdminRecovery", e.userID(t, "root"), `{}`, cookie))
-	if got := e.requireRefused(t, w, access.CodeForbidden); got.Reason != account.ReasonSelfRecovery {
-		t.Errorf("reason %q, want %s", got.Reason, account.ReasonSelfRecovery)
-	}
-	if strings.Contains(w.Body.String(), "token") || len(e.liveTokens(t)) != 0 {
-		t.Errorf("body %q, %d live tokens; want no token", w.Body.String(), len(e.liveTokens(t)))
-	}
-	e.requireStatus(t, do(e.route(t, "authAdminRecovery"), e.at(t, "authAdminRecovery", e.userID(t, "alice"), `{}`, cookie)), http.StatusCreated)
-}
-
 func TestRouteAuthAdminInvite(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
@@ -228,9 +193,9 @@ func TestRouteAuthAdminInvite(t *testing.T) {
 	})
 }
 
-// TestAdminKeysOwner: the admin key list names each key's owner, and the
+// TestAdminKeysUsername: the admin key list names each key's user, and the
 // caller's own list names none.
-func TestAdminKeysOwner(t *testing.T) {
+func TestAdminKeysUsername(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	cookie := e.rootSession(t)
 	e.createUser(t, "bob", access.RoleUser)
@@ -241,14 +206,14 @@ func TestAdminKeysOwner(t *testing.T) {
 	views := decoded[[]KeyView](t, e, do(e.route(t, "authAdminKeys"), e.post(t, "authAdminKeys", "", cookie)), http.StatusOK)
 	got := map[int64]string{}
 	for _, v := range views {
-		got[v.ID] = v.Owner
+		got[v.ID] = v.Username
 	}
 	if !maps.Equal(got, want) {
-		t.Errorf("owners %v, want %v", got, want)
+		t.Errorf("usernames %v, want %v", got, want)
 	}
 	own := decoded[[]KeyView](t, e, do(e.route(t, "authKeys"), e.post(t, "authKeys", "", cookie)), http.StatusOK)
-	if len(own) != 1 || own[0].Owner != "" {
-		t.Errorf("own keys %+v, want root's one with no owner", own)
+	if len(own) != 1 || own[0].Username != "" {
+		t.Errorf("own keys %+v, want root's one with no username", own)
 	}
 }
 
@@ -264,7 +229,7 @@ func TestRouteAuthAdminKeyRevoke(t *testing.T) {
 	})
 }
 
-// TestAdminTokensListsLiveTokens is §9.5 "Views" for authAdminTokens.
+// TestAdminTokensListsLiveTokens checks the view authAdminTokens answers.
 func TestAdminTokensListsLiveTokens(t *testing.T) {
 	e := newEnv(t, allScopes)
 	root := e.rootSession(t)
@@ -285,10 +250,6 @@ func TestAdminTokensListsLiveTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateInvite(k3): %v", err)
 	}
-	keyRecovery, err := e.svc.IssueRecovery(t.Context(), account.As(k3p), e.user(t, "alice").ID, 0)
-	if err != nil {
-		t.Fatalf("IssueRecovery(k3): %v", err)
-	}
 	sessionInvite, err := e.svc.CreateInvite(t.Context(), e.principal(t, root), access.RoleAdmin, 0)
 	if err != nil {
 		t.Fatalf("CreateInvite(root): %v", err)
@@ -298,15 +259,15 @@ func TestAdminTokensListsLiveTokens(t *testing.T) {
 	expiredPlain, expiredHash := access.GenerateOpaqueToken()
 	for _, tok := range []access.OneTimeToken{
 		{Hash: setupHash, Purpose: access.PurposeSetup, CreatedAt: now, ExpiresAt: now.Add(time.Hour)},
-		{Hash: expiredHash, Purpose: access.PurposeRecovery, Subject: e.user(t, "bob").ID, CreatedAt: now.Add(-2 * time.Hour), ExpiresAt: now.Add(-time.Hour)},
+		{Hash: expiredHash, Purpose: access.PurposeInvite, Role: access.RoleUser, CreatedAt: now.Add(-2 * time.Hour), ExpiresAt: now.Add(-time.Hour)},
 	} {
 		if err := e.mem.CreateOneTimeToken(t.Context(), tok); err != nil {
 			t.Fatalf("CreateOneTimeToken(%s): %v", tok.Purpose, err)
 		}
 	}
 	stored := e.liveTokens(t)
-	if len(stored) != 3 {
-		t.Fatalf("fixture: %d live invite and recovery tokens, want 3", len(stored))
+	if len(stored) != 2 {
+		t.Fatalf("fixture: %d live invite tokens, want 2", len(stored))
 	}
 
 	list := func(cookie *http.Cookie) *httptest.ResponseRecorder {
@@ -318,29 +279,27 @@ func TestAdminTokensListsLiveTokens(t *testing.T) {
 	if len(path) != 3 || path[0] != k1.Key.ID || path[1] != k2.Key.ID || path[2] != k3.Key.ID {
 		t.Fatalf("fixture: k3's path %v, want k1, k2, k3", path)
 	}
-	var sawInvite, sawRecovery, sawSession bool
+	var sawInvite, sawSession bool
 	for _, v := range views {
 		i := slices.IndexFunc(stored, func(s access.OneTimeToken) bool {
 			return s.Purpose == v.Purpose && s.IssuedByKey == v.IssuedByKey && s.Role == v.Role
 		})
-		if i < 0 || !v.CreatedAt.Equal(stored[i].CreatedAt) || !v.ExpiresAt.Equal(stored[i].ExpiresAt) || v.Subject != stored[i].Subject {
+		if i < 0 || !v.CreatedAt.Equal(stored[i].CreatedAt) || !v.ExpiresAt.Equal(stored[i].ExpiresAt) {
 			t.Errorf("view %+v matches no stored token", v)
 			continue
 		}
 		switch {
 		case v.IssuedByKey == k3.Key.ID && v.Purpose == access.PurposeInvite:
-			sawInvite = v.Role == access.RoleUser && v.Subject == 0 && slices.Equal(v.IssuerLineage, path)
-		case v.IssuedByKey == k3.Key.ID && v.Purpose == access.PurposeRecovery:
-			sawRecovery = v.Role == "" && v.Subject == e.user(t, "alice").ID && slices.Equal(v.IssuerLineage, path)
+			sawInvite = v.Role == access.RoleUser && slices.Equal(v.IssuerLineage, path)
 		case v.IssuedByKey == 0:
 			sawSession = v.Role == access.RoleAdmin && v.IssuerLineage == nil
 		}
 	}
-	if len(views) != 3 || !sawInvite || !sawRecovery || !sawSession {
-		t.Errorf("tokens %+v, want k3's invite and recovery with k3's path and root's invite with none", views)
+	if len(views) != 2 || !sawInvite || !sawSession {
+		t.Errorf("tokens %+v, want k3's invite with k3's path and root's invite with none", views)
 	}
 	body := w.Body.String()
-	secrets := []string{keyInvite.Plaintext.Reveal(), keyRecovery.Plaintext.Reveal(), sessionInvite.Plaintext.Reveal(), setupPlain.Reveal(), expiredPlain.Reveal(), setupHash.Reveal(), expiredHash.Reveal()}
+	secrets := []string{keyInvite.Plaintext.Reveal(), sessionInvite.Plaintext.Reveal(), setupPlain.Reveal(), expiredPlain.Reveal(), setupHash.Reveal(), expiredHash.Reveal()}
 	for i := range stored {
 		secrets = append(secrets, stored[i].Hash.Reveal())
 	}
@@ -451,7 +410,7 @@ func TestKeyAdminTargetRoutes(t *testing.T) {
 			{"invite_admin", "authAdminInvite", "", `{"role":"admin"}`},
 			{"update_admin", "authAdminUserUpdate", rootID, `{"enabled":false}`},
 			{"delete_admin", "authAdminUserDelete", rootID, ""},
-			{"recover_admin", "authAdminRecovery", rootID, `{}`},
+			{"temporary_password_admin", "authAdminTemporaryPassword", rootID, `{}`},
 		} {
 			t.Run(c.label, func(t *testing.T) {
 				e.requireRefused(t, send(c.name, c.id, c.body), access.CodeForbidden)
@@ -463,29 +422,20 @@ func TestKeyAdminTargetRoutes(t *testing.T) {
 		}
 	})
 
-	var invite, aliceRecovery TokenResponse
+	var invite TokenResponse
 	t.Run("tokens_expire_with_the_key", func(t *testing.T) {
 		invite = decoded[TokenResponse](t, e, send("authAdminInvite", "", `{"role":"user"}`), http.StatusCreated)
-		aliceRecovery = decoded[TokenResponse](t, e, send("authAdminRecovery", aliceID, `{}`), http.StatusCreated)
-		for _, got := range []TokenResponse{invite, aliceRecovery} {
-			if !got.ExpiresAt.Equal(key.Key.ExpiresAt) {
-				t.Errorf("expires_at %v, want the key's %v", got.ExpiresAt, key.Key.ExpiresAt)
-			}
+		if !invite.ExpiresAt.Equal(key.Key.ExpiresAt) {
+			t.Errorf("expires_at %v, want the key's %v", invite.ExpiresAt, key.Key.ExpiresAt)
 		}
 	})
 	e.requireStatus(t, send("authAdminUserCreate", "", jsonBody(t, NewUserRequest{Username: "carol", Password: testPassword})), http.StatusCreated)
-	bobRecovery := decoded[TokenResponse](t, e, send("authAdminRecovery", e.userID(t, "bob"), `{}`), http.StatusCreated)
-	started := do(e.route(t, "authRecoveryStart"), e.post(t, "authRecoveryStart", jsonBody(t, TokenRequest{Token: bobRecovery.Token})))
-	e.requireStatus(t, started, http.StatusOK)
-	sessionName, _ := e.names()
-	recovery := cookieNamed(started, sessionName)
-	e.requireStatus(t, do(e.route(t, "authRecoveryPassword"), e.post(t, "authRecoveryPassword", recoveryPasswordBody(t, newPassword), recovery)), http.StatusNoContent)
+	e.requireStatus(t, send("authAdminUserUpdate", e.userID(t, "bob"), `{"enabled":false}`), http.StatusOK)
 	e.requireStatus(t, do(e.route(t, "authKeyRevoke"), e.at(t, "authKeyRevoke", strconv.FormatInt(key.Key.ID, 10), "", root)), http.StatusNoContent)
 
 	t.Run("tokens_die_with_the_key", func(t *testing.T) {
 		for name, body := range map[string]string{
 			"authInviteAcceptPassword": jsonBody(t, InviteAcceptRequest{Token: invite.Token, Username: "invitee", Password: testPassword}),
-			"authRecoveryStart":        jsonBody(t, TokenRequest{Token: aliceRecovery.Token}),
 		} {
 			w := do(e.route(t, name), e.post(t, name, body))
 			e.requireRefused(t, w, access.CodeTokenInvalid)
@@ -534,7 +484,7 @@ func TestKeyAdminTargetRoutes(t *testing.T) {
 	})
 }
 
-// TestKeysAdminOnlyRoute is §9.5 "Key minting policy" through authKeyCreate.
+// TestKeysAdminOnlyRoute is the key minting policy through authKeyCreate.
 func TestKeysAdminOnlyRoute(t *testing.T) {
 	mint := func(e *env, cookie *http.Cookie, scopes ...string) *httptest.ResponseRecorder {
 		return do(e.route(t, "authKeyCreate"), e.post(t, "authKeyCreate", keyBody(t, "ci "+strings.Join(scopes, " "), scopes...), cookie))
@@ -584,8 +534,9 @@ func TestKeysAdminOnlyRoute(t *testing.T) {
 	})
 }
 
-// TestShownOnceRoutes: each show-once body holds its plaintext exactly
-// once, in its key or token field, and that plaintext works.
+// TestShownOnceRoutes: each answer of a minted key, invite token or
+// temporary password holds its plaintext exactly once, and a key or token
+// works.
 func TestShownOnceRoutes(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	root := e.rootSession(t)
@@ -604,13 +555,22 @@ func TestShownOnceRoutes(t *testing.T) {
 			t.Errorf("the key authenticates as key %d, want %d", p.KeyID, resp.Details.ID)
 		}
 	})
-	t.Run("authAdminRecovery", func(t *testing.T) {
-		w := do(e.route(t, "authAdminRecovery"), e.at(t, "authAdminRecovery", e.userID(t, "alice"), `{}`, root))
-		resp := decoded[TokenResponse](t, e, w, http.StatusCreated)
-		once(t, w.Body.String(), resp.Token)
-		if rec, err := e.svc.StartRecovery(t.Context(), account.Client{Secure: true}, access.NewSecret(resp.Token)); err != nil || rec.Username != "alice" {
-			t.Errorf("StartRecovery = %+v, %v; want alice's recovery", rec, err)
+	t.Run("authKeyRotate", func(t *testing.T) {
+		key := e.mintKey(t, "alice", account.NewKey{Label: "rotated"})
+		w := do(e.route(t, "authKeyRotate"), e.at(t, "authKeyRotate", strconv.FormatInt(key.Key.ID, 10), "", e.sessionCookie(t, "alice")))
+		resp := decoded[KeyCreatedResponse](t, e, w, http.StatusOK)
+		once(t, w.Body.String(), resp.Key)
+		if resp.Key == key.Plaintext.Reveal() {
+			t.Fatal("the rotated key answers the old secret")
 		}
+		if p := e.keyPrincipal(t, access.NewSecret(resp.Key)); p.KeyID != key.Key.ID {
+			t.Errorf("the rotated key authenticates as key %d, want %d", p.KeyID, key.Key.ID)
+		}
+	})
+	t.Run("authAdminTemporaryPassword", func(t *testing.T) {
+		w := do(e.route(t, "authAdminTemporaryPassword"), e.at(t, "authAdminTemporaryPassword", e.userID(t, "alice"), `{}`, root))
+		resp := decoded[TemporaryPasswordResponse](t, e, w, http.StatusOK)
+		once(t, w.Body.String(), resp.Password)
 	})
 	t.Run("authAdminInvite", func(t *testing.T) {
 		w := do(e.route(t, "authAdminInvite"), e.post(t, "authAdminInvite", `{"role":"user"}`, root))
@@ -623,7 +583,7 @@ func TestShownOnceRoutes(t *testing.T) {
 	})
 }
 
-// TestRulesReloadInvalidHTTP is §9.5 "Breach client on reload" through
+// TestRulesReloadInvalidHTTP is the breach client on reload through
 // authPasswordSet.
 func TestRulesReloadInvalidHTTP(t *testing.T) {
 	failOpen := &atomic.Bool{}
@@ -719,7 +679,7 @@ func TestAdminSecurityLog(t *testing.T) {
 		if err := e.svc.RenameSession(t.Context(), rootP, account.SessionLabel{ID: rootP.SessionID, Label: "laptop"}); err != nil {
 			t.Fatalf("RenameSession: %v", err)
 		}
-		if _, err := e.svc.PasswordLogin(t.Context(), account.Client{Secure: true, UserAgent: "Firefox"}, account.Credentials{Username: "alice", Password: access.NewSecret(testPassword)}); err != nil {
+		if _, err := completed(e.svc.PasswordLogin(t.Context(), account.Client{Secure: true, UserAgent: "Firefox"}, account.Credentials{Username: "alice", Password: access.NewSecret(testPassword)})); err != nil {
 			t.Fatalf("PasswordLogin: %v", err)
 		}
 		if _, err := e.svc.CreateInvite(t.Context(), rootP, access.RoleAdmin, 0); err != nil {

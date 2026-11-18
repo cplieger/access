@@ -14,7 +14,7 @@ import (
 // every key, or a full session within RecentAuth, reaching its own user's keys
 // and rotating into Issued; a plain one is access.ErrHTTPSRequired and any
 // other actor ErrSessionRequired before any read. An unreachable key is
-// ErrNotFound; then Policy (OpRotateKey) decides on the owner as stored, and an
+// ErrNotFound; then Policy (OpRotateKey) decides on the key's user as stored, and an
 // expired key is a refused key_expired; one EventKeyRotated follows the commit.
 func (s *Service) RotateAPIKey(ctx context.Context, a Actor, id int64) (RotatedKey, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	r, session, err := s.admitRotation(a)
@@ -84,8 +84,8 @@ func (s *Service) admitRotation(a Actor) (Rules, access.Principal, error) { //no
 
 // keyToRotate reads key id inside tx among the keys a reaches: session's
 // own user's for a session, every user's otherwise. A key a cannot reach,
-// or whose owner tx lacks, is a refused ErrNotFound; then the Policy
-// decides on the owner, and an expired key is a refused key_expired.
+// or whose user tx lacks, is a refused ErrNotFound; then the Policy
+// decides on the key's user, and an expired key is a refused key_expired.
 func (s *Service) keyToRotate(ctx context.Context, tx Tx, a Actor, session access.Principal, id int64, now time.Time) (access.Key, error) { //nolint:gocritic // hugeParam: the operation's Actor and Principal
 	var (
 		keys []access.Key
@@ -104,14 +104,14 @@ func (s *Service) keyToRotate(ctx context.Context, tx Tx, a Actor, session acces
 		return access.Key{}, refuse(ErrNotFound)
 	}
 	key := keys[i]
-	owner, found, err := tx.UserByID(ctx, key.UserID)
+	holder, found, err := tx.UserByID(ctx, key.UserID)
 	switch {
 	case err != nil:
 		return access.Key{}, err
 	case !found:
 		return access.Key{}, refuse(ErrNotFound)
 	}
-	if polErr := s.policy.Authorize(ctx, Decision{Op: OpRotateKey, Actor: a, Target: owner}); polErr != nil {
+	if polErr := s.authorize(ctx, Decision{Op: OpRotateKey, Actor: a, Target: holder}); polErr != nil {
 		return access.Key{}, refuse(polErr)
 	}
 	if keyExpired(&key, now) {

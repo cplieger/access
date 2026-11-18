@@ -26,27 +26,85 @@ type SetupPasskeyBeginRequest struct {
 	Username string `json:"username"`
 }
 
+// TokenRequest is authInviteAcceptOIDC's body.
+type TokenRequest struct {
+	Token string `json:"token"`
+}
+
+// PendingCreateRequest is authOIDCCreatePending's body.
+type PendingCreateRequest struct {
+	Username string `json:"username"`
+}
+
+// PendingLinkByAdminRequest is authOIDCLinkByAdmin's body: the account's
+// name and the temporary password an admin issued it.
+type PendingLinkByAdminRequest struct {
+	Username          string `json:"username"`
+	TemporaryPassword string `json:"temporary_password"`
+}
+
+// CodeRequest is a pending sign-in step's body: its ticket and a code, six
+// digits once spaces are removed, or authLoginRecoveryCode's 16 symbols.
+type CodeRequest struct {
+	Ticket string `json:"ticket"`
+	Code   string `json:"code"`
+}
+
+// TicketRequest is the body of a pending sign-in's begin route.
+type TicketRequest struct {
+	Ticket string `json:"ticket"`
+}
+
+// SetPasswordRequest is authLoginSetPassword's body: a set_credential
+// ticket and the password its holder chose.
+type SetPasswordRequest struct {
+	Ticket   string `json:"ticket"`
+	Password string `json:"password"`
+}
+
+// StepUpCodeRequest is authStepUpCode's body.
+type StepUpCodeRequest struct {
+	Code string `json:"code"`
+}
+
+// TOTPFinishRequest is authTOTPFinish's body. CurrentCode is the replaced
+// authenticator's code, required when the user holds one.
+type TOTPFinishRequest struct {
+	Ticket      string `json:"ticket"`
+	Code        string `json:"code"`
+	CurrentCode string `json:"current_code,omitempty"`
+}
+
+// SecondFactorProof is a current second factor sent with a change that
+// needs one, in which exactly one arm is set: a code, or a ceremony from
+// authStepUpPasskeyBegin with its assertion. An absent body, or {}, is no
+// proof.
+type SecondFactorProof struct {
+	Code      string          `json:"code,omitempty" arm:"code"`
+	Ceremony  string          `json:"ceremony,omitempty" arm:"passkey"`
+	Assertion json.RawMessage `json:"assertion,omitempty" arm:"passkey"`
+}
+
 // LoginRequest is authLoginPassword's body.
 type LoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
+// RegisterPasswordRequest is authRegisterPassword's body.
+type RegisterPasswordRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// RegisterPasskeyBeginRequest is authRegisterPasskeyBegin's body.
+type RegisterPasskeyBeginRequest struct {
+	Username string `json:"username"`
+}
+
 // RedirectRequest is the OIDC link and step-up starts' body.
 type RedirectRequest struct {
 	Redirect string `json:"redirect,omitempty"` // the app's return path, at most oidc.MaxRedirectBytes
-}
-
-// TokenRequest is authRecoveryStart's body.
-type TokenRequest struct {
-	Token string `json:"token"`
-}
-
-// RecoverPasswordRequest is authRecoveryPassword's body.
-type RecoverPasswordRequest struct {
-	Password     string `json:"password"`
-	KeepSessions bool   `json:"keep_sessions,omitempty"`
-	KeepKeys     bool   `json:"keep_keys,omitempty"`
 }
 
 // InviteAcceptRequest is authInviteAcceptPassword's body.
@@ -94,7 +152,7 @@ type NewKeyRequest struct {
 // NewUserRequest is authAdminUserCreate's body.
 type NewUserRequest struct {
 	Username string      `json:"username"`
-	Password string      `json:"password,omitempty"` // empty: no sign-in method until a recovery link
+	Password string      `json:"password,omitempty"` // empty: no sign-in method
 	Role     access.Role `json:"role"`
 }
 
@@ -104,9 +162,36 @@ type UserUpdateRequest struct {
 	Enabled *bool        `json:"enabled,omitempty"`
 }
 
-// TTLRequest is authAdminRecovery's body.
-type TTLRequest struct {
-	Hours int `json:"hours,omitempty"` // 0 = the default lifetime
+// OwnerRequest is authAdminOwner's body.
+type OwnerRequest struct {
+	Owner bool `json:"owner"`
+}
+
+// SSORequest is authAdminSSOApply's body.
+type SSORequest struct {
+	Mode account.SSOModeName `json:"mode"`
+}
+
+// SSOReadinessQuery is authAdminSSOReadiness's query.
+type SSOReadinessQuery struct {
+	Mode account.SSOModeName `json:"mode"`
+}
+
+// Readiness is account.Readiness: what a change of the SSO mode would do.
+type Readiness struct {
+	// Refusal is the state refusal authAdminSSOApply would answer, as its
+	// error body would carry it; absent when the change would be made.
+	Refusal                     *ReadinessRefusal `json:"refusal,omitempty"`
+	LockedOut                   int               `json:"locked_out"`
+	MethodsMadeDormant          int               `json:"methods_made_dormant"`
+	MethodsRestored             int               `json:"methods_restored"`
+	TemporaryPasswordsWithdrawn int               `json:"temporary_passwords_withdrawn"`
+}
+
+// ReadinessRefusal is a state refusal's code and reason.
+type ReadinessRefusal struct {
+	Code   access.Code `json:"code"`
+	Reason string      `json:"reason,omitempty"`
 }
 
 // InviteRequest is authAdminInvite's body.
@@ -115,22 +200,40 @@ type InviteRequest struct {
 	Hours int         `json:"hours,omitempty"`
 }
 
-// StateResponse is authState's answer, account.State on the wire.
+// StateResponse is authState's answer: account.State on the wire, and the
+// password length bounds.
 type StateResponse struct {
-	PlainSession  *PlainSessionView      `json:"plain_session,omitempty"`
-	HTTPSOrigin   string                 `json:"https_origin,omitempty"`
-	HTTPSRequired []account.HTTPSFeature `json:"https_required"`
-	SetupRequired bool                   `json:"setup_required"`
-	PasswordLogin bool                   `json:"password_login"`
-	Passkeys      bool                   `json:"passkeys"`
-	OIDC          bool                   `json:"oidc"`
-	Secure        bool                   `json:"secure"`
+	PlainSession *PlainSessionView   `json:"plain_session,omitempty"`
+	HTTPSOrigin  string              `json:"https_origin,omitempty"`
+	SSO          account.SSOModeName `json:"sso"` // the stored SSO mode
+	// Registration is account.State's: "off" in a single-user app and
+	// under the stored mode SSOOnly.
+	Registration  account.RegistrationModeName `json:"registration"`
+	HTTPSRequired []account.HTTPSFeature       `json:"https_required"`
+	// PasswordLength is the bounds [access.ValidatePasswordLength] enforces.
+	PasswordLength PasswordLengthView `json:"password_length"`
+	SetupRequired  bool               `json:"setup_required"`
+	PasswordLogin  bool               `json:"password_login"`
+	Passkeys       bool               `json:"passkeys"`
+	OIDC           bool               `json:"oidc"`
+	Secure         bool               `json:"secure"`
+	TOTP           bool               `json:"totp"` // the app offers TOTP
+	// TemporaryPasswordHTTPSOnly is account.State's; absent when false, as
+	// on every secure request.
+	TemporaryPasswordHTTPSOnly bool `json:"temporary_password_https_only,omitempty"`
 }
 
 // PlainSessionView is account.State.PlainSession in whole seconds.
 type PlainSessionView struct {
 	IdleSeconds     int64 `json:"idle_seconds"`
 	AbsoluteSeconds int64 `json:"absolute_seconds"`
+}
+
+// PasswordLengthView is a password's least and greatest length in Unicode
+// code points after NFC.
+type PasswordLengthView struct {
+	Min int `json:"min"`
+	Max int `json:"max"`
 }
 
 // UserView is one user.
@@ -146,19 +249,109 @@ type UserView struct {
 	ID         int64   `json:"id"`
 	Enabled    bool    `json:"enabled"`
 	OIDCLinked bool    `json:"oidc_linked"`
+	Owner      bool    `json:"owner"`
 }
 
-// UserMethodsView is a listed user's password and passkey count.
+// UserMethodsView is a listed user's sign-in methods and the facts about
+// them the admin list reads with the page.
 type UserMethodsView struct {
-	PasskeyCount int  `json:"passkey_count"`
-	Password     bool `json:"password"`
+	// TemporaryPassword is the user's live temporary password; absent when
+	// they hold none.
+	TemporaryPassword   *TemporaryPasswordView `json:"temporary_password,omitempty"`
+	PasskeyCount        int                    `json:"passkey_count"`
+	Password            bool                   `json:"password"`
+	LocalMethodsDormant bool                   `json:"local_methods_dormant"`
+	RoleFromProvider    bool                   `json:"role_from_provider"`
+	TOTP                bool                   `json:"totp"` // the user holds a TOTP record
+	// WaitingApproval marks a registration no admin has approved; enabling
+	// the user approves it.
+	WaitingApproval bool `json:"waiting_approval"`
 }
+
+// TemporaryPasswordView is a listed user's live temporary password.
+type TemporaryPasswordView struct {
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// TemporaryPasswordOptions is authAdminTemporaryPassword's and
+// authAdminOIDCRelink's body, account.TemporaryPasswordOptions on the wire.
+type TemporaryPasswordOptions struct {
+	TTLHours       int  `json:"ttl_hours,omitempty"` // 0 is 24 hours; at most 168
+	RevokePasskeys bool `json:"revoke_passkeys,omitempty"`
+	KeepKeys       bool `json:"keep_keys,omitempty"`
+}
+
+// TemporaryPasswordResponse is account.IssuedTemporaryPassword on the wire.
+type TemporaryPasswordResponse struct {
+	ExpiresAt   time.Time `json:"expires_at"`
+	Password    string    `json:"password"` // XXXX-XXXX-XXXX-XXXX, shown once
+	HTTPSOrigin string    `json:"https_origin,omitempty"`
+	// HTTPSOnly is account.Service.TemporaryPasswordHTTPSOnly, read after
+	// the issue committed.
+	HTTPSOnly    bool `json:"https_only"`
+	Dormant      bool `json:"dormant"`
+	PasswordKept bool `json:"password_kept"`
+}
+
+// SignInOutcome is a sign-in step's answer, in which exactly one arm is set.
+type SignInOutcome struct {
+	SignedIn *SignedInResponse `json:"signed_in,omitempty"`
+	Pending  *Pending          `json:"pending,omitempty"`
+}
+
+// Pending is account.Pending: the client continues with the newest
+// ticket, which this body alone carries.
+type Pending struct {
+	Ticket    string          `json:"ticket"`
+	Next      account.Next    `json:"next"`
+	Methods   []PendingMethod `json:"methods"`             // what Next accepts on this transport
+	Recovered bool            `json:"recovered,omitempty"` // the enrolment's finish completes a recovery
+}
+
+// PendingMethod is an access.Method a pending sign-in's step accepts; no
+// other method, app-defined ones included, is ever one.
+type PendingMethod string
+
+// The pending methods, each the access.Method of its name.
+const (
+	PendingTOTP         PendingMethod = "totp"
+	PendingPasskey      PendingMethod = "passkey"
+	PendingRecoveryCode PendingMethod = "recovery_code"
+	PendingPassword     PendingMethod = "password"
+)
 
 // SignedInResponse is the answer of every route that signs a user in.
 type SignedInResponse struct {
-	SessionID    string   `json:"session_id"`
+	SessionID string `json:"session_id"`
+	// RecoveryCode is the recovery code this sign-in's binding issued,
+	// shown once; absent when it issued none.
+	RecoveryCode string   `json:"recovery_code,omitempty"`
 	User         UserView `json:"user"`
 	CloneWarning bool     `json:"clone_warning,omitempty"`
+}
+
+// EnrolmentOutcome is a pending enrolment finish's and a passkey
+// registration's answer, in which exactly one arm is set: signed_in, or
+// waiting_approval for an account a registration made wait for approval,
+// which holds no session.
+type EnrolmentOutcome struct {
+	SignedIn *SignedInResponse `json:"signed_in,omitempty"`
+	// RecoveryCode is the recovery code the waiting account's binding
+	// issued, shown once; absent when it issued none.
+	RecoveryCode string `json:"recovery_code,omitempty" arm:"waiting_approval"`
+	// WaitingApproval is always true in its arm.
+	WaitingApproval bool `json:"waiting_approval,omitempty" arm:"waiting_approval"`
+}
+
+// RegistrationOutcome is a password registration's answer, in which exactly
+// one arm is set: signed_in, pending under Rules.RequireSecondFactor, or
+// waiting_approval, true, for an account that waits for approval with no
+// session. A recovery code needs a second factor, which this answer never
+// binds, so its waiting arm carries none.
+type RegistrationOutcome struct {
+	SignedIn        *SignedInResponse `json:"signed_in,omitempty"`
+	Pending         *Pending          `json:"pending,omitempty"`
+	WaitingApproval bool              `json:"waiting_approval,omitempty" arm:"waiting_approval"`
 }
 
 // CeremonyResponse is a begun WebAuthn ceremony.
@@ -169,7 +362,44 @@ type CeremonyResponse struct {
 	PublicKey json.RawMessage `json:"public_key"`
 }
 
-// OIDCStartResponse is the link and step-up starts' answer.
+// TOTPBeginResponse is a begun TOTP enrolment, shown once: the otpauth URI
+// for a QR code, the secret as text, and the ticket authTOTPFinish takes.
+type TOTPBeginResponse struct {
+	URI    string `json:"uri"`
+	Text   string `json:"text"`
+	Ticket string `json:"ticket"`
+}
+
+// PendingTOTPBeginResponse is a TOTP enrolment begun inside a pending
+// sign-in, shown once: the otpauth URI and the secret as text. The ticket
+// keeps the secret for authPendingTOTPFinish.
+type PendingTOTPBeginResponse struct {
+	URI  string `json:"uri"`
+	Text string `json:"text"`
+}
+
+// RecoveryCodeIssuedResponse is the answer of an Account change that may
+// issue a recovery code, authTOTPFinish and authPasswordSet: the code, shown
+// once; absent when it issued none.
+type RecoveryCodeIssuedResponse struct {
+	RecoveryCode string `json:"recovery_code,omitempty"`
+}
+
+// RecoveryCodeResponse is authRecoveryCodeRegenerate's answer: the new
+// recovery code, shown once.
+type RecoveryCodeResponse struct {
+	RecoveryCode string `json:"recovery_code"`
+}
+
+// PasskeyRegisteredResponse is authPasskeyRegisterFinish's answer: the new
+// passkey, and the recovery code its registration issued, shown once;
+// absent when it issued none.
+type PasskeyRegisteredResponse struct {
+	RecoveryCode string      `json:"recovery_code,omitempty"`
+	Passkey      PasskeyView `json:"passkey"`
+}
+
+// OIDCStartResponse is the link, step-up and invite starts' answer.
 type OIDCStartResponse struct {
 	URL string `json:"url"`
 }
@@ -179,6 +409,9 @@ type PendingLinkResponse struct {
 	Issuer       string `json:"issuer"`
 	UsernameHint string `json:"username_hint,omitempty"`
 	Email        string `json:"email,omitempty"`
+	// SuggestedUsername is set only with CanCreate, and may be absent then.
+	SuggestedUsername string `json:"suggested_username,omitempty"`
+	CanCreate         bool   `json:"can_create"`
 }
 
 // MethodLockView is one locked method, per trust context.
@@ -190,6 +423,7 @@ type MethodLockView struct {
 
 // MethodsView is what a user can sign in with.
 type MethodsView struct {
+	TOTP              TOTPView         `json:"totp"`
 	Locks             []MethodLockView `json:"locks"` // [] when none
 	PasskeyCount      int              `json:"passkey_count"`
 	Password          bool             `json:"password"`
@@ -197,6 +431,19 @@ type MethodsView struct {
 	OIDCAvailable     bool             `json:"oidc_available"`
 	PasskeysAvailable bool             `json:"passkeys_available"`
 	PasswordLogin     bool             `json:"password_login"`
+	RecoveryCode      bool             `json:"recovery_code"` // a recovery code is stored
+	// SecondFactorHeld is account.Methods.SecondFactorHeld: adding or
+	// removing a passkey needs a current second factor.
+	SecondFactorHeld bool `json:"second_factor_held"`
+	PasswordStepUp   bool `json:"password_step_up"` // step-up may offer the password
+}
+
+// TOTPView is account.TOTPState: the user's authenticator app.
+type TOTPView struct {
+	Since     time.Time `json:"since,omitzero"` // set while enrolled
+	Enrolled  bool      `json:"enrolled"`
+	Usable    bool      `json:"usable"`    // enrolled, and the app has authenticator apps on
+	Removable bool      `json:"removable"` // authTOTPRemove would remove it
 }
 
 // CurrentSessionView is the caller's own session.
@@ -215,13 +462,11 @@ type MeResponse struct {
 	Methods     MethodsView        `json:"methods"`
 	User        UserView           `json:"user"`
 	CanLinkOIDC bool               `json:"can_link_oidc"`
-	SSOGoverned bool               `json:"sso_governed"`
-}
-
-// RecoveryResponse is a started recovery.
-type RecoveryResponse struct {
-	Username string      `json:"username"`
-	Methods  MethodsView `json:"methods"`
+	// SSOOnly is account.Me.SSOOnly: the stored SSO mode keeps this user's
+	// local methods dormant.
+	SSOOnly    bool `json:"sso_only"`
+	Owner      bool `json:"owner"`
+	SingleUser bool `json:"single_user"`
 }
 
 // PasskeyView is one passkey.
@@ -236,6 +481,9 @@ type PasskeyView struct {
 	BackupEligible bool   `json:"backup_eligible"`
 	BackedUp       bool   `json:"backed_up"`
 	CloneWarning   bool   `json:"clone_warning,omitempty"`
+	// Removable is whether authPasskeyRemove would remove it; false where
+	// the last-method or the second-factor guard would refuse.
+	Removable bool `json:"removable"`
 }
 
 // SessionView is one session.
@@ -264,7 +512,7 @@ type KeyView struct {
 	// PreviousUntil is the overlap's bound, set only while the superseded
 	// secret still verifies at the response's now.
 	PreviousUntil time.Time `json:"previous_until,omitzero"`
-	Owner         string    `json:"owner,omitempty"` // username; set on the admin list only
+	Username      string    `json:"username,omitempty"` // set on the admin list only
 	Label         string    `json:"label"`
 	Prefix        string    `json:"prefix"`
 	Suffix        string    `json:"suffix"`
@@ -274,30 +522,28 @@ type KeyView struct {
 	ParentKeyID   int64     `json:"parent_key_id,omitempty"` // Key.ParentKeyID()
 }
 
-// KeyCreatedResponse is a minted key. Only writeShownOnce fills Key.
+// KeyCreatedResponse is a minted key.
 type KeyCreatedResponse struct {
 	Key     string  `json:"key"` // the plaintext, shown once
 	Details KeyView `json:"details"`
 }
 
-// TokenResponse is a minted invite or recovery token. Only writeShownOnce
-// fills Token.
+// TokenResponse is a minted invite token.
 type TokenResponse struct {
 	ExpiresAt time.Time `json:"expires_at"`
 	Token     string    `json:"token"` // the plaintext, shown once
 }
 
-// TokenView is one live invite or recovery token on authAdminTokens. It
+// TokenView is one live invite token on authAdminTokens. It
 // carries neither the token nor its hash.
 type TokenView struct {
 	CreatedAt time.Time           `json:"created_at"`
 	ExpiresAt time.Time           `json:"expires_at"`
-	Purpose   access.TokenPurpose `json:"purpose"`        // "invite" or "recovery"
+	Purpose   access.TokenPurpose `json:"purpose"`        // "invite"
 	Role      access.Role         `json:"role,omitempty"` // invite only
 	// IssuerLineage is the issuing key's LineageIDs, root first; omitted for
 	// a token no key issued.
 	IssuerLineage []int64 `json:"issuer_lineage,omitempty"`
-	Subject       int64   `json:"subject,omitempty"` // recovery only: the user it acts on
 	IssuedByKey   int64   `json:"issued_by_key,omitempty"`
 }
 
@@ -324,13 +570,23 @@ type LogEntryView struct {
 	Method     access.Method    `json:"method,omitempty"`
 	Role       access.Role      `json:"role,omitempty"`
 	Detail     string           `json:"detail,omitempty"`
-	SessionIDs []string         `json:"session_ids,omitempty"`
-	Actor      LogActorView     `json:"actor"`
-	Seq        int64            `json:"seq"`
-	UserID     int64            `json:"user_id,omitempty"`
-	KeyID      int64            `json:"key_id,omitempty"`
-	PasskeyID  int64            `json:"passkey_id,omitempty"`
-	Trusted    bool             `json:"trusted,omitempty"`
+	// SSOMode and PreviousSSOMode are an sso_mode_changed entry's new and
+	// old mode; absent on every other kind.
+	SSOMode         account.SSOModeName `json:"sso_mode,omitempty"`
+	PreviousSSOMode account.SSOModeName `json:"previous_sso_mode,omitempty"`
+	SessionIDs      []string            `json:"session_ids,omitempty"`
+	Actor           LogActorView        `json:"actor"`
+	Seq             int64               `json:"seq"`
+	UserID          int64               `json:"user_id,omitempty"`
+	KeyID           int64               `json:"key_id,omitempty"`
+	PasskeyID       int64               `json:"passkey_id,omitempty"`
+	// IssuerUserID is the issuing user of a withdrawn temporary password or
+	// of one an admin link spent.
+	IssuerUserID int64 `json:"issuer_user_id,omitempty"`
+	Trusted      bool  `json:"trusted,omitempty"`
+	// Plain is a temporary_password_used entry whose secret crossed plain
+	// HTTP.
+	Plain bool `json:"plain,omitempty"`
 }
 
 // LogActorView is who made a logged change, with the display data the
@@ -366,12 +622,6 @@ type OIDCCallbackQuery struct {
 	Error string `json:"error,omitempty"`
 }
 
-// RecoveryPasskeyFinishQuery is authRecoveryPasskeyFinish's query.
-type RecoveryPasskeyFinishQuery struct {
-	KeepSessions bool `json:"keep_sessions,omitempty"` // "true" or absent
-	KeepKeys     bool `json:"keep_keys,omitempty"`     // "true" or absent
-}
-
 // AdminUsersQuery is authAdminUsers' query.
 type AdminUsersQuery struct {
 	Key int64 `json:"key,omitempty"` // a positive decimal key ID, or absent
@@ -391,24 +641,6 @@ type AdminSecurityLogQuery struct {
 	OldestFirst bool   `json:"oldest_first,omitempty"` // LogFilter.OldestFirst
 }
 
-// shownOnce is a response that carries one plaintext.
-type shownOnce interface {
-	KeyCreatedResponse | TokenResponse
-}
-
-// writeShownOnce is the only accesshttp code that reveals a response field:
-// the plaintext enters resp inside this call, which encodes it to w and
-// drops it.
-func writeShownOnce[R shownOnce](w http.ResponseWriter, status int, resp R, plaintext access.Secret) {
-	switch v := any(&resp).(type) {
-	case *KeyCreatedResponse:
-		v.Key = plaintext.Reveal()
-	case *TokenResponse:
-		v.Token = plaintext.Reveal()
-	}
-	writeJSON(w, status, resp)
-}
-
 // writeJSON encodes a success body. The status line is already sent when
 // encoding fails, so the error has no one to reach.
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -425,6 +657,7 @@ func userView(u *access.User) UserView {
 		Role:        u.Role,
 		Enabled:     u.Enabled,
 		OIDCLinked:  !u.OIDC.IsZero(),
+		Owner:       u.Owner,
 		CreatedAt:   u.CreatedAt,
 	}
 }
@@ -434,14 +667,21 @@ func userView(u *access.User) UserView {
 func listedUserView(l *account.ListedUser) UserView {
 	v := userView(&l.User)
 	v.KeyLineage = l.KeyLineage
-	v.Methods = &UserMethodsView{Password: !l.User.PasswordHash.IsZero(), PasskeyCount: l.PasskeyCount}
+	v.Methods = &UserMethodsView{
+		Password: !l.User.PasswordHash.IsZero(), PasskeyCount: l.PasskeyCount, TOTP: l.TOTP,
+		LocalMethodsDormant: l.LocalMethodsDormant, RoleFromProvider: l.RoleFromProvider, WaitingApproval: l.User.WaitingApproval,
+	}
+	if !l.TemporaryPasswordExpiresAt.IsZero() {
+		v.Methods.TemporaryPassword = &TemporaryPasswordView{ExpiresAt: l.TemporaryPasswordExpiresAt}
+	}
 	return v
 }
 
-func passkeyView(p *access.PasskeyCredential) PasskeyView {
+func passkeyView(pk *account.Passkey) PasskeyView {
+	p := &pk.Credential
 	return PasskeyView{
 		ID: p.ID, Name: p.Name, RPID: p.RPID, CreatedAt: p.CreatedAt, LastUsedAt: p.LastUsedAt,
-		BackupEligible: p.BackupEligible, BackedUp: p.BackupState, CloneWarning: p.CloneWarning,
+		BackupEligible: p.BackupEligible, BackedUp: p.BackupState, CloneWarning: p.CloneWarning, Removable: pk.Removable,
 	}
 }
 
@@ -449,7 +689,9 @@ func passkeyView(p *access.PasskeyCredential) PasskeyView {
 func stateResponse(st *account.State) StateResponse {
 	v := StateResponse{
 		SetupRequired: st.SetupRequired, PasswordLogin: st.PasswordLogin, Passkeys: st.Passkeys, OIDC: st.OIDC, Secure: st.Secure,
-		HTTPSRequired: append([]account.HTTPSFeature{}, st.HTTPSRequired...), HTTPSOrigin: st.HTTPSOrigin,
+		HTTPSRequired: append([]account.HTTPSFeature{}, st.HTTPSRequired...), HTTPSOrigin: st.HTTPSOrigin, SSO: st.SSO.Name(),
+		TOTP: st.TOTP, TemporaryPasswordHTTPSOnly: st.TemporaryPasswordHTTPSOnly, Registration: st.Registration.Name(),
+		PasswordLength: PasswordLengthView{Min: access.PasswordMinLength, Max: access.PasswordMaxLength},
 	}
 	if p := st.PlainSession; p != nil {
 		v.PlainSession = &PlainSessionView{IdleSeconds: int64(p.Idle / time.Second), AbsoluteSeconds: int64(p.Absolute / time.Second)}
@@ -467,10 +709,10 @@ func sessionView(s *access.Session, t access.SessionTimeouts, current string) Se
 	}
 }
 
-// keyView is k at now without its hashes; owner is set on the admin list only.
-func keyView(k *access.Key, owner string, now time.Time) KeyView {
+// keyView is k at now without its hashes; username is set on the admin list only.
+func keyView(k *access.Key, username string, now time.Time) KeyView {
 	v := KeyView{
-		ID: k.ID, UserID: k.UserID, Owner: owner, Label: k.Label, Prefix: k.KeyPrefix, Suffix: k.KeySuffix,
+		ID: k.ID, UserID: k.UserID, Username: username, Label: k.Label, Prefix: k.KeyPrefix, Suffix: k.KeySuffix,
 		Scopes: append([]string{}, k.Scopes...), CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt, LastUsedAt: k.LastUsedAt,
 		ParentKeyID: k.ParentKeyID(),
 	}
@@ -484,7 +726,7 @@ func keyView(k *access.Key, owner string, now time.Time) KeyView {
 func tokenView(l *account.ListedToken) TokenView {
 	t := &l.Token
 	return TokenView{
-		Purpose: t.Purpose, Role: t.Role, Subject: t.Subject, IssuedByKey: t.IssuedByKey,
+		Purpose: t.Purpose, Role: t.Role, IssuedByKey: t.IssuedByKey,
 		IssuerLineage: l.IssuerLineage, CreatedAt: t.CreatedAt, ExpiresAt: t.ExpiresAt,
 	}
 }
@@ -507,7 +749,7 @@ func logEntryView(e *account.LogEntry) LogEntryView {
 	v := LogEntryView{
 		Seq: int64(ev.Seq), At: e.At, OccurredAt: ev.At, Class: e.Class, Kind: string(ev.Kind), //nolint:gosec // G115: rule 22 bounds Seq at 2^53 - 1
 		UserID: ev.UserID, SessionIDs: ev.SessionIDs, KeyID: ev.KeyID, PasskeyID: ev.PasskeyID,
-		Method: ev.Method, Role: ev.Role, Trusted: ev.Trusted, Detail: e.Detail,
+		Method: ev.Method, Role: ev.Role, Trusted: ev.Trusted, Detail: e.Detail, IssuerUserID: ev.IssuerUserID, Plain: ev.Plain,
 		Actor: LogActorView{
 			UserID: ev.Actor.UserID, SessionID: ev.Actor.SessionID, KeyID: ev.Actor.KeyID, OutOfBand: ev.Actor.OutOfBand,
 			Label: e.ActorLabel, UserAgent: e.ActorUserAgent, KeySuffix: e.ActorKeySuffix,
@@ -515,6 +757,9 @@ func logEntryView(e *account.LogEntry) LogEntryView {
 	}
 	if e.IP.IsValid() {
 		v.IP = e.IP.String()
+	}
+	if ev.Kind == account.EventSSOModeChanged {
+		v.SSOMode, v.PreviousSSOMode = ev.SSOMode.Name(), ev.PreviousSSOMode.Name()
 	}
 	return v
 }
@@ -531,7 +776,11 @@ func methodsView(m account.Methods) MethodsView {
 		OIDCAvailable:     m.OIDCAvailable,
 		PasskeysAvailable: m.PasskeysAvailable,
 		PasswordLogin:     m.PasswordLogin,
+		RecoveryCode:      m.RecoveryCode,
+		SecondFactorHeld:  m.SecondFactorHeld,
+		PasswordStepUp:    m.PasswordStepUp,
 		Locks:             locks,
+		TOTP:              TOTPView{Since: m.TOTP.Since, Enrolled: m.TOTP.Enrolled, Usable: m.TOTP.Usable, Removable: m.TOTP.Removable},
 	}
 }
 
@@ -544,12 +793,23 @@ func meResponse(m *account.Me) MeResponse {
 			IdleDeadline: m.Current.IdleDeadline, AbsoluteDeadline: m.Current.AbsoluteDeadline, Secure: m.Current.Secure,
 		},
 		CanLinkOIDC: m.CanLinkOIDC,
-		SSOGoverned: m.SSOGoverned,
+		SSOOnly:     m.SSOOnly,
+		Owner:       m.User.Owner,
+		SingleUser:  m.SingleUser,
 	}
 }
 
+// pendingView is p on the wire.
+func pendingView(p *account.Pending) *Pending {
+	methods := make([]PendingMethod, 0, len(p.Methods))
+	for _, m := range p.Methods {
+		methods = append(methods, PendingMethod(m))
+	}
+	return &Pending{Ticket: p.Ticket.Reveal(), Next: p.Next, Methods: methods, Recovered: p.Recovered}
+}
+
 func signedInResponse(s account.SignedIn) SignedInResponse { //nolint:gocritic // hugeParam: account's own result, read once
-	return SignedInResponse{User: userView(s.User), SessionID: s.Session.ID, CloneWarning: s.CloneWarning}
+	return SignedInResponse{User: userView(s.User), SessionID: s.Session.ID, RecoveryCode: s.RecoveryCode.Reveal(), CloneWarning: s.CloneWarning}
 }
 
 // ceremonyResponse encodes a begun ceremony's options in the browser's shape.

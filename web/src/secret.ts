@@ -1,7 +1,7 @@
 import { signal } from "@cplieger/reactive/signal";
 import type { ReadonlySignal } from "@cplieger/reactive/signal";
 
-/** A secret shown to the user once, such as a new API key or a recovery link. */
+/** A secret shown to the user once, such as a new API key or an invite link. */
 export interface ShownOnce {
   /** The plaintext until it is cleared, then null for good. */
   readonly value: ReadonlySignal<string | null>;

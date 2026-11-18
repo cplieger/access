@@ -16,25 +16,31 @@ import (
 
 // Sentinel errors for OIDC operations.
 var (
-	ErrDiscovery     = errors.New("oidc: provider discovery failed")
-	ErrExchange      = errors.New("oidc: code exchange failed")
-	ErrTokenInvalid  = errors.New("oidc: ID token verification failed")
-	ErrNonceMismatch = errors.New("oidc: nonce mismatch")
-	ErrConfigInvalid = errors.New("oidc: invalid configuration")
-	ErrNoUsername    = errors.New("oidc: token has no preferred_username or verified email claim")
+	// ErrDiscovery reports a provider NewProvider could not reach: a
+	// connection or TLS failure, a timeout, a redirect or an answer other
+	// than 200. A retry can succeed.
+	ErrDiscovery = errors.New("oidc: provider discovery failed")
+	// ErrProviderInvalid reports a provider that answered with a discovery
+	// document or JWK Set access will not use. Only the provider's own
+	// configuration, or the issuer URL, can fix it, so an app shows it on
+	// the issuer field rather than retrying soon. It never matches
+	// ErrDiscovery.
+	ErrProviderInvalid = errors.New("oidc: provider configuration refused")
+	ErrExchange        = errors.New("oidc: code exchange failed")
+	ErrTokenInvalid    = errors.New("oidc: ID token verification failed")
+	ErrNonceMismatch   = errors.New("oidc: nonce mismatch")
+	ErrConfigInvalid   = errors.New("oidc: invalid configuration")
+	ErrNoUsername      = errors.New("oidc: token has no preferred_username or verified email claim")
 
 	// ErrFlowInvalid reports a flow cookie that is missing, forged, expired,
 	// sealed by another provider or answered with another state, and a
 	// malformed BeginRequest or a cross-site begin that Begin refuses.
 	ErrFlowInvalid = errors.New("oidc: sign-in flow invalid")
-	// ErrStaleAuthentication reports a link or step-up whose ID token does
-	// not prove a sign-in at the provider after the flow began.
+	// ErrStaleAuthentication reports a flow of any intent but sign-in whose
+	// ID token's auth_time is absent or more than 60 seconds before the flow
+	// began.
 	ErrStaleAuthentication = errors.New("oidc: the provider did not authenticate the user again")
 	ErrRedirectTooLong     = errors.New("oidc: redirect longer than MaxRedirectBytes")
-	// ErrProvisioningDisabled and ErrNotAdmitted are Provisioning.Admit's
-	// refusals.
-	ErrProvisioningDisabled = errors.New("oidc: provisioning is disabled")
-	ErrNotAdmitted          = errors.New("oidc: identity not admitted for provisioning")
 )
 
 // ProviderError is the provider's error answer to the authorization request,

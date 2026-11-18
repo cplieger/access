@@ -55,6 +55,9 @@ func (c *contract) logClauses() []logClause {
 // securityLog: rule 22.
 func (c *contract) securityLog(t *testing.T) {
 	for _, cl := range c.logClauses() {
+		if c.viaTx && storeOnly["rule_22_log/"+cl.name] {
+			continue
+		}
 		t.Run(cl.name, func(t *testing.T) {
 			cl.run(t)
 			if t.Failed() {
@@ -402,7 +405,7 @@ func (c *contract) listRange(t *testing.T) {
 func (c *contract) listCopies(t *testing.T) {
 	s := c.store(t)
 	e := logEntry(account.LogClassChange, epoch)
-	e.Event.Kind, e.Event.Method = account.EventRecoveryCompleted, access.MethodPasskey
+	e.Event.Kind, e.Event.Method = account.EventSteppedUp, access.MethodPasskey
 	want := slices.Clone(e.Event.SessionIDs)
 	mustAppend(t, s, e)
 	e.Event.SessionIDs[0] = mutated
@@ -410,8 +413,8 @@ func (c *contract) listCopies(t *testing.T) {
 	if len(got) != 1 || !slices.Equal(got[0].Event.SessionIDs, want) {
 		t.Fatalf("after the caller changed its SessionIDs the stored entry reads %v, want %v", got, want)
 	}
-	if ev := got[0].Event; ev.Kind != account.EventRecoveryCompleted || ev.Method != access.MethodPasskey {
-		t.Errorf("the stored entry reads Kind %q Method %q, want %q %q as written", ev.Kind, ev.Method, account.EventRecoveryCompleted, access.MethodPasskey)
+	if ev := got[0].Event; ev.Kind != account.EventSteppedUp || ev.Method != access.MethodPasskey {
+		t.Errorf("the stored entry reads Kind %q Method %q, want %q %q as written", ev.Kind, ev.Method, account.EventSteppedUp, access.MethodPasskey)
 	}
 	got[0].Event.SessionIDs[1] = mutated
 	if again := wholeLog(t, s); !slices.Equal(again[0].Event.SessionIDs, want) {

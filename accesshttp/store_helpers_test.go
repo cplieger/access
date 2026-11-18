@@ -116,14 +116,19 @@ func (s *countingStore) DeleteAPIKey(ctx context.Context, a1 access.KeyRef) erro
 	return s.next.DeleteAPIKey(ctx, a1)
 }
 
+func (s *countingStore) DeleteAuthFailure(ctx context.Context, a1 account.FailureRef) error {
+	s.count(ctx, "DeleteAuthFailure")
+	return s.next.DeleteAuthFailure(ctx, a1)
+}
+
 func (s *countingStore) DeleteAuthFailures(ctx context.Context, a1 string, a2 []access.Method) error {
 	s.count(ctx, "DeleteAuthFailures")
 	return s.next.DeleteAuthFailures(ctx, a1, a2)
 }
 
-func (s *countingStore) DeleteOneTimeTokens(ctx context.Context, a1 access.TokenPurpose, a2 int64) (int, error) {
+func (s *countingStore) DeleteOneTimeTokens(ctx context.Context, a1 access.TokenPurpose) (int, error) {
 	s.count(ctx, "DeleteOneTimeTokens")
-	return s.next.DeleteOneTimeTokens(ctx, a1, a2)
+	return s.next.DeleteOneTimeTokens(ctx, a1)
 }
 
 func (s *countingStore) DeleteOneTimeTokensIssuedBy(ctx context.Context, a1 []int64) (int, error) {
@@ -136,6 +141,11 @@ func (s *countingStore) DeletePasskey(ctx context.Context, a1 access.PasskeyRef)
 	return s.next.DeletePasskey(ctx, a1)
 }
 
+func (s *countingStore) DeleteRecoveryCode(ctx context.Context, a1 int64) error {
+	s.count(ctx, "DeleteRecoveryCode")
+	return s.next.DeleteRecoveryCode(ctx, a1)
+}
+
 func (s *countingStore) DeleteSession(ctx context.Context, a1 access.SessionRef) error {
 	s.count(ctx, "DeleteSession")
 	return s.next.DeleteSession(ctx, a1)
@@ -144,6 +154,16 @@ func (s *countingStore) DeleteSession(ctx context.Context, a1 access.SessionRef)
 func (s *countingStore) DeleteSessionByHash(ctx context.Context, a1 access.Hash) error {
 	s.count(ctx, "DeleteSessionByHash")
 	return s.next.DeleteSessionByHash(ctx, a1)
+}
+
+func (s *countingStore) DeleteTOTP(ctx context.Context, a1 int64) error {
+	s.count(ctx, "DeleteTOTP")
+	return s.next.DeleteTOTP(ctx, a1)
+}
+
+func (s *countingStore) DeleteTemporaryPassword(ctx context.Context, a1 int64) error {
+	s.count(ctx, "DeleteTemporaryPassword")
+	return s.next.DeleteTemporaryPassword(ctx, a1)
 }
 
 func (s *countingStore) DeleteUser(ctx context.Context, a1 int64) error {
@@ -179,6 +199,11 @@ func (s *countingStore) ListAPIKeysByUserID(ctx context.Context, a1 int64) ([]ac
 func (s *countingStore) ListKeyAttributions(ctx context.Context) ([]access.KeyAttribution, error) {
 	s.count(ctx, "ListKeyAttributions")
 	return s.next.ListKeyAttributions(ctx)
+}
+
+func (s *countingStore) ListTOTP(ctx context.Context, a1 int64, a2 int) ([]access.TOTP, error) {
+	s.count(ctx, "ListTOTP")
+	return s.next.ListTOTP(ctx, a1, a2)
 }
 
 func (s *countingStore) ListUsers(ctx context.Context) ([]access.User, error) {
@@ -231,6 +256,11 @@ func (s *countingStore) PutAuthFailure(ctx context.Context, a1 account.FailureCo
 	return s.next.PutAuthFailure(ctx, a1)
 }
 
+func (s *countingStore) RecoveryCodeByUserID(ctx context.Context, a1 int64) (access.RecoveryCode, bool, error) {
+	s.count(ctx, "RecoveryCodeByUserID")
+	return s.next.RecoveryCodeByUserID(ctx, a1)
+}
+
 func (s *countingStore) RenamePasskey(ctx context.Context, a1 access.PasskeyRef, a2 string) error {
 	s.count(ctx, "RenamePasskey")
 	return s.next.RenamePasskey(ctx, a1, a2)
@@ -241,6 +271,11 @@ func (s *countingStore) RotateSession(ctx context.Context, a1 account.Rotation) 
 	return s.next.RotateSession(ctx, a1)
 }
 
+func (s *countingStore) SSOMode(ctx context.Context) (account.SSOMode, bool, error) {
+	s.count(ctx, "SSOMode")
+	return s.next.SSOMode(ctx)
+}
+
 func (s *countingStore) SessionByHash(ctx context.Context, a1 access.Hash) (*access.Session, bool, error) {
 	s.count(ctx, "SessionByHash")
 	return s.next.SessionByHash(ctx, a1)
@@ -249,6 +284,36 @@ func (s *countingStore) SessionByHash(ctx context.Context, a1 access.Hash) (*acc
 func (s *countingStore) SessionsByUserID(ctx context.Context, a1 int64) ([]access.Session, error) {
 	s.count(ctx, "SessionsByUserID")
 	return s.next.SessionsByUserID(ctx, a1)
+}
+
+func (s *countingStore) SetRecoveryCode(ctx context.Context, a1 access.RecoveryCode) error {
+	s.count(ctx, "SetRecoveryCode")
+	return s.next.SetRecoveryCode(ctx, a1)
+}
+
+func (s *countingStore) SetSSOMode(ctx context.Context, a1 account.SSOMode) error {
+	s.count(ctx, "SetSSOMode")
+	return s.next.SetSSOMode(ctx, a1)
+}
+
+func (s *countingStore) SetTOTP(ctx context.Context, a1 access.TOTP) error {
+	s.count(ctx, "SetTOTP")
+	return s.next.SetTOTP(ctx, a1)
+}
+
+func (s *countingStore) SetTemporaryPassword(ctx context.Context, a1 access.TemporaryPassword) error {
+	s.count(ctx, "SetTemporaryPassword")
+	return s.next.SetTemporaryPassword(ctx, a1)
+}
+
+func (s *countingStore) TOTPByUserID(ctx context.Context, a1 int64) (access.TOTP, bool, error) {
+	s.count(ctx, "TOTPByUserID")
+	return s.next.TOTPByUserID(ctx, a1)
+}
+
+func (s *countingStore) TemporaryPasswordByUserID(ctx context.Context, a1 int64) (access.TemporaryPassword, bool, error) {
+	s.count(ctx, "TemporaryPasswordByUserID")
+	return s.next.TemporaryPasswordByUserID(ctx, a1)
 }
 
 func (s *countingStore) TouchAPIKey(ctx context.Context, a1 int64, a2 access.Hash, a3 time.Time) error {
@@ -314,4 +379,9 @@ func (s *countingStore) UserByWebAuthnHandle(ctx context.Context, a1 []byte) (*a
 func (s *countingStore) UserCount(ctx context.Context) (int, error) {
 	s.count(ctx, "UserCount")
 	return s.next.UserCount(ctx)
+}
+
+func (s *countingStore) UsersWaiting(ctx context.Context, a1 int) ([]access.User, error) {
+	s.count(ctx, "UsersWaiting")
+	return s.next.UsersWaiting(ctx, a1)
 }

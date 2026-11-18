@@ -19,9 +19,8 @@ import (
 )
 
 // PasswordMinLength is the shortest password [ValidatePasswordLength]
-// accepts, in runes after NFC. A password is always a sole sufficient
-// factor here, so the floor never drops below NIST's 15 (SP 800-63B-4
-// §3.1.1.2).
+// accepts, in runes after NFC. A password is always a sole sufficient factor
+// here, so the floor never drops below NIST's 15 (SP 800-63B-4 §3.1.1.2).
 const PasswordMinLength = 15
 
 // PasswordMaxLength is the longest password [ValidatePasswordLength]
@@ -48,8 +47,10 @@ const contextMinUsernameRunes = 4
 type PasswordRejection string
 
 // The rejections, in PasswordRejections order. This package's validators
-// return the first five; PasswordBreached is for a caller that refuses a
-// password [CheckBreachedPassword] reports breached.
+// return the first five. account produces the last two: PasswordBreached
+// for a password [CheckBreachedPassword] reports breached, and
+// PasswordIsTemporary for a chosen password equal to the temporary password
+// it replaces.
 const (
 	PasswordTooShort              PasswordRejection = "too_short"
 	PasswordTooLong               PasswordRejection = "too_long"
@@ -57,11 +58,12 @@ const (
 	PasswordContainsForbiddenWord PasswordRejection = "contains_forbidden_word"
 	PasswordCommon                PasswordRejection = "common"
 	PasswordBreached              PasswordRejection = "breached"
+	PasswordIsTemporary           PasswordRejection = "is_temporary_password"
 )
 
 // PasswordRejections returns every PasswordRejection, in a stable order.
 func PasswordRejections() []PasswordRejection {
-	return []PasswordRejection{PasswordTooShort, PasswordTooLong, PasswordContainsUsername, PasswordContainsForbiddenWord, PasswordCommon, PasswordBreached}
+	return []PasswordRejection{PasswordTooShort, PasswordTooLong, PasswordContainsUsername, PasswordContainsForbiddenWord, PasswordCommon, PasswordBreached, PasswordIsTemporary}
 }
 
 // PasswordError reports a policy refusal. Min and Max carry the length

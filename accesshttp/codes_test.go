@@ -20,9 +20,9 @@ import (
 	"github.com/cplieger/access/webauthn"
 )
 
-// accountSentinels is §7.2's code table read from its From column: each
-// error an account call returns, with the code the table gives it; code ""
-// is an error the table does not name, a WebAuthn finish's own failure.
+// accountSentinels is the code table: each error an account call
+// returns, with the code classify must give it; code "" is an error the
+// table does not name, a WebAuthn finish's own failure.
 // accesshttp's own refusals and the Authenticator's are boundary cases, and
 // so is webauthn.ErrResponseTooLarge: readCredential refuses a body past
 // webauthn.MaxResponseBytes before account reads it.
@@ -37,11 +37,12 @@ var accountSentinels = []struct {
 	{name: "session_required", err: account.ErrSessionRequired, code: access.CodeSessionRequired},
 	{name: "scope_required", err: account.ErrScopeRequired, code: access.CodeScopeRequired},
 	{name: "policy", err: &account.PolicyError{Op: account.OpCreateUser, Reason: account.ReasonAdminTarget}, code: access.CodeForbidden},
-	{name: "sso_governed", err: account.ErrSSOGoverned, code: access.CodeForbidden},
 	{name: "rate_limited", err: &ratelimit.RefusedError{Dimension: "ip", RetryAfter: time.Second}, code: access.CodeRateLimited},
 	{name: "hash_busy", err: access.ErrHashBusy, code: access.CodeBusy},
 	{name: "backend", err: access.ErrAuthBackend, code: access.CodeUnavailable},
 	{name: "service_closed", err: account.ErrServiceClosed, code: access.CodeUnavailable},
+	{name: "no_owner", err: account.ErrNoOwner, code: access.CodeUnavailable},
+	{name: "not_single_user", err: account.ErrNotSingleUser, code: access.CodeUnavailable},
 	{name: "rules_invalid", err: &account.RulesError{Field: "Breach", Reason: "no client"}, code: access.CodeUnavailable},
 	{name: "ttl_too_long", err: account.ErrTTLTooLong, code: access.CodeBadRequest},
 	{name: "ttl_negative", err: account.ErrTTLNegative, code: access.CodeBadRequest},
@@ -78,6 +79,28 @@ var accountSentinels = []struct {
 	{name: "oidc_stale", err: oidc.ErrStaleAuthentication, code: access.CodeOIDCFailed},
 	{name: "session_gone", err: account.ErrSessionGone, code: access.CodeSessionExpired},
 	{name: "not_found", err: account.ErrNotFound, code: access.CodeNotFound},
+	{name: "code_invalid", err: account.ErrCodeInvalid, code: access.CodeCodeInvalid},
+	{name: "code_refused", err: &account.CodeError{Reason: account.ReasonCodeReused}, code: access.CodeCodeInvalid},
+	{name: "code_malformed", err: &account.MalformedError{Field: "code"}, code: access.CodeBadRequest},
+	{name: "code_malformed_sentinel", err: account.ErrCodeMalformed, code: access.CodeBadRequest},
+	{name: "proof_required", err: account.ErrSecondFactorProofRequired, code: access.CodeBadRequest},
+	{name: "last_second_factor", err: account.ErrLastSecondFactor, code: access.CodeLastMethod},
+	{name: "second_factor_held", err: account.ErrSecondFactorHeld, code: access.CodeSecondFactorRequired},
+	{name: "password_required", err: account.ErrPasswordRequired, code: access.CodeForbidden},
+	{name: "second_factor_required", err: account.ErrSecondFactorRequired, code: access.CodeSecondFactorRequired},
+	{name: "enrol_needs_known_device", err: account.ErrEnrolNeedsKnownDevice, code: access.CodeSecondFactorRequired},
+	{name: "enable_without_second_factor", err: account.ErrEnableWithoutSecondFactor, code: access.CodeSecondFactorRequired},
+	{name: "no_usable_method", err: account.ErrNoUsableMethod, code: access.CodeForbidden},
+	{name: "second_factor_unavailable", err: account.ErrSecondFactorUnavailable, code: access.CodeSecondFactorUnavailable},
+	{name: "totp_disabled", err: account.ErrTOTPDisabled, code: access.CodeTOTPDisabled},
+	{name: "registration_closed", err: account.ErrRegistrationClosed, code: access.CodeRegistrationClosed},
+	{name: "registration_full", err: account.ErrRegistrationFull, code: access.CodeRegistrationFull},
+	{name: "sso_only", err: account.ErrSSOOnly, code: access.CodeSSOOnly},
+	{name: "sso_linked", err: account.ErrSSOLinked, code: access.CodeSSOOnly},
+	{name: "temporary_password_exposed", err: account.ErrTemporaryPasswordExposed, code: access.CodeHTTPSRequired},
+	{name: "unknown_sso_mode", err: account.ErrUnknownSSOMode, code: access.CodeBadRequest},
+	{name: "not_admitted", err: account.ErrNotAdmitted, code: access.CodeForbidden},
+	{name: "provisioning_disabled", err: account.ErrProvisioningDisabled, code: access.CodeForbidden},
 }
 
 // finishFailure is §7.2's code for a WebAuthn finish failure the table does
@@ -87,7 +110,7 @@ var finishFailure = map[ceremony]access.Code{ceremonyAssertion: access.CodeAsser
 // TestAccountSentinelsCoverAccount parses account's non-test files for its
 // exported Err* values and the types whose Is method matches one, and this
 // file for accountSentinels' rows. Each Err* has a row, as itself or as a
-// type matching it, whose §7.2 code classify gives, so a new account
+// type matching it, with the code classify gives it, so a new account
 // sentinel cannot reach the census unlisted and answer auth_unavailable.
 func TestAccountSentinelsCoverAccount(t *testing.T) {
 	t.Parallel()
@@ -180,7 +203,7 @@ func TestAccountSentinelsCoverAccount(t *testing.T) {
 		}
 		row := accountSentinels[i]
 		if !slices.Contains(access.Codes(), row.code) {
-			t.Errorf("account.%s: row %s names code %q, not a §7.2 code", name, row.name, row.code)
+			t.Errorf("account.%s: row %s names code %q, not one of access.Codes()", name, row.name, row.code)
 			continue
 		}
 		if e, ok := classify(row.err, ceremonyNone); !ok || e.Code != row.code {
@@ -202,18 +225,36 @@ func accountSelector(e ast.Expr) (string, bool) {
 // ErrorWriter or a redirect's auth_error, and the contract breaks it logged.
 func (e *env) answer(t *testing.T, rt Route, r *http.Request) (code access.Code, breaks int) {
 	t.Helper()
+	got, _, breaks := e.refusalOf(t, rt, r)
+	return got.Code, breaks
+}
+
+// refusalOf serves r and returns the refusal it answered, whose Reason only
+// the ErrorWriter sees: a redirect carries the code alone.
+func (e *env) refusalOf(t *testing.T, rt Route, r *http.Request) (got access.Error, redirected bool, breaks int) {
+	t.Helper()
 	errsBefore, breaksBefore := len(e.errs.all()), e.logs.CountMsg("contract break")
 	w := do(rt, r)
 	errs := e.errs.all()[errsBefore:]
 	breaks = e.logs.CountMsg("contract break") - breaksBefore
 	switch {
 	case len(errs) == 1:
-		return errs[0].Code, breaks
+		return errs[0], false, breaks
 	case len(errs) == 0 && w.Code == http.StatusFound:
-		return redirectedCode(t, w), breaks
+		return access.Error{Code: redirectedCode(t, w)}, true, breaks
 	default:
 		t.Errorf("status %d with %d ErrorWriter calls, want one refusal", w.Code, len(errs))
-		return "", breaks
+		return access.Error{}, false, breaks
+	}
+}
+
+// checkReason fails t when e's Reason is not one rt's answers give its
+// code.
+func checkReason(t *testing.T, rt *Route, e access.Error) {
+	t.Helper()
+	rs := specNamed(t, rt.Name).answers(rt.Class).reasons()[e.Code]
+	if !rs.admits(e.Code, e.Reason) {
+		t.Errorf("answered %s with reason %q, which its answers (listed %q, open %t) do not give", e.Code, e.Reason, rs.listed, rs.open)
 	}
 }
 
@@ -227,11 +268,15 @@ type boundaryCase struct {
 }
 
 // run serves the case and returns the code it answered and the contract
-// breaks it logged.
+// breaks it logged, failing t on a Reason its route's answers do not give.
 func (bc *boundaryCase) run(t *testing.T) (got access.Code, breaks int) {
 	t.Helper()
 	e, rt, r := bc.build(t)
-	return e.answer(t, rt, r)
+	refusal, redirected, breaks := e.refusalOf(t, rt, r)
+	if !redirected && breaks == 0 {
+		checkReason(t, &rt, refusal)
+	}
+	return refusal.Code, breaks
 }
 
 // boundaryCases are rt's guard cases, one per census and fault principal
@@ -306,6 +351,9 @@ func (c *census) boundaryCases(t *testing.T, rt Route) []boundaryCase {
 			e.useIdP(t, accesstest.IdPOptions{}, nil)
 			e.spendRequest(t)
 			lrt := e.route(t, rt.Name)
+			if lrt.Method != http.MethodGet {
+				return e, lrt, request(lrt, censusBody(t, lrt))
+			}
 			return e, lrt, get(lrt, "")
 		}})
 	}
@@ -331,9 +379,6 @@ func bodyLimit(s *routeSpec) int {
 func (c *census) passing(t *testing.T, rt Route) *censusPrincipal {
 	t.Helper()
 	name := "recent_session"
-	if rt.Class == ClassRecovery {
-		name = "recovery_session"
-	}
 	p := c.principal(t, name)
 	if want := p.guardAnswer(&rt.Descriptor); want != "" {
 		t.Fatalf("%s's guard refuses %s with %s", rt.Name, name, want)
@@ -341,7 +386,7 @@ func (c *census) passing(t *testing.T, rt Route) *censusPrincipal {
 	return p
 }
 
-// TestDescriptorCodes is §9.5 "Per-route codes" over the fake account,
+// TestDescriptorCodes is the per-route code check over the fake account,
 // under the key scopes all empty and all set: every route answers its
 // boundary cases with their codes, every bypass principal it refuses, and,
 // on a principal its guard admits, its account call answering each
@@ -432,7 +477,7 @@ func (c *census) sweepSentinels(t *testing.T, rt Route, answered map[access.Code
 	}
 }
 
-// TestDescriptorCodesReached is §9.5 "Per-route codes" over the real
+// TestDescriptorCodesReached is the per-route code check over the real
 // Service: every route's boundary cases, generated per class and route
 // shape, and the operation scenarios written with its handler, hold one
 // scenario per code its Codes lists under the key scopes all empty and all
@@ -481,7 +526,7 @@ func TestDescriptorCodesReached(t *testing.T) {
 		}
 		for i := range specs {
 			route := specs[i].name
-			if got, want := inCodesOrder(byRoute[route]), inCodesOrder(opCodes[specs[i].op]); !slices.Equal(got, want) {
+			if got, want := inCodesOrder(byRoute[route]), opAnswers[specs[i].op].codes(); !slices.Equal(got, want) {
 				t.Errorf("%s: scenario codes %v, operation codes %v", route, got, want)
 			}
 			delete(byRoute, route)
@@ -517,6 +562,9 @@ func runScenario(t *testing.T, route string, code access.Code, sc scenario) {
 		}
 	} else if len(errs) != 1 || errs[0].Code != code || w.Code != access.NewError(code, "", nil).Status {
 		t.Errorf("status %d, errors %+v, want one %s", w.Code, errs, code)
+	} else {
+		rt := e.route(t, route)
+		checkReason(t, &rt, errs[0])
 	}
 	if n := e.logs.CountMsg("contract break") - breaksBefore; n != 0 {
 		t.Errorf("%d contract-break logs, want none", n)

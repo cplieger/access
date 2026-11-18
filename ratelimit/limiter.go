@@ -1,7 +1,7 @@
 // Package ratelimit admits authentication attempts against sliding windows
 // of failures per IP key, per account and per trusted device, and counts
-// requests on anonymous begin routes per IP key. What it guarantees is a
-// bound on failed attempts, and on begin-route requests, per window, per
+// requests on anonymous routes per IP key. What it guarantees is a bound
+// on failed attempts, and on those requests, per window, per
 // key, under the key rules of IPKey and AccountKey, for the
 // Config.MaxEntries keys each dimension used most recently; its windows
 // live in memory and reset on restart.
@@ -46,7 +46,7 @@ type Config struct {
 	Account Rate
 	// Device bounds failures per account and device cookie.
 	Device Rate
-	// Request bounds every request on an anonymous begin route per IP key.
+	// Request bounds the requests on anonymous routes per IP key.
 	Request Rate
 	// IPv6Prefix is the IPv6 prefix length one IP key covers, 48 to 128.
 	IPv6Prefix int
@@ -88,7 +88,9 @@ var (
 
 // RefusedError is a refused Attempt or Request. Dimension is "ip",
 // "account", "device" or "request", whichever waits longest, and RetryAfter
-// is exactly how long until that key's oldest live entry ages out.
+// is exactly how long until that key's oldest live entry ages out. Another
+// package may refuse with a dimension of its own and the same RetryAfter
+// rule, as account does for a full table of in-flight entries.
 type RefusedError struct {
 	Dimension  string
 	RetryAfter time.Duration
@@ -152,7 +154,7 @@ type Limiter struct {
 	maxEntries int
 	lastID     uint64
 	mu         sync.Mutex // guards ip, account, device, lastID and each Reservation's settled
-	// requestMu guards request alone, so a flood of begin-route requests
+	// requestMu guards request alone, so a flood of Request calls
 	// never queues sign-in admission behind its evictions.
 	requestMu sync.Mutex
 }
@@ -225,7 +227,7 @@ func (l *Limiter) Attempt(a Attempt) (*Reservation, error) {
 	r := &Reservation{l: l, ip: a.IP.bucket(l.ipv6Prefix), account: a.Account, ipOmitted: a.OmitIP}
 	if !a.Account.isZero() {
 		r.device.acct = a.Account
-		r.device.id, r.trusted = l.openDevice(a.Account, a.Device, l.now())
+		r.device.id, r.known, r.trusted = l.openDevice(a.Account, a.Device, l.now())
 	}
 	if err := l.reserve(r); err != nil {
 		return nil, err
@@ -272,7 +274,7 @@ func (l *Limiter) reserve(r *Reservation) error {
 	return nil
 }
 
-// Request counts one call on an anonymous begin route, refusing with
+// Request counts one call on an anonymous route, refusing with
 // *RefusedError when ip's request window is full. A refused call is not
 // counted.
 func (l *Limiter) Request(ip IP) error {

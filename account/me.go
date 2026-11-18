@@ -8,7 +8,7 @@ import (
 )
 
 // Me returns p's own view: the user as stored, its sign-in methods with
-// their failure-cap locks, whether single sign-on governs them, and p's
+// their failure-cap locks, whether the SSO mode keeps them dormant, and p's
 // session with the deadlines p was verified under. Only a full session may
 // call it (ErrSessionRequired); a user deleted since p was verified is
 // ErrSessionGone. It writes nothing.
@@ -41,11 +41,16 @@ func (s *Service) meIn(ctx context.Context, tx Tx, r Rules, u *access.User, p ac
 	if err != nil {
 		return Me{}, err
 	}
+	mode, err := storedMode(ctx, tx)
+	if err != nil {
+		return Me{}, err
+	}
 	return Me{
 		User:        u,
 		Methods:     m,
 		CanLinkOIDC: m.OIDCAvailable && !m.OIDCLinked,
-		SSOGoverned: r.SSOGoverned && m.OIDCLinked,
+		SingleUser:  s.singleUser,
+		SSOOnly:     mode.dormantFor(u),
 		Current: CurrentSession{
 			ID: p.SessionID, Method: p.Method, AuthTime: p.AuthTime,
 			IdleDeadline: p.IdleDeadline, AbsoluteDeadline: p.AbsoluteDeadline, Secure: p.Secure,
@@ -54,20 +59,43 @@ func (s *Service) meIn(ctx context.Context, tx Tx, r Rules, u *access.User, p ac
 }
 
 // methods is what u can sign in with under r, read from tx (the store
-// itself for single calls): its passkey count and the locks of its failure
-// records. A read error is returned as it is.
+// itself for single calls): its passkey count, its TOTP record and recovery
+// code, whether it
+// holds a second factor and may step up by password, and the locks of its
+// failure records.
+// A read error is returned as it is.
 func (s *Service) methods(ctx context.Context, tx Tx, r Rules, u *access.User) (Methods, error) { //nolint:gocritic // hugeParam: the operation's one Rules value
 	passkeys, err := tx.PasskeysByUserID(ctx, u.ID)
 	if err != nil {
 		return Methods{}, err
 	}
+	held, err := s.secondFactorHeld(ctx, tx, r, u)
+	if err != nil {
+		return Methods{}, err
+	}
+	mode, err := storedMode(ctx, tx)
+	if err != nil {
+		return Methods{}, err
+	}
+	totpState, err := s.totpState(ctx, tx, r, u)
+	if err != nil {
+		return Methods{}, err
+	}
+	_, recoveryCode, err := tx.RecoveryCodeByUserID(ctx, u.ID)
+	if err != nil {
+		return Methods{}, err
+	}
 	m := Methods{
+		TOTP:              totpState,
 		PasskeyCount:      len(passkeys),
 		HasPassword:       !u.PasswordHash.IsZero(),
 		OIDCLinked:        !u.OIDC.IsZero(),
 		OIDCAvailable:     s.provider() != nil,
 		PasskeysAvailable: s.passkeysAvailable(),
 		PasswordLogin:     !r.DisablePasswordLogin,
+		RecoveryCode:      recoveryCode,
+		SecondFactorHeld:  held,
+		PasswordStepUp:    !held && !r.DisablePasswordLogin && !u.PasswordHash.IsZero() && !mode.dormantFor(u),
 	}
 	name := failureName(s.failureMAC(), u.Username)
 	for _, method := range countedMethods {
@@ -80,6 +108,17 @@ func (s *Service) methods(ctx context.Context, tx Tx, r Rules, u *access.User) (
 		}
 	}
 	return m, nil
+}
+
+// totpState is u's TOTP record as its own view reads it through tx.
+func (s *Service) totpState(ctx context.Context, tx Tx, r Rules, u *access.User) (TOTPState, error) { //nolint:gocritic // hugeParam: the operation's one Rules value
+	rec, found, err := tx.TOTPByUserID(ctx, u.ID)
+	if err != nil || !found {
+		return TOTPState{}, err
+	}
+	st := TOTPState{Since: rec.CreatedAt, Enrolled: true, Usable: s.totpOn(r)}
+	st.Removable, err = s.removable(ctx, tx, r, u, credential{method: access.MethodTOTP})
+	return st, err
 }
 
 // lockOf reads from tx which trust contexts of name's method records are

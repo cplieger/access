@@ -1,13 +1,13 @@
 package oidc
 
 import (
-	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -62,6 +62,10 @@ func TestConfigValidate(t *testing.T) {
 		"scopes without openid":      func(c *Config) { c.Scopes = []string{"email"} },
 		"empty scopes":               func(c *Config) { c.Scopes = []string{} },
 		"negative timeout":           func(c *Config) { c.HTTPClient = &http.Client{Timeout: -time.Second} },
+		// The largest flow cookie must fit (RFC 6265bis §5.6).
+		"client ID past the flow cookie":    func(c *Config) { c.ClientID = strings.Repeat("c", 4096) },
+		"redirect URL past the flow cookie": func(c *Config) { c.RedirectURL = "https://app.example/" + strings.Repeat("a", 3000) },
+		"issuer past the flow cookie":       func(c *Config) { c.IssuerURL = "https://idp.example/" + strings.Repeat("i", 3000) },
 	}
 	for name, mod := range refused {
 		c := valid
@@ -88,7 +92,7 @@ func TestFlowFrame(t *testing.T) {
 	t.Run("round_trip", func(t *testing.T) {
 		t.Parallel()
 		rapid.Check(t, func(t *rapid.T) {
-			intent := rapid.SampledFrom([]Intent{IntentSignIn, IntentLink, IntentStepUp}).Draw(t, "intent")
+			intent := rapid.SampledFrom([]Intent{IntentSignIn, IntentLink, IntentStepUp, IntentInvite}).Draw(t, "intent")
 			s := flowState{
 				state:       rapid.String().Draw(t, "state"),
 				nonce:       rapid.String().Draw(t, "nonce"),
@@ -102,15 +106,18 @@ func TestFlowFrame(t *testing.T) {
 					BeganAt:  time.UnixMilli(rapid.Int64().Draw(t, "beganAt")),
 				},
 			}
-			if intent != IntentSignIn {
+			switch intent {
+			case IntentLink, IntentStepUp:
 				s.flow.SessionID = rapid.StringN(1, -1, maxSessionIDBytes).Draw(t, "sessionID")
 				s.flow.UserID = rapid.Int64Range(1, math.MaxInt64).Draw(t, "userID")
+			case IntentInvite:
+				s.flow.InviteHash = rapid.SliceOfN(rapid.Byte(), 1, MaxInviteHashBytes).Draw(t, "inviteHash")
 			}
 			got, ok := decodeFlowState(s.encode())
 			if !ok {
 				t.Fatalf("decodeFlowState(encode(%+v)) refused", s)
 			}
-			if got != s {
+			if !reflect.DeepEqual(got, s) {
 				t.Fatalf("decodeFlowState(encode(s)) = %+v, want %+v", got, s)
 			}
 		})
@@ -135,13 +142,20 @@ func TestFlowFrame(t *testing.T) {
 		}
 		cases := map[string][]byte{
 			"trailing byte": append(slices.Clone(frame), 0),
-			"version 2":     append([]byte{2}, frame[1:]...),
+			"version 3":     append([]byte{3}, frame[1:]...),
+			"version 1":     version1Frame(&good),
 		}
+		hash := []byte(strings.Repeat("ab", MaxInviteHashBytes/2))
 		for name, mod := range map[string]func(*flowState){
-			"unknown intent":      func(s *flowState) { s.flow.Intent = "admin" },
-			"step-up no session":  func(s *flowState) { s.flow.SessionID = "" },
-			"step-up no user":     func(s *flowState) { s.flow.UserID = 0 },
-			"sign-in with a user": func(s *flowState) { s.flow.Intent = IntentSignIn },
+			"unknown intent":          func(s *flowState) { s.flow.Intent = "admin" },
+			"step-up no session":      func(s *flowState) { s.flow.SessionID = "" },
+			"step-up no user":         func(s *flowState) { s.flow.UserID = 0 },
+			"sign-in with a user":     func(s *flowState) { s.flow.Intent = IntentSignIn },
+			"step-up with a hash":     func(s *flowState) { s.flow.InviteHash = hash },
+			"sign-in with a hash":     func(s *flowState) { s.flow = Flow{Intent: IntentSignIn, InviteHash: hash} },
+			"invite without a hash":   func(s *flowState) { s.flow = Flow{Intent: IntentInvite} },
+			"invite with a session":   func(s *flowState) { s.flow.Intent, s.flow.InviteHash = IntentInvite, hash },
+			"invite with a long hash": func(s *flowState) { s.flow = Flow{Intent: IntentInvite, InviteHash: append(hash, 'f')} },
 		} {
 			s := sampleFlowState()
 			mod(&s)
@@ -161,134 +175,20 @@ func TestFlowFrame(t *testing.T) {
 	})
 }
 
-// stubTransport answers every request with its body and declared length.
-type stubTransport struct {
-	body   []byte
-	length int64
-}
-
-func (s stubTransport) RoundTrip(*http.Request) (*http.Response, error) {
-	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(s.body)), ContentLength: s.length}, nil
-}
-
-type stalledTransport struct{}
-
-func (stalledTransport) RoundTrip(*http.Request) (*http.Response, error) {
-	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(&stalledBody{left: maxResponseBytes}), ContentLength: -1}, nil
-}
-
-type stalledBody struct{ left int }
-
-func (s *stalledBody) Read(p []byte) (int, error) {
-	n := min(len(p), s.left)
-	s.left -= n
-	return n, nil
-}
-
-// countingBody counts the bytes read through the cap from the body below it.
-type countingBody struct {
-	io.ReadCloser
-	n *int64
-}
-
-func (c countingBody) Read(p []byte) (int, error) {
-	n, err := c.ReadCloser.Read(p)
-	*c.n += int64(n)
-	return n, err
-}
-
-func TestCappedTransport(t *testing.T) {
-	t.Parallel()
-	// open returns a body through the cap and the count of bytes the cap has
-	// pulled from the body below it.
-	open := func(t *testing.T, body []byte, length int64) (io.ReadCloser, *int64) {
-		t.Helper()
-		resp, err := cappedTransport{next: stubTransport{body: body, length: length}}.RoundTrip(&http.Request{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = resp.Body.Close() })
-		pulled := new(int64)
-		capped := resp.Body.(*cappedBody)
-		capped.rc = countingBody{ReadCloser: capped.rc, n: pulled}
-		return capped, pulled
+// version1Frame is s in the frame before the invite hash: version byte 1
+// and no trailing hash field, which a provider must refuse once the frame
+// moved, so a flow begun under the old layout fails closed.
+func version1Frame(s *flowState) []byte {
+	b := []byte{1}
+	for _, v := range []string{s.state, s.nonce, s.verifier, string(s.flow.Intent), s.flow.SessionID} {
+		b = appendString(b, v)
 	}
-	// get reads a body through the cap, under a consumer's own 1 MiB limit
-	// when limited (cappedBody.Read).
-	get := func(t *testing.T, body []byte, length int64, limited bool) (got []byte, pulled int64, err error) {
-		t.Helper()
-		rc, n := open(t, body, length)
-		var r io.Reader = rc
-		if limited {
-			r = io.LimitReader(r, maxResponseBytes)
-		}
-		got, err = io.ReadAll(r)
-		return got, *n, err
+	b = binary.AppendUvarint(b, uint64(s.flow.UserID))
+	b = binary.BigEndian.AppendUint64(b, uint64(s.flow.BeganAt.UnixMilli()))
+	for _, v := range []string{s.flow.Redirect, s.issuer, s.clientID, s.redirectURL} {
+		b = appendString(b, v)
 	}
-	big := bytes.Repeat([]byte{'x'}, 2<<20)
-	for _, tc := range []struct {
-		name    string
-		length  int64
-		limited bool
-	}{
-		{name: "declared_over_cap", length: int64(len(big))},
-		{name: "undeclared_over_cap", length: -1},
-		{name: "declared_over_cap_under_consumer_limit", length: int64(len(big)), limited: true},
-		{name: "undeclared_over_cap_under_consumer_limit", length: -1, limited: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got, pulled, err := get(t, big, tc.length, tc.limited)
-			if !errors.Is(err, errResponseTooLarge) {
-				t.Errorf("reading a 2 MiB body = %v, want errResponseTooLarge", err)
-			}
-			if len(got) > maxResponseBytes {
-				t.Errorf("handed out %d bytes, want at most %d", len(got), maxResponseBytes)
-			}
-			if pulled > maxResponseBytes+1 {
-				t.Errorf("pulled %d bytes from the transport, want at most %d", pulled, maxResponseBytes+1)
-			}
-		})
-	}
-	t.Run("empty_reads_at_cap_under_consumer_limit", func(t *testing.T) {
-		t.Parallel()
-		resp, err := cappedTransport{next: stalledTransport{}}.RoundTrip(&http.Request{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		if _, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes)); !errors.Is(err, io.ErrNoProgress) {
-			t.Errorf("a body that answers nothing at the cap = %v, want io.ErrNoProgress", err)
-		}
-	})
-	t.Run("verdict_sticky", func(t *testing.T) {
-		t.Parallel()
-		for _, size := range []int{maxResponseBytes + 1, maxResponseBytes + 3} {
-			body, pulled := open(t, big[:size], -1)
-			if _, err := io.ReadAll(body); !errors.Is(err, errResponseTooLarge) {
-				t.Fatalf("reading a %d-byte body = %v, want errResponseTooLarge", size, err)
-			}
-			for i := range 3 {
-				if n, err := body.Read(make([]byte, 8)); n != 0 || !errors.Is(err, errResponseTooLarge) {
-					t.Errorf("a %d-byte body, read %d after the refusal = %d, %v; want 0, errResponseTooLarge", size, i+1, n, err)
-				}
-			}
-			if *pulled != maxResponseBytes+1 {
-				t.Errorf("a %d-byte body: pulled %d bytes from the transport, want %d", size, *pulled, maxResponseBytes+1)
-			}
-		}
-	})
-	t.Run("at_cap", func(t *testing.T) {
-		t.Parallel()
-		for _, length := range []int64{maxResponseBytes, -1} {
-			for _, limited := range []bool{false, true} {
-				got, _, err := get(t, big[:maxResponseBytes], length, limited)
-				if err != nil || len(got) != maxResponseBytes {
-					t.Errorf("a 1 MiB body declared %d, limited %t: read %d bytes, %v; want all of it", length, limited, len(got), err)
-				}
-			}
-		}
-	})
+	return b
 }
 
 func TestClaimsStrings(t *testing.T) {
@@ -344,70 +244,6 @@ func TestUsernameCandidate(t *testing.T) {
 	}
 }
 
-func TestProvisioningAdmit(t *testing.T) {
-	t.Parallel()
-	groups := func(v string) Claims { return Claims{Raw: map[string]json.RawMessage{"groups": json.RawMessage(v)}} }
-	gate := Provisioning{Enabled: true, Claim: "groups", AllowedValues: []string{"staff", "admins"}}
-	t.Run("validate", func(t *testing.T) {
-		t.Parallel()
-		for name, p := range map[string]Provisioning{
-			"claim without values":  {Enabled: true, Claim: "groups"},
-			"values without claim":  {Enabled: true, AllowedValues: []string{"staff"}},
-			"unknown role":          {Enabled: true, Role: "owner"},
-			"disabled, still wrong": {Claim: "groups"},
-		} {
-			if err := p.Validate(); !errors.Is(err, ErrConfigInvalid) {
-				t.Errorf("%s: Validate() = %v, want ErrConfigInvalid", name, err)
-			}
-		}
-		for name, p := range map[string]Provisioning{
-			"zero": {}, "any identity": {Enabled: true}, "gate": gate,
-			"user role": {Enabled: true, Role: access.RoleUser}, "admin role": {Enabled: true, Role: access.RoleAdmin},
-		} {
-			if err := p.Validate(); err != nil {
-				t.Errorf("%s: Validate() = %v, want nil", name, err)
-			}
-		}
-	})
-	t.Run("admit", func(t *testing.T) {
-		t.Parallel()
-		if err := (Provisioning{}).Admit(groups(`"staff"`)); !errors.Is(err, ErrProvisioningDisabled) {
-			t.Errorf("zero Provisioning: Admit = %v, want ErrProvisioningDisabled", err)
-		}
-		if err := (Provisioning{Enabled: true, Claim: "groups"}).Admit(groups(`"staff"`)); !errors.Is(err, ErrConfigInvalid) {
-			t.Errorf("a claim with no AllowedValues: Admit = %v, want ErrConfigInvalid", err)
-		}
-		if err := (Provisioning{Enabled: true, AllowedValues: []string{"staff"}}).Admit(groups(`"x"`)); !errors.Is(err, ErrConfigInvalid) {
-			t.Errorf("AllowedValues with no claim: Admit = %v, want ErrConfigInvalid", err)
-		}
-		if err := (Provisioning{Enabled: true}).Admit(Claims{}); err != nil {
-			t.Errorf("no claim gate: Admit = %v, want nil", err)
-		}
-		for name, c := range map[string]Claims{
-			"string":        groups(`"admins"`),
-			"array":         groups(`["guests","staff"]`),
-			"array of many": groups(`["staff","admins"]`),
-		} {
-			if err := gate.Admit(c); err != nil {
-				t.Errorf("%s: Admit = %v, want nil", name, err)
-			}
-		}
-		for name, c := range map[string]Claims{
-			"missing claim":  {},
-			"other string":   groups(`"guests"`),
-			"other array":    groups(`["guests","users"]`),
-			"empty array":    groups(`[]`),
-			"wrong case":     groups(`"Staff"`),
-			"number":         groups(`7`),
-			"array with num": groups(`["guests",7,"staff"]`),
-		} {
-			if err := gate.Admit(c); !errors.Is(err, ErrNotAdmitted) {
-				t.Errorf("%s: Admit = %v, want ErrNotAdmitted", name, err)
-			}
-		}
-	})
-}
-
 func TestProviderError(t *testing.T) {
 	t.Parallel()
 	for _, code := range providerErrorCodes {
@@ -434,7 +270,7 @@ func TestNewProviderRefusesAFlowThatCannotFit(t *testing.T) {
 		_, err := NewProvider(t.Context(), Config{IssuerURL: "http://127.0.0.1:1", ClientID: clientID, RedirectURL: "http://127.0.0.1:1/cb"})
 		return err
 	}
-	if err := newWith("client"); !errors.Is(err, ErrDiscovery) {
+	if err := newWith("client"); !errors.Is(err, ErrDiscovery) || errors.Is(err, ErrProviderInvalid) {
 		t.Errorf("NewProvider with a short client ID = %v, want ErrDiscovery from the unreachable issuer", err)
 	}
 	if err := newWith(strings.Repeat("c", access.MaxSealPayload)); !errors.Is(err, ErrConfigInvalid) || !errors.Is(err, access.ErrSealTooLarge) {
@@ -448,10 +284,56 @@ func TestNewProviderRefusesAFlowThatCannotFit(t *testing.T) {
 	}
 }
 
+// TestValidateSizesTheFlow: Validate refuses, with no
+// network, every config whose largest flow cookie would not fit, so
+// NewProvider refuses nothing Validate accepted on the cookie's account. The
+// size is the same with the ephemeral sealer Validate fills in and with an
+// app's own, since a sealed value's length depends only on the payload's.
+func TestValidateSizesTheFlow(t *testing.T) {
+	t.Parallel()
+	appSealer, err := access.NewSealer(access.GenerateSealerKey(), access.GenerateSealerKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := func() time.Time { return time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC) }
+	configWith := func(clientID string, own bool) Config {
+		c := Config{IssuerURL: "http://127.0.0.1:1", ClientID: clientID, RedirectURL: "http://127.0.0.1:1/cb"}
+		if own {
+			c.FlowSealer, c.Now = appSealer, clock
+		}
+		return c
+	}
+	longest := func(own bool) int {
+		return sort.Search(access.MaxSealPayload, func(n int) bool {
+			return configWith(strings.Repeat("c", n), own).Validate() != nil
+		}) - 1
+	}
+	filled, own := longest(false), longest(true)
+	if filled != own {
+		t.Errorf("the longest client ID Validate accepts is %d bytes with the ephemeral sealer and %d with the app's, want them equal", filled, own)
+	}
+	for _, withOwn := range []bool{false, true} {
+		fits := configWith(strings.Repeat("c", filled), withOwn)
+		if err := fits.Validate(); err != nil {
+			t.Errorf("own sealer %t: Validate of the longest that fits = %v, want nil", withOwn, err)
+		}
+		if _, err := NewProvider(t.Context(), fits); !errors.Is(err, ErrDiscovery) {
+			t.Errorf("own sealer %t: NewProvider of the longest that fits = %v, want ErrDiscovery from the unreachable issuer", withOwn, err)
+		}
+		over := configWith(strings.Repeat("c", filled+1), withOwn)
+		if err := over.Validate(); !errors.Is(err, ErrConfigInvalid) {
+			t.Errorf("own sealer %t: Validate one byte past the longest = %v, want ErrConfigInvalid", withOwn, err)
+		}
+		if _, err := NewProvider(t.Context(), over); !errors.Is(err, ErrConfigInvalid) {
+			t.Errorf("own sealer %t: NewProvider one byte past the longest = %v, want ErrConfigInvalid", withOwn, err)
+		}
+	}
+}
+
 // TestBeginFitsTheFlowNewProviderSized is Begin's largest flow, under the
 // longest client ID checkFlowFits accepts and the longest session cookie
-// Name, setting a flow cookie whose name and value fit 4096 bytes (RFC
-// 6265bis section 5.6).
+// Name, setting a flow cookie whose name and value fit 4096 bytes
+// (RFC 6265bis section 5.6).
 func TestBeginFitsTheFlowNewProviderSized(t *testing.T) {
 	t.Parallel()
 	configWith := func(clientID string) Config {
@@ -463,17 +345,37 @@ func TestBeginFitsTheFlowNewProviderSized(t *testing.T) {
 	}) - 1
 	p := &Provider{cfg: configWith(strings.Repeat("c", longest))}
 	session := access.CookieConfig{Name: strings.Repeat("n", access.MaxCookieNameBytes)}
-	req := BeginRequest{Intent: IntentStepUp, SessionID: strings.Repeat("f", maxSessionIDBytes), UserID: math.MaxInt64, Redirect: "/" + strings.Repeat("a", MaxRedirectBytes-1)}
-	rec := httptest.NewRecorder()
-	if _, err := p.Begin(rec, httptest.NewRequest(http.MethodPost, "https://app.example/auth/start", nil), session, req); err != nil {
-		t.Fatalf("Begin under a %d-byte client ID: %v", longest, err)
+	redirect := "/" + strings.Repeat("a", MaxRedirectBytes-1)
+	for name, req := range map[string]BeginRequest{
+		"step_up": {Intent: IntentStepUp, SessionID: strings.Repeat("f", maxSessionIDBytes), UserID: math.MaxInt64, Redirect: redirect},
+		"invite":  {Intent: IntentInvite, InviteHash: []byte(strings.Repeat("f", MaxInviteHashBytes)), Redirect: redirect},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			if _, err := p.Begin(rec, httptest.NewRequest(http.MethodPost, "https://app.example/auth/start", nil), session, req); err != nil {
+				t.Fatalf("Begin under a %d-byte client ID: %v", longest, err)
+			}
+			set := rec.Result().Cookies()
+			if len(set) != 1 {
+				t.Fatalf("Begin set %d cookies, want the flow cookie alone", len(set))
+			}
+			if n := len(set[0].Name) + len(set[0].Value); n > 4096 {
+				t.Errorf("Begin under a %d-byte client ID set a %d-byte flow cookie name and value, want at most 4096", longest, n)
+			}
+		})
 	}
-	set := rec.Result().Cookies()
-	if len(set) != 1 {
-		t.Fatalf("Begin set %d cookies, want the flow cookie alone", len(set))
-	}
-	if n := len(set[0].Name) + len(set[0].Value); n > 4096 {
-		t.Errorf("Begin under a %d-byte client ID set a %d-byte flow cookie name and value, want at most 4096", longest, n)
+}
+
+// TestBeginRequestInviteHash is BeginRequest.check's invite arm: a hash of
+// 1 to MaxInviteHashBytes bytes, and no session or user.
+func TestBeginRequestInviteHash(t *testing.T) {
+	t.Parallel()
+	for n, ok := range map[int]bool{0: false, 1: true, MaxInviteHashBytes: true, MaxInviteHashBytes + 1: false} {
+		req := BeginRequest{Intent: IntentInvite, InviteHash: make([]byte, n)}
+		if err := req.check(); (err == nil) != ok || err != nil && !errors.Is(err, ErrFlowInvalid) {
+			t.Errorf("check() of a %d-byte invite hash = %v, want ok %t, else ErrFlowInvalid", n, err, ok)
+		}
 	}
 }
 

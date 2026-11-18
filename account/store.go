@@ -22,10 +22,14 @@ type UserStore interface {
 	// UpdateUser errors: ErrNotFound, ErrUsernameTaken, ErrOIDCIdentityTaken.
 	UpdateUser(ctx context.Context, user *access.User) error
 	// DeleteUser removes the user and, in the same transaction, every
-	// session, passkey, key and token whose Subject is the user, and every
-	// KeyAttribution whose UserID is the user. ErrNotFound when no user has id.
+	// session, passkey and key of the user, every KeyAttribution whose
+	// UserID is the user, and the user's TOTP, RecoveryCode and
+	// TemporaryPassword. ErrNotFound when no user has id.
 	DeleteUser(ctx context.Context, id int64) error
 	UserCount(ctx context.Context) (int, error)
+	// UsersWaiting returns at most limit users whose WaitingApproval is
+	// set, oldest CreatedAt first and equal times in ascending ID (rule 25).
+	UsersWaiting(ctx context.Context, limit int) ([]access.User, error)
 }
 
 // SessionStore holds the session records.
@@ -111,14 +115,48 @@ type TokenStore interface {
 	// ConsumeOneTimeToken reads and deletes in one step. An expired token is
 	// deleted and reported as not found.
 	ConsumeOneTimeToken(ctx context.Context, hash access.Hash, now time.Time) (tok access.OneTimeToken, found bool, err error)
-	DeleteOneTimeTokens(ctx context.Context, purpose access.TokenPurpose, subject int64) (int, error)
+	DeleteOneTimeTokens(ctx context.Context, purpose access.TokenPurpose) (int, error)
 	// LiveOneTimeTokens returns every token whose Purpose is in purposes
 	// and whose ExpiresAt is after now, in any order.
 	LiveOneTimeTokens(ctx context.Context, purposes []access.TokenPurpose, now time.Time) ([]access.OneTimeToken, error)
 	// DeleteOneTimeTokensIssuedBy removes every token whose IssuedByKey is
-	// in keyIDs, of any purpose and subject, and never one whose
+	// in keyIDs, of any purpose, and never one whose
 	// IssuedByKey is 0.
 	DeleteOneTimeTokensIssuedBy(ctx context.Context, keyIDs []int64) (int, error)
+}
+
+// SecondFactorStore holds each user's TOTP record and recovery code, at
+// most one of each, keyed by UserID (rule 24).
+type SecondFactorStore interface {
+	TOTPByUserID(ctx context.Context, userID int64) (rec access.TOTP, found bool, err error)
+	// SetTOTP writes rec over any record rec.UserID holds.
+	SetTOTP(ctx context.Context, rec access.TOTP) error
+	DeleteTOTP(ctx context.Context, userID int64) error // idempotent
+	// ListTOTP returns at most limit records whose UserID is above
+	// afterUserID, in ascending UserID.
+	ListTOTP(ctx context.Context, afterUserID int64, limit int) ([]access.TOTP, error)
+	RecoveryCodeByUserID(ctx context.Context, userID int64) (rec access.RecoveryCode, found bool, err error)
+	// SetRecoveryCode writes rec over any code rec.UserID holds.
+	SetRecoveryCode(ctx context.Context, rec access.RecoveryCode) error
+	DeleteRecoveryCode(ctx context.Context, userID int64) error // idempotent
+}
+
+// TemporaryPasswordStore holds each user's temporary password, at most one,
+// keyed by UserID (rule 24).
+type TemporaryPasswordStore interface {
+	TemporaryPasswordByUserID(ctx context.Context, userID int64) (rec access.TemporaryPassword, found bool, err error)
+	// SetTemporaryPassword writes rec over any record rec.UserID holds.
+	SetTemporaryPassword(ctx context.Context, rec access.TemporaryPassword) error
+	DeleteTemporaryPassword(ctx context.Context, userID int64) error // idempotent
+}
+
+// SSOModeStore holds the one stored [SSOMode] and whether it was ever set
+// (rule 26).
+type SSOModeStore interface {
+	// SSOMode answers SSOAlongside and set false until a SetSSOMode
+	// commits.
+	SSOMode(ctx context.Context) (mode SSOMode, set bool, err error)
+	SetSSOMode(ctx context.Context, mode SSOMode) error
 }
 
 // AttributionStore holds the append-only key attribution records. It has
@@ -148,7 +186,7 @@ type FailureCount struct {
 	LockedAt time.Time // set with Locked; the time the lock was reached
 	FailureRef
 	Count  int
-	Locked bool // Count reached the failure cap; stays set until recovery or re-enable
+	Locked bool // Count reached the failure cap; the record stays locked until account deletes it (ReenableMethod, or an operation that resets the method)
 	// Unreported is set with Locked; the sweep reports the lock when Name
 	// is a user's and clears it.
 	Unreported bool
@@ -160,6 +198,8 @@ type FailureStore interface {
 	PutAuthFailure(ctx context.Context, f FailureCount) error // upsert
 	// UnreportedLocks returns every record whose Unreported is set.
 	UnreportedLocks(ctx context.Context) ([]FailureCount, error)
+	// DeleteAuthFailure removes ref's one record; an absent one is skipped.
+	DeleteAuthFailure(ctx context.Context, ref FailureRef) error
 	// DeleteAuthFailures removes name's records for each listed method, in
 	// both trust contexts; an absent record is skipped.
 	DeleteAuthFailures(ctx context.Context, name string, methods []access.Method) error
@@ -220,6 +260,9 @@ type Tx interface {
 	PasskeyStore
 	KeyStore
 	TokenStore
+	SecondFactorStore
+	TemporaryPasswordStore
+	SSOModeStore
 	AttributionStore
 	FailureStore
 	LogStore

@@ -25,11 +25,11 @@ func (c *testClock) now() time.Time      { return *c.t.Load() }
 func (c *testClock) set(at time.Time)    { c.t.Store(&at) }
 func (c *testClock) add(d time.Duration) { c.set(c.now().Add(d)) }
 
-// ownerHidden is a Tx whose UserByID finds no user, for a key whose owner
+// userHidden is a Tx whose UserByID finds no user, for a key whose user
 // row is gone while the key row stays.
-type ownerHidden struct{ account.Tx }
+type userHidden struct{ account.Tx }
 
-func (ownerHidden) UserByID(context.Context, int64) (*access.User, bool, error) {
+func (userHidden) UserByID(context.Context, int64) (*access.User, bool, error) {
 	return nil, false, nil
 }
 
@@ -83,7 +83,7 @@ func TestCurrentKeyActor(t *testing.T) {
 			}
 			p, ok := actor.Principal()
 			if !ok || p.User == nil || p.User.ID != admin.ID || p.User.Role != access.RoleAdmin || p.KeyID != child.ID || p.Method != access.MethodAPIKey {
-				t.Errorf("%s: actor = %+v, want the stored admin owner acting through key %d", name, p, child.ID)
+				t.Errorf("%s: actor = %+v, want the stored admin acting through key %d", name, p, child.ID)
 			}
 			if p.KeyLabel != "deploy" || !p.KeyHash().IsZero() {
 				t.Errorf("%s: actor KeyLabel %q, KeyHash zero %v, want the stored label and no credential", name, p.KeyLabel, p.KeyHash().IsZero())
@@ -103,13 +103,13 @@ func TestCurrentKeyActor(t *testing.T) {
 			"zero_ref":                    {scope: usersScope},
 			"lacks_scope":                 {ref: access.KeyRef{ID: parent.ID, UserID: admin.ID}, scope: keysScope},
 			"empty_scope":                 {ref: access.KeyRef{ID: child.ID, UserID: admin.ID}},
-			"other_owner":                 {ref: access.KeyRef{ID: child.ID, UserID: admin.ID + 1000}, scope: usersScope},
+			"other_user":                  {ref: access.KeyRef{ID: child.ID, UserID: admin.ID + 1000}, scope: usersScope},
 		} {
 			_, _, err := run(nil, tc.ref, tc.scope)
 			notCurrent(name, err)
 		}
-		_, _, err := run(func(tx account.Tx) account.Tx { return ownerHidden{tx} }, access.KeyRef{ID: child.ID, UserID: admin.ID}, usersScope)
-		notCurrent("deleted_owner", err)
+		_, _, err := run(func(tx account.Tx) account.Tx { return userHidden{tx} }, access.KeyRef{ID: child.ID, UserID: admin.ID}, usersScope)
+		notCurrent("deleted_user", err)
 	})
 	t.Run("expiry", func(t *testing.T) {
 		clock.set(start.Add(time.Hour - time.Nanosecond))
@@ -124,7 +124,7 @@ func TestCurrentKeyActor(t *testing.T) {
 		notCurrent("past_expires_at", err)
 		clock.set(start)
 	})
-	t.Run("demoted_owner", func(t *testing.T) {
+	t.Run("demoted_user", func(t *testing.T) {
 		demoted := mustUser(t, f.mem, "demoted", access.RoleAdmin)
 		_, k := f.keyPrincipalFor(t, nil, demoted, time.Time{}, nil, usersScope)
 		demoted.Role = access.RoleUser
@@ -136,10 +136,10 @@ func TestCurrentKeyActor(t *testing.T) {
 			t.Fatalf("error = %v, want nil", err)
 		}
 		if p, _ := actor.Principal(); p.User == nil || p.User.Role != access.RoleUser {
-			t.Errorf("actor of a key whose owner was demoted = %+v, want RoleUser", p.User)
+			t.Errorf("actor of a key whose user was demoted = %+v, want RoleUser", p.User)
 		}
 	})
-	t.Run("disabled_owner", func(t *testing.T) {
+	t.Run("disabled_user", func(t *testing.T) {
 		u := mustUser(t, f.mem, "disabled", access.RoleAdmin)
 		_, k := f.keyPrincipalFor(t, nil, u, time.Time{}, nil, usersScope)
 		u.Enabled = false
@@ -147,7 +147,7 @@ func TestCurrentKeyActor(t *testing.T) {
 			t.Fatalf("UpdateUser: %v", err)
 		}
 		_, _, err := run(nil, access.KeyRef{ID: k.ID, UserID: u.ID}, usersScope)
-		notCurrent("disabled_owner", err)
+		notCurrent("disabled_user", err)
 	})
 	t.Run("deleted_key", func(t *testing.T) {
 		u := mustUser(t, f.mem, "revoked", access.RoleAdmin)

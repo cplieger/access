@@ -27,13 +27,15 @@ func TestStateRoute(t *testing.T) {
 	}{
 		{
 			name: "posture_secure_secure", origin: testOrigin,
-			want:   StateResponse{SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSRequired: []account.HTTPSFeature{}},
+			want:   StateResponse{SSO: account.SSONameAlongside, Registration: account.RegistrationNameOff, SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSRequired: []account.HTTPSFeature{}},
 			raw:    []string{`"https_required":[]`},
 			absent: []string{`"plain_session"`, `"https_origin"`},
 		},
 		{
 			name: "posture_secure_plain", origin: plainOrigin,
 			want: StateResponse{
+				SSO:           account.SSONameAlongside,
+				Registration:  account.RegistrationNameOff,
 				SetupRequired: true, HTTPSOrigin: origin,
 				HTTPSRequired: []account.HTTPSFeature{account.HTTPSPassword, account.HTTPSSetup, account.HTTPSPasskeys, account.HTTPSOIDC},
 			},
@@ -42,17 +44,37 @@ func TestStateRoute(t *testing.T) {
 		},
 		{
 			name: "per_request_secure", opts: perRequest, origin: testOrigin,
-			want:   StateResponse{SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSRequired: []account.HTTPSFeature{}},
+			want:   StateResponse{SSO: account.SSONameAlongside, Registration: account.RegistrationNameOff, SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSRequired: []account.HTTPSFeature{}},
 			raw:    []string{`"https_required":[]`},
 			absent: []string{`"plain_session"`, `"https_origin"`},
 		},
 		{
 			name: "per_request_plain", opts: perRequest, origin: plainOrigin,
 			want: StateResponse{
+				SSO:           account.SSONameAlongside,
+				Registration:  account.RegistrationNameOff,
 				SetupRequired: true, PasswordLogin: true, PlainSession: plainSession, HTTPSOrigin: origin,
 				HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys, account.HTTPSOIDC},
 			},
-			raw: []string{`"plain_session":{"idle_seconds":1800,"absolute_seconds":43200}`, `"https_origin":"https://grelot.example"`, `"passkeys":false`, `"oidc":false`},
+			raw:    []string{`"plain_session":{"idle_seconds":1800,"absolute_seconds":43200}`, `"https_origin":"https://grelot.example"`, `"passkeys":false`, `"oidc":false`},
+			absent: []string{`"temporary_password_https_only"`},
+		},
+		// A plain request under DisablePasswordLogin carries the
+		// flag, so the plain form sends no temporary password.
+		{
+			name: "per_request_plain_password_login_off", opts: with(perRequest, envOptions{rules: func(r *account.Rules) { r.DisablePasswordLogin = true }}), origin: plainOrigin,
+			want: StateResponse{
+				SSO:           account.SSONameAlongside,
+				Registration:  account.RegistrationNameOff,
+				SetupRequired: true, PlainSession: plainSession, HTTPSOrigin: origin, TemporaryPasswordHTTPSOnly: true,
+				HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys, account.HTTPSOIDC},
+			},
+			raw: []string{`"temporary_password_https_only":true`},
+		},
+		{
+			name: "per_request_secure_password_login_off", opts: with(perRequest, envOptions{rules: func(r *account.Rules) { r.DisablePasswordLogin = true }}), origin: testOrigin,
+			want:   StateResponse{SSO: account.SSONameAlongside, Registration: account.RegistrationNameOff, SetupRequired: true, Passkeys: true, OIDC: true, Secure: true, HTTPSRequired: []account.HTTPSFeature{}},
+			absent: []string{`"temporary_password_https_only"`},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -64,6 +86,7 @@ func TestStateRoute(t *testing.T) {
 			if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &got) != nil {
 				t.Fatalf("status %d body %q, want 200 StateResponse", w.Code, w.Body.String())
 			}
+			tc.want.PasswordLength = passwordBounds // the same on every posture and transport
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("state %+v (plain session %v), want %+v (plain session %v)", got, got.PlainSession, tc.want, tc.want.PlainSession)
 			}

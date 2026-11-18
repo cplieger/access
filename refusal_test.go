@@ -15,7 +15,9 @@ import (
 )
 
 // specCodes is the specified code table, in Codes order, each code with its
-// status and detail; it is written from the spec, not from the table.
+// status and detail; it is written from the spec, not from the table. Each
+// second-factor, registration and auth_sso_only status is the one the UI
+// contracts' codes tables give it.
 var specCodes = []struct {
 	code   access.Code
 	detail string
@@ -42,8 +44,14 @@ var specCodes = []struct {
 	{"auth_password_rejected", "The password is not allowed.", 400},
 	{"auth_breach_check_unavailable", "The password check is unavailable. Try again shortly.", 503},
 	{"auth_password_login_disabled", "Password sign-in is turned off.", 403},
+	{"auth_code_invalid", "That code is not right.", 401},
+	{"auth_second_factor_required", "A second factor is required.", 403},
+	{"auth_second_factor_unavailable", "The second factor cannot be checked right now. Try again later.", 503},
+	{"auth_totp_disabled", "Authenticator apps are turned off in this app.", 403},
 	{"auth_setup_complete", "Setup is already complete.", 409},
 	{"auth_setup_token_required", "A setup token is required.", 401},
+	{"auth_registration_closed", "Sign-ups are closed.", 403},
+	{"auth_registration_full", "Sign-ups are paused until an administrator reviews the waiting accounts.", 403},
 	{"auth_token_invalid", "The link is not valid or has expired.", 401},
 	{"auth_last_method", "The last sign-in method cannot be removed.", 409},
 	{"auth_identity_taken", "That identity is linked to another account.", 409},
@@ -61,12 +69,15 @@ var specCodes = []struct {
 	{"auth_registration_failed", "The passkey could not be registered.", 400},
 	{"auth_oidc_unavailable", "Single sign-on is not available.", 400},
 	{"auth_oidc_failed", "Single sign-on failed.", 401},
+	{"auth_sso_only", "Use your organisation's sign-in.", 403},
 	{"auth_not_found", "Not found.", 404},
 	{"auth_method_not_allowed", "Method not allowed.", 405},
 }
 
 // specRetryAfter is the Retry-After the spec gives the 503 codes that carry
-// no limiter window; every other code has none.
+// no limiter window; every other code has none, auth_second_factor_unavailable
+// included: a record whose key is gone opens after an operator restores the
+// key, not after a wait.
 var specRetryAfter = map[access.Code]time.Duration{
 	"auth_busy":                     time.Second,
 	"auth_unavailable":              5 * time.Second,
@@ -112,6 +123,23 @@ func TestNewErrorTable(t *testing.T) {
 	})
 }
 
+// TestStatusOf holds each code's status to the spec's table, so an app
+// declaring access's codes in its own catalog answers them as access does,
+// and a code access does not define to 0.
+func TestStatusOf(t *testing.T) {
+	t.Parallel()
+	for _, s := range specCodes {
+		if got := access.StatusOf(s.code); got != s.status {
+			t.Errorf("StatusOf(%s) = %d, want %d", s.code, got, s.status)
+		}
+	}
+	for _, c := range []access.Code{"", "auth_not_a_code", "not_found"} {
+		if got := access.StatusOf(c); got != 0 {
+			t.Errorf("StatusOf(%q) = %d, want 0", c, got)
+		}
+	}
+}
+
 // TestErrorFor is the mapping of every error Authenticate and
 // RequireRecentAuth return, each row's code, status and detail from the
 // spec. Its Reason is empty, so a refusal names no stored state, but for a
@@ -132,10 +160,9 @@ func TestErrorFor(t *testing.T) {
 		{name: "session_expired", err: unauth(access.ErrSessionExpired), code: "auth_session_expired", status: 401, detail: "Your session has ended. Sign in again."},
 		{name: "session_not_found", err: unauth(access.ErrSessionNotFound), code: "auth_session_expired", status: 401, detail: "Your session has ended. Sign in again."},
 		{name: "key_unknown", err: &access.InvalidCredentialError{Method: access.MethodAPIKey, Err: access.ErrInvalidAPIKey}, code: "auth_key_invalid", status: 401, detail: "The API key is not valid."},
-		{name: "key_owner_disabled", err: &access.InvalidCredentialError{Method: access.MethodAPIKey, Err: access.ErrAccountDisabled, KeyID: 7}, code: "auth_key_invalid", status: 401, detail: "The API key is not valid."},
-		{name: "session_owner_disabled", err: &access.InvalidCredentialError{Method: access.MethodPassword, Err: access.ErrAccountDisabled}, code: "auth_invalid_credentials", status: 401, detail: "The credentials are not valid."},
+		{name: "key_user_disabled", err: &access.InvalidCredentialError{Method: access.MethodAPIKey, Err: access.ErrAccountDisabled, KeyID: 7}, code: "auth_key_invalid", status: 401, detail: "The API key is not valid."},
+		{name: "session_user_disabled", err: &access.InvalidCredentialError{Method: access.MethodPassword, Err: access.ErrAccountDisabled}, code: "auth_invalid_credentials", status: 401, detail: "The credentials are not valid."},
 		{name: "custom_verifier_refusal", err: &access.InvalidCredentialError{Method: "agent"}, code: "auth_invalid_credentials", status: 401, detail: "The credentials are not valid."},
-		{name: "recovery_session", err: &access.InvalidCredentialError{Method: access.MethodRecovery, Err: access.ErrRestrictedSession}, code: "auth_session_required", status: 403, detail: "A signed-in session is required."},
 		{name: "transport_changed", err: &access.InvalidCredentialError{Method: access.MethodPassword, Err: access.ErrSessionTransport}, code: "auth_session_expired", status: 401, detail: "Your session has ended. Sign in again.", reason: "transport_changed"},
 		{name: "https_required", err: access.ErrHTTPSRequired, code: "auth_https_required", status: 403, detail: "This needs HTTPS."},
 		{name: "recent_auth", err: access.ErrRecentAuthRequired, code: "auth_recent_auth_required", status: 403, detail: "Confirm it is you to continue."},

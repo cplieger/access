@@ -76,8 +76,8 @@ type lockedAccount struct{ accountAPI }
 
 var errLocked = failreason.Wrap(account.ErrInvalidCredentials, failreason.MethodLocked)
 
-func (lockedAccount) PasswordLogin(context.Context, account.Client, account.Credentials) (account.SignedIn, error) {
-	return account.SignedIn{}, errLocked
+func (lockedAccount) PasswordLogin(context.Context, account.Client, account.Credentials) (account.LoginResult, error) {
+	return account.LoginResult{}, errLocked
 }
 
 func (lockedAccount) StepUpPassword(context.Context, account.Client, access.Principal, access.Secret) (account.Issued, error) {

@@ -44,7 +44,7 @@ func (s *Service) admitUserAdmin(r Rules, a Actor) error { //nolint:gocritic // 
 }
 
 // userAdminIn decides a's authority first inside the write's Update: a key
-// principal's from its stored key and owner under ManageUsersScope
+// principal's from its stored key and user under ManageUsersScope
 // (key_not_current), any other actor as it is.
 func (s *Service) userAdminIn(ctx context.Context, tx Tx, j *journal, op Operation, a Actor) (userAdmin, error) { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	p, ok := a.Principal()
@@ -81,17 +81,21 @@ func (ua *userAdmin) issue(tok *access.OneTimeToken) {
 }
 
 // Users lists every user by ID with its passkey count, for a principal
-// RequireAdminScope admits and Policy allows OpListUsers. With
-// f.AttributedToKey set it keeps the users holding a KeyAttribution whose
+// RequireKeyScope admits under AdminScope and Policy allows OpListUsers.
+// With f.AttributedToKey set it keeps the users holding a KeyAttribution whose
 // KeyLineage contains that key, whether the key is live or gone. Each row
 // carries the KeyLineage of the user's most recent record the filter
 // matched. It writes nothing.
 func (s *Service) Users(ctx context.Context, p access.Principal, f UserFilter) ([]ListedUser, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	if err := s.admitAdminScope(p); err != nil {
+	r, err := s.begin()
+	if err != nil {
 		return nil, err
 	}
-	if err := s.policy.Authorize(ctx, Decision{Op: OpListUsers, Actor: As(p)}); err != nil {
-		return nil, err
+	if admitErr := s.admitKey(p, s.adminScope, func() error { return nil }); admitErr != nil {
+		return nil, admitErr
+	}
+	if polErr := s.authorize(ctx, Decision{Op: OpListUsers, Actor: As(p)}); polErr != nil {
+		return nil, polErr
 	}
 	users, err := s.store.ListUsers(ctx)
 	if err != nil {
@@ -101,14 +105,11 @@ func (s *Service) Users(ctx context.Context, p access.Principal, f UserFilter) (
 	if err != nil {
 		return nil, storeErr(err)
 	}
-	// records ascend by ID, so the last one kept per user is its most
-	// recent.
-	lineage := make(map[int64][]int64)
-	for i := range records {
-		if f.AttributedToKey == 0 || slices.Contains(records[i].KeyLineage, f.AttributedToKey) {
-			lineage[records[i].UserID] = records[i].KeyLineage
-		}
+	mode, err := storedMode(ctx, s.store)
+	if err != nil {
+		return nil, storeErr(err)
 	}
+	lineage := lineageByUser(records, f)
 	slices.SortFunc(users, func(a, b access.User) int { return cmp.Compare(a.ID, b.ID) })
 	listed := make([]ListedUser, 0, len(users))
 	for i := range users {
@@ -116,23 +117,61 @@ func (s *Service) Users(ctx context.Context, p access.Principal, f UserFilter) (
 		if f.AttributedToKey != 0 && !attributed {
 			continue
 		}
-		passkeys, err := s.store.PasskeysByUserID(ctx, users[i].ID)
-		if err != nil {
+		row := ListedUser{
+			User: users[i], KeyLineage: slices.Clone(path),
+			LocalMethodsDormant: mode.dormantFor(&users[i]), RoleFromProvider: r.Provisioning.syncs(&users[i]),
+		}
+		if err := s.secondFactorRow(ctx, &row); err != nil {
 			return nil, storeErr(err)
 		}
-		listed = append(listed, ListedUser{User: users[i], KeyLineage: slices.Clone(path), PasskeyCount: len(passkeys)})
+		listed = append(listed, row)
 	}
 	return listed, nil
 }
 
+// secondFactorRow reads row.User's passkey count, TOTP record and live
+// temporary password into row.
+func (s *Service) secondFactorRow(ctx context.Context, row *ListedUser) error {
+	id := row.User.ID
+	passkeys, err := s.store.PasskeysByUserID(ctx, id)
+	if err != nil {
+		return err
+	}
+	row.PasskeyCount = len(passkeys)
+	if _, row.TOTP, err = s.store.TOTPByUserID(ctx, id); err != nil {
+		return err
+	}
+	temp, found, err := s.store.TemporaryPasswordByUserID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if found && temp.ExpiresAt.After(s.now()) {
+		row.TemporaryPasswordExpiresAt = temp.ExpiresAt
+	}
+	return nil
+}
+
+// lineageByUser is each user's KeyLineage of its most recent record f
+// matches. records ascend by ID, so the last one kept per user is its most
+// recent.
+func lineageByUser(records []access.KeyAttribution, f UserFilter) map[int64][]int64 {
+	lineage := make(map[int64][]int64)
+	for i := range records {
+		if f.AttributedToKey == 0 || slices.Contains(records[i].KeyLineage, f.AttributedToKey) {
+			lineage[records[i].UserID] = records[i].KeyLineage
+		}
+	}
+	return lineage
+}
+
 // UpdateUser changes a user's role, enabled state or both (neither is
-// ErrNoChange; the Policy decides self-changes) for an admin principal or a
-// ManageUsersScope key, and returns the user as committed. One Update asks
-// OpSetRole, then OpSetEnabled with the role applied, for each set field, so
-// a refusal answers before existence (ErrNotFound after). A key sets and acts
-// on RoleUser only (admin_target) and enables only with its current secret
-// (key_retiring). A role change revokes the sessions; a disable, every
-// session, key and token those keys issued, and re-enabling restores none.
+// ErrNoChange) for an admin principal or a ManageUsersScope key, returning
+// the user as committed. One Update asks OpSetRole, then OpSetEnabled with
+// the role applied, so a refusal answers before ErrNotFound. A key acts on
+// RoleUser only (admin_target) and enables only with its current secret
+// (key_retiring). A role change revokes the sessions, a disable every session
+// and key and the tokens those keys issued; an enable restores none, and of a
+// user waiting for approval approves it, clearing WaitingApproval.
 func (s *Service) UpdateUser(ctx context.Context, p access.Principal, userID int64, ch UserChange) (*access.User, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	r, err := s.begin()
 	if err != nil {
@@ -160,6 +199,9 @@ func (s *Service) UpdateUser(ctx context.Context, p access.Principal, userID int
 	if err != nil {
 		return nil, err
 	}
+	if !res.user.Enabled {
+		s.pending.dropUser(userID)
+	}
 	return res.user, nil
 }
 
@@ -169,6 +211,7 @@ type userUpdate struct {
 	sessions                  []string
 	keys                      []int64
 	roleChanged, enabledMoved bool
+	approved                  bool // the enable approved a waiting registration
 }
 
 func (s *Service) updateUser(ctx context.Context, tx Tx, j *journal, op Operation, a Actor, userID int64, ch UserChange, res *userUpdate) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
@@ -206,11 +249,13 @@ func (s *Service) updateUser(ctx context.Context, tx Tx, j *journal, op Operatio
 }
 
 // authorizeChange asks OpSetRole for a set role, then OpSetEnabled for a
-// set enabled state on users with that role applied.
+// set enabled state on users with that role applied, each under the owner
+// protections.
 func (s *Service) authorizeChange(ctx context.Context, actor Actor, target *access.User, users []access.User, userID int64, ch UserChange) error { //nolint:gocritic // hugeParam: Actor is passed by value like the Principal it holds
 	if ch.Role != nil {
 		role := cmp.Or(*ch.Role, access.RoleUser)
-		if err := s.policy.Authorize(ctx, Decision{Op: OpSetRole, Actor: actor, Target: target, Role: role, Users: users}); err != nil {
+		d := Decision{Op: OpSetRole, Actor: actor, Target: target, Role: role, Users: users}
+		if err := s.authorizeOwned(ctx, &d); err != nil {
 			return err
 		}
 		for i := range users {
@@ -222,7 +267,15 @@ func (s *Service) authorizeChange(ctx context.Context, actor Actor, target *acce
 	if ch.Enabled == nil {
 		return nil
 	}
-	return s.policy.Authorize(ctx, Decision{Op: OpSetEnabled, Actor: actor, Target: target, Enabled: *ch.Enabled, Users: users})
+	return s.authorizeOwned(ctx, &Decision{Op: OpSetEnabled, Actor: actor, Target: target, Enabled: *ch.Enabled, Users: users})
+}
+
+// authorizeOwned is authorize, then ownerGuard on the allowed d.
+func (s *Service) authorizeOwned(ctx context.Context, d *Decision) error {
+	if err := s.authorize(ctx, *d); err != nil {
+		return err
+	}
+	return ownerGuard(d)
 }
 
 // applyUserChange writes the fields that differ from target's stored
@@ -239,6 +292,8 @@ func (s *Service) applyUserChange(ctx context.Context, tx Tx, ua *userAdmin, tar
 	}
 	if res.enabledMoved {
 		target.Enabled = *ch.Enabled
+		res.approved = target.Enabled && target.WaitingApproval
+		target.WaitingApproval = false
 	}
 	target.UpdatedAt = s.now()
 	if err := tx.UpdateUser(ctx, target); err != nil {
@@ -292,6 +347,8 @@ func (s *Service) addUserUpdate(j *journal, userID int64, actor EventActor, res 
 	case disabled:
 		j.add(Event{Kind: EventUserDisabled, At: at, UserID: userID, SessionIDs: res.sessions, Actor: actor})
 		s.addKeysRevoked(j, userID, res.keys, actor)
+	case res.approved:
+		j.add(Event{Kind: EventUserApproved, At: at, UserID: userID, Actor: actor})
 	case res.enabledMoved:
 		j.add(Event{Kind: EventUserEnabled, At: at, UserID: userID, Actor: actor})
 	}
@@ -313,7 +370,7 @@ func (s *Service) DeleteUser(ctx context.Context, p access.Principal, userID int
 	if admitErr := s.admitUserAdmin(r, As(p)); admitErr != nil {
 		return admitErr
 	}
-	return s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
+	err = s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
 		ua, uaErr := s.userAdminIn(ctx, tx, j, OpDeleteUser, As(p))
 		if uaErr != nil {
 			return uaErr
@@ -322,7 +379,7 @@ func (s *Service) DeleteUser(ctx context.Context, p access.Principal, userID int
 		if readErr != nil {
 			return readErr
 		}
-		if polErr := s.policy.Authorize(ctx, Decision{Op: OpDeleteUser, Actor: ua.actor, Target: target, Users: users}); polErr != nil {
+		if polErr := s.authorizeOwned(ctx, &Decision{Op: OpDeleteUser, Actor: ua.actor, Target: target, Users: users}); polErr != nil {
 			return refuse(polErr)
 		}
 		if !found {
@@ -340,6 +397,10 @@ func (s *Service) DeleteUser(ctx context.Context, p access.Principal, userID int
 		s.addKeysRevoked(j, userID, keys, actor)
 		return nil
 	})
+	if err == nil {
+		s.pending.dropUser(userID)
+	}
+	return err
 }
 
 // deleteUserCascade reads userID's session and key IDs for the events,

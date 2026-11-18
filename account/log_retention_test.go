@@ -16,7 +16,7 @@ import (
 	"github.com/cplieger/access/account"
 )
 
-// withLogCaps sets the non-default class caps (E15).
+// withLogCaps sets the non-default class caps.
 func withLogCaps(changes, sessions int) func(*account.Config) {
 	return func(c *account.Config) { c.LogMaxChanges, c.LogMaxSessions = changes, sessions }
 }
@@ -105,10 +105,10 @@ func createUsers(t testing.TB, f *fixture, n int) []uint64 {
 // session entry each, and returns their Seqs.
 func revokeSessions(t *testing.T, f *fixture, u *access.User, n int) []uint64 {
 	t.Helper()
-	p := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+	p := f.sessionPrincipal(t, u, time.Now())
 	before := len(f.events.all())
 	for range n {
-		other := f.sessionPrincipal(t, u, access.SessionFull, time.Now())
+		other := f.sessionPrincipal(t, u, time.Now())
 		if err := f.svc.RevokeSession(t.Context(), p, other.SessionID); err != nil {
 			t.Fatalf("RevokeSession: %v", err)
 		}

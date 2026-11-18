@@ -7,7 +7,7 @@ import (
 )
 
 // These types are WebAuthn §5.4 PublicKeyCredentialCreationOptions and §5.5
-// PublicKeyCredentialRequestOptions in their JSON form (§5.1.8), whose
+// PublicKeyCredentialRequestOptions in their JSON form (WebAuthn §5.1.8), whose
 // camelCase members the browser's parsers read, so no member may be renamed.
 
 // Base64URL is a byte string that travels as unpadded base64url, the encoding

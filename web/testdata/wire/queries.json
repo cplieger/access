@@ -1,4 +1,7 @@
 {
+  "authAdminSSOReadiness": [
+    "mode"
+  ],
   "authAdminSecurityLog": [
     "actor",
     "actor_key",
@@ -22,9 +25,5 @@
   ],
   "authOIDCStartSignIn": [
     "redirect"
-  ],
-  "authRecoveryPasskeyFinish": [
-    "keep_keys",
-    "keep_sessions"
   ]
 }

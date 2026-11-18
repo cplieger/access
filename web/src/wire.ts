@@ -9,9 +9,17 @@ export type Validator<T> = (value: unknown) => T | undefined;
 /** @internal Go's Role constants. */
 export const ROLES = ["admin", "user"] as const;
 /** @internal Go's Method constants. */
-export const METHODS = ["password", "passkey", "oidc", "recovery", "api_key", "bypass"] as const;
+export const METHODS = [
+  "password",
+  "passkey",
+  "oidc",
+  "totp",
+  "recovery_code",
+  "api_key",
+  "bypass",
+] as const;
 /** @internal Go's TokenPurpose constants. */
-export const TOKEN_PURPOSES = ["setup", "recovery", "invite"] as const;
+export const TOKEN_PURPOSES = ["setup", "invite"] as const;
 
 // An open set (types.go: Method, Role, TokenPurpose): the server may send an app-defined
 // value beside Go's constants, so a switch over one needs a default arm.
@@ -92,6 +100,20 @@ export function list<V>(check: Validator<V>): Validator<readonly V[]> {
   };
 }
 
+// anyOf is the first arm that accepts v; with strict arms, a union whose
+// body carries two arms, or none, is refused.
+function anyOf<T>(...arms: readonly Validator<T>[]): Validator<T> {
+  return (v) => {
+    for (const arm of arms) {
+      const out = arm(v);
+      if (out !== undefined) {
+        return out;
+      }
+    }
+    return undefined;
+  };
+}
+
 function oneOf<const L extends readonly string[]>(...values: L): Validator<L[number]> {
   const set: ReadonlySet<string> = new Set(values);
   return (v) => (typeof v === "string" && set.has(v) ? v : undefined);
@@ -154,26 +176,27 @@ export const parseLoginRequest: Validator<LoginRequest> = object({
   password: req(str),
 });
 
+/** registerPassword's body: the password is checked against the username too. */
+export interface RegisterPasswordRequest {
+  readonly username: string;
+  readonly password: string;
+}
+export const parseRegisterPasswordRequest: Validator<RegisterPasswordRequest> = object({
+  username: req(str),
+  password: req(str),
+});
+
+export interface RegisterPasskeyBeginRequest {
+  readonly username: string;
+}
+export const parseRegisterPasskeyBeginRequest: Validator<RegisterPasskeyBeginRequest> = object({
+  username: req(str),
+});
+
 export interface RedirectRequest {
   readonly redirect?: string;
 }
 export const parseRedirectRequest: Validator<RedirectRequest> = object({ redirect: opt(str) });
-
-export interface TokenRequest {
-  readonly token: string;
-}
-export const parseTokenRequest: Validator<TokenRequest> = object({ token: req(str) });
-
-export interface RecoverPasswordRequest {
-  readonly password: string;
-  readonly keep_sessions?: boolean;
-  readonly keep_keys?: boolean;
-}
-export const parseRecoverPasswordRequest: Validator<RecoverPasswordRequest> = object({
-  password: req(str),
-  keep_sessions: opt(bool),
-  keep_keys: opt(bool),
-});
 
 export interface InviteAcceptRequest {
   readonly token: string;
@@ -230,7 +253,7 @@ export const parseNewKeyRequest: Validator<NewKeyRequest> = object({
   expires_in_days: opt(int),
 });
 
-/** Without a password the user has no sign-in method until a recovery link. */
+/** Without a password the user has no sign-in method. */
 export interface NewUserRequest {
   readonly username: string;
   readonly password?: string;
@@ -251,11 +274,142 @@ export const parseUserUpdateRequest: Validator<UserUpdateRequest> = object({
   enabled: opt(bool),
 });
 
-/** hours absent or 0 is the default lifetime. */
-export interface TTLRequest {
-  readonly hours?: number;
+export interface TokenRequest {
+  readonly token: string;
 }
-export const parseTTLRequest: Validator<TTLRequest> = object({ hours: opt(int) });
+export const parseTokenRequest: Validator<TokenRequest> = object({ token: req(str) });
+
+export interface CodeRequest {
+  readonly ticket: string;
+  /** Six digits; spaces are ignored. */
+  readonly code: string;
+}
+export const parseCodeRequest: Validator<CodeRequest> = object({
+  ticket: req(str),
+  code: req(str),
+});
+
+export interface TicketRequest {
+  readonly ticket: string;
+}
+export const parseTicketRequest: Validator<TicketRequest> = object({ ticket: req(str) });
+
+/** A set_credential ticket and the password its holder chose. */
+export interface SetPasswordRequest {
+  readonly ticket: string;
+  readonly password: string;
+}
+export const parseSetPasswordRequest: Validator<SetPasswordRequest> = object({
+  ticket: req(str),
+  password: req(str),
+});
+
+export interface StepUpCodeRequest {
+  readonly code: string;
+}
+export const parseStepUpCodeRequest: Validator<StepUpCodeRequest> = object({ code: req(str) });
+
+export interface TOTPFinishRequest {
+  readonly ticket: string;
+  /** The new authenticator's code. */
+  readonly code: string;
+  /** The replaced authenticator's code: required when one is enrolled. */
+  readonly current_code?: string;
+}
+export const parseTOTPFinishRequest: Validator<TOTPFinishRequest> = object({
+  ticket: req(str),
+  code: req(str),
+  current_code: opt(str),
+});
+
+/** A passkey assertion in the browser's credential JSON, as stepUpWithPasskey builds one. */
+export interface AssertionJSON {
+  readonly id: string;
+  readonly rawId: string;
+  readonly type: string;
+  readonly authenticatorAttachment?: string;
+  readonly response: {
+    readonly authenticatorData: string;
+    readonly clientDataJSON: string;
+    readonly signature: string;
+    readonly userHandle?: string;
+  };
+  readonly clientExtensionResults: { readonly credProps?: { readonly rk?: boolean } };
+}
+const parseAssertionJSON: Validator<AssertionJSON> = object<AssertionJSON>({
+  id: req(str),
+  rawId: req(str),
+  type: req(str),
+  authenticatorAttachment: opt(str),
+  response: req(
+    object<AssertionJSON["response"]>({
+      authenticatorData: req(str),
+      clientDataJSON: req(str),
+      signature: req(str),
+      userHandle: opt(str),
+    }),
+  ),
+  clientExtensionResults: req(
+    object<AssertionJSON["clientExtensionResults"]>({
+      credProps: opt(object<{ readonly rk?: boolean }>({ rk: opt(bool) })),
+    }),
+  ),
+});
+
+/**
+ * A current second factor, for a change that needs one while methods.second_factor_held (or,
+ * for removeTOTP, methods.totp.usable): a code, or an assertion answering stepUpPasskeyBegin's
+ * ceremony.
+ */
+export type SecondFactorProof =
+  { readonly code: string } | { readonly ceremony: string; readonly assertion: AssertionJSON };
+export const parseSecondFactorProof: Validator<SecondFactorProof> = anyOf<SecondFactorProof>(
+  object<{ readonly code: string }>({ code: req(str) }),
+  object<{ readonly ceremony: string; readonly assertion: AssertionJSON }>({
+    ceremony: req(str),
+    assertion: req(parseAssertionJSON),
+  }),
+);
+
+export interface PendingCreateRequest {
+  readonly username: string;
+}
+export const parsePendingCreateRequest: Validator<PendingCreateRequest> = object({
+  username: req(str),
+});
+
+export interface PendingLinkByAdminRequest {
+  readonly username: string;
+  readonly temporary_password: string;
+}
+export const parsePendingLinkByAdminRequest: Validator<PendingLinkByAdminRequest> = object({
+  username: req(str),
+  temporary_password: req(str),
+});
+
+export interface OwnerRequest {
+  readonly owner: boolean;
+}
+export const parseOwnerRequest: Validator<OwnerRequest> = object({
+  owner: req(bool),
+});
+
+/** @internal Go's account.SSOModeName constants, in SSOMode order. */
+export const SSO_MODES = ["alongside", "for_linked", "only"] as const;
+/** How single sign-on sits beside local sign-in for every account but the owners. */
+export type SSOMode = (typeof SSO_MODES)[number];
+const ssoMode = oneOf(...SSO_MODES);
+
+export const REGISTRATION_MODES = ["off", "open", "approval"] as const;
+/** Who may create their own account: no one, anyone, or anyone an admin then approves. */
+export type RegistrationMode = (typeof REGISTRATION_MODES)[number];
+
+export interface SSORequest {
+  readonly mode: SSOMode;
+}
+export const parseSSORequest: Validator<SSORequest> = object({
+  mode: req(ssoMode),
+});
 
 export interface InviteRequest {
   readonly role: Role;
@@ -264,6 +418,20 @@ export interface InviteRequest {
 export const parseInviteRequest: Validator<InviteRequest> = object({
   role: req(role),
   hours: opt(int),
+});
+
+export interface TemporaryPasswordOptions {
+  /** Its lifetime: 24 hours when absent, at most 168. */
+  readonly ttl_hours?: number;
+  /** Also delete the user's passkeys, for a lost device that held them. */
+  readonly revoke_passkeys?: boolean;
+  /** Keep the user's API keys, which the issue otherwise revokes. */
+  readonly keep_keys?: boolean;
+}
+export const parseTemporaryPasswordOptions: Validator<TemporaryPasswordOptions> = object({
+  ttl_hours: opt(int),
+  revoke_passkeys: opt(bool),
+  keep_keys: opt(bool),
 });
 
 // Responses.
@@ -277,6 +445,12 @@ export type HTTPSFeature = (typeof HTTPS_FEATURES)[number];
 export interface PlainSessionView {
   readonly idle_seconds: number;
   readonly absolute_seconds: number;
+}
+
+/** A password's least and greatest length, in Unicode code points after NFC. */
+export interface PasswordLengthView {
+  readonly min: number;
+  readonly max: number;
 }
 
 /**
@@ -293,6 +467,16 @@ export interface StateResponse {
   readonly plain_session?: PlainSessionView;
   readonly https_required: readonly HTTPSFeature[];
   readonly https_origin?: string;
+  /** The bounds the server checks every password against, so a form words its limit. */
+  readonly password_length: PasswordLengthView;
+  /** The stored SSO mode. */
+  readonly sso: SSOMode;
+  /** The app offers TOTP (an authenticator app). */
+  readonly totp: boolean;
+  /** "Create an account" shows unless "off": always "off" in a single-user app and under sso "only". */
+  readonly registration: RegistrationMode;
+  /** Set on a plain request where a temporary password cannot finish: the plain form must not send one. */
+  readonly temporary_password_https_only?: boolean;
 }
 export const parseStateResponse: Validator<StateResponse> = object({
   setup_required: req(bool),
@@ -305,15 +489,43 @@ export const parseStateResponse: Validator<StateResponse> = object({
   ),
   https_required: req(list(oneOf(...HTTPS_FEATURES))),
   https_origin: opt(str),
+  password_length: req(object<PasswordLengthView>({ min: req(count), max: req(count) })),
+  sso: req(ssoMode),
+  totp: req(bool),
+  registration: req(oneOf(...REGISTRATION_MODES)),
+  temporary_password_https_only: opt(bool),
+});
+
+/** A listed user's live temporary password. */
+export interface TemporaryPasswordView {
+  readonly expires_at: string;
+}
+export const parseTemporaryPasswordView: Validator<TemporaryPasswordView> = object({
+  expires_at: req(time),
 });
 
 export interface UserMethodsView {
   readonly password: boolean;
   readonly passkey_count: number;
+  /** The user holds a TOTP record. */
+  readonly totp: boolean;
+  /** Absent when the user holds no live temporary password. */
+  readonly temporary_password?: TemporaryPasswordView;
+  /** The SSO mode keeps this user's password and passkeys dormant. */
+  readonly local_methods_dormant: boolean;
+  /** The role syncs from the identity provider: an in-app change lasts until the next sign-in. */
+  readonly role_from_provider: boolean;
+  /** A registration no admin has approved: "Approve" enables the user, "Delete" deletes it. */
+  readonly waiting_approval: boolean;
 }
 export const parseUserMethodsView: Validator<UserMethodsView> = object({
   password: req(bool),
   passkey_count: req(count),
+  totp: req(bool),
+  temporary_password: opt(parseTemporaryPasswordView),
+  local_methods_dormant: req(bool),
+  role_from_provider: req(bool),
+  waiting_approval: req(bool),
 });
 
 /** key_lineage and methods are set on the admin list only. */
@@ -324,6 +536,7 @@ export interface UserView {
   readonly role: Role;
   readonly enabled: boolean;
   readonly oidc_linked: boolean;
+  readonly owner: boolean;
   readonly created_at: string;
   readonly key_lineage?: readonly number[];
   readonly methods?: UserMethodsView;
@@ -335,6 +548,7 @@ export const parseUserView: Validator<UserView> = object({
   role: req(role),
   enabled: req(bool),
   oidc_linked: req(bool),
+  owner: req(bool),
   created_at: req(time),
   key_lineage: opt(ids),
   methods: opt(parseUserMethodsView),
@@ -343,13 +557,75 @@ export const parseUserView: Validator<UserView> = object({
 export interface SignedInResponse {
   readonly user: UserView;
   readonly session_id: string;
+  /** The recovery code this sign-in's binding issued: show it once. */
+  readonly recovery_code?: string;
   readonly clone_warning?: boolean;
 }
 export const parseSignedInResponse: Validator<SignedInResponse> = object({
   user: req(parseUserView),
   session_id: req(str),
+  recovery_code: opt(str),
   clone_warning: opt(bool),
 });
+
+/** @internal Go's account.Next constants. */
+export const NEXT_STEPS = ["second_factor", "set_credential", "enrol"] as const;
+/** What a pending sign-in needs before it completes. */
+export type Next = (typeof NEXT_STEPS)[number];
+/** @internal accesshttp.PendingMethod's constants. */
+export const PENDING_METHODS = ["totp", "passkey", "recovery_code", "password"] as const;
+/** A method a pending sign-in's step accepts. */
+export type PendingMethod = (typeof PENDING_METHODS)[number];
+
+/**
+ * A sign-in that needs another step. Hold the ticket in memory only; methods are what next
+ * accepts, already filtered by this request's transport.
+ */
+export interface Pending {
+  readonly ticket: string;
+  readonly next: Next;
+  readonly methods: readonly PendingMethod[];
+  /** Set after a recovery code: the enrolment that follows completes the recovery. */
+  readonly recovered?: boolean;
+}
+export const parsePending: Validator<Pending> = object({
+  ticket: req(str),
+  next: req(oneOf(...NEXT_STEPS)),
+  methods: req(list(oneOf(...PENDING_METHODS))),
+  recovered: opt(bool),
+});
+
+/** A sign-in step's answer. Always continue with the newest ticket. */
+export type SignInOutcome =
+  { readonly signed_in: SignedInResponse } | { readonly pending: Pending };
+export const parseSignInOutcome: Validator<SignInOutcome> = anyOf<SignInOutcome>(
+  object<{ readonly signed_in: SignedInResponse }>({ signed_in: req(parseSignedInResponse) }),
+  object<{ readonly pending: Pending }>({ pending: req(parsePending) }),
+);
+
+/**
+ * An account a registration created that waits for an admin's approval, with no session: show
+ * recovery_code once when set, then that the account is waiting.
+ */
+export interface WaitingApproval {
+  readonly waiting_approval: true;
+  readonly recovery_code?: string;
+}
+const waitingApproval = (v: unknown): true | undefined => (v === true ? true : undefined);
+
+/** A pending enrolment finish's and signUpWithPasskey's answer. */
+export type EnrolmentOutcome = { readonly signed_in: SignedInResponse } | WaitingApproval;
+export const parseEnrolmentOutcome: Validator<EnrolmentOutcome> = anyOf<EnrolmentOutcome>(
+  object<{ readonly signed_in: SignedInResponse }>({ signed_in: req(parseSignedInResponse) }),
+  object<WaitingApproval>({ waiting_approval: req(waitingApproval), recovery_code: opt(str) }),
+);
+
+/** registerPassword's answer; its waiting answer never carries a recovery code. */
+export type RegistrationOutcome = SignInOutcome | WaitingApproval;
+export const parseRegistrationOutcome: Validator<RegistrationOutcome> = anyOf<RegistrationOutcome>(
+  parseSignInOutcome,
+  object<{ readonly waiting_approval: true }>({ waiting_approval: req(waitingApproval) }),
+);
 
 /** The WebAuthn options of a begin route, in the browser's JSON shape. */
 export type CeremonyOptions =
@@ -460,15 +736,66 @@ export interface OIDCStartResponse {
 }
 export const parseOIDCStartResponse: Validator<OIDCStartResponse> = object({ url: req(str) });
 
+/** A begun TOTP enrolment, shown once: keep it in memory until finishTOTP or discard. */
+export interface TOTPBeginResponse {
+  /** The otpauth URI, for a QR code. */
+  readonly uri: string;
+  /** The secret in base32, for typing in: group it in fours. */
+  readonly text: string;
+  /** What finishTOTP takes, for ten minutes, from this session. */
+  readonly ticket: string;
+}
+export const parseTOTPBeginResponse: Validator<TOTPBeginResponse> = object({
+  uri: req(str),
+  text: req(str),
+  ticket: req(str),
+});
+
+/** A TOTP enrolment begun inside a pending sign-in, shown once; the ticket keeps the secret. */
+export interface PendingTOTPBeginResponse {
+  /** The otpauth URI, for a QR code. */
+  readonly uri: string;
+  /** The secret in base32, for typing in: group it in fours. */
+  readonly text: string;
+}
+export const parsePendingTOTPBeginResponse: Validator<PendingTOTPBeginResponse> = object({
+  uri: req(str),
+  text: req(str),
+});
+
+/** finishTOTP's and setPassword's answer. */
+export interface RecoveryCodeIssuedResponse {
+  /** The recovery code this change issued: show it once. */
+  readonly recovery_code?: string;
+}
+export const parseRecoveryCodeIssuedResponse: Validator<RecoveryCodeIssuedResponse> = object({
+  recovery_code: opt(str),
+});
+
+/** regenerateRecoveryCode's answer. */
+export interface RecoveryCodeResponse {
+  /** The new recovery code: show it once. */
+  readonly recovery_code: string;
+}
+export const parseRecoveryCodeResponse: Validator<RecoveryCodeResponse> = object({
+  recovery_code: req(str),
+});
+
 export interface PendingLinkResponse {
   readonly issuer: string;
   readonly username_hint?: string;
   readonly email?: string;
+  /** "Create a new account" is offered: oidcCreatePending. */
+  readonly can_create: boolean;
+  /** The create form's default name, only when can_create. */
+  readonly suggested_username?: string;
 }
 export const parsePendingLinkResponse: Validator<PendingLinkResponse> = object({
   issuer: req(str),
   username_hint: opt(str),
   email: opt(str),
+  can_create: req(bool),
+  suggested_username: opt(str),
 });
 
 export interface MethodLockView {
@@ -482,6 +809,22 @@ export const parseMethodLockView: Validator<MethodLockView> = object({
   trusted: req(bool),
 });
 
+/** The user's authenticator app. */
+export interface TOTPView {
+  readonly enrolled: boolean;
+  readonly since?: string;
+  /** Enrolled, and the app has authenticator apps on: offer its code. */
+  readonly usable: boolean;
+  /** removeTOTP would remove it. */
+  readonly removable: boolean;
+}
+export const parseTOTPView: Validator<TOTPView> = object({
+  enrolled: req(bool),
+  since: opt(time),
+  usable: req(bool),
+  removable: req(bool),
+});
+
 export interface MethodsView {
   readonly password: boolean;
   readonly passkey_count: number;
@@ -489,6 +832,13 @@ export interface MethodsView {
   readonly oidc_available: boolean;
   readonly passkeys_available: boolean;
   readonly password_login: boolean;
+  /** The user holds a recovery code: offer regenerateRecoveryCode. */
+  readonly recovery_code: boolean;
+  /** Adding or removing a passkey needs a current second factor. */
+  readonly second_factor_held: boolean;
+  /** Step-up may offer the password. */
+  readonly password_step_up: boolean;
+  readonly totp: TOTPView;
   readonly locks: readonly MethodLockView[];
 }
 export const parseMethodsView: Validator<MethodsView> = object({
@@ -498,6 +848,10 @@ export const parseMethodsView: Validator<MethodsView> = object({
   oidc_available: req(bool),
   passkeys_available: req(bool),
   password_login: req(bool),
+  recovery_code: req(bool),
+  second_factor_held: req(bool),
+  password_step_up: req(bool),
+  totp: req(parseTOTPView),
   locks: req(list(parseMethodLockView)),
 });
 
@@ -522,24 +876,21 @@ export interface MeResponse {
   readonly user: UserView;
   readonly methods: MethodsView;
   readonly can_link_oidc: boolean;
-  readonly sso_governed: boolean;
+  /** The SSO mode keeps this user's local methods dormant: hide their forms. */
+  readonly sso_only: boolean;
+  readonly owner: boolean;
+  /** The Policy admits one account: hide what cannot apply. */
+  readonly single_user: boolean;
   readonly session: CurrentSessionView;
 }
 export const parseMeResponse: Validator<MeResponse> = object({
   user: req(parseUserView),
   methods: req(parseMethodsView),
   can_link_oidc: req(bool),
-  sso_governed: req(bool),
+  sso_only: req(bool),
+  owner: req(bool),
+  single_user: req(bool),
   session: req(parseCurrentSessionView),
-});
-
-export interface RecoveryResponse {
-  readonly username: string;
-  readonly methods: MethodsView;
-}
-export const parseRecoveryResponse: Validator<RecoveryResponse> = object({
-  username: req(str),
-  methods: req(parseMethodsView),
 });
 
 /** A passkey whose rp_id differs from the current RP's ID cannot sign in. */
@@ -552,6 +903,8 @@ export interface PasskeyView {
   readonly backed_up: boolean;
   readonly clone_warning?: boolean;
   readonly rp_id: string;
+  /** removePasskey would remove it. */
+  readonly removable: boolean;
 }
 export const parsePasskeyView: Validator<PasskeyView> = object({
   id: req(id),
@@ -562,6 +915,18 @@ export const parsePasskeyView: Validator<PasskeyView> = object({
   backed_up: req(bool),
   clone_warning: opt(bool),
   rp_id: req(str),
+  removable: req(bool),
+});
+
+/** passkeyRegisterFinish's answer. */
+export interface PasskeyRegisteredResponse {
+  readonly passkey: PasskeyView;
+  /** The recovery code this registration issued: show it once. */
+  readonly recovery_code?: string;
+}
+export const parsePasskeyRegisteredResponse: Validator<PasskeyRegisteredResponse> = object({
+  passkey: req(parsePasskeyView),
+  recovery_code: opt(str),
 });
 
 export interface SessionView {
@@ -594,13 +959,13 @@ export const parseSessionView: Validator<SessionView> = object({
 });
 
 /**
- * owner is set on the admin list only. previous_until is set only while a
+ * username is set on the admin list only. previous_until is set only while a
  * rotated key's old secret still verifies; a list re-read shows it gone.
  */
 export interface KeyView {
   readonly id: number;
   readonly user_id: number;
-  readonly owner?: string;
+  readonly username?: string;
   readonly label: string;
   readonly prefix: string;
   readonly suffix: string;
@@ -614,7 +979,7 @@ export interface KeyView {
 export const parseKeyView: Validator<KeyView> = object({
   id: req(id),
   user_id: req(id),
-  owner: opt(str),
+  username: opt(str),
   label: req(str),
   prefix: req(str),
   suffix: req(str),
@@ -646,11 +1011,32 @@ export const parseTokenResponse: Validator<TokenResponse> = object({
   expires_at: req(time),
 });
 
-/** One live invite or recovery token; it carries neither the token nor its hash. */
+/** password is the secret, XXXX-XXXX-XXXX-XXXX, shown once. */
+export interface TemporaryPasswordResponse {
+  readonly password: string;
+  readonly expires_at: string;
+  /** Add the HTTPS sentence: the plain address will not accept it. */
+  readonly https_only: boolean;
+  /** The address to name; else the admin's own origin. */
+  readonly https_origin?: string;
+  /** Single sign-on only keeps the user's methods: the copy is the admin link's. */
+  readonly dormant: boolean;
+  /** The user's own password was kept beside it (dormant only). */
+  readonly password_kept: boolean;
+}
+export const parseTemporaryPasswordResponse: Validator<TemporaryPasswordResponse> = object({
+  password: req(str),
+  expires_at: req(time),
+  https_only: req(bool),
+  https_origin: opt(str),
+  dormant: req(bool),
+  password_kept: req(bool),
+});
+
+/** One live invite; it carries neither the token nor its hash. */
 export interface TokenView {
   readonly purpose: TokenPurpose;
   readonly role?: Role;
-  readonly subject?: number;
   readonly created_at: string;
   readonly expires_at: string;
   readonly issued_by_key?: number;
@@ -659,7 +1045,6 @@ export interface TokenView {
 export const parseTokenView: Validator<TokenView> = object({
   purpose: req(purpose),
   role: opt(role),
-  subject: opt(id),
   created_at: req(time),
   expires_at: req(time),
   issued_by_key: opt(id),
@@ -704,9 +1089,16 @@ export interface LogEntryView {
   readonly session_ids?: readonly string[];
   readonly key_id?: number;
   readonly passkey_id?: number;
+  /** The issuing user of a withdrawn temporary password or of one an admin link spent. */
+  readonly issuer_user_id?: number;
+  /** An sso_mode_changed entry's new and old mode. */
+  readonly sso_mode?: SSOMode;
+  readonly previous_sso_mode?: SSOMode;
   readonly method?: Method;
   readonly role?: Role;
   readonly trusted?: boolean;
+  /** A temporary_password_used entry whose secret crossed plain HTTP. */
+  readonly plain?: boolean;
   readonly detail?: string;
 }
 export const parseLogEntryView: Validator<LogEntryView> = object({
@@ -721,9 +1113,13 @@ export const parseLogEntryView: Validator<LogEntryView> = object({
   session_ids: opt(strings),
   key_id: opt(id),
   passkey_id: opt(id),
+  issuer_user_id: opt(id),
+  sso_mode: opt(ssoMode),
+  previous_sso_mode: opt(ssoMode),
   method: opt(method),
   role: opt(role),
   trusted: opt(bool),
+  plain: opt(bool),
   detail: opt(str),
 });
 
@@ -801,8 +1197,14 @@ export const CODES = [
   "auth_password_rejected",
   "auth_breach_check_unavailable",
   "auth_password_login_disabled",
+  "auth_code_invalid",
+  "auth_second_factor_required",
+  "auth_second_factor_unavailable",
+  "auth_totp_disabled",
   "auth_setup_complete",
   "auth_setup_token_required",
+  "auth_registration_closed",
+  "auth_registration_full",
   "auth_token_invalid",
   "auth_last_method",
   "auth_identity_taken",
@@ -820,6 +1222,7 @@ export const CODES = [
   "auth_registration_failed",
   "auth_oidc_unavailable",
   "auth_oidc_failed",
+  "auth_sso_only",
   "auth_not_found",
   "auth_method_not_allowed",
 ] as const;
@@ -829,7 +1232,6 @@ export type AuthCode = (typeof CODES)[number];
 
 /** accesshttp.Reasons(), in its order. @internal */
 export const REASONS = [
-  "sso_governed",
   "ttl_too_long",
   "ttl_negative",
   "no_change",
@@ -840,15 +1242,11 @@ export const REASONS = [
   "pending_too_large",
   "stale_authentication",
   "flow_invalid",
-  "discovery_failed",
   "exchange_failed",
   "token_invalid",
   "nonce_mismatch",
-  "no_username",
   "provisioning_disabled",
   "not_admitted",
-  "username_invalid",
-  "recovery",
   "reenable_needs_other_method",
   "trailing_data",
   "malformed_json",
@@ -856,6 +1254,15 @@ export const REASONS = [
   "body",
   "unknown_field",
   "token_in_query",
+  "enrol_needs_known_device",
+  "no_usable_method",
+  "second_factor_proof_required",
+  "last_second_factor",
+  "second_factor_held",
+  "totp_needs_password",
+  "enable_without_second_factor",
+  "linked",
+  "temporary_password_exposed",
   "transport_changed",
   "sign_in_again",
   "too_short",
@@ -864,6 +1271,7 @@ export const REASONS = [
   "contains_forbidden_word",
   "common",
   "breached",
+  "is_temporary_password",
   "out_of_band_only",
   "key_not_current",
   "key_retiring",
@@ -876,17 +1284,23 @@ export const REASONS = [
   "self_recovery",
   "other_user",
   "target_not_eligible",
-  "not_principal",
   "unknown_operation",
   "not_enabled_user",
   "not_admin",
   "self_delete",
-  "last_admin",
-  "last_local_admin",
   "single_owner",
   "not_owner",
   "unknown_via",
   "via_with_actor",
+  "owner_target",
+  "owner_role",
+  "last_owner",
+  "owner_needs_local_method",
+  "registration_enabled",
+  "code_invalid",
+  "code_reused",
+  "method_locked",
+  "current_code_invalid",
   "empty",
   "disallowed_character",
   "label_empty",
@@ -951,3 +1365,27 @@ export function authReason(e: ApiErr): AuthReason | undefined {
   const r = errorReason(e);
   return r !== undefined && reasonSet.has(r) ? (r as AuthReason) : undefined;
 }
+
+/** The refusal a change of the SSO mode would answer: adminApplySSO answers exactly this. */
+export interface ReadinessRefusal {
+  readonly code: AuthCode;
+  readonly reason?: AuthReason;
+}
+
+/** What a change of the SSO mode would do; each count is zero in the direction that does not apply. */
+export interface Readiness {
+  readonly refusal?: ReadinessRefusal;
+  readonly locked_out: number;
+  readonly methods_made_dormant: number;
+  readonly methods_restored: number;
+  readonly temporary_passwords_withdrawn: number;
+}
+export const parseReadiness: Validator<Readiness> = object({
+  refusal: opt(
+    object<ReadinessRefusal>({ code: req(oneOf(...CODES)), reason: opt(oneOf(...REASONS)) }),
+  ),
+  locked_out: req(count),
+  methods_made_dormant: req(count),
+  methods_restored: req(count),
+  temporary_passwords_withdrawn: req(count),
+});

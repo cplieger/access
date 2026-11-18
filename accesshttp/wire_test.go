@@ -3,8 +3,6 @@ package accesshttp
 import (
 	"encoding/json"
 	"maps"
-	"net/http"
-	"net/http/httptest"
 	"net/netip"
 	"reflect"
 	"slices"
@@ -64,33 +62,6 @@ func TestRequestTypesHoldNoSecret(t *testing.T) {
 	})
 }
 
-func TestShownOnceWriter(t *testing.T) {
-	const plaintext = "shown-once-plaintext-value"
-	t.Run("key", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		writeShownOnce(w, http.StatusCreated, KeyCreatedResponse{Details: KeyView{ID: 7, Label: "ci"}}, access.NewSecret(plaintext))
-		if w.Code != http.StatusCreated || strings.Count(w.Body.String(), plaintext) != 1 {
-			t.Fatalf("status %d body %s, want 201 holding the plaintext once", w.Code, w.Body.String())
-		}
-		var got KeyCreatedResponse
-		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Key != plaintext || got.Details.ID != 7 {
-			t.Errorf("decoded %+v, %v; want key %q and details", got, err, plaintext)
-		}
-	})
-	t.Run("token", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		exp := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
-		writeShownOnce(w, http.StatusOK, TokenResponse{ExpiresAt: exp}, access.NewSecret(plaintext))
-		if strings.Count(w.Body.String(), plaintext) != 1 {
-			t.Fatalf("body %s, want the plaintext once", w.Body.String())
-		}
-		var got TokenResponse
-		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Token != plaintext || !got.ExpiresAt.Equal(exp) {
-			t.Errorf("decoded %+v, %v; want token %q expiring %v", got, err, plaintext, exp)
-		}
-	})
-}
-
 // unsetFields names, by field path, every field of v that is zero, or zero
 // in every element of a slice, skipping the paths in skip. A fixture with
 // none sets every field its view can carry.
@@ -139,10 +110,10 @@ func unsetFields(v reflect.Value, path string, skip []string) []string {
 func TestViewsCarryEveryField(t *testing.T) {
 	created := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
 	user := &access.User{
-		ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleAdmin, Enabled: true,
+		ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleAdmin, Enabled: true, Owner: true,
 		OIDC: access.OIDCIdentity{Issuer: testIssuer, Subject: "s"}, CreatedAt: created,
 	}
-	wantUser := UserView{ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleAdmin, Enabled: true, OIDCLinked: true, CreatedAt: created}
+	wantUser := UserView{ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleAdmin, Enabled: true, OIDCLinked: true, Owner: true, CreatedAt: created}
 	// unsetByDesign is the admin list's extras, and the KeyView fields one key
 	// state cannot both set: a used key has no live previous secret.
 	unsetByDesign := []string{
@@ -155,6 +126,8 @@ func TestViewsCarryEveryField(t *testing.T) {
 			{Method: access.MethodPasskey, Trusted: true},
 		},
 		PasskeyCount: 2, HasPassword: true, OIDCLinked: true, OIDCAvailable: true, PasskeysAvailable: true, PasswordLogin: true,
+		SecondFactorHeld: true, PasswordStepUp: true, RecoveryCode: true,
+		TOTP: account.TOTPState{Since: created, Enrolled: true, Usable: true, Removable: true},
 	}
 	wantMethods := MethodsView{
 		Locks: []MethodLockView{
@@ -162,29 +135,32 @@ func TestViewsCarryEveryField(t *testing.T) {
 			{Method: access.MethodPasskey, Trusted: true},
 		},
 		PasskeyCount: 2, Password: true, OIDCLinked: true, OIDCAvailable: true, PasskeysAvailable: true, PasswordLogin: true,
+		SecondFactorHeld: true, PasswordStepUp: true, RecoveryCode: true,
+		TOTP: TOTPView{Since: created, Enrolled: true, Usable: true, Removable: true},
 	}
 	at := func(h int) time.Time { return created.Add(time.Duration(h) * time.Hour) }
 	me := account.Me{
-		User: user, Methods: methods, CanLinkOIDC: true, SSOGoverned: true,
+		User: user, Methods: methods, CanLinkOIDC: true, SSOOnly: true, SingleUser: true,
 		Current: account.CurrentSession{ID: "sess", Method: access.MethodPasskey, AuthTime: at(1), IdleDeadline: at(2), AbsoluteDeadline: at(3), Secure: true},
 	}
 	wantMe := MeResponse{
-		User: wantUser, Methods: wantMethods, CanLinkOIDC: true, SSOGoverned: true,
+		User: wantUser, Methods: wantMethods, CanLinkOIDC: true, SSOOnly: true, Owner: true, SingleUser: true,
 		Session: CurrentSessionView{ID: "sess", Method: access.MethodPasskey, AuthTime: at(1), IdleDeadline: at(2), AbsoluteDeadline: at(3), Secure: true},
 	}
-	wantSignedIn := SignedInResponse{User: wantUser, SessionID: "sess", CloneWarning: true}
-	listed := account.ListedUser{User: *user, KeyLineage: []int64{3, 5}, PasskeyCount: 2}
+	wantSignedIn := SignedInResponse{User: wantUser, SessionID: "sess", RecoveryCode: "ABCD-EFGH-JKMN-PQRS", CloneWarning: true}
+	listed := account.ListedUser{User: *user, KeyLineage: []int64{3, 5}, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true, TOTP: true, TemporaryPasswordExpiresAt: at(4)}
 	listed.User.PasswordHash = access.NewHash("$argon2id$stored")
+	listed.User.WaitingApproval = true
 	wantListed := wantUser
-	wantListed.Methods = &UserMethodsView{Password: true, PasskeyCount: 2}
+	wantListed.Methods = &UserMethodsView{Password: true, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true, TOTP: true, TemporaryPassword: &TemporaryPasswordView{ExpiresAt: at(4)}, WaitingApproval: true}
 	wantListed.KeyLineage = []int64{3, 5}
-	passkey := access.PasskeyCredential{
+	passkey := account.Passkey{Credential: access.PasskeyCredential{
 		ID: 2, Name: "laptop", RPID: testRPID, CreatedAt: at(1), LastUsedAt: at(2),
 		BackupEligible: true, BackupState: true, CloneWarning: true,
-	}
+	}, Removable: true}
 	wantPasskey := PasskeyView{
 		ID: 2, Name: "laptop", RPID: testRPID, CreatedAt: at(1), LastUsedAt: at(2),
-		BackupEligible: true, BackedUp: true, CloneWarning: true,
+		BackupEligible: true, BackedUp: true, CloneWarning: true, Removable: true,
 	}
 	session := access.Session{
 		ID: "sess", Label: "laptop", UserAgent: "Firefox", LastIP: "192.0.2.1", AuthMethod: access.MethodPasskey,
@@ -198,12 +174,14 @@ func TestViewsCarryEveryField(t *testing.T) {
 	state := account.State{
 		SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSOrigin: "https://app.example.com",
 		PlainSession:  &access.SessionTimeouts{Idle: 15*time.Minute + 999*time.Millisecond, Absolute: 12 * time.Hour},
-		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC},
+		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC}, SSO: account.SSOOnly, TOTP: true, TemporaryPasswordHTTPSOnly: true,
+		Registration: account.RegistrationApproval,
 	}
 	wantState := StateResponse{
 		SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, HTTPSOrigin: "https://app.example.com",
 		PlainSession:  &PlainSessionView{IdleSeconds: 900, AbsoluteSeconds: 43200},
-		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC},
+		HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSOIDC}, SSO: account.SSONameOnly, TOTP: true, TemporaryPasswordHTTPSOnly: true,
+		Registration: account.RegistrationNameApproval, PasswordLength: passwordBounds,
 	}
 	key := access.Key{
 		ID: 5, UserID: 7, Label: "ci", KeyPrefix: "ak_7", KeySuffix: "wxyz", Scopes: []string{"read"},
@@ -211,7 +189,7 @@ func TestViewsCarryEveryField(t *testing.T) {
 		PreviousHash: access.APIKeyHash("superseded"), PreviousUntil: at(5),
 	}
 	wantKey := KeyView{
-		ID: 5, UserID: 7, Owner: "alice", Label: "ci", Prefix: "ak_7", Suffix: "wxyz", Scopes: []string{"read"},
+		ID: 5, UserID: 7, Username: "alice", Label: "ci", Prefix: "ak_7", Suffix: "wxyz", Scopes: []string{"read"},
 		CreatedAt: at(1), ExpiresAt: at(4), LastUsedAt: at(2), ParentKeyID: 3,
 	}
 	rotated := key
@@ -219,10 +197,10 @@ func TestViewsCarryEveryField(t *testing.T) {
 	wantRotated := wantKey
 	wantRotated.LastUsedAt, wantRotated.PreviousUntil = time.Time{}, at(5)
 	token := account.ListedToken{IssuerLineage: []int64{3, 5}, Token: access.OneTimeToken{
-		Purpose: access.PurposeInvite, Role: access.RoleUser, Subject: 9, IssuedByKey: 5, CreatedAt: at(1), ExpiresAt: at(5),
+		Purpose: access.PurposeInvite, Role: access.RoleUser, IssuedByKey: 5, CreatedAt: at(1), ExpiresAt: at(5),
 	}}
 	wantToken := TokenView{
-		Purpose: access.PurposeInvite, Role: access.RoleUser, Subject: 9, IssuedByKey: 5, IssuerLineage: []int64{3, 5},
+		Purpose: access.PurposeInvite, Role: access.RoleUser, IssuedByKey: 5, IssuerLineage: []int64{3, 5},
 		CreatedAt: at(1), ExpiresAt: at(5),
 	}
 	logPage := account.LogPage{
@@ -230,8 +208,9 @@ func TestViewsCarryEveryField(t *testing.T) {
 			At: at(2), IP: netip.MustParseAddr("192.0.2.9"), Class: account.LogClassChange,
 			ActorLabel: "laptop", ActorUserAgent: "Firefox", ActorKeySuffix: "wxyz", Detail: "d",
 			Event: account.Event{
-				At: at(1), Kind: account.EventMethodLocked, Method: access.MethodPasskey, Role: access.RoleUser,
-				SessionIDs: []string{"s1", "s2"}, UserID: 7, KeyID: 5, PasskeyID: 2, Seq: 11, Trusted: true,
+				At: at(1), Kind: account.EventSSOModeChanged, Method: access.MethodPasskey, Role: access.RoleUser,
+				SessionIDs: []string{"s1", "s2"}, UserID: 7, KeyID: 5, PasskeyID: 2, Seq: 11, Trusted: true, Plain: true,
+				IssuerUserID: 6, SSOMode: account.SSOOnly, PreviousSSOMode: account.SSOForLinked,
 				Actor: account.EventActor{SessionID: "sess", OutOfBand: "cli", UserID: 3, KeyID: 4},
 			},
 		}},
@@ -239,9 +218,10 @@ func TestViewsCarryEveryField(t *testing.T) {
 	}
 	wantLogPage := SecurityLogView{
 		Entries: []LogEntryView{{
-			Seq: 11, At: at(2), OccurredAt: at(1), Class: account.LogClassChange, Kind: "method_locked",
+			Seq: 11, At: at(2), OccurredAt: at(1), Class: account.LogClassChange, Kind: "sso_mode_changed",
+			IssuerUserID: 6, SSOMode: account.SSONameOnly, PreviousSSOMode: account.SSONameForLinked,
 			IP: "192.0.2.9", Method: access.MethodPasskey, Role: access.RoleUser, Detail: "d",
-			SessionIDs: []string{"s1", "s2"}, UserID: 7, KeyID: 5, PasskeyID: 2, Trusted: true,
+			SessionIDs: []string{"s1", "s2"}, UserID: 7, KeyID: 5, PasskeyID: 2, Trusted: true, Plain: true,
 			Actor: LogActorView{SessionID: "sess", OutOfBand: "cli", Label: "laptop", UserAgent: "Firefox", KeySuffix: "wxyz", UserID: 3, KeyID: 4},
 		}},
 		Classes: []LogClassView{{Class: account.LogClassChange, Count: 6, Evicted: 8}},
@@ -251,10 +231,11 @@ func TestViewsCarryEveryField(t *testing.T) {
 		name      string
 	}{
 		{name: "StateResponse", got: stateResponse(&state), want: wantState},
+		{name: "Pending", got: *pendingView(&account.Pending{Ticket: access.NewSecret("ticket"), Next: account.NextEnrol, Methods: []access.Method{access.MethodTOTP}, Recovered: true}), want: Pending{Ticket: "ticket", Next: account.NextEnrol, Methods: []PendingMethod{PendingTOTP}, Recovered: true}},
 		{name: "UserView", got: userView(user), want: wantUser},
 		{name: "MethodsView", got: methodsView(methods), want: wantMethods},
 		{name: "MeResponse", got: meResponse(&me), want: wantMe},
-		{name: "SignedInResponse", got: signedInResponse(account.SignedIn{User: user, Session: access.Session{ID: "sess"}, CloneWarning: true}), want: wantSignedIn},
+		{name: "SignedInResponse", got: signedInResponse(account.SignedIn{User: user, Session: access.Session{ID: "sess"}, RecoveryCode: access.NewSecret("ABCD-EFGH-JKMN-PQRS"), CloneWarning: true}), want: wantSignedIn},
 		{name: "ListedUserView", got: listedUserView(&listed), want: wantListed},
 		{name: "PasskeyView", got: passkeyView(&passkey), want: wantPasskey},
 		{name: "SessionView", got: sessionView(&session, timeouts, "sess"), want: wantSession},
@@ -284,6 +265,12 @@ func TestViewsCarryEveryField(t *testing.T) {
 			{account.Methods{PasskeysAvailable: true}, MethodsView{PasskeysAvailable: true}, "passkeys_available"},
 			{account.Methods{PasswordLogin: true}, MethodsView{PasswordLogin: true}, "password_login"},
 			{account.Methods{PasskeyCount: 3}, MethodsView{PasskeyCount: 3}, "passkey_count"},
+			{account.Methods{SecondFactorHeld: true}, MethodsView{SecondFactorHeld: true}, "second_factor_held"},
+			{account.Methods{PasswordStepUp: true}, MethodsView{PasswordStepUp: true}, "password_step_up"},
+			{account.Methods{RecoveryCode: true}, MethodsView{RecoveryCode: true}, "recovery_code"},
+			{account.Methods{TOTP: account.TOTPState{Enrolled: true}}, MethodsView{TOTP: TOTPView{Enrolled: true}}, "totp_enrolled"},
+			{account.Methods{TOTP: account.TOTPState{Usable: true}}, MethodsView{TOTP: TOTPView{Usable: true}}, "totp_usable"},
+			{account.Methods{TOTP: account.TOTPState{Removable: true}}, MethodsView{TOTP: TOTPView{Removable: true}}, "totp_removable"},
 		} {
 			tc.want.Locks = []MethodLockView{}
 			if got := methodsView(tc.in); !reflect.DeepEqual(got, tc.want) {
@@ -293,17 +280,24 @@ func TestViewsCarryEveryField(t *testing.T) {
 	})
 	t.Run("passkey_flags_one_at_a_time", func(t *testing.T) {
 		for _, tc := range []struct {
-			in   access.PasskeyCredential
+			in   account.Passkey
 			want PasskeyView
 			name string
 		}{
-			{access.PasskeyCredential{BackupEligible: true}, PasskeyView{BackupEligible: true}, "backup_eligible"},
-			{access.PasskeyCredential{BackupState: true}, PasskeyView{BackedUp: true}, "backed_up"},
-			{access.PasskeyCredential{CloneWarning: true}, PasskeyView{CloneWarning: true}, "clone_warning"},
+			{account.Passkey{Credential: access.PasskeyCredential{BackupEligible: true}}, PasskeyView{BackupEligible: true}, "backup_eligible"},
+			{account.Passkey{Credential: access.PasskeyCredential{BackupState: true}}, PasskeyView{BackedUp: true}, "backed_up"},
+			{account.Passkey{Credential: access.PasskeyCredential{CloneWarning: true}}, PasskeyView{CloneWarning: true}, "clone_warning"},
+			{account.Passkey{Removable: true}, PasskeyView{Removable: true}, "removable"},
 		} {
 			if got := passkeyView(&tc.in); got != tc.want {
 				t.Errorf("%s: view %+v, want %+v", tc.name, got, tc.want)
 			}
+		}
+	})
+	t.Run("log_mode_only_on_its_kind", func(t *testing.T) {
+		e := account.LogEntry{Event: account.Event{Kind: account.EventMethodLocked, SSOMode: account.SSOOnly}}
+		if v := logEntryView(&e); v.SSOMode != "" || v.PreviousSSOMode != "" {
+			t.Errorf("a method_locked entry = mode %q, previous %q; want neither", v.SSOMode, v.PreviousSSOMode)
 		}
 	})
 	t.Run("state_secure_encodes_empty_list", func(t *testing.T) {
@@ -390,5 +384,22 @@ func TestSecurityLogViewJSON(t *testing.T) {
 	const want = `{"entries":[],"classes":[{"class":"change","count":0,"evicted":0},{"class":"session","count":0,"evicted":0}]}`
 	if string(b) != want {
 		t.Errorf("empty page encodes %s, want %s", b, want)
+	}
+}
+
+// TestPendingMethodsAreMethods checks that pendingView's conversion keeps a
+// value: every PendingMethod is an access.Method constant (the
+// four ticket methods).
+func TestPendingMethodsAreMethods(t *testing.T) {
+	pending, _ := enumValues(t, reflect.TypeFor[PendingMethod]())
+	methods, _ := enumValues(t, reflect.TypeFor[access.Method]())
+	want := []string{"totp", "passkey", "recovery_code", "password"}
+	if !slices.Equal(pending, want) {
+		t.Errorf("PendingMethod values = %v, want %v", pending, want)
+	}
+	for _, m := range pending {
+		if !slices.Contains(methods, m) {
+			t.Errorf("PendingMethod %q is no access.Method", m)
+		}
 	}
 }

@@ -776,8 +776,8 @@ func TestIdPRotateKey(t *testing.T) {
 	}
 }
 
-// servedKey is one JWK of the set the IdP serves (RFC 7517 §4; RFC 7518
-// §6.2.1, §6.3.1).
+// servedKey is one JWK of the set the IdP serves (RFC 7517 §4;
+// RFC 7518 §6.2.1, §6.3.1).
 type servedKey struct {
 	Kty string `json:"kty"`
 	Kid string `json:"kid"`
@@ -806,7 +806,7 @@ func servedKeys(t *testing.T, idp *accesstest.IdP) []servedKey {
 
 // verifyAgainstJWKS checks raw's signature (RFC 7515 §5.2) under the key
 // its kid names in the set the IdP serves now, by RFC 7518 §3.3 (RS256)
-// or §3.4 (ES256).
+// or RFC 7518 §3.4 (ES256).
 func verifyAgainstJWKS(t *testing.T, idp *accesstest.IdP, raw string) error {
 	t.Helper()
 	header, _, input, sig := decodeJWS(t, raw)

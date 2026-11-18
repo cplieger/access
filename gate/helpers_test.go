@@ -49,17 +49,16 @@ func (agentVerifier) Verify(ctx context.Context, r *http.Request) (access.Princi
 
 // fixture is one store with every credential the gate tests present.
 type fixture struct {
-	store    *accesstest.MemStore
-	authn    *access.Authenticator
-	bypass   *access.Authenticator
-	cookie   string
-	session  string // a full session
-	recovery string // a recovery session
-	expired  string // a session past its idle timeout
-	stale    string // a full session last active ten minutes ago
-	plain    string // a full session created over plain HTTP
-	keyRead  string // a key with scope "read"
-	keyNone  string // a key with no scope
+	store   *accesstest.MemStore
+	authn   *access.Authenticator
+	bypass  *access.Authenticator
+	cookie  string
+	session string // a session
+	expired string // a session past its idle timeout
+	stale   string // a session last active ten minutes ago
+	plain   string // a session created over plain HTTP
+	keyRead string // a key with scope "read"
+	keyNone string // a key with no scope
 	// keyExpired is past its ExpiresAt, keyRetired a rotated key's previous
 	// secret past its overlap, and keyDisabled and disabledSession belong
 	// to a disabled user.
@@ -87,7 +86,6 @@ func newFixture(t *testing.T) *fixture {
 	f.userID = u.ID
 	now := time.Now()
 	f.session = f.addSession(t, &access.Session{ID: "full", AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true})
-	f.recovery = f.addSession(t, &access.Session{ID: "recovery", Kind: access.SessionRecovery, AuthMethod: access.MethodRecovery, CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true})
 	f.expired = f.addSession(t, &access.Session{ID: "expired", AuthMethod: access.MethodPassword, CreatedAt: now.Add(-3 * time.Hour), LastActivity: now.Add(-2 * time.Hour), AuthTime: now.Add(-3 * time.Hour), Secure: true})
 	f.stale = f.addSession(t, &access.Session{ID: "stale", AuthMethod: access.MethodPassword, CreatedAt: now.Add(-time.Hour), LastActivity: now.Add(-10 * time.Minute), AuthTime: now.Add(-time.Hour), Secure: true})
 	f.plain = f.addSession(t, &access.Session{ID: "plain", AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: now})
@@ -194,7 +192,6 @@ func withAgent(v string) cred {
 
 var (
 	sessionCred  = withCookie(func(f *fixture) string { return f.session })
-	recoveryCred = withCookie(func(f *fixture) string { return f.recovery })
 	expiredCred  = withCookie(func(f *fixture) string { return f.expired })
 	goneCred     = withCookie(func(*fixture) string { return "no-such-session" })
 	plainCred    = withCookie(func(f *fixture) string { return f.plain })

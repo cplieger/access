@@ -123,13 +123,18 @@ func passthroughCases() []passthroughCase {
 			rt := e.route(t, "authOIDCLinkPending")
 			return b.send(rt, request(rt, ""))
 		}},
-		{name: "recovery_start", route: "authRecoveryStart", run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+		{name: "oidc_create_pending", route: "authOIDCCreatePending", opts: provisioning, run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+			e.useIdP(t, accesstest.IdPOptions{}, nil)
 			e.createUser(t, "alice", access.RoleUser)
-			issued, err := e.svc.IssueRecovery(t.Context(), account.OutOfBand("test"), e.user(t, "alice").ID, 0)
-			if err != nil {
-				t.Fatalf("IssueRecovery: %v", err)
-			}
-			return serve(t, e, "authRecoveryStart", e.post(t, "authRecoveryStart", jsonBody(t, TokenRequest{Token: issued.Plaintext.Reveal()})))
+			role := access.RoleUser
+			rt := e.route(t, "authOIDCCreatePending")
+			r := request(rt, jsonBody(t, PendingCreateRequest{Username: "alice_2"}))
+			r.AddCookie(e.pendingCookie(t, pendingPayload{Issuer: testIssuer, Subject: accesstest.DefaultIdPSubject, Provision: &role}))
+			return serve(t, e, "authOIDCCreatePending", r)
+		}},
+		{name: "oidc_link_by_admin", route: "authOIDCLinkByAdmin", run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+			secret := e.issueForAdminLink(t, true)
+			return serve(t, e, "authOIDCLinkByAdmin", e.adminLink(t, "alice", secret.Reveal(), true))
 		}},
 		{name: "invite_accept", route: "authInviteAcceptPassword", run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
 			body := inviteBody(t, e.invite(t), "bob", testPassword)
@@ -138,6 +143,11 @@ func passthroughCases() []passthroughCase {
 		{name: "step_up_password", route: "authStepUpPassword", run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
 			cookie := e.aliceSession(t)
 			return serve(t, e, "authStepUpPassword", e.post(t, "authStepUpPassword", jsonBody(t, PasswordRequest{Password: testPassword}), cookie))
+		}},
+		{name: "step_up_code", route: "authStepUpCode", opts: totpOn, run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+			cookie := e.aliceSession(t)
+			secret := e.giveTOTP(t, "alice", e.sealer)
+			return serve(t, e, "authStepUpCode", e.post(t, "authStepUpCode", jsonBody(t, StepUpCodeRequest{Code: codeNow(secret)}), cookie))
 		}},
 		{name: "step_up_passkey", route: "authStepUpPasskeyFinish", opts: passkeys, run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
 			cookie := e.aliceSession(t)
@@ -151,6 +161,22 @@ func passthroughCases() []passthroughCase {
 			cookie := e.aliceSession(t)
 			e.enrol(t, "alice")
 			return serve(t, e, "authPasswordRemove", e.post(t, "authPasswordRemove", passwordRemoveBody(t, testPassword), cookie))
+		}},
+		{name: "set_credential_password", route: "authLoginSetPassword", run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+			e.createUser(t, "alice", access.RoleUser)
+			ticket, _ := e.temporaryTicket(t, "alice", true)
+			return serve(t, e, "authLoginSetPassword", e.setPassword(t, testOrigin, ticket, chosenPassword))
+		}},
+		{name: "set_credential_passkey", route: "authLoginSetPasskeyFinish", opts: passkeys, run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+			e.createUser(t, "alice", access.RoleUser)
+			ticket, _ := e.temporaryTicket(t, "alice", true)
+			return serve(t, e, "authLoginSetPasskeyFinish", e.setPasskeyFinish(t, ticket, nil, nil, nil))
+		}},
+		{name: "pending_totp_enrol", route: "authPendingTOTPFinish", opts: totpOn, run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+			return serve(t, e, "authPendingTOTPFinish", e.pendingTOTPFinish(t, e.recoveredTicket(t, "alice")))
+		}},
+		{name: "pending_passkey_enrol", route: "authPendingPasskeyFinish", opts: with(passkeys, totpOn), run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
+			return serve(t, e, "authPendingPasskeyFinish", e.pendingPasskeyFinish(t, e.recoveredTicket(t, "alice"), nil, nil, nil))
 		}},
 		{name: "passkey_enrol", route: "authPasskeyRegisterFinish", opts: passkeys, run: func(t *testing.T, e *env) *httptest.ResponseRecorder {
 			return serve(t, e, "authPasskeyRegisterFinish", e.registerFinish(t, e.aliceSession(t), nil, nil, nil))
@@ -176,7 +202,7 @@ func passthroughCases() []passthroughCase {
 // sessionResults are the account results that carry a new or rotated
 // session.
 var sessionResults = []reflect.Type{
-	reflect.TypeFor[account.SignedIn](), reflect.TypeFor[account.Issued](), reflect.TypeFor[account.Recovery](),
+	reflect.TypeFor[account.SignedIn](), reflect.TypeFor[account.Issued](),
 	reflect.TypeFor[account.OIDCOutcome](), reflect.TypeFor[account.Registered](), reflect.TypeFor[account.CreatedKey](), reflect.TypeFor[account.RotatedKey](),
 }
 
@@ -200,7 +226,7 @@ func sessionRoutes() []string {
 	return out
 }
 
-// TestContextPassthroughEveryRoute is §9.5 "Context passthrough" through
+// TestContextPassthroughEveryRoute checks context passthrough through
 // accesshttp: on every session-minting and session-rotating route, every
 // store call each request of the flow makes, the Authenticator's and an
 // Update's Tx calls included, carries the value the request's context

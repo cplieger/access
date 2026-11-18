@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"sync"
 	"testing"
 	"time"
 
@@ -12,12 +11,32 @@ import (
 	"github.com/cplieger/access/account"
 )
 
-// keyIssuedPath is one catalogued operation that redeems what K, a
-// manage_users key, issued for alice, or completes the recovery K's link
-// started. arrange issues K's link and, for a completion, opens its
-// recovery session.
+// issuerWorld is a fixture over a faultStore with the key scopes, an admin
+// root with its recent session pr, and K, a manage_users key of root's
+// minted by root's key P.
+type issuerWorld struct {
+	*pwFixture
+	fs   *faultStore
+	root *access.User
+	pr   access.Principal
+	k    minted
+}
+
+func newIssuerWorld(t *testing.T) *issuerWorld {
+	t.Helper()
+	fs := newFaultStore()
+	w := &issuerWorld{pwFixture: newPW(t, pwOptions{options: keyOptions(options{store: fs}, nil)}), fs: fs}
+	w.root = mustUser(t, w.mem, "root", access.RoleAdmin)
+	w.pr = w.sessionPrincipal(t, w.root, time.Now())
+	p := w.mint(t, account.As(w.pr), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
+	w.pr = w.sessionPrincipal(t, w.root, time.Now())
+	w.k = w.mint(t, account.As(p.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
+	return w
+}
+
+// keyIssuedPath is one catalogued operation that redeems what K issued.
 type keyIssuedPath struct {
-	arrange func(t *testing.T, kr *keyRec) issuedLink
+	arrange func(t *testing.T, kr *issuerWorld) issuedLink
 	name    string
 }
 
@@ -28,12 +47,12 @@ type issuedLink struct {
 	run     func(ctx context.Context) error
 	promote func(t *testing.T) // raises the role the path's target rule reads, by a store write
 	check   func(t *testing.T)
-	token   *access.OneTimeToken // the stored link a token path consumes; nil for a completion
+	token   *access.OneTimeToken // the stored link a token path consumes
 	writes  []string
 }
 
 // storedLink is tok's record as the store holds it.
-func storedLink(t *testing.T, kr *keyRec, tok account.IssuedToken) *access.OneTimeToken {
+func storedLink(t *testing.T, kr *issuerWorld, tok account.IssuedToken) *access.OneTimeToken {
 	t.Helper()
 	rec, found, err := kr.mem.OneTimeTokenByHash(t.Context(), hashOf(tok))
 	if err != nil || !found {
@@ -42,20 +61,9 @@ func storedLink(t *testing.T, kr *keyRec, tok account.IssuedToken) *access.OneTi
 	return &rec
 }
 
-// promoteAlice makes alice an admin through the store, which revokes
-// nothing.
-func promoteAlice(t *testing.T, kr *keyRec) {
-	t.Helper()
-	u := storedUser(t, kr.mem, kr.alice.ID)
-	u.Role = access.RoleAdmin
-	if err := kr.mem.UpdateUser(t.Context(), u); err != nil {
-		t.Fatalf("UpdateUser(alice): %v", err)
-	}
-}
-
 func keyIssuedPaths() []keyIssuedPath {
-	paths := []keyIssuedPath{
-		{name: "AcceptInvitePassword", arrange: func(t *testing.T, kr *keyRec) issuedLink {
+	return []keyIssuedPath{
+		{name: "AcceptInvitePassword", arrange: func(t *testing.T, kr *issuerWorld) issuedLink {
 			inv, err := kr.svc.CreateInvite(t.Context(), kr.k.p, access.RoleUser, 0)
 			if err != nil {
 				t.Fatalf("CreateInvite from K = %v", err)
@@ -91,78 +99,22 @@ func keyIssuedPaths() []keyIssuedPath {
 				},
 			}
 		}},
-		{name: "StartRecovery", arrange: func(t *testing.T, kr *keyRec) issuedLink {
-			tok := kr.issue(t, account.As(kr.k.p), kr.alice.ID)
-			rec := storedLink(t, kr, tok)
-			return issuedLink{
-				token:  rec,
-				writes: []string{"ConsumeOneTimeToken"},
-				run: func(ctx context.Context) error {
-					_, err := kr.svc.StartRecovery(ctx, localClient, tok.Plaintext)
-					return err
-				},
-				promote: func(t *testing.T) { promoteAlice(t, kr) },
-				check: func(t *testing.T) {
-					if n := len(recoverySessions(t, kr.mem, kr.alice.ID)); n != 0 {
-						t.Errorf("the refused start opened %d recovery sessions", n)
-					}
-					if got := actions(t, kr.fixture, kr.alice.ID); len(got) != 0 {
-						t.Errorf("the refused start appended %v", got)
-					}
-					if n := len(eventsOf(kr.events, account.EventRecoveryConsumed)); n != 0 {
-						t.Errorf("the refused start emitted %d EventRecoveryConsumed", n)
-					}
-					if tokenStored(t, kr.mem, *rec) {
-						t.Error("the refused start left the link")
-					}
-				},
-			}
-		}},
 	}
-	for _, c := range completions() {
-		name := map[string]string{"password": "RecoverWithPassword", "passkey": "RecoverPasskeyFinish"}[c.name]
-		paths = append(paths, keyIssuedPath{name: name, arrange: func(t *testing.T, kr *keyRec) issuedLink {
-			_, rp := kr.start(t, kr.svc, kr.issue(t, account.As(kr.k.p), kr.alice.ID))
-			return issuedLink{
-				writes:  []string{"DeleteSession"},
-				run:     func(context.Context) error { return c.run(t, kr.recWorld, kr.svc, rp, account.RecoverOptions{}) },
-				promote: func(t *testing.T) { promoteAlice(t, kr) },
-				check: func(t *testing.T) {
-					if n := len(recoverySessions(t, kr.mem, kr.alice.ID)); n != 0 {
-						t.Errorf("the refused completion left %d recovery sessions", n)
-					}
-					if c.holds(t, kr.recWorld, kr.alice) {
-						t.Error("the refused completion set its credential")
-					}
-					if want := []string{attr(access.AttributionRecoveryStarted, kr.k.key.LineageIDs)}; !slices.Equal(actions(t, kr.fixture, kr.alice.ID), want) {
-						t.Errorf("records = %v, want %v", actions(t, kr.fixture, kr.alice.ID), want)
-					}
-					if n := len(eventsOf(kr.events, account.EventRecoveryCompleted)); n != 0 {
-						t.Errorf("the refused completion emitted %d EventRecoveryCompleted", n)
-					}
-					if !signsIn(t, kr.svc, "alice", goodPassword) {
-						t.Error("alice's old password no longer signs in")
-					}
-				},
-			}
-		}})
-	}
-	return paths
 }
 
 // issuerCase is one change after K issued that its re-check must refuse.
 type issuerCase struct {
-	change func(t *testing.T, kr *keyRec, link *issuedLink)
+	change func(t *testing.T, kr *issuerWorld, link *issuedLink)
 	name   string
 }
 
 func issuerCases() []issuerCase {
 	return []issuerCase{
-		{name: "issuer_revoked", change: func(t *testing.T, kr *keyRec, link *issuedLink) {
+		{name: "issuer_revoked", change: func(t *testing.T, kr *issuerWorld, link *issuedLink) {
 			if err := kr.svc.RevokeAPIKey(t.Context(), kr.pr, kr.k.key.ID); err != nil {
 				t.Fatalf("RevokeAPIKey(K) = %v", err)
 			}
-			// The revocation deletes K's links with it (design 6.1), so a
+			// The revocation deletes K's links with it, so a
 			// token path meets a revoked issuer only in a link that outlived
 			// its key: it is stored again.
 			if link.token != nil {
@@ -171,12 +123,12 @@ func issuerCases() []issuerCase {
 				}
 			}
 		}},
-		{name: "issuer_descoped", change: func(t *testing.T, kr *keyRec, _ *issuedLink) {
+		{name: "issuer_descoped", change: func(t *testing.T, kr *issuerWorld, _ *issuedLink) {
 			if err := kr.fs.descope(t.Context(), kr.k.key.ID, scopeUsers); err != nil {
 				t.Fatalf("descope(K) = %v", err)
 			}
 		}},
-		{name: "target_promoted_in_store", change: func(t *testing.T, _ *keyRec, link *issuedLink) { link.promote(t) }},
+		{name: "target_promoted_in_store", change: func(t *testing.T, _ *issuerWorld, link *issuedLink) { link.promote(t) }},
 	}
 }
 
@@ -193,7 +145,7 @@ func TestIssuerRecheckEveryKeyIssuedPath(t *testing.T) {
 		for _, ic := range issuerCases() {
 			t.Run(path.name+"_"+ic.name, func(t *testing.T) {
 				t.Parallel()
-				kr := newKeyRec(t, 0)
+				kr := newIssuerWorld(t)
 				link := path.arrange(t, kr)
 				ic.change(t, kr, &link)
 				kr.fs.resetRecord()
@@ -206,39 +158,5 @@ func TestIssuerRecheckEveryKeyIssuedPath(t *testing.T) {
 				link.check(t)
 			})
 		}
-	}
-	t.Run("RecoverOutOfBand_target_promoted_in_store_no_key_issuer", recoverOutOfBandPromoted)
-}
-
-// recoverOutOfBandPromoted is RecoverOutOfBand's row. Its actor is
-// out-of-band, so it has no key issuer to re-check, and it repairs any
-// user (design 6.4); alice promoted through the store after its first read
-// is decided and written as the Update reads her.
-func recoverOutOfBandPromoted(t *testing.T) {
-	t.Parallel()
-	pol := &recordingPolicy{inner: account.RolePolicy{}}
-	w := newRecWorld(t, pwOptions{}, pol)
-	var once sync.Once
-	w.fs.onUpdate(func(ctx context.Context, _ int) {
-		once.Do(func() {
-			u := storedUser(t, w.mem, w.alice.ID)
-			u.Role = access.RoleAdmin
-			if err := w.mem.UpdateUser(ctx, u); err != nil {
-				t.Errorf("UpdateUser(alice): %v", err)
-			}
-		})
-	})
-	if err := w.svc.RecoverOutOfBand(t.Context(), account.OutOfBand("socket"), w.alice.ID, access.NewSecret(recoveredPassword), account.RecoverOptions{}); err != nil {
-		t.Fatalf("RecoverOutOfBand on a user promoted mid-call = %v", err)
-	}
-	ds := pol.taken()
-	if len(ds) != 1 || ds[0].Op != account.OpIssueRecovery || ds[0].Target == nil || ds[0].Target.Role != access.RoleAdmin {
-		t.Errorf("decisions = %+v, want one OpIssueRecovery on alice as an admin", ds)
-	}
-	if got := storedUser(t, w.mem, w.alice.ID); got.Role != access.RoleAdmin {
-		t.Errorf("alice's stored role = %s, want the promotion kept", got.Role)
-	}
-	if !signsIn(t, w.svc, "alice", recoveredPassword) {
-		t.Error("alice does not sign in with the repaired password")
 	}
 }

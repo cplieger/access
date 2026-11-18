@@ -1,8 +1,6 @@
 package accesshttp
 
 import (
-	"net/http"
-
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
 )
@@ -21,7 +19,7 @@ func canonical(username string) string {
 func (h *Handler) signedIn(c *call, s account.SignedIn) { //nolint:gocritic // hugeParam: account's own result, read once
 	h.setSignedIn(c.w, c.client.Secure, s)
 	h.auditSuccess(c, s.User, s.Session)
-	writeJSON(c.w, http.StatusOK, signedInResponse(s))
+	c.answer(signedInResponse(s))
 }
 
 func serveState(h *Handler, c *call) error {
@@ -29,7 +27,7 @@ func serveState(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, stateResponse(&st))
+	c.answer(stateResponse(&st))
 	return nil
 }
 
@@ -48,7 +46,7 @@ func serveSetupPassword(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	h.signedIn(c, out)
+	h.loginOutcome(c, out)
 	return nil
 }
 
@@ -97,8 +95,28 @@ func serveLoginPassword(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	h.signedIn(c, out)
+	h.loginOutcome(c, out)
 	return nil
+}
+
+// loginOutcome answers a sign-in step: SignInOutcome's signed_in with the
+// session's cookies, or its pending with no cookie, since the ticket rides
+// the body only.
+func (h *Handler) loginOutcome(c *call, out account.LoginResult) { //nolint:gocritic // hugeParam: account's own result, read once
+	signed, pending := h.signInArms(c, out)
+	c.answer(SignInOutcome{SignedIn: signed, Pending: pending})
+}
+
+// signInArms sets out's cookies and audits it, and returns its one arm.
+func (h *Handler) signInArms(c *call, out account.LoginResult) (*SignedInResponse, *Pending) { //nolint:gocritic // hugeParam: account's own result, read once
+	if p := out.Pending; p != nil {
+		h.emit(c, access.AuditEvent{Kind: "pending", Username: c.username, Method: access.MethodPassword})
+		return nil, pendingView(p)
+	}
+	h.setSignedIn(c.w, c.client.Secure, out.SignedIn)
+	h.auditSuccess(c, out.SignedIn.User, out.SignedIn.Session)
+	signed := signedInResponse(out.SignedIn)
+	return &signed, nil
 }
 
 func serveLoginPasskeyBegin(h *Handler, c *call) error {
@@ -138,7 +156,7 @@ func serveLogout(h *Handler, c *call) error {
 		return err
 	}
 	h.clearSession(c.w, c.client.Secure)
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -160,7 +178,7 @@ func serveInviteAcceptPassword(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	h.signedIn(c, out)
+	h.loginOutcome(c, out)
 	return nil
 }
 
@@ -170,6 +188,6 @@ func writeCeremony(c *call, pc account.PendingCeremony) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, resp)
+	c.answer(resp)
 	return nil
 }

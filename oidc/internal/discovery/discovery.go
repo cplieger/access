@@ -18,12 +18,12 @@ import (
 )
 
 var (
-	// ErrFetch is the error Fetch wraps when the document could not be
-	// fetched: a transport error, a redirect, an answer other than 200 or a
-	// body read error.
+	// ErrFetch is the error Fetch and NewKeySet wrap when the provider could
+	// not be reached: a transport error, a redirect, an answer other than
+	// 200 or a body read error other than the body cap.
 	ErrFetch = errors.New("discovery: fetch failed")
 	// ErrDocument is the error Parse and Fetch wrap when they refuse a
-	// document.
+	// document, one past the body cap included.
 	ErrDocument = errors.New("discovery: document refused")
 )
 
@@ -42,17 +42,17 @@ type Document struct {
 func Fetch(ctx context.Context, client *http.Client, issuer string) (Document, error) {
 	body, err := get(ctx, client, strings.TrimSuffix(issuer, "/")+"/.well-known/openid-configuration")
 	if err != nil {
-		return Document{}, err
+		return Document{}, refusedPastCap(ErrDocument, err)
 	}
 	return Parse(issuer, body)
 }
 
-// Parse checks a document fetched for issuer, which must already pass
-// oidc's Config.Validate: its issuer is identical to issuer (Discovery 1.0
-// §4.3), its endpoints meet the https rule, and its
-// id_token_signing_alg_values_supported, RS256 when absent, shares a row
-// with package jwk's table. Every refusal wraps ErrDocument and names the
-// field, never its value.
+// Parse checks a document fetched for issuer, which must already pass oidc's
+// Config.Validate: its issuer is identical to issuer (Discovery 1.0 §4.3),
+// its endpoints meet the https rule, and its
+// id_token_signing_alg_values_supported, RS256 when absent, shares a row with
+// package jwk's table. Every refusal wraps ErrDocument and names the field,
+// never its value.
 func Parse(issuer string, data []byte) (Document, error) {
 	m, err := jsonmember.Object(data)
 	if err != nil {

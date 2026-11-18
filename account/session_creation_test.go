@@ -14,7 +14,6 @@ import (
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
-	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/ratelimit"
 )
 
@@ -65,7 +64,7 @@ func creationPaths() []creationPath {
 			return out.SignedIn, nil, err
 		}},
 		{name: "setup_password", run: func(t *testing.T, f *oidcFixture, c account.Client) (account.SignedIn, []string, error) {
-			in, err := f.svc.SetupWithPassword(t.Context(), c, account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)})
+			in, err := completed(f.svc.SetupWithPassword(t.Context(), c, account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)}))
 			return in, nil, err
 		}},
 		{name: "setup_passkey", run: func(t *testing.T, f *oidcFixture, c account.Client) (account.SignedIn, []string, error) {
@@ -75,23 +74,12 @@ func creationPaths() []creationPath {
 		}},
 		{name: "invite", run: func(t *testing.T, f *oidcFixture, c account.Client) (account.SignedIn, []string, error) {
 			admin := mustUser(t, f.mem, "inviter", access.RoleAdmin)
-			inv, err := f.svc.CreateInvite(t.Context(), f.sessionPrincipal(t, admin, access.SessionFull, time.Now()), access.RoleUser, 0)
+			inv, err := f.svc.CreateInvite(t.Context(), f.sessionPrincipal(t, admin, time.Now()), access.RoleUser, 0)
 			if err != nil {
 				t.Fatalf("CreateInvite = %v", err)
 			}
-			in, err := f.svc.AcceptInvitePassword(t.Context(), c, account.AcceptInvite{Token: inv.Plaintext, Username: "invitee", Password: access.NewSecret(goodPassword)})
+			in, err := completed(f.svc.AcceptInvitePassword(t.Context(), c, account.AcceptInvite{Token: inv.Plaintext, Username: "invitee", Password: access.NewSecret(goodPassword)}))
 			return in, nil, err
-		}},
-		{name: "recovery_start", run: func(t *testing.T, f *oidcFixture, c account.Client) (account.SignedIn, []string, error) {
-			u := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
-			putSession(t, f.mem, liveSession(t, u))
-			old := sessionIDsOf(t, f.fixture, u.ID)
-			tok, err := f.svc.IssueRecovery(t.Context(), account.OutOfBand("socket"), u.ID, 0)
-			if err != nil {
-				t.Fatalf("IssueRecovery = %v", err)
-			}
-			rec, err := f.svc.StartRecovery(t.Context(), c, tok.Plaintext)
-			return account.SignedIn{User: u, Session: rec.Issued.Session}, old, err
 		}},
 	}
 }
@@ -106,8 +94,8 @@ func TestSessionRulesEveryCreationPath(t *testing.T) {
 				return account.Rules{
 					MaxSessionsPerUser: 1,
 					SetupTokenRequired: tokenless,
-					Provisioning:       oidc.Provisioning{Enabled: true},
-					SessionCaps: func(_ context.Context, c account.Client) (time.Duration, time.Duration) {
+					Provisioning:       account.Provisioning{Enabled: true},
+					SessionCaps: func(_ context.Context, c account.Client, _ access.Method) (time.Duration, time.Duration) {
 						if c.UserAgent == rulesAgent {
 							calls.Add(1)
 						}
@@ -165,6 +153,8 @@ func TestSessionRulesEveryCreationPath(t *testing.T) {
 // set, and is RolePolicy otherwise.
 type toggledPolicy struct{ off *atomic.Bool }
 
+func (toggledPolicy) SingleUser() bool { return false }
+
 func (p toggledPolicy) Authorize(ctx context.Context, d account.Decision) error {
 	if p.off.Load() && d.Op == account.OpCreateUser && d.Via == account.ViaInvite {
 		return &account.PolicyError{Op: d.Op, Reason: "no_invites"}
@@ -176,9 +166,8 @@ func (p toggledPolicy) Authorize(ctx context.Context, d account.Decision) error 
 // request, with switches a refusal row flips and restores.
 type limitEnv struct {
 	*pkFixture
-	inviter                 *access.User // created by the first invite
-	subject                 *access.User // created by the first recovery link
-	passwordOff, invitesOff atomic.Bool
+	inviter    *access.User // created by the first invite
+	invitesOff atomic.Bool
 }
 
 func isUsernameError(err error) bool {
@@ -236,7 +225,7 @@ func limitedPaths() []limitedPath {
 		if e.inviter == nil {
 			e.inviter = mustUser(t, e.mem, "inviter", access.RoleAdmin)
 		}
-		inv, err := e.svc.CreateInvite(t.Context(), e.sessionPrincipal(t, e.inviter, access.SessionFull, time.Now()), access.RoleUser, 0)
+		inv, err := e.svc.CreateInvite(t.Context(), e.sessionPrincipal(t, e.inviter, time.Now()), access.RoleUser, 0)
 		if err != nil {
 			t.Fatalf("CreateInvite = %v", err)
 		}
@@ -244,20 +233,6 @@ func limitedPaths() []limitedPath {
 	}
 	accept := func(e *limitEnv, t *testing.T, tok access.Secret, name, pw string) error {
 		_, err := e.svc.AcceptInvitePassword(t.Context(), localClient, account.AcceptInvite{Token: tok, Username: name, Password: access.NewSecret(pw)})
-		return err
-	}
-	recovery := func(t *testing.T, e *limitEnv) access.Secret {
-		if e.subject == nil {
-			e.subject = mustUser(t, e.mem, "subject", access.RoleUser)
-		}
-		tok, err := e.svc.IssueRecovery(t.Context(), account.OutOfBand("socket"), e.subject.ID, 0)
-		if err != nil {
-			t.Fatalf("IssueRecovery = %v", err)
-		}
-		return tok.Plaintext
-	}
-	startRecovery := func(e *limitEnv, t *testing.T, tok access.Secret) error {
-		_, err := e.svc.StartRecovery(t.Context(), localClient, tok)
 		return err
 	}
 	return []limitedPath{
@@ -269,12 +244,6 @@ func limitedPaths() []limitedPath {
 				return err
 			},
 			refusals: []refusal{
-				{name: "disabled", want: is(account.ErrPasswordLoginDisabled), call: func(t *testing.T, e *limitEnv) error {
-					e.passwordOff.Store(true)
-					defer e.passwordOff.Store(false)
-					_, err := e.login(t.Context(), localClient, "alice", goodPassword)
-					return err
-				}},
 				{name: "refused_name", want: isUsernameError, call: func(t *testing.T, e *limitEnv) error {
 					_, err := e.login(t.Context(), localClient, "two words", goodPassword)
 					return err
@@ -359,39 +328,6 @@ func limitedPaths() []limitedPath {
 				}},
 			},
 		},
-		{
-			name: "recovery_start",
-			valid: func(t *testing.T, e *limitEnv) error {
-				return startRecovery(e, t, recovery(t, e))
-			},
-			refusals: []refusal{
-				{name: "zero_token", want: is(access.ErrTokenInvalid), call: func(t *testing.T, e *limitEnv) error {
-					return startRecovery(e, t, access.Secret{})
-				}},
-				{name: "invalid_token", want: is(access.ErrTokenInvalid), call: func(t *testing.T, e *limitEnv) error {
-					return startRecovery(e, t, forged)
-				}},
-				{name: "invite_token", want: is(access.ErrTokenInvalid), call: func(t *testing.T, e *limitEnv) error {
-					return startRecovery(e, t, invite(t, e))
-				}},
-				{name: "disabled_subject", want: is(access.ErrTokenInvalid), call: func(t *testing.T, e *limitEnv) error {
-					tok := recovery(t, e)
-					setEnabled(t, e.mem, e.subject.ID, false)
-					defer setEnabled(t, e.mem, e.subject.ID, true)
-					return startRecovery(e, t, tok)
-				}},
-			},
-		},
-	}
-}
-
-// setEnabled stores userID's Enabled as enabled.
-func setEnabled(t *testing.T, s account.Store, userID int64, enabled bool) {
-	t.Helper()
-	u := storedUser(t, s, userID)
-	u.Enabled = enabled
-	if err := s.UpdateUser(t.Context(), u); err != nil {
-		t.Fatalf("UpdateUser: %v", err)
 	}
 }
 
@@ -407,10 +343,7 @@ func TestRefusalsBeforeLimitEveryPath(t *testing.T) {
 					e := &limitEnv{}
 					e.pkFixture = newPK(t, pwOptions{
 						limiter: func(c *ratelimit.Config) { c.IP, c.Request = one, one },
-						rules: func() account.Rules {
-							return account.Rules{DisablePasswordLogin: e.passwordOff.Load()}
-						},
-						edit: func(c *account.Config) { c.Policy = toggledPolicy{off: &e.invitesOff} },
+						edit:    func(c *account.Config) { c.Policy = toggledPolicy{off: &e.invitesOff} },
 					})
 					if err := r.call(t, e); !r.want(err) {
 						t.Fatalf("refused call = %v, want the %s refusal", err, r.name)
@@ -424,32 +357,32 @@ func TestRefusalsBeforeLimitEveryPath(t *testing.T) {
 	}
 }
 
-// issuerPolicy refuses OpInvite and OpIssueRecovery while off is set, and
-// is RolePolicy otherwise.
+// issuerPolicy refuses OpInvite while off is set, and is RolePolicy
+// otherwise.
 type issuerPolicy struct{ off *atomic.Bool }
 
+func (issuerPolicy) SingleUser() bool { return false }
+
 func (p issuerPolicy) Authorize(ctx context.Context, d account.Decision) error {
-	if p.off.Load() && (d.Op == account.OpInvite || d.Op == account.OpIssueRecovery) {
+	if p.off.Load() && d.Op == account.OpInvite {
 		return &account.PolicyError{Op: d.Op, Reason: "no_invites"}
 	}
 	return account.RolePolicy{}.Authorize(ctx, d)
 }
 
 // noUserEnv is a pwFixture over a faultStore whose limiter admits one IP
-// attempt, with an admin root, a RoleUser subject for recovery links, and
-// issuerPolicy's switch.
+// attempt, with an admin root and issuerPolicy's switch.
 type noUserEnv struct {
 	*pwFixture
 	fs        *faultStore
 	root      *access.User
-	subject   *access.User
 	issuerOff atomic.Bool
 }
 
 // session is a fresh full session of root's.
 func (e *noUserEnv) session(t *testing.T) access.Principal {
 	t.Helper()
-	return e.sessionPrincipal(t, e.root, access.SessionFull, time.Now())
+	return e.sessionPrincipal(t, e.root, time.Now())
 }
 
 // invite is a RoleUser invite p issues.
@@ -488,13 +421,6 @@ func (e *noUserEnv) consumeAfterPeek(t *testing.T, tok account.IssuedToken) {
 
 func noUserPaths() []noUserPath {
 	invitee := func(t *testing.T, e *noUserEnv) bool { return usernameTaken(t, e.fixture, "invitee") }
-	recoverySession := func(t *testing.T, e *noUserEnv) bool {
-		return len(recoverySessions(t, e.mem, e.subject.ID)) != 0
-	}
-	start := func(t *testing.T, e *noUserEnv, tok account.IssuedToken) error {
-		_, err := e.svc.StartRecovery(t.Context(), localClient, tok.Plaintext)
-		return err
-	}
 	return []noUserPath{
 		{name: "invite_consumed", made: invitee, refused: func(t *testing.T, e *noUserEnv) error {
 			inv := e.invite(t, e.session(t))
@@ -512,24 +438,6 @@ func noUserPaths() []noUserPath {
 			_, err := e.accept(t, inv.Plaintext, "invitee")
 			return err
 		}},
-		{name: "recovery_consumed", made: recoverySession, refused: func(t *testing.T, e *noUserEnv) error {
-			tok, err := e.svc.IssueRecovery(t.Context(), account.OutOfBand("socket"), e.subject.ID, 0)
-			if err != nil {
-				t.Fatalf("IssueRecovery = %v", err)
-			}
-			e.consumeAfterPeek(t, tok)
-			return start(t, e, tok)
-		}},
-		{name: "recovery_refused_issuer", made: recoverySession, refused: func(t *testing.T, e *noUserEnv) error {
-			k := e.mint(t, account.As(e.session(t)), e.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
-			tok, err := e.svc.IssueRecovery(t.Context(), account.As(k.p), e.subject.ID, 0)
-			if err != nil {
-				t.Fatalf("IssueRecovery from the key = %v", err)
-			}
-			e.issuerOff.Store(true)
-			defer e.issuerOff.Store(false)
-			return start(t, e, tok)
-		}},
 	}
 }
 
@@ -541,7 +449,6 @@ func TestNoUserCommitKeepsSlotEveryPath(t *testing.T) {
 			e := &noUserEnv{fs: newFaultStore()}
 			e.pwFixture = newPW(t, pwOptions{options: keyOptions(options{store: e.fs}, issuerPolicy{off: &e.issuerOff}), limiter: ipLimit(1)})
 			e.root = mustUser(t, e.mem, "root", access.RoleAdmin)
-			e.subject = mustUser(t, e.mem, "subject", access.RoleUser)
 			if err := p.refused(t, e); !errors.Is(err, access.ErrTokenInvalid) {
 				t.Fatalf("the %s call = %v, want access.ErrTokenInvalid", p.name, err)
 			}
@@ -569,7 +476,7 @@ func TestSessionCapsEveryCreation(t *testing.T) {
 			timeouts: newTimeoutSource(week, week).get,
 			edit:     withInterval,
 			rules: rulesWith(func(r *account.Rules) {
-				r.SessionCaps = func(context.Context, account.Client) (time.Duration, time.Duration) {
+				r.SessionCaps = func(context.Context, account.Client, access.Method) (time.Duration, time.Duration) {
 					if capped.Load() {
 						return 30 * time.Minute, 12 * time.Hour
 					}

@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"hash"
 	"time"
+
+	"github.com/cplieger/access"
 )
 
 // run is the cleanup sweep: one pass every interval, and the failure leg
@@ -56,8 +58,84 @@ func (s *Service) sweep(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
+	registrations := s.sweepRegistrations(ctx, now)
+	if ctx.Err() != nil {
+		return
+	}
 	s.sweepLog(ctx, now)
-	s.logger().Info("account: sweep finished", "sessions", sessions, "tokens", tokens, "keys", keys)
+	s.logger().Info("account: sweep finished", "sessions", sessions, "tokens", tokens, "keys", keys, "registrations", registrations)
+}
+
+// sweepRegistrations deletes the accounts that have waited for approval
+// longer than WaitingRegistrationLifetime at now, oldest first, each in its
+// own Update through DeleteUser's cascade, journalling
+// EventRegistrationExpired, so their names free up. It reads at most
+// MaxSweepBatch at a time, again while a full read deleted some and ctx is
+// live; a failed call ends the leg for this tick. It returns how many
+// it deleted.
+func (s *Service) sweepRegistrations(ctx context.Context, now time.Time) int {
+	cutoff := now.Add(-WaitingRegistrationLifetime)
+	deleted := 0
+	for {
+		waiting, err := s.store.UsersWaiting(ctx, MaxSweepBatch)
+		if err != nil {
+			s.logger().Warn("account: waiting-registration sweep failed; retrying next tick", "err", err)
+			return deleted
+		}
+		n, more := s.expireRegistrations(ctx, waiting, cutoff)
+		deleted += n
+		if !more || n == 0 || len(waiting) < MaxSweepBatch {
+			return deleted
+		}
+	}
+}
+
+// expireRegistrations is one read's part of sweepRegistrations: it deletes
+// waiting's accounts created before cutoff, oldest first, and reports how
+// many it deleted and whether the leg may read again: false once it meets a
+// younger account, a failed call or a done ctx.
+func (s *Service) expireRegistrations(ctx context.Context, waiting []access.User, cutoff time.Time) (deleted int, more bool) {
+	for i := range waiting {
+		if !waiting[i].CreatedAt.Before(cutoff) {
+			return deleted, false
+		}
+		gone, err := s.expireRegistration(ctx, waiting[i].ID, cutoff)
+		if err != nil {
+			s.logger().Warn("account: waiting-registration sweep failed; retrying next tick", "user_id", waiting[i].ID, "err", err)
+			return deleted, false
+		}
+		if gone {
+			deleted++
+		}
+		if ctx.Err() != nil {
+			return deleted, false
+		}
+	}
+	return deleted, true
+}
+
+// expireRegistration deletes userID in one Update when it still waits for
+// approval and was created before cutoff, reporting whether it did: an
+// approval or a delete since the read leaves it alone.
+func (s *Service) expireRegistration(ctx context.Context, userID int64, cutoff time.Time) (bool, error) {
+	var gone bool
+	err := s.change(ctx, origin{}, func(tx Tx, j *journal) error {
+		gone = false
+		u, found, err := tx.UserByID(ctx, userID)
+		if err != nil || !found || !u.WaitingApproval || u.Enabled || !u.CreatedAt.Before(cutoff) {
+			return err
+		}
+		if _, _, err := deleteUserCascade(ctx, tx, userID); err != nil {
+			return err
+		}
+		j.add(Event{Kind: EventRegistrationExpired, At: s.now(), UserID: userID})
+		gone = true
+		return nil
+	})
+	if err == nil && gone {
+		s.pending.dropUser(userID)
+	}
+	return gone, err
 }
 
 // sweepRetiredKeySecrets clears the previous secrets that no longer verify

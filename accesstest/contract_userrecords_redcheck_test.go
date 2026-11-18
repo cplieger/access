@@ -1,0 +1,335 @@
+package accesstest
+
+import (
+	"cmp"
+	"context"
+	"maps"
+	"slices"
+	"testing"
+
+	"github.com/cplieger/access"
+	"github.com/cplieger/access/account"
+)
+
+// recordVariants are the broken stores for rules 24 to 26 and the new
+// record fields of rules 5 and 20.
+var recordVariants = map[string]variant{
+	"totp-delete-keeps-record": {
+		make:  memVariant(func(m *MemStore) account.Store { return &totpDeleteNoopStore{m} }),
+		fails: []string{"rule_24_user_records/totp/one_per_user", "rule_24_user_records/list_totp"}, only: true,
+	},
+	"recovery-set-keeps-first": {
+		make:  memVariant(func(m *MemStore) account.Store { return &recoveryKeepsFirstStore{m} }),
+		fails: []string{"rule_24_user_records/recovery_code/one_per_user"}, only: true,
+	},
+	"temporary-delete-clears-all": {
+		make:  memVariant(func(m *MemStore) account.Store { return &temporaryDeleteAllStore{m} }),
+		fails: []string{"rule_24_user_records/temporary_password/one_per_user"}, only: true,
+	},
+	"list-totp-includes-after": {
+		make:  memVariant(func(m *MemStore) account.Store { return &listTOTPInclusiveStore{m} }),
+		fails: []string{"rule_24_user_records/list_totp"}, only: true,
+	},
+	"list-totp-ignores-limit": {
+		make:  memVariant(func(m *MemStore) account.Store { return &listTOTPUnlimitedStore{m} }),
+		fails: []string{"rule_24_user_records/list_totp"}, only: true,
+	},
+	"user-delete-keeps-records": {
+		make:  memVariant(func(m *MemStore) account.Store { return &userKeepsRecordsStore{m} }),
+		fails: []string{"rule_05_atomicity/delete_user_cascade"}, only: true,
+	},
+	"drops-totp-last-step": {
+		make:  memVariant(func(m *MemStore) account.Store { return &dropLastStepStore{m} }),
+		fails: []string{"rule_20_fidelity/write_read", "rule_24_user_records/totp/one_per_user"}, mention: []string{"TOTP.LastStep"},
+	},
+	"drops-temporary-dormant": {
+		make:  memVariant(func(m *MemStore) account.Store { return &dropDormantStore{m} }),
+		fails: []string{"rule_20_fidelity/write_read", "rule_24_user_records/temporary_password/one_per_user"}, mention: []string{"TemporaryPassword.Dormant"},
+	},
+	"drops-user-owner": {
+		make:  memVariant(func(m *MemStore) account.Store { return &dropOwnerStore{m} }),
+		fails: []string{"rule_20_fidelity/write_read"}, mention: []string{"User.Owner"}, only: true,
+	},
+	"drops-waiting-approval": {
+		make:  memVariant(func(m *MemStore) account.Store { return &dropWaitingStore{m} }),
+		fails: []string{"rule_20_fidelity/write_read", "rule_25_waiting_users"}, mention: []string{"User.WaitingApproval"},
+	},
+	"waiting-by-id": {
+		make:  memVariant(func(m *MemStore) account.Store { return &waitingByIDStore{m} }),
+		fails: []string{"rule_25_waiting_users"}, only: true,
+	},
+	"sso-set-from-mode": {
+		make:  memVariant(func(m *MemStore) account.Store { return &ssoSetFromModeStore{m} }),
+		fails: []string{"rule_26_sso_mode/set_alongside", "rule_26_sso_mode/each_mode"}, only: true,
+	},
+	"sso-set-lost-on-reopen": {
+		make:  mediumVariant(func(m *medium) { m.reload = dropSSOSet }),
+		fails: []string{"rule_26_sso_mode/reopen", "via_tx/rule_26_sso_mode/reopen"}, only: true,
+	},
+	"tx-totp-set-keeps-first": {
+		make:  memVariant(func(m *MemStore) account.Store { return &txTOTPKeepsFirstStore{m} }),
+		fails: []string{"via_tx/rule_24_user_records/totp/one_per_user"}, only: true,
+	},
+	"tx-recovery-delete-keeps-record": {
+		make:  memVariant(func(m *MemStore) account.Store { return &txRecoveryDeleteNoopStore{m} }),
+		fails: []string{"via_tx/rule_24_user_records/recovery_code/one_per_user"}, only: true,
+	},
+	"tx-temporary-delete-keeps-record": {
+		make:  memVariant(func(m *MemStore) account.Store { return &txTemporaryDeleteNoopStore{m} }),
+		fails: []string{"via_tx/rule_24_user_records/temporary_password/one_per_user"}, only: true,
+	},
+	"tx-totp-read-blind": {
+		make:  txBlindVariant(blindTOTP),
+		fails: []string{"rule_05_update/reads_own_writes", "via_tx/rule_05_atomicity/delete_user_cascade", "via_tx/rule_11_time", "via_tx/rule_20_fidelity/write_read", "via_tx/rule_24_user_records/totp/one_per_user", "via_tx/rule_24_user_records/totp/rolls_back"}, only: true,
+	},
+	"tx-recovery-read-blind": {
+		make:  txBlindVariant(blindRecoveryCode),
+		fails: []string{"rule_05_update/reads_own_writes", "via_tx/rule_04_uniqueness/hash_round_trip", "via_tx/rule_05_atomicity/delete_user_cascade", "via_tx/rule_11_time", "via_tx/rule_20_fidelity/write_read", "via_tx/rule_24_user_records/recovery_code/one_per_user", "via_tx/rule_24_user_records/recovery_code/rolls_back"}, only: true,
+	},
+	"tx-temporary-read-blind": {
+		make:  txBlindVariant(blindTemporaryPassword),
+		fails: []string{"rule_05_update/reads_own_writes", "via_tx/rule_04_uniqueness/hash_round_trip", "via_tx/rule_05_atomicity/delete_user_cascade", "via_tx/rule_11_time", "via_tx/rule_20_fidelity/write_read", "via_tx/rule_24_user_records/temporary_password/one_per_user", "via_tx/rule_24_user_records/temporary_password/rolls_back"}, only: true,
+	},
+	"tx-sso-mode-read-unset": {
+		make:  txBlindVariant(blindSSOMode),
+		fails: []string{"rule_05_update/reads_own_writes", "rule_26_sso_mode/rolls_back", "via_tx/rule_26_sso_mode/set_alongside", "via_tx/rule_26_sso_mode/each_mode", "via_tx/rule_26_sso_mode/rolls_back"}, only: true,
+	},
+	"tx-user-by-id-not-found": {
+		make:  txBlindVariant(blindUserByID),
+		fails: []string{"via_tx/rule_02_ownership/user", "via_tx/rule_03_canonical_usernames", "via_tx/rule_11_time", "via_tx/rule_20_fidelity/write_read"}, only: true,
+	},
+	"tx-sso-mode-not-committed": {
+		make:  memVariant(func(m *MemStore) account.Store { return &txSSOModeUncommittedStore{m} }),
+		fails: []string{"via_tx/rule_26_sso_mode/set_alongside", "via_tx/rule_26_sso_mode/each_mode"}, only: true,
+	},
+}
+
+// txTOTPKeepsFirstStore writes a TOTP record inside an Update only where
+// none is held, so a code's LastStep never advances there.
+type txTOTPKeepsFirstStore struct{ *MemStore }
+
+type txTOTPKeepsFirstTx struct{ *memTx }
+
+func (s *txTOTPKeepsFirstStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.MemStore.Update(ctx, func(tx account.Tx) error { return fn(txTOTPKeepsFirstTx{tx.(*memTx)}) })
+}
+
+func (t txTOTPKeepsFirstTx) SetTOTP(ctx context.Context, rec access.TOTP) error {
+	if _, found, err := t.TOTPByUserID(ctx, rec.UserID); found || err != nil {
+		return err
+	}
+	return t.memTx.SetTOTP(ctx, rec)
+}
+
+// txRecoveryDeleteNoopStore never deletes a recovery code inside an Update.
+type txRecoveryDeleteNoopStore struct{ *MemStore }
+
+type txRecoveryDeleteNoopTx struct{ *memTx }
+
+func (s *txRecoveryDeleteNoopStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.MemStore.Update(ctx, func(tx account.Tx) error { return fn(txRecoveryDeleteNoopTx{tx.(*memTx)}) })
+}
+
+func (txRecoveryDeleteNoopTx) DeleteRecoveryCode(context.Context, int64) error { return nil }
+
+// txTemporaryDeleteNoopStore never deletes a temporary password inside an
+// Update, so a spent one stays usable.
+type txTemporaryDeleteNoopStore struct{ *MemStore }
+
+type txTemporaryDeleteNoopTx struct{ *memTx }
+
+func (s *txTemporaryDeleteNoopStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.MemStore.Update(ctx, func(tx account.Tx) error { return fn(txTemporaryDeleteNoopTx{tx.(*memTx)}) })
+}
+
+func (txTemporaryDeleteNoopTx) DeleteTemporaryPassword(context.Context, int64) error { return nil }
+
+// txSSOModeUncommittedStore commits every write of an Update but the SSO
+// mode, which reads as set only inside that Update.
+type txSSOModeUncommittedStore struct{ *MemStore }
+
+func (s *txSSOModeUncommittedStore) Update(_ context.Context, fn func(account.Tx) error) error {
+	return s.write(func(tx *memTx) (bool, error) {
+		mode, set := tx.s.ssoMode, tx.s.ssoSet
+		err := fn(tx)
+		tx.s.ssoMode, tx.s.ssoSet = mode, set
+		return true, err
+	})
+}
+
+// totpDeleteNoopStore never deletes a TOTP record.
+type totpDeleteNoopStore struct{ *MemStore }
+
+func (*totpDeleteNoopStore) DeleteTOTP(context.Context, int64) error { return nil }
+
+// recoveryKeepsFirstStore writes a recovery code only where none is held.
+type recoveryKeepsFirstStore struct{ *MemStore }
+
+func (s *recoveryKeepsFirstStore) SetRecoveryCode(ctx context.Context, rec access.RecoveryCode) error {
+	if _, found, err := s.RecoveryCodeByUserID(ctx, rec.UserID); found || err != nil {
+		return err
+	}
+	return s.MemStore.SetRecoveryCode(ctx, rec)
+}
+
+// temporaryDeleteAllStore deletes every user's temporary password.
+type temporaryDeleteAllStore struct{ *MemStore }
+
+func (s *temporaryDeleteAllStore) DeleteTemporaryPassword(context.Context, int64) error {
+	return edit(s.MemStore, func(st *state) { clear(st.temporary) })
+}
+
+// listTOTPInclusiveStore lists from afterUserID itself.
+type listTOTPInclusiveStore struct{ *MemStore }
+
+func (s *listTOTPInclusiveStore) ListTOTP(ctx context.Context, after int64, limit int) ([]access.TOTP, error) {
+	return s.MemStore.ListTOTP(ctx, after-1, limit)
+}
+
+// listTOTPUnlimitedStore lists every record above afterUserID.
+type listTOTPUnlimitedStore struct{ *MemStore }
+
+func (s *listTOTPUnlimitedStore) ListTOTP(ctx context.Context, after int64, _ int) ([]access.TOTP, error) {
+	return s.MemStore.ListTOTP(ctx, after, 1<<30)
+}
+
+// userKeepsRecordsStore leaves a deleted user's three per-user records.
+type userKeepsRecordsStore struct{ *MemStore }
+
+func (s *userKeepsRecordsStore) DeleteUser(ctx context.Context, id int64) error {
+	return s.write(func(tx *memTx) (bool, error) {
+		totp, recovery, temporary := maps.Clone(tx.s.totp), maps.Clone(tx.s.recovery), maps.Clone(tx.s.temporary)
+		err := tx.DeleteUser(ctx, id)
+		tx.s.totp, tx.s.recovery, tx.s.temporary = totp, recovery, temporary
+		return true, err
+	})
+}
+
+// dropLastStepStore writes every TOTP record without its LastStep.
+type dropLastStepStore struct{ *MemStore }
+
+func (s *dropLastStepStore) SetTOTP(ctx context.Context, rec access.TOTP) error {
+	rec.LastStep = 0
+	return s.MemStore.SetTOTP(ctx, rec)
+}
+
+// dropDormantStore writes every temporary password without Dormant.
+type dropDormantStore struct{ *MemStore }
+
+func (s *dropDormantStore) SetTemporaryPassword(ctx context.Context, rec access.TemporaryPassword) error {
+	rec.Dormant = false
+	return s.MemStore.SetTemporaryPassword(ctx, rec)
+}
+
+// dropOwnerStore writes every user without Owner.
+type dropOwnerStore struct{ *MemStore }
+
+func (s *dropOwnerStore) CreateUser(ctx context.Context, u *access.User) error {
+	cp := u.Clone()
+	cp.Owner = false
+	err := s.MemStore.CreateUser(ctx, cp)
+	u.ID = cp.ID
+	return err
+}
+
+// dropWaitingStore writes every user without WaitingApproval.
+type dropWaitingStore struct{ *MemStore }
+
+func (s *dropWaitingStore) CreateUser(ctx context.Context, u *access.User) error {
+	cp := u.Clone()
+	cp.WaitingApproval = false
+	err := s.MemStore.CreateUser(ctx, cp)
+	u.ID = cp.ID
+	return err
+}
+
+// waitingByIDStore lists waiting users in ID order, ignoring CreatedAt.
+type waitingByIDStore struct{ *MemStore }
+
+func (s *waitingByIDStore) UsersWaiting(ctx context.Context, limit int) ([]access.User, error) {
+	all, err := s.MemStore.UsersWaiting(ctx, 1<<30)
+	slices.SortFunc(all, func(a, b access.User) int { return cmp.Compare(a.ID, b.ID) })
+	return all[:min(limit, len(all))], err
+}
+
+// ssoSetFromModeStore keeps no set bit and reports any mode but the zero
+// one as set.
+type ssoSetFromModeStore struct{ *MemStore }
+
+func (s *ssoSetFromModeStore) SSOMode(ctx context.Context) (account.SSOMode, bool, error) {
+	mode, _, err := s.MemStore.SSOMode(ctx)
+	return mode, mode != account.SSOAlongside, err
+}
+
+// dropSSOSet is a medium that never wrote the SSO mode's set bit to disk.
+func dropSSOSet(committed *state) *state {
+	s := committed.clone()
+	s.ssoSet = false
+	return s
+}
+
+// blindRead names the one Tx read a txBlindStore answers as absent.
+type blindRead int
+
+const (
+	blindTOTP blindRead = iota
+	blindRecoveryCode
+	blindTemporaryPassword
+	blindSSOMode
+	blindUserByID
+)
+
+func txBlindVariant(read blindRead) func() (func(*testing.T) account.Store, ContractConfig) {
+	return memVariant(func(m *MemStore) account.Store { return &txBlindStore{MemStore: m, read: read} })
+}
+
+// txBlindStore answers its read as absent (an unset SSO mode for
+// blindSSOMode) inside an Update, and only there, whatever the store holds.
+type txBlindStore struct {
+	*MemStore
+	read blindRead
+}
+
+type txBlindTx struct {
+	*memTx
+	read blindRead
+}
+
+func (s *txBlindStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.MemStore.Update(ctx, func(tx account.Tx) error { return fn(txBlindTx{tx.(*memTx), s.read}) })
+}
+
+func (t txBlindTx) TOTPByUserID(ctx context.Context, id int64) (access.TOTP, bool, error) {
+	if t.read == blindTOTP {
+		return access.TOTP{}, false, nil
+	}
+	return t.memTx.TOTPByUserID(ctx, id)
+}
+
+func (t txBlindTx) RecoveryCodeByUserID(ctx context.Context, id int64) (access.RecoveryCode, bool, error) {
+	if t.read == blindRecoveryCode {
+		return access.RecoveryCode{}, false, nil
+	}
+	return t.memTx.RecoveryCodeByUserID(ctx, id)
+}
+
+func (t txBlindTx) TemporaryPasswordByUserID(ctx context.Context, id int64) (access.TemporaryPassword, bool, error) {
+	if t.read == blindTemporaryPassword {
+		return access.TemporaryPassword{}, false, nil
+	}
+	return t.memTx.TemporaryPasswordByUserID(ctx, id)
+}
+
+func (t txBlindTx) SSOMode(ctx context.Context) (account.SSOMode, bool, error) {
+	if t.read == blindSSOMode {
+		return account.SSOAlongside, false, nil
+	}
+	return t.memTx.SSOMode(ctx)
+}
+
+func (t txBlindTx) UserByID(ctx context.Context, id int64) (*access.User, bool, error) {
+	if t.read == blindUserByID {
+		return nil, false, nil
+	}
+	return t.memTx.UserByID(ctx, id)
+}

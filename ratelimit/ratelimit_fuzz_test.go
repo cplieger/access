@@ -64,8 +64,8 @@ func FuzzAccountKey(f *testing.F) {
 	})
 }
 
-// FuzzDeviceCookie checks that no forged cookie is trusted, and that the
-// cookie DeviceCookie mints in its place is valid for the account.
+// FuzzDeviceCookie checks that no forged cookie is trusted or known, and
+// that the cookie DeviceCookie mints in its place is valid for the account.
 func FuzzDeviceCookie(f *testing.F) {
 	for _, s := range []string{"", "x", strings.Repeat("A", 118), strings.Repeat("_", 5000), "a.b\r\n"} {
 		f.Add(s)
@@ -84,12 +84,12 @@ func FuzzDeviceCookie(f *testing.F) {
 		presented := access.NewSecret(s)
 		r, err := l.Attempt(Attempt{IP: ipOf("192.0.2.1"), Account: alice, Device: presented})
 		if err == nil {
-			if r.Trusted() {
+			if r.Trusted() || r.KnownDevice() {
 				t.Fatalf("forged cookie %q trusted", s)
 			}
 			r.Cancel()
 		}
-		if _, ok := l.openDevice(alice, l.DeviceCookie(alice, presented), l.now()); !ok {
+		if _, _, ok := l.openDevice(alice, l.DeviceCookie(alice, presented, true), l.now()); !ok {
 			t.Fatal("DeviceCookie minted a cookie invalid for its account")
 		}
 	})

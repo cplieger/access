@@ -3,9 +3,11 @@ package accesshttp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,14 +15,54 @@ import (
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
+	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/webauthn"
 )
 
-// secureState is want as a secure request reads it: Secure, and nothing
-// HTTPS would add.
+// secureState is want as a secure request reads it: Secure, nothing HTTPS
+// would add, registration off and the password bounds.
 func secureState(want StateResponse) StateResponse {
-	want.Secure, want.HTTPSRequired = true, []account.HTTPSFeature{}
+	want.Secure, want.HTTPSRequired, want.SSO = true, []account.HTTPSFeature{}, account.SSONameAlongside
+	want.Registration, want.PasswordLength = account.RegistrationNameOff, passwordBounds
 	return want
+}
+
+// passwordBounds is the length every password route enforces, which every
+// state answer publishes whatever the posture or transport.
+var passwordBounds = PasswordLengthView{Min: access.PasswordMinLength, Max: access.PasswordMaxLength}
+
+// TestStatePasswordLength: the state publishes the bounds a form checks
+// early. They are read from the rule itself: the shortest and longest
+// passwords it accepts (NIST SP 800-63B-4 §3.1.1.2 counts each Unicode code
+// point as one character), so a state that drifted from the check is caught.
+func TestStatePasswordLength(t *testing.T) {
+	for _, plain := range []bool{false, true} {
+		e := newEnv(t, envOptions{})
+		origin := testOrigin
+		if plain {
+			origin = plainOrigin
+		}
+		rt := e.route(t, "authState")
+		w := do(rt, requestAt(origin, rt.Path, rt, ""))
+		var got StateResponse
+		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &got) != nil {
+			t.Fatalf("plain %v: status %d body %q, want 200 StateResponse", plain, w.Code, w.Body.String())
+		}
+		b := got.PasswordLength
+		if b.Min < 1 || b.Max < b.Min {
+			t.Fatalf("plain %v: password_length %+v, want 1 <= min <= max", plain, b)
+		}
+		for _, tc := range []struct {
+			runes int
+			want  access.PasswordRejection
+		}{{b.Min - 1, access.PasswordTooShort}, {b.Min, ""}, {b.Max, ""}, {b.Max + 1, access.PasswordTooLong}} {
+			err := access.ValidatePasswordLength(strings.Repeat("é", tc.runes))
+			pe, _ := errors.AsType[*access.PasswordError](err)
+			if (tc.want == "") != (err == nil) || (pe != nil && pe.Reason != tc.want) {
+				t.Errorf("plain %v: %d code points against password_length %+v = %v, want rejection %q", plain, tc.runes, b, err, tc.want)
+			}
+		}
+	}
 }
 
 func TestRouteAuthState(t *testing.T) {
@@ -61,14 +103,14 @@ func TestRouteAuthState(t *testing.T) {
 func TestRouteAuthSetupPassword(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
-		e.requireSignedIn(t, do(e.route(t, "authSetupPassword"), e.post(t, "authSetupPassword", setupPasswordBody(t, ""))), "owner")
+		e.requireLoggedIn(t, do(e.route(t, "authSetupPassword"), e.post(t, "authSetupPassword", setupPasswordBody(t, ""))), "owner")
 		if u := e.user(t, "owner"); u.Role != access.RoleAdmin {
 			t.Errorf("role %s, want admin", u.Role)
 		}
 	})
 	t.Run("with_token", func(t *testing.T) {
 		e := newEnv(t, tokenRequired)
-		e.requireSignedIn(t, do(e.route(t, "authSetupPassword"), e.post(t, "authSetupPassword", setupPasswordBody(t, e.setupToken(t)))), "owner")
+		e.requireLoggedIn(t, do(e.route(t, "authSetupPassword"), e.post(t, "authSetupPassword", setupPasswordBody(t, e.setupToken(t)))), "owner")
 	})
 }
 
@@ -101,7 +143,7 @@ func TestRouteAuthLoginPassword(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		e.createUser(t, "alice", access.RoleUser)
-		e.requireSignedIn(t, do(e.route(t, "authLoginPassword"), e.post(t, "authLoginPassword", signInBody(t, "alice"))), "alice")
+		e.requireLoggedIn(t, do(e.route(t, "authLoginPassword"), e.post(t, "authLoginPassword", signInBody(t, "alice"))), "alice")
 	})
 }
 
@@ -182,7 +224,7 @@ func TestRouteAuthLogout(t *testing.T) {
 func TestRouteAuthInviteAcceptPassword(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
-		e.requireSignedIn(t, do(e.route(t, "authInviteAcceptPassword"), e.post(t, "authInviteAcceptPassword", inviteBody(t, e.invite(t), "invitee", testPassword))), "invitee")
+		e.requireLoggedIn(t, do(e.route(t, "authInviteAcceptPassword"), e.post(t, "authInviteAcceptPassword", inviteBody(t, e.invite(t), "invitee", testPassword))), "invitee")
 		if u := e.user(t, "invitee"); u.Role != access.RoleUser {
 			t.Errorf("role %s, want the invite's user", u.Role)
 		}
@@ -216,21 +258,15 @@ func (f *finishCounting) PasskeyLoginFinish(ctx context.Context, c account.Clien
 	return f.accountAPI.PasskeyLoginFinish(ctx, c, id, body)
 }
 
-func (f *finishCounting) RecoverPasskeyFinish(ctx context.Context, p access.Principal, id string, body io.Reader, opts account.RecoverOptions) error {
-	f.calls.Add(1)
-	return f.accountAPI.RecoverPasskeyFinish(ctx, p, id, body, opts)
-}
-
 func TestFinishBodyTooLarge(t *testing.T) {
 	counting := &finishCounting{}
 	e := newEnv(t, with(passkeys, envOptions{wrap: func(_ *env, s *account.Service) accountAPI { counting.accountAPI = s; return counting }}))
 	e.createUser(t, "alice", access.RoleUser)
-	recovery := e.recoveryCookie(t, "alice")
 	tooLarge := []byte(longBody(webauthn.MaxResponseBytes + 1))
-	for _, name := range []string{"authSetupPasskeyFinish", "authLoginPasskeyFinish", "authRecoveryPasskeyFinish"} {
+	for _, name := range []string{"authSetupPasskeyFinish", "authLoginPasskeyFinish"} {
 		t.Run(name, func(t *testing.T) {
 			before, calls := len(e.errs.all()), counting.calls.Load()
-			w := do(e.route(t, name), finish(e.route(t, name), "any", tooLarge, recovery))
+			w := do(e.route(t, name), finish(e.route(t, name), "any", tooLarge))
 			errs := e.errs.all()[before:]
 			if w.Code != http.StatusRequestEntityTooLarge || len(errs) != 1 || errs[0].Code != access.CodeBodyTooLarge {
 				t.Errorf("status %d errors %+v, want 413 auth_body_too_large", w.Code, errs)
@@ -265,7 +301,7 @@ type tokenCounting struct {
 	calls atomic.Int32
 }
 
-func (c *tokenCounting) SetupWithPassword(ctx context.Context, cl account.Client, in account.SetupPassword) (account.SignedIn, error) {
+func (c *tokenCounting) SetupWithPassword(ctx context.Context, cl account.Client, in account.SetupPassword) (account.LoginResult, error) {
 	c.calls.Add(1)
 	return c.accountAPI.SetupWithPassword(ctx, cl, in)
 }
@@ -275,14 +311,14 @@ func (c *tokenCounting) SetupPasskeyBegin(ctx context.Context, cl account.Client
 	return c.accountAPI.SetupPasskeyBegin(ctx, cl, in)
 }
 
-func (c *tokenCounting) StartRecovery(ctx context.Context, cl account.Client, token access.Secret) (account.Recovery, error) {
-	c.calls.Add(1)
-	return c.accountAPI.StartRecovery(ctx, cl, token)
-}
-
-func (c *tokenCounting) AcceptInvitePassword(ctx context.Context, cl account.Client, in account.AcceptInvite) (account.SignedIn, error) {
+func (c *tokenCounting) AcceptInvitePassword(ctx context.Context, cl account.Client, in account.AcceptInvite) (account.LoginResult, error) {
 	c.calls.Add(1)
 	return c.accountAPI.AcceptInvitePassword(ctx, cl, in)
+}
+
+func (c *tokenCounting) AcceptInviteOIDCBegin(ctx context.Context, cl account.Client, token access.Secret) (oidc.BeginRequest, error) {
+	c.calls.Add(1)
+	return c.accountAPI.AcceptInviteOIDCBegin(ctx, cl, token)
 }
 
 func TestTokenOnlyInBody(t *testing.T) {
@@ -290,16 +326,11 @@ func TestTokenOnlyInBody(t *testing.T) {
 	e := newEnv(t, with(passkeys, tokenRequired, envOptions{wrap: func(_ *env, s *account.Service) accountAPI { counting.accountAPI = s; return counting }}))
 	setupToken := e.setupToken(t)
 	inviteToken := e.invite(t)
-	e.createUser(t, "alice", access.RoleUser)
-	recovery, err := e.svc.IssueRecovery(t.Context(), account.OutOfBand("test"), e.user(t, "alice").ID, 0)
-	if err != nil {
-		t.Fatalf("IssueRecovery: %v", err)
-	}
 	bodies := map[string]string{
 		"authSetupPassword":        setupPasswordBody(t, setupToken),
 		"authSetupPasskeyBegin":    setupPasskeyBody(t, setupToken),
-		"authRecoveryStart":        jsonBody(t, TokenRequest{Token: recovery.Plaintext.Reveal()}),
 		"authInviteAcceptPassword": inviteBody(t, inviteToken, "invitee", testPassword),
+		"authInviteAcceptOIDC":     jsonBody(t, TokenRequest{Token: inviteToken.Reveal()}),
 	}
 	for _, rt := range e.h.Routes() {
 		if !specNamed(t, rt.Name).tokenBody {
@@ -324,10 +355,8 @@ func TestTokenOnlyInBody(t *testing.T) {
 		})
 	}
 	t.Run("body_accepted", func(t *testing.T) {
-		rt := e.route(t, "authRecoveryStart")
-		if w := do(rt, request(rt, bodies["authRecoveryStart"])); w.Code != http.StatusOK {
-			t.Errorf("status %d errors %+v, want 200 with the token in the body", w.Code, e.errs.all())
-		}
+		rt := e.route(t, "authInviteAcceptPassword")
+		e.requireLoggedIn(t, do(rt, request(rt, bodies["authInviteAcceptPassword"])), "invitee")
 	})
 }
 
@@ -372,7 +401,7 @@ func TestPasswordSignInSetsDeviceCookie(t *testing.T) {
 	e.createUser(t, "alice", access.RoleUser)
 	rt := e.route(t, "authLoginPassword")
 	w := do(rt, e.post(t, "authLoginPassword", signInBody(t, "alice")))
-	e.requireSignedIn(t, w, "alice")
+	e.requireLoggedIn(t, w, "alice")
 	_, deviceName := e.names()
 	device := cookieNamed(w, deviceName)
 	if days180 := 180 * 24 * 60 * 60; device.MaxAge != days180 || !device.HttpOnly || device.SameSite != http.SameSiteLaxMode {
@@ -431,7 +460,7 @@ func TestGoClientBodyRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal: %v", err)
 	}
-	e.requireSignedIn(t, do(e.route(t, "authLoginPassword"), e.post(t, "authLoginPassword", string(body))), "alice")
+	e.requireLoggedIn(t, do(e.route(t, "authLoginPassword"), e.post(t, "authLoginPassword", string(body))), "alice")
 }
 
 // TestCredentialBodyContentType refuses a finish body that is not JSON

@@ -2,7 +2,6 @@ package accesshttp
 
 import (
 	"math"
-	"net/http"
 	"time"
 
 	"github.com/cplieger/access"
@@ -14,7 +13,7 @@ func serveMe(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, meResponse(&me))
+	c.answer(meResponse(&me))
 	return nil
 }
 
@@ -27,7 +26,7 @@ func serveProfile(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, meResponse(&me))
+	c.answer(meResponse(&me))
 	return nil
 }
 
@@ -35,7 +34,7 @@ func serveMethodReenable(h *Handler, c *call) error {
 	if err := h.acct.ReenableMethod(c.r.Context(), c.p, c.method); err != nil {
 		return err
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -54,7 +53,7 @@ func serveStepUpPassword(h *Handler, c *call) error {
 	}
 	h.setIssued(c.w, c.client.Secure, is)
 	h.auditSuccess(c, c.p.User, is.Session)
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -70,12 +69,12 @@ func servePasswordSet(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	is, err := h.acct.SetPassword(c.r.Context(), c.client, c.p, current, password)
+	set, err := h.acct.SetPassword(c.r.Context(), c.client, c.p, current, password)
 	if err != nil {
 		return err
 	}
-	h.setIssued(c.w, c.client.Secure, is)
-	noContent(c.w)
+	h.setIssued(c.w, c.client.Secure, set.Issued)
+	c.answer(RecoveryCodeIssuedResponse{RecoveryCode: set.RecoveryCode.Reveal()})
 	return nil
 }
 
@@ -92,7 +91,7 @@ func servePasswordRemove(h *Handler, c *call) error {
 		return err
 	}
 	h.setIssued(c.w, c.client.Secure, is)
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -119,29 +118,33 @@ func serveStepUpPasskeyFinish(h *Handler, c *call) error {
 	}
 	h.setIssued(c.w, c.client.Secure, is)
 	h.auditSuccess(c, c.p.User, is.Session)
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
 func servePasskeys(h *Handler, c *call) error {
-	creds, err := h.acct.Passkeys(c.r.Context(), c.p)
+	passkeys, err := h.acct.Passkeys(c.r.Context(), c.p)
 	if err != nil {
 		return err
 	}
-	views := make([]PasskeyView, len(creds))
-	for i := range creds {
-		views[i] = passkeyView(&creds[i])
+	views := make([]PasskeyView, len(passkeys))
+	for i := range passkeys {
+		views[i] = passkeyView(&passkeys[i])
 	}
-	writeJSON(c.w, http.StatusOK, views)
+	c.answer(views)
 	return nil
 }
 
 func servePasskeyRegisterBegin(h *Handler, c *call) error {
+	proof, err := decodeProof(c.w, c.r)
+	if err != nil {
+		return err
+	}
 	origin, err := requestOrigin(c.r)
 	if err != nil {
 		return err
 	}
-	pc, err := h.acct.PasskeyRegisterBegin(c.r.Context(), c.p, origin)
+	pc, err := h.acct.PasskeyRegisterBegin(c.r.Context(), c.client, c.p, origin, proof)
 	if err != nil {
 		return err
 	}
@@ -158,7 +161,7 @@ func servePasskeyRegisterFinish(h *Handler, c *call) error {
 		return err
 	}
 	h.setIssued(c.w, c.client.Secure, reg.Issued)
-	writeJSON(c.w, http.StatusCreated, passkeyView(&reg.Passkey))
+	c.answer(PasskeyRegisteredResponse{Passkey: passkeyView(&reg.Passkey), RecoveryCode: reg.RecoveryCode.Reveal()})
 	return nil
 }
 
@@ -170,15 +173,19 @@ func servePasskeyRename(h *Handler, c *call) error {
 	if err := h.acct.RenamePasskey(c.r.Context(), c.p, c.id, req.Name); err != nil {
 		return err
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
 func servePasskeyRemove(h *Handler, c *call) error {
-	if err := h.acct.RemovePasskey(c.r.Context(), c.p, c.id); err != nil {
+	proof, err := decodeProof(c.w, c.r)
+	if err != nil {
 		return err
 	}
-	noContent(c.w)
+	if err := h.acct.RemovePasskey(c.r.Context(), c.client, c.p, c.id, proof); err != nil {
+		return err
+	}
+	c.done()
 	return nil
 }
 
@@ -187,7 +194,7 @@ func serveWebAuthnSignals(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, sig)
+	c.answer(sig)
 	return nil
 }
 
@@ -201,7 +208,7 @@ func serveSessions(h *Handler, c *call) error {
 	for i := range sessions {
 		views[i] = sessionView(&sessions[i], timeouts, c.p.SessionID)
 	}
-	writeJSON(c.w, http.StatusOK, views)
+	c.answer(views)
 	return nil
 }
 
@@ -213,7 +220,7 @@ func serveSessionRename(h *Handler, c *call) error {
 	if err := h.acct.RenameSession(c.r.Context(), c.p, account.SessionLabel{ID: c.sessionID, Label: req.Name}); err != nil {
 		return err
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -226,7 +233,7 @@ func serveSessionRevoke(h *Handler, c *call) error {
 	if c.sessionID == c.p.SessionID {
 		h.clearSession(c.w, c.client.Secure)
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -234,7 +241,7 @@ func serveSessionsRevokeOthers(h *Handler, c *call) error {
 	if err := h.acct.RevokeOtherSessions(c.r.Context(), c.p); err != nil {
 		return err
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -247,7 +254,7 @@ func serveKeys(h *Handler, c *call) error {
 	for i := range keys {
 		views[i] = keyView(&keys[i], "", now)
 	}
-	writeJSON(c.w, http.StatusOK, views)
+	c.answer(views)
 	return nil
 }
 
@@ -266,7 +273,7 @@ func serveKeyCreate(h *Handler, c *call) error {
 	if !created.Issued.Token.IsZero() {
 		h.setIssued(c.w, c.client.Secure, created.Issued)
 	}
-	writeShownOnce(c.w, http.StatusCreated, KeyCreatedResponse{Details: keyView(&created.Key, "", time.Now())}, created.Plaintext)
+	c.answer(KeyCreatedResponse{Key: created.Plaintext.Reveal(), Details: keyView(&created.Key, "", time.Now())})
 	return nil
 }
 
@@ -278,7 +285,7 @@ func serveKeyRename(h *Handler, c *call) error {
 	if err := h.acct.RenameAPIKey(c.r.Context(), c.p, c.id, req.Name); err != nil {
 		return err
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -290,7 +297,7 @@ func serveKeyRotate(h *Handler, c *call) error {
 		return err
 	}
 	h.setIssued(c.w, c.client.Secure, rotated.Issued)
-	writeShownOnce(c.w, http.StatusOK, KeyCreatedResponse{Details: keyView(&rotated.Key, "", time.Now())}, rotated.Plaintext)
+	c.answer(KeyCreatedResponse{Key: rotated.Plaintext.Reveal(), Details: keyView(&rotated.Key, "", time.Now())})
 	return nil
 }
 
@@ -298,7 +305,7 @@ func serveKeyRevoke(h *Handler, c *call) error {
 	if err := h.acct.RevokeAPIKey(c.r.Context(), c.p, c.id); err != nil {
 		return err
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }
 

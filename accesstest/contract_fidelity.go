@@ -111,15 +111,18 @@ type fidelityRecords struct {
 	attribution *access.KeyAttribution
 	failure     *account.FailureCount
 	log         *account.LogEntry
+	totp        *access.TOTP
+	recovery    *access.RecoveryCode
+	temporary   *access.TemporaryPassword
 }
 
 // writeFilled writes one filled record of each type through its SPI write
 // and returns each as read back must show it: the store's assigned IDs and
 // the LineageIDs append included.
-func writeFilled(t *testing.T, s account.Store) fidelityRecords {
+func writeFilled(t *testing.T, s account.Store) *fidelityRecords {
 	t.Helper()
 	ctx, f := t.Context(), &filler{t: t}
-	var r fidelityRecords
+	r := &fidelityRecords{}
 	r.user = filled[access.User](f)
 	check(t, "CreateUser", s.CreateUser(ctx, r.user))
 	r.key = filled[access.Key](f)
@@ -129,14 +132,14 @@ func writeFilled(t *testing.T, s account.Store) fidelityRecords {
 	want = append(want, r.key.ID)
 	r.key.LineageIDs = want
 	r.session = filled[access.Session](f)
-	r.session.UserID, r.session.IssuedByKey = r.user.ID, r.key.ID
+	r.session.UserID = r.user.ID
 	check(t, "CreateSession", s.CreateSession(ctx, r.session))
 	r.passkey = filled[access.PasskeyCredential](f)
 	r.passkey.UserID, r.passkey.RawFlags = r.user.ID, 0x1D
 	r.passkey.UserPresent, r.passkey.UserVerified, r.passkey.BackupEligible, r.passkey.BackupState = access.DecodePasskeyFlags(0x1D)
 	check(t, "CreatePasskey", s.CreatePasskey(ctx, r.passkey))
 	r.token = filled[access.OneTimeToken](f)
-	r.token.Subject, r.token.IssuedByKey = r.user.ID, r.key.ID
+	r.token.IssuedByKey = r.key.ID
 	check(t, "CreateOneTimeToken", s.CreateOneTimeToken(ctx, *r.token))
 	r.attribution = filled[access.KeyAttribution](f)
 	r.attribution.UserID, r.attribution.KeyLineage = r.user.ID, slices.Clone(r.key.LineageIDs)
@@ -146,6 +149,15 @@ func writeFilled(t *testing.T, s account.Store) fidelityRecords {
 	r.log = filled[account.LogEntry](f)
 	r.log.Class = account.LogClassChange
 	check(t, "AppendLog", s.AppendLog(ctx, r.log))
+	r.totp = filled[access.TOTP](f)
+	r.totp.UserID = r.user.ID
+	check(t, "SetTOTP", s.SetTOTP(ctx, *r.totp))
+	r.recovery = filled[access.RecoveryCode](f)
+	r.recovery.UserID = r.user.ID
+	check(t, "SetRecoveryCode", s.SetRecoveryCode(ctx, *r.recovery))
+	r.temporary = filled[access.TemporaryPassword](f)
+	r.temporary.UserID = r.user.ID
+	check(t, "SetTemporaryPassword", s.SetTemporaryPassword(ctx, *r.temporary))
 	return r
 }
 
@@ -158,7 +170,7 @@ func check(t *testing.T, what string, err error) {
 
 // checkFidelity reads each record of w back from s through its by-key read
 // and fails on the first field that differs, by its path.
-func checkFidelity(t *testing.T, w fidelityRecords, s account.Store) {
+func checkFidelity(t *testing.T, w *fidelityRecords, s account.Store) {
 	t.Helper()
 	ctx := t.Context()
 	user, _, err := s.UserByID(ctx, w.user.ID)
@@ -177,6 +189,12 @@ func checkFidelity(t *testing.T, w fidelityRecords, s account.Store) {
 	check(t, "ListKeyAttributions", err)
 	entries, err := s.ListLog(ctx, account.LogRange{Limit: logPage})
 	check(t, "ListLog", err)
+	totp, _, err := s.TOTPByUserID(ctx, w.user.ID)
+	check(t, "TOTPByUserID", err)
+	recovery, _, err := s.RecoveryCodeByUserID(ctx, w.user.ID)
+	check(t, "RecoveryCodeByUserID", err)
+	temporary, _, err := s.TemporaryPasswordByUserID(ctx, w.user.ID)
+	check(t, "TemporaryPasswordByUserID", err)
 	pairs := []struct {
 		want, got any
 	}{
@@ -188,6 +206,9 @@ func checkFidelity(t *testing.T, w fidelityRecords, s account.Store) {
 		{w.passkey, byID(passkeys, w.passkey.ID, func(p access.PasskeyCredential) int64 { return p.ID })},
 		{w.attribution, byID(attributions, w.attribution.ID, func(a access.KeyAttribution) int64 { return a.ID })},
 		{w.log, byID(entries, int64(w.log.Event.Seq), func(e account.LogEntry) int64 { return int64(e.Event.Seq) })}, //nolint:gosec // G115: rule 22 bounds Seq to 2^53 − 1
+		{w.totp, &totp},
+		{w.recovery, &recovery},
+		{w.temporary, &temporary},
 	}
 	for _, p := range pairs {
 		want, got := reflect.ValueOf(p.want), reflect.ValueOf(p.got)

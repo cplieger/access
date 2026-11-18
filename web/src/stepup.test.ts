@@ -35,6 +35,7 @@ function run(s: FakeServer, o: Partial<StepUpOptions>): ReturnType<typeof withSt
   return withStepUp(s.client, () => s.client.revokeOtherSessions(), {
     prompt: () => Promise.resolve("cancel"),
     password: () => Promise.resolve(null),
+    code: () => Promise.resolve(null),
     navigate: () => {
       throw new Error("navigated");
     },
@@ -128,7 +129,12 @@ describe("withStepUp: password", () => {
     expect(routes(s)).toEqual([ACTION, ME, "POST /api/auth/stepup/password", ACTION]);
     expect(s.sent[2]?.body).toEqual({ password: "hunter22" });
     const view = fixture("MeResponse");
-    expect(prompt).toHaveBeenCalledExactlyOnceWith(isObject(view) ? view["methods"] : undefined);
+    expect(prompt).toHaveBeenCalledExactlyOnceWith(isObject(view) ? view["methods"] : undefined, [
+      "password",
+      "passkey",
+      "oidc",
+      "totp",
+    ]);
   });
 
   it("returns the retry's refusal as done and never loops", async () => {
@@ -170,6 +176,78 @@ describe("withStepUp: password", () => {
     });
     expect(routes(s)).toEqual([ACTION, ME, "POST /api/auth/stepup/password"]);
   });
+});
+
+// meWith is the MeResponse fixture with its methods' password_step_up and totp.usable set.
+function meWith(passwordStepUp: boolean, totpUsable: boolean): Answer {
+  const view = fixture("MeResponse") as {
+    methods: { password_step_up: boolean; totp: { usable: boolean } };
+  };
+  view.methods.password_step_up = passwordStepUp;
+  view.methods.totp.usable = totpUsable;
+  return { status: 200, body: view };
+}
+
+describe("withStepUp: code", () => {
+  const STEP = "POST /api/auth/stepup/code";
+
+  it("steps up with the code and retries the action once", async () => {
+    const s = fakeServer({ [ACTION]: [recent, noContent], [ME]: me, [STEP]: noContent });
+    const out = await run(s, { prompt: choose("totp"), code: () => Promise.resolve("123456") });
+    expect(out).toMatchObject({ kind: "done", result: { ok: true, status: 204 } });
+    expect(routes(s)).toEqual([ACTION, ME, STEP, ACTION]);
+    expect(s.sent[2]?.body).toEqual({ code: "123456" });
+  });
+
+  it("is cancelled when the user gives no code", async () => {
+    const s = fakeServer({ [ACTION]: recent, [ME]: me });
+    expect(await run(s, { prompt: choose("totp") })).toEqual({ kind: "cancelled" });
+    expect(routes(s)).toEqual([ACTION, ME]);
+  });
+
+  it("fails without a retry when the code is refused", async () => {
+    const s = fakeServer({
+      [ACTION]: recent,
+      [ME]: me,
+      [STEP]: refusal(401, "auth_code_invalid", "code_reused"),
+    });
+    const out = await run(s, { prompt: choose("totp"), code: () => Promise.resolve("123456") });
+    expect(out).toMatchObject({ kind: "step-up-failed", error: { code: "auth_code_invalid" } });
+    expect(routes(s)).toEqual([ACTION, ME, STEP]);
+  });
+});
+
+describe("withStepUp: what it offers", () => {
+  const cases: readonly (readonly [boolean, boolean, readonly string[]])[] = [
+    [true, true, ["password", "passkey", "oidc", "totp"]],
+    [false, true, ["passkey", "oidc", "totp"]],
+    [true, false, ["password", "passkey", "oidc"]],
+    [false, false, ["passkey", "oidc"]],
+  ];
+  for (const [passwordStepUp, totpUsable, offered] of cases) {
+    it(`offers ${offered.join(", ")} with password_step_up ${String(passwordStepUp)} and totp.usable ${String(totpUsable)}`, async () => {
+      const prompt = choose("cancel");
+      const s = fakeServer({ [ACTION]: recent, [ME]: meWith(passwordStepUp, totpUsable) });
+      await run(s, { prompt });
+      expect(prompt).toHaveBeenCalledExactlyOnceWith(expect.anything(), offered);
+    });
+  }
+
+  for (const [choice, passwordStepUp, totpUsable] of [
+    ["password", false, true],
+    ["totp", true, false],
+  ] as const) {
+    it(`answers a ${choice} choice it did not offer cancelled, with no request`, async () => {
+      const s = fakeServer({ [ACTION]: recent, [ME]: meWith(passwordStepUp, totpUsable) });
+      const out = await run(s, {
+        prompt: choose(choice),
+        password: () => Promise.resolve("hunter22"),
+        code: () => Promise.resolve("123456"),
+      });
+      expect(out).toEqual({ kind: "cancelled" });
+      expect(routes(s)).toEqual([ACTION, ME]);
+    });
+  }
 });
 
 describe("withStepUp: passkey", () => {
@@ -280,6 +358,7 @@ describe("withStepUp: OIDC", () => {
     const out = await withStepUp(s.client, () => s.client.revokeOtherSessions(), {
       prompt: choose("oidc"),
       password: () => Promise.resolve(null),
+      code: () => Promise.resolve(null),
     });
     expect(out).toEqual({ kind: "redirecting" });
     expect(assign).toHaveBeenCalledExactlyOnceWith(url);

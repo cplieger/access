@@ -549,7 +549,7 @@ func TestRecheckWritesNothing(t *testing.T) {
 			t.Errorf("Recheck made %d credential reads, want 6 (one per call)", n-reads)
 		}
 	})
-	t.Run("a revoked session and a disabled key owner are refused", func(t *testing.T) {
+	t.Run("a revoked session and a disabled key's user are refused", func(t *testing.T) {
 		t.Parallel()
 		f := newChainFixture(t)
 		a := mustAuthenticator(t, f.store, Config{})

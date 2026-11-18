@@ -29,13 +29,6 @@ func (h *Handler) setSession(w http.ResponseWriter, secure bool, token access.Se
 	cfg.SetCookie(w, secure, token.Reveal(), int(authn.Timeouts().Absolute/time.Second))
 }
 
-// setRecoverySession sets the restricted session cookie a recovery start
-// opens, for the recovery session's own lifetime.
-func (h *Handler) setRecoverySession(w http.ResponseWriter, secure bool, token access.Secret) {
-	cfg := h.acct.Authenticator().Cookie()
-	cfg.SetCookie(w, secure, token.Reveal(), int(access.RecoverySessionLifetime/time.Second))
-}
-
 func (h *Handler) clearSession(w http.ResponseWriter, secure bool) {
 	cfg := h.acct.Authenticator().Cookie()
 	cfg.ClearCookie(w, secure)

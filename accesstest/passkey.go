@@ -311,8 +311,8 @@ func credentialBody[R any](d *PasskeyDevice, response R, extensions map[string]a
 }
 
 // noneAttestationObject encodes {"fmt": "none", "attStmt": {}, "authData": …}
-// in CTAP2 canonical CBOR, whose map keys sort by encoded length first (CTAP
-// 2.1 §8 "Message Encoding").
+// in CTAP2 canonical CBOR, whose map keys sort by encoded length first
+// (CTAP 2.1 §8 "Message Encoding").
 func noneAttestationObject(authData []byte) []byte {
 	out := cborHead(nil, cborMap, 3)
 	out = cborText(out, "fmt")

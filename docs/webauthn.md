@@ -74,7 +74,7 @@ A credential key on any other algorithm or curve is refused. The fully specified
 
 ## What registration checks
 
-`FinishRegistration` follows the registration steps of section 7.1:
+`FinishRegistration` follows the registration steps of WebAuthn section 7.1:
 
 - the ceremony came from `BeginRegistration` for the finishing user and has not expired;
 - the response is at most 64 KiB, its `rawId` is 1 to 1023 bytes of unpadded base64url, and its `id` is exactly that encoding of `rawId`;
@@ -89,7 +89,7 @@ The record keeps the credential ID, the key's bytes as received, the 16-byte AAG
 
 ## What sign-in checks
 
-`CompleteLogin` and `CompleteReauthentication` follow the assertion steps of section 7.2:
+`CompleteLogin` and `CompleteReauthentication` follow the assertion steps of WebAuthn section 7.2:
 
 - the ceremony is of the finishing call's kind and has not expired, and a step-up's ceremony was begun for the user passed in;
 - a sign-in's `userHandle` is required, names the account, and that account holds the credential `rawId` names; a step-up's credential is one the ceremony allowed and the user still holds. Anything else is `ErrUnknownCredential`. A step-up's `userHandle`, when sent, must be the user's;
@@ -108,9 +108,9 @@ Each response is read so that it has one meaning:
 
 ## Where access departs from the specification
 
-- **CBOR's canonical form.** Section 2.4 says a relying party SHOULD refuse CBOR not in the CTAP2 canonical form, shortest integers and lengths with map keys in length-first order. access refuses duplicate map keys, the other half of that rule, but does not check the encoding's form: it stores and verifies the bytes as received and compares decoded values, so a loose encoding still has one reading, and refusing it would refuse a working authenticator.
+- **CBOR's canonical form.** WebAuthn section 2.4 says a relying party SHOULD refuse CBOR not in the CTAP2 canonical form, shortest integers and lengths with map keys in length-first order. access refuses duplicate map keys, the other half of that rule, but does not check the encoding's form: it stores and verifies the bytes as received and compares decoded values, so a loose encoding still has one reading, and refusing it would refuse a working authenticator.
 - **RSA's leading zero.** RFC 8230 section 4 forbids a leading zero byte in an RSA key's modulus or exponent. access reads each as the integer it encodes and accepts the zero, for the same reason.
-- **Extension outputs.** Section 7.1 and section 7.2 allow a relying party to ignore client extension outputs it did not request, or to refuse the response. access reads only `credProps.rk` at registration and ignores every other output, at registration and at sign-in. Authenticator extension outputs are checked to be well-formed CBOR and not read.
+- **Extension outputs.** WebAuthn sections 7.1 and 7.2 allow a relying party to ignore client extension outputs it did not request, or to refuse the response. access reads only `credProps.rk` at registration and ignores every other output, at registration and at sign-in. Authenticator extension outputs are checked to be well-formed CBOR and not read.
 
 ## Errors you can branch on
 

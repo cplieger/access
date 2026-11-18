@@ -202,7 +202,7 @@ func TestAttemptConcurrentExact(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			l, _ := newTest(t, cfg)
-			cookie := l.DeviceCookie(AccountKey("alice"), access.Secret{})
+			cookie := l.DeviceCookie(AccountKey("alice"), access.Secret{}, true)
 			attempts := make([]Attempt, n)
 			for i := range attempts {
 				attempts[i] = mk(cookie, i)
@@ -270,22 +270,19 @@ func TestSettleOnce(t *testing.T) {
 		l, _ := newTest(t, cfg)
 		r := admit(t, l, alice("192.0.2.1"))
 		r.Fail()
-		if c := r.Succeed(); !c.IsZero() {
-			t.Error("Succeed after Fail returned a device cookie")
-		}
+		r.Succeed()
 		admit(t, l, alice("192.0.2.1"))
 		refuseIn(t, l, alice("192.0.2.1"), "ip")
 	})
-	t.Run("a second Succeed returns no cookie", func(t *testing.T) {
+	t.Run("a second Succeed clears nothing", func(t *testing.T) {
 		t.Parallel()
 		l, _ := newTest(t, cfg)
 		r := admit(t, l, alice("192.0.2.1"))
-		if c := r.Succeed(); c.IsZero() {
-			t.Fatal("first Succeed returned no device cookie")
-		}
-		if c := r.Succeed(); !c.IsZero() {
-			t.Error("second Succeed returned a device cookie")
-		}
+		r.Succeed()
+		admit(t, l, alice("192.0.2.2")).Fail()
+		admit(t, l, alice("192.0.2.3")).Fail()
+		r.Succeed()
+		refuseIn(t, l, alice("192.0.2.4"), "account")
 	})
 	t.Run("Succeed after Cancel clears nothing", func(t *testing.T) {
 		t.Parallel()
@@ -293,9 +290,7 @@ func TestSettleOnce(t *testing.T) {
 		admit(t, l, alice("192.0.2.1")).Fail()
 		r := admit(t, l, alice("192.0.2.2"))
 		r.Cancel()
-		if c := r.Succeed(); !c.IsZero() {
-			t.Error("Succeed after Cancel returned a device cookie")
-		}
+		r.Succeed()
 		admit(t, l, alice("192.0.2.3"))
 		refuseIn(t, l, alice("192.0.2.4"), "account")
 	})
@@ -336,7 +331,7 @@ func TestCancelDoesNotCount(t *testing.T) {
 	t.Run("device", func(t *testing.T) {
 		t.Parallel()
 		l, _ := newTest(t, cfg)
-		cookie := l.DeviceCookie(AccountKey("alice"), access.Secret{})
+		cookie := l.DeviceCookie(AccountKey("alice"), access.Secret{}, true)
 		trusted := func(ip string) Attempt {
 			return Attempt{IP: ipOf(ip), Account: AccountKey("alice"), Device: cookie}
 		}
@@ -509,6 +504,50 @@ func TestAccountKeySpellings(t *testing.T) {
 	})
 }
 
+// TestIdentityKey: OpenID Connect Core 1.0 §5.7 makes iss and sub together
+// the only stable identifier, so the key is the pair's and nothing else's.
+func TestIdentityKey(t *testing.T) {
+	t.Parallel()
+	id := func(iss, sub string) access.OIDCIdentity { return access.OIDCIdentity{Issuer: iss, Subject: sub} }
+	t.Run("one identity, one key", func(t *testing.T) {
+		t.Parallel()
+		once, again := IdentityKey(id("https://idp.example.com", "alice")), IdentityKey(id("https://idp.example.com", "alice"))
+		if once != again {
+			t.Error("one identity keyed twice apart")
+		}
+		if IdentityKey(id("https://idp.example.com", "alice")).isZero() {
+			t.Error("an identity keyed as the zero Account, an IP-only attempt")
+		}
+	})
+	t.Run("the pair, never its concatenation", func(t *testing.T) {
+		t.Parallel()
+		if IdentityKey(id("https://a.example", "bc")) == IdentityKey(id("https://a.example/b", "c")) {
+			t.Error("two identities whose issuer and subject concatenate alike share a key")
+		}
+		if IdentityKey(id("https://idp.example.com", "alice")) == IdentityKey(id("https://other.example.com", "alice")) {
+			t.Error("one subject at two issuers shares a key")
+		}
+	})
+	t.Run("never a username's key", func(t *testing.T) {
+		t.Parallel()
+		k := IdentityKey(id("https://idp.example.com", "alice"))
+		for _, name := range []string{"alice", "https://idp.example.com", "https://idp.example.comalice", "https://idp.example.com alice"} {
+			if AccountKey(name) == k {
+				t.Errorf("AccountKey(%q) equals the identity's key", name)
+			}
+		}
+	})
+	t.Run("counted apart from the username", func(t *testing.T) {
+		t.Parallel()
+		cfg := testConfig()
+		cfg.Account = Rate{Limit: 1, Window: time.Hour}
+		l, _ := newTest(t, cfg)
+		admit(t, l, Attempt{IP: ipOf("192.0.2.1"), Account: IdentityKey(id("https://idp.example.com", "alice"))}).Fail()
+		admit(t, l, Attempt{IP: ipOf("192.0.2.2"), Account: AccountKey("alice")})
+		refuseIn(t, l, Attempt{IP: ipOf("192.0.2.3"), Account: IdentityKey(id("https://idp.example.com", "alice"))}, "account")
+	})
+}
+
 // TestLongNameCostsOneFixedEntry is not parallel: it reads the heap, which
 // a concurrent test's allocations would move.
 func TestLongNameCostsOneFixedEntry(t *testing.T) {
@@ -548,7 +587,8 @@ func TestDeviceBucketIsolation(t *testing.T) {
 	setup := func(t *testing.T) (*Limiter, access.Secret) {
 		t.Helper()
 		l, _ := newTest(t, cfg)
-		cookie := admit(t, l, Attempt{IP: browser, Account: alice}).Succeed()
+		admit(t, l, Attempt{IP: browser, Account: alice}).Succeed()
+		cookie := l.DeviceCookie(alice, access.Secret{}, true)
 		for i := range 3 {
 			admit(t, l, Attempt{IP: nthIP(i), Account: alice}).Fail()
 		}
@@ -563,9 +603,7 @@ func TestDeviceBucketIsolation(t *testing.T) {
 		if !r.Trusted() {
 			t.Fatal("Trusted() = false for the browser's own cookie")
 		}
-		if c := r.Succeed(); c.IsZero() {
-			t.Error("Succeed returned no device cookie")
-		}
+		r.Succeed()
 		refuseIn(t, l, Attempt{IP: nthIP(4), Account: alice}, "account")
 	})
 	t.Run("device failures fill only that device's bucket", func(t *testing.T) {
@@ -575,7 +613,7 @@ func TestDeviceBucketIsolation(t *testing.T) {
 			admit(t, l, Attempt{IP: browser, Account: alice, Device: cookie}).Fail()
 		}
 		refuseIn(t, l, Attempt{IP: browser, Account: alice, Device: cookie}, "device")
-		other := l.DeviceCookie(alice, access.Secret{})
+		other := l.DeviceCookie(alice, access.Secret{}, true)
 		if !admit(t, l, Attempt{IP: browser, Account: alice, Device: other}).Trusted() {
 			t.Error("a second device of alice is untrusted")
 		}
@@ -596,7 +634,8 @@ func TestDeviceBucketIsolation(t *testing.T) {
 		c := cfg
 		c.Device = Rate{Limit: 10, Window: time.Hour}
 		l, _ := newTest(t, c)
-		cookie := admit(t, l, Attempt{IP: browser, Account: alice}).Succeed()
+		admit(t, l, Attempt{IP: browser, Account: alice}).Succeed()
+		cookie := l.DeviceCookie(alice, access.Secret{}, true)
 		for range 3 {
 			admit(t, l, Attempt{IP: browser, Account: alice, Device: cookie}).Fail()
 		}
@@ -609,11 +648,8 @@ func TestDeviceBucketIsolation(t *testing.T) {
 		t.Parallel()
 		l, cookie := setup(t)
 		r := admit(t, l, Attempt{IP: browser, Device: cookie})
-		if r.Trusted() {
-			t.Error("Trusted() = true with no account")
-		}
-		if c := r.Succeed(); !c.IsZero() {
-			t.Error("an IP-only Succeed returned a device cookie")
+		if r.Trusted() || r.KnownDevice() {
+			t.Errorf("Trusted() = %t, KnownDevice() = %t with no account, want false", r.Trusted(), r.KnownDevice())
 		}
 	})
 }
@@ -627,16 +663,16 @@ func TestDeviceCookiePayloadSize(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			cookie := l.DeviceCookie(acct, access.Secret{})
-			if got := len(cookie.Reveal()); got != 118 {
-				t.Errorf("device cookie is %d characters, want 118", got)
+			cookie := l.DeviceCookie(acct, access.Secret{}, true)
+			if got := len(cookie.Reveal()); got != 119 {
+				t.Errorf("device cookie is %d characters, want 119", got)
 			}
 			payload, err := l.devices.Open(devicePurpose, cookie.Reveal(), clk.now())
 			if err != nil {
 				t.Fatalf("Open: %v", err)
 			}
-			if len(payload) != 48 {
-				t.Errorf("device payload is %d bytes, want 48 (access.MaxSealPayload is %d)", len(payload), access.MaxSealPayload)
+			if len(payload) != 49 {
+				t.Errorf("device payload is %d bytes, want 49 (access.MaxSealPayload is %d)", len(payload), access.MaxSealPayload)
 			}
 		})
 	}
@@ -903,7 +939,7 @@ func TestRefusedAttemptAddsNothing(t *testing.T) {
 		c := cfg
 		c.Device.Limit = 2
 		l, _ := newTest(t, c)
-		cookie := l.DeviceCookie(alice, access.Secret{})
+		cookie := l.DeviceCookie(alice, access.Secret{}, true)
 		dev := admit(t, l, Attempt{IP: ipA, Account: alice, Device: cookie})
 		dev.Fail()
 		admit(t, l, Attempt{IP: ipB, Account: alice, Device: cookie}).Fail()
@@ -925,7 +961,7 @@ func TestRefusedAttemptAddsNothing(t *testing.T) {
 		refuseIn(t, l, Attempt{IP: ipA, Account: alice}, "ip")
 		refuseIn(t, l, Attempt{IP: ipA, Account: AccountKey("carol")}, "ip")
 		dave := AccountKey("dave")
-		refuseIn(t, l, Attempt{IP: ipA, Account: dave, Device: l.DeviceCookie(dave, access.Secret{})}, "ip")
+		refuseIn(t, l, Attempt{IP: ipA, Account: dave, Device: l.DeviceCookie(dave, access.Secret{}, true)}, "ip")
 		after := stateOfAttempts(l)
 		checkKept(t, "ip", before.ip, after.ip, keyA)
 		checkKept(t, "account", before.account, after.account, alice, bob)
@@ -1086,7 +1122,7 @@ func TestPrune(t *testing.T) {
 	l, clk := newTest(t, cfg)
 	stale := Attempt{IP: ipOf("192.0.2.1"), Account: AccountKey("stale")}
 	admit(t, l, stale).Fail()
-	cookie := l.DeviceCookie(AccountKey("alice"), access.Secret{})
+	cookie := l.DeviceCookie(AccountKey("alice"), access.Secret{}, true)
 	admit(t, l, Attempt{IP: ipOf("192.0.2.1"), Account: AccountKey("alice"), Device: cookie}).Fail()
 	if err := l.Request(stale.IP); err != nil {
 		t.Fatal(err)
@@ -1318,7 +1354,7 @@ func TestEvictionWarningPerDimension(t *testing.T) {
 	admit(t, l, Attempt{IP: nthIP(1), Account: AccountKey("a")}).Fail()
 	admit(t, l, Attempt{IP: nthIP(2), Account: AccountKey("b")}).Fail()
 	c := AccountKey("c")
-	for i, cookie := range []access.Secret{l.DeviceCookie(c, access.Secret{}), l.DeviceCookie(c, access.Secret{})} {
+	for i, cookie := range []access.Secret{l.DeviceCookie(c, access.Secret{}, true), l.DeviceCookie(c, access.Secret{}, true)} {
 		r := admit(t, l, Attempt{IP: nthIP(3 + i), Account: c, Device: cookie})
 		if !r.Trusted() {
 			t.Fatalf("device %d untrusted", i)
@@ -1526,7 +1562,7 @@ func TestAttemptOmitIP(t *testing.T) {
 	t.Run("device window still refuses", func(t *testing.T) {
 		t.Parallel()
 		l, _ := newTest(t, cfg)
-		cookie := l.DeviceCookie(AccountKey("alice"), access.Secret{})
+		cookie := l.DeviceCookie(AccountKey("alice"), access.Secret{}, true)
 		r := admit(t, l, omitted("alice", cookie))
 		if !r.Trusted() {
 			t.Fatal("the device cookie was not trusted")

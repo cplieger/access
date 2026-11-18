@@ -10,9 +10,10 @@ import (
 	"github.com/cplieger/access/webauthn/internal/cose"
 )
 
-// authDataParts is §16.4's registration, whose flags are UP, UV and AT
-// (0x45), cut at §6.1's and §6.5.1's offsets: rpIdHash (32), flags (1),
-// signCount (4), AAGUID (16), credentialIdLength (2), the ID and the key.
+// authDataParts is WebAuthn §16.4's registration, whose flags are UP, UV and
+// AT (0x45), cut at WebAuthn §6.1's and §6.5.1's offsets: rpIdHash (32),
+// flags (1), signCount (4), AAGUID (16), credentialIdLength (2), the ID and
+// the key.
 type authDataParts struct {
 	aaguid, id, key []byte
 	count           []byte
@@ -52,18 +53,18 @@ func unhexT(t *testing.T, s string) []byte {
 }
 
 // TestParseAuthData_WebAuthn6_1_structure checks authenticator data's layout
-// (§6.1): at least 37 bytes; with AT, attested credential data (§6.5.1) whose
-// credential ID is 1 to 1023 bytes (§7.1) and whose key is one CBOR item;
-// with ED, one CBOR map of extension outputs (§6.1, "extensions"); and no
-// byte after the last flagged item.
+// (WebAuthn §6.1): at least 37 bytes; with AT, attested credential data
+// (§6.5.1) whose credential ID is 1 to 1023 bytes (WebAuthn §7.1) and whose
+// key is one CBOR item; with ED, one CBOR map of extension outputs
+// (WebAuthn §6.1, "extensions"); and no byte after the last flagged item.
 func TestParseAuthData_WebAuthn6_1_structure(t *testing.T) {
 	t.Parallel()
 	p := s16_4Parts(t)
 	const up, uv, at, ed = 0x01, 0x04, 0x40, 0x80
 	reg := byte(up | uv | at)
 	asrt := byte(up | uv)
-	// §16.17.1.2's hmac-secret output_enc (single input, PIN protocol 2), as
-	// an assertion's authenticator extension output.
+	// WebAuthn §16.17.1.2's hmac-secret output_enc (single input, PIN
+	// protocol 2), as an assertion's authenticator extension output.
 	hmacOutput := cborEnc(cborMap{"hmac-secret", unhexT(t, "3bfaa48f7952330d63e35ff8cd5bca48d2a12823828915749287256ab146272f9fb437bf65691243c3f504bd7ea6d5e6")})
 	// Firefox 117's EdDSA key, {1: "OKP", 3: -8, -1: "Ed25519"} declared as
 	// three pairs before its x, as py_webauthn and SimpleWebAuthn record it.
@@ -89,7 +90,7 @@ func TestParseAuthData_WebAuthn6_1_structure(t *testing.T) {
 		{"ED with an integer", p.build(asrt|ed, nil, nil, []byte{0x01}), true},
 		{"ED with a duplicate key", p.build(asrt|ed, nil, nil, cborEnc(cborMap{"a", 1, "a", 1})), true},
 		{"ED with a byte after the map", p.build(asrt|ed, nil, nil, append(bytes.Clone(hmacOutput), 0)), true},
-		{"ED with §16.17.1.2's hmac-secret output", p.build(asrt|ed, nil, nil, hmacOutput), false},
+		{"ED with WebAuthn §16.17.1.2's hmac-secret output", p.build(asrt|ed, nil, nil, hmacOutput), false},
 		{"AT and ED", p.build(reg|ed, p.id, p.key, cborEnc(cborMap{"hmac-secret", true})), false},
 		{"Firefox 117's EdDSA key", p.build(reg, p.id, firefox117, nil), true},
 	} {
@@ -109,7 +110,7 @@ func TestParseAuthData_WebAuthn6_1_structure(t *testing.T) {
 // TestParseAuthData_WebAuthn6_5_1_fields checks the fields read from
 // attested credential data followed by extensions: the AAGUID, the ID and
 // the key's bytes as received, which end where the extensions map begins,
-// and the big-endian signCount (§6.1).
+// and the big-endian signCount (WebAuthn §6.1).
 func TestParseAuthData_WebAuthn6_5_1_fields(t *testing.T) {
 	t.Parallel()
 	p := s16_4Parts(t)
@@ -132,13 +133,14 @@ func TestParseAuthData_WebAuthn6_5_1_fields(t *testing.T) {
 // TestParseAuthData_WebAuthn2_4_keyAsReceived checks that a credential key
 // not in CTAP2 canonical form, its alg in two bytes and its labels out of
 // order, is kept byte for byte and ends where the extensions begin, the
-// boundary a parser that re-encodes the key to measure it misplaces (§2.4's
-// canonical form, a stated departure in docs/webauthn.md).
+// boundary a parser that re-encodes the key to measure it misplaces
+// (WebAuthn §2.4's canonical form, a stated departure in docs/webauthn.md).
 func TestParseAuthData_WebAuthn2_4_keyAsReceived(t *testing.T) {
 	t.Parallel()
 	p := s16_4Parts(t)
-	// §16.4's key is {1: 2, 3: -7, -1: 1, -2: x, -3: y}; x and y are its last
-	// 70 bytes, each a 0x58 0x20 head and 32 bytes, labels -2 and -3.
+	// WebAuthn §16.4's key is {1: 2, 3: -7, -1: 1, -2: x, -3: y}; x and y are
+	// its last 70 bytes, each a 0x58 0x20 head and 32 bytes, labels -2 and
+	// -3.
 	x, y := p.key[len(p.key)-67:len(p.key)-35], p.key[len(p.key)-32:]
 	// alg's label 3 and value -7 each in two bytes.
 	loose := cborEnc(cborMap{-3, y, -2, x, cborRaw{0x18, 0x03}, cborRaw{0x38, 0x06}, -1, 1, 1, 2})
@@ -154,7 +156,7 @@ func TestParseAuthData_WebAuthn2_4_keyAsReceived(t *testing.T) {
 
 // TestAuthData_WebAuthn7_1_flags checks the steps §7.1 and §7.2 share, in
 // their order: the rpIdHash, UP, UV (access requires it), and BS only with
-// BE (§6.1.3), at both ceremonies.
+// BE (WebAuthn §6.1.3), at both ceremonies.
 func TestAuthData_WebAuthn7_1_flags(t *testing.T) {
 	t.Parallel()
 	p := s16_4Parts(t)
@@ -191,8 +193,8 @@ func TestAuthData_WebAuthn7_1_flags(t *testing.T) {
 }
 
 // TestAuthData_WebAuthn6_1_attested checks AT by ceremony: a registration
-// attests its credential (§7.1, the credential steps), and an assertion
-// carries no attested credential data (§6.1, "AT").
+// attests its credential (WebAuthn §7.1, the credential steps), and an
+// assertion carries no attested credential data (WebAuthn §6.1, "AT").
 func TestAuthData_WebAuthn6_1_attested(t *testing.T) {
 	t.Parallel()
 	p := s16_4Parts(t)
@@ -207,7 +209,7 @@ func TestAuthData_WebAuthn6_1_attested(t *testing.T) {
 // TestRegistrationAuthData_WebAuthn7_1_credential checks the attested
 // credential against the response and the offer: its ID is rawId, so the
 // credential has one ID, and its key is one cose.ParseKey accepts, which is
-// also §7.1's check that its alg was offered.
+// also WebAuthn §7.1's check that its alg was offered.
 func TestRegistrationAuthData_WebAuthn7_1_credential(t *testing.T) {
 	t.Parallel()
 	p := s16_4Parts(t)
@@ -226,10 +228,10 @@ func TestRegistrationAuthData_WebAuthn7_1_credential(t *testing.T) {
 	es384 := s16Section(t, "16.8")
 	es384Key := vectorAuthData(t, es384)[55+len(es384.Registration.bytes(t, "credential_id")):]
 	if _, _, err := registrationAuthData(p.build(0x45, p.id, es384Key, nil), vectorRPID, p.id); !errors.Is(err, errCredentialKey) || !errors.Is(err, cose.ErrUnsupported) {
-		t.Errorf("§16.8's ES384 key = %v, want errCredentialKey and cose.ErrUnsupported", err)
+		t.Errorf("WebAuthn §16.8's ES384 key = %v, want errCredentialKey and cose.ErrUnsupported", err)
 	}
-	// §6.5.1: the key MUST NOT carry another optional parameter; here a d
-	// (-4) label, the private key.
+	// WebAuthn §6.5.1: the key MUST NOT carry another optional parameter;
+	// here a d (-4) label, the private key.
 	withD := append([]byte{0xa6}, p.key[1:]...)
 	withD = append(append(withD, 0x23, 0x58, 0x20), make([]byte, 32)...)
 	if _, _, err := registrationAuthData(p.build(0x45, p.id, withD, nil), vectorRPID, p.id); !errors.Is(err, errCredentialKey) || !errors.Is(err, cose.ErrMalformed) {

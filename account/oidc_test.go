@@ -43,14 +43,14 @@ func liveSession(t testing.TB, u *access.User) access.Session {
 	t.Helper()
 	now := time.Now()
 	return access.Session{
-		ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPassword,
+		ID: newSessionID(t), UserID: u.ID, AuthMethod: access.MethodPassword,
 		CreatedAt: now, LastActivity: now, AuthTime: now, Secure: true,
 	}
 }
 
 // provisioningOn is Rules with every OIDC identity admitted.
 func provisioningOn() func() account.Rules {
-	return rulesWith(func(r *account.Rules) { r.Provisioning = oidc.Provisioning{Enabled: true} })
+	return rulesWith(func(r *account.Rules) { r.Provisioning = account.Provisioning{Enabled: true} })
 }
 
 func TestOIDCSignIn(t *testing.T) {
@@ -73,7 +73,7 @@ func TestOIDCSignIn(t *testing.T) {
 			t.Errorf("Redirect = %q, want the sealed /home", out.Redirect)
 		}
 		sess := storedSession(t, f.mem, u.ID, out.SignedIn.Session.ID)
-		if sess.Kind != access.SessionFull || sess.AuthMethod != access.MethodOIDC || sess.AuthTime.Before(start) {
+		if sess.AuthMethod != access.MethodOIDC || sess.AuthTime.Before(start) {
 			t.Errorf("stored session = %+v, want a full OIDC session signed in now", sess)
 		}
 		if pr, err := f.authenticate(t.Context(), out.SignedIn.Token); err != nil || pr.User.ID != u.ID {
@@ -133,33 +133,30 @@ func TestOIDCSignIn(t *testing.T) {
 
 func TestOIDCProvisioning(t *testing.T) {
 	t.Parallel()
-	staff := oidc.Provisioning{Enabled: true, Claim: "groups", AllowedValues: []string{"staff"}}
-	staffAdmin := staff
-	staffAdmin.Role = access.RoleAdmin
+	staff := account.OIDCAdmission{Claim: "groups", AllowedValues: []string{"staff"}}
+	byClaim := account.Provisioning{Enabled: true, RoleClaim: "groups", AdminValues: []string{"ops"}}
 	for _, tc := range []struct {
 		groups   any
-		policy   account.Policy
 		name     string
 		wantRole access.Role // empty: NotLinked
-		prov     oidc.Provisioning
+		adm      account.OIDCAdmission
+		prov     account.Provisioning
 	}{
 		{name: "off", groups: "staff"},
-		{name: "claim_absent", prov: staff},
-		{name: "claim_values_miss", prov: staff, groups: []string{"guests", "ops"}},
-		{name: "admitted_with_role", prov: staffAdmin, groups: []string{"ops", "staff"}, wantRole: access.RoleAdmin},
-		{name: "admitted_default_role", prov: staff, groups: "staff", wantRole: access.RoleUser},
-		{name: "any_identity", prov: oidc.Provisioning{Enabled: true}, wantRole: access.RoleUser},
-		{name: "single_owner", prov: staff, groups: "staff", policy: account.SingleOwnerPolicy{}},
+		{name: "admitted_with_role", adm: staff, prov: account.Provisioning{Enabled: true, Role: access.RoleAdmin}, groups: []string{"ops", "staff"}, wantRole: access.RoleAdmin},
+		{name: "admitted_default_role", adm: staff, prov: account.Provisioning{Enabled: true}, groups: "staff", wantRole: access.RoleUser},
+		{name: "any_identity", prov: account.Provisioning{Enabled: true}, wantRole: access.RoleUser},
+		// A RoleClaim value in AdminValues makes an admin, by exact string.
+		{name: "role_claim_admin", prov: byClaim, groups: []string{"staff", "ops"}, wantRole: access.RoleAdmin},
+		{name: "role_claim_other", prov: byClaim, groups: []string{"Ops"}, wantRole: access.RoleUser},
+		// An absent or unreadable role claim never makes an admin.
+		{name: "role_claim_absent", prov: byClaim, wantRole: access.RoleUser},
+		{name: "role_claim_number", prov: byClaim, groups: 7, wantRole: access.RoleUser},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := newOIDCFixture(t, newOIDCRig(t, accesstest.IdPOptions{Groups: tc.groups}), pwOptions{
-				rules: rulesWith(func(r *account.Rules) { r.Provisioning = tc.prov }),
-				edit: func(c *account.Config) {
-					if tc.policy != nil {
-						c.Policy = tc.policy
-					}
-				},
+				rules: rulesWith(func(r *account.Rules) { r.Provisioning, r.OIDCAdmission = tc.prov, tc.adm }),
 			})
 			mustUser(t, f.mem, "owner", access.RoleAdmin)
 			flow, claims := f.rig.signInFlow(t)
@@ -226,7 +223,7 @@ func TestOIDCProvisioning(t *testing.T) {
 		t.Parallel()
 		var on atomic.Bool
 		f := newOIDCFixture(t, newOIDCRig(t, accesstest.IdPOptions{}), pwOptions{rules: func() account.Rules {
-			return account.Rules{Provisioning: oidc.Provisioning{Enabled: on.Load()}}
+			return account.Rules{Provisioning: account.Provisioning{Enabled: on.Load()}}
 		}})
 		mustUser(t, f.mem, "owner", access.RoleAdmin)
 		flow, claims := f.rig.signInFlow(t)
@@ -267,7 +264,7 @@ func TestOIDCProvisioning(t *testing.T) {
 	})
 	t.Run("rules_refuse_claim_without_values", func(t *testing.T) {
 		t.Parallel()
-		r := account.Rules{Provisioning: oidc.Provisioning{Enabled: true, Claim: "groups"}}
+		r := account.Rules{Provisioning: account.Provisioning{Enabled: true}, OIDCAdmission: account.OIDCAdmission{Claim: "groups"}}
 		if err := r.Validate(); !errors.Is(err, account.ErrRulesInvalid) {
 			t.Errorf("Validate = %v, want ErrRulesInvalid", err)
 		}
@@ -299,21 +296,30 @@ func TestOIDCNotLinkedOneShape(t *testing.T) {
 		Identity:     access.OIDCIdentity{Issuer: oidcIssuer, Subject: accesstest.DefaultIdPSubject},
 		UsernameHint: accesstest.DefaultIdPUsername, Email: accesstest.DefaultIdPEmail,
 	}
-	if want.Kind != account.OutcomeNotLinked || want.Pending != wantPending || want.Redirect != "/home" {
+	if want.Kind != account.OutcomeNotLinked || !reflect.DeepEqual(want.Pending, wantPending) || want.Redirect != "/home" {
 		t.Fatalf("NotLinked outcome = %+v, want Pending %+v and Redirect /home", want, wantPending)
 	}
-	for name, tc := range map[string]struct {
-		rules  func() account.Rules
-		holder string
-	}{
-		"off_name_held":               {rules: off, holder: "password"},
-		"provisioning_name_held":      {rules: provisioningOn(), holder: "password"},
-		"provisioning_name_held_bare": {rules: provisioningOn(), holder: "passwordless"},
-	} {
-		t.Run(name, func(t *testing.T) {
+	// With provisioning off, a hint matching a user and one
+	// matching nobody give the same answer.
+	for _, holder := range []string{"password", "passwordless"} {
+		t.Run("off_name_held_"+holder, func(t *testing.T) {
 			t.Parallel()
-			if got := outcome(t, accesstest.IdPOptions{}, tc.rules, tc.holder); !reflect.DeepEqual(got, want) {
+			if got := outcome(t, accesstest.IdPOptions{}, off, holder); !reflect.DeepEqual(got, want) {
 				t.Errorf("outcome = %+v, want the same as with the name free, %+v", got, want)
+			}
+		})
+	}
+	// An admitted identity whose name is taken gets the create
+	// offer, the hint plus a numeric suffix, whatever the holder signs in with.
+	for _, holder := range []string{"password", "passwordless"} {
+		t.Run("provisioning_name_held_"+holder, func(t *testing.T) {
+			t.Parallel()
+			got := outcome(t, accesstest.IdPOptions{}, provisioningOn(), holder)
+			offer := want
+			offer.Pending.Provision = &account.Provision{Role: access.RoleUser}
+			offer.Pending.SuggestedUsername = accesstest.DefaultIdPUsername + "_2"
+			if !reflect.DeepEqual(got, offer) {
+				t.Errorf("outcome = %+v, want %+v", got, offer)
 			}
 		})
 	}
@@ -385,7 +391,7 @@ func TestOIDCPendingLink(t *testing.T) {
 		kept    access.OIDCIdentity // the link alice still holds
 	}{
 		{name: "stale_session", want: access.ErrRecentAuthRequired, arrange: func(t *testing.T, f *pendingFixture) (access.Principal, account.PendingLink) {
-			return f.sessionPrincipal(t, f.u, access.SessionFull, time.Now().Add(-time.Hour)), f.pending
+			return f.sessionPrincipal(t, f.u, time.Now().Add(-time.Hour)), f.pending
 		}},
 		{name: "identity_taken", want: account.ErrOIDCIdentityTaken, arrange: func(t *testing.T, f *pendingFixture) (access.Principal, account.PendingLink) {
 			linkIdentity(t, f.mem, passwordUser(t, f.mem, nil, "bob", ""), f.pending.Identity)
@@ -499,7 +505,6 @@ func TestOIDCLinkIntent(t *testing.T) {
 		name    string
 		kept    access.OIDCIdentity
 		admin   bool
-		sso     bool
 	}{
 		{name: "revoked_mid_flight", want: account.ErrSessionGone, after: func(t *testing.T, f *oidcFixture, u *access.User, sess access.Session) {
 			if err := f.mem.DeleteSession(t.Context(), access.SessionRef{ID: sess.ID, UserID: u.ID}); err != nil {
@@ -511,9 +516,6 @@ func TestOIDCLinkIntent(t *testing.T) {
 		}},
 		{name: "past_own_idle_cap", want: account.ErrSessionGone, session: func(s *access.Session) {
 			s.IdleCap, s.LastActivity = 5*time.Minute, time.Now().Add(-10*time.Minute)
-		}},
-		{name: "recovery_session", want: account.ErrSessionGone, session: func(s *access.Session) {
-			s.Kind, s.AuthMethod = access.SessionRecovery, access.MethodRecovery
 		}},
 		{name: "disabled_user", want: account.ErrSessionGone, after: func(t *testing.T, f *oidcFixture, u *access.User, _ access.Session) {
 			stored := storedUser(t, f.mem, u.ID)
@@ -537,15 +539,10 @@ func TestOIDCLinkIntent(t *testing.T) {
 		{name: "identity_taken", want: account.ErrOIDCIdentityTaken, after: func(t *testing.T, f *oidcFixture, _ *access.User, _ access.Session) {
 			linkIdentity(t, f.mem, passwordUser(t, f.mem, nil, "bob", ""), f.rig.identity())
 		}},
-		{name: "last_local_admin", want: account.ErrPolicyRefused, admin: true, sso: true, pol: account.RolePolicy{KeepLocalAdmin: true}},
-		{name: "identity_taken_before_migration", want: account.ErrOIDCIdentityTaken, admin: true, sso: true, pol: account.RolePolicy{KeepLocalAdmin: true}, after: func(t *testing.T, f *oidcFixture, _ *access.User, _ access.Session) {
-			linkIdentity(t, f.mem, passwordUser(t, f.mem, nil, "bob", ""), f.rig.identity())
-		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f, u := linkFixture(t, pwOptions{
-				rules: rulesWith(func(r *account.Rules) { r.SSOGoverned = tc.sso }),
 				edit: func(c *account.Config) {
 					if tc.pol != nil {
 						c.Policy = tc.pol
@@ -585,115 +582,6 @@ func TestOIDCLinkIntent(t *testing.T) {
 				t.Errorf("events = %v, want none", got)
 			}
 		})
-	}
-}
-
-func TestOIDCSSOMigration(t *testing.T) {
-	t.Parallel()
-	paths := map[string]func(t *testing.T, f *oidcFixture, u *access.User) (string, error){
-		"intent_link": func(t *testing.T, f *oidcFixture, u *access.User) (string, error) {
-			sess := putSession(t, f.mem, liveSession(t, u))
-			flow, claims := f.rig.sessionFlow(t, oidc.IntentLink, u, sess.ID)
-			_, err := f.complete(t, localClient, flow, claims)
-			return sess.ID, err
-		},
-		"pending_link": func(t *testing.T, f *oidcFixture, u *access.User) (string, error) {
-			flow, claims := f.rig.signInFlow(t)
-			out, err := f.complete(t, localClient, flow, claims)
-			if err != nil || out.Kind != account.OutcomeNotLinked {
-				t.Fatalf("OIDCComplete = %+v, %v; want NotLinked", out, err)
-			}
-			pr, _ := f.signedInVia(t, u, access.MethodPassword)
-			_, _, err = f.svc.LinkPendingOIDC(t.Context(), pr, out.Pending)
-			return pr.SessionID, err
-		},
-	}
-	for path, link := range paths {
-		for _, tc := range []struct {
-			name       string
-			governed   bool
-			revokeKeys bool
-		}{
-			{name: "governed_revoking_keys", governed: true, revokeKeys: true},
-			{name: "governed_keeping_keys", governed: true},
-			{name: "not_governed", revokeKeys: true},
-		} {
-			t.Run(path+"_"+tc.name, func(t *testing.T) {
-				t.Parallel()
-				f, u := linkFixture(t, pwOptions{rules: rulesWith(func(r *account.Rules) {
-					r.SSOGoverned, r.RevokeKeysOnCredentialChange = tc.governed, tc.revokeKeys
-				})})
-				pk1, pk2 := addPasskey(t, f.mem, u, rpID), addPasskey(t, f.mem, u, rpID)
-				_, key := f.keyPrincipalFor(t, nil, u, time.Time{}, nil)
-				_, issued := access.NewOneTimeToken(access.PurposeInvite, 0, time.Hour, time.Now())
-				issued.IssuedByKey = key.ID
-				if err := f.mem.CreateOneTimeToken(t.Context(), issued); err != nil {
-					t.Fatalf("CreateOneTimeToken: %v", err)
-				}
-				other := putSession(t, f.mem, liveSession(t, u))
-				current, err := link(t, f, u)
-				if err != nil {
-					t.Fatalf("link = %v", err)
-				}
-				stored := storedUser(t, f.mem, u.ID)
-				if stored.OIDC != f.rig.identity() {
-					t.Fatalf("stored link = %+v, want %+v", stored.OIDC, f.rig.identity())
-				}
-				passkeys := len(passkeysOf(t, f.mem, u.ID))
-				keys, err := f.mem.ListAPIKeysByUserID(t.Context(), u.ID)
-				if err != nil {
-					t.Fatalf("ListAPIKeysByUserID: %v", err)
-				}
-				_, tokenKept, err := f.mem.OneTimeTokenByHash(t.Context(), issued.Hash)
-				if err != nil {
-					t.Fatalf("OneTimeTokenByHash: %v", err)
-				}
-				ids := make([]string, 0, 2)
-				for _, s := range sessionsOf(t, f.mem, u.ID) {
-					ids = append(ids, s.ID)
-				}
-				slices.Sort(ids)
-				keysGone := tc.governed && tc.revokeKeys
-				if got := !stored.PasswordHash.IsZero(); got == tc.governed {
-					t.Errorf("password held = %v, want %v", got, !tc.governed)
-				}
-				if want := map[bool]int{true: 0, false: 2}[tc.governed]; passkeys != want {
-					t.Errorf("passkeys = %d, want %d", passkeys, want)
-				}
-				if (len(keys) == 0) != keysGone || tokenKept == keysGone {
-					t.Errorf("keys = %d, issued token kept %v; want keys deleted with their tokens = %v", len(keys), tokenKept, keysGone)
-				}
-				wantIDs := []string{current}
-				if !tc.governed {
-					wantIDs = append(wantIDs, other.ID)
-					slices.Sort(wantIDs)
-				}
-				if !slices.Equal(ids, wantIDs) {
-					t.Errorf("sessions = %v, want %v", ids, wantIDs)
-				}
-				want := []account.EventKind{account.EventOIDCLinked}
-				if tc.governed {
-					want = append(want, account.EventPasswordRemoved, account.EventPasskeyRemoved, account.EventPasskeyRemoved)
-					if keysGone {
-						want = append(want, account.EventKeyRevoked)
-					}
-					want = append(want, account.EventUserSessionsRevoked)
-				}
-				if got := kindsOf(f.events); !slices.Equal(got, want) {
-					t.Fatalf("events = %v, want %v", got, want)
-				}
-				if !tc.governed {
-					return
-				}
-				removed := eventsOf(f.events, account.EventPasskeyRemoved)
-				if removed[0].PasskeyID != pk1.ID || removed[1].PasskeyID != pk2.ID {
-					t.Errorf("EventPasskeyRemoved IDs = %d, %d; want %d, %d", removed[0].PasskeyID, removed[1].PasskeyID, pk1.ID, pk2.ID)
-				}
-				if ev := eventsOf(f.events, account.EventUserSessionsRevoked)[0]; !slices.Equal(ev.SessionIDs, []string{other.ID}) {
-					t.Errorf("EventUserSessionsRevoked = %v, want the other session", ev.SessionIDs)
-				}
-			})
-		}
 	}
 }
 
@@ -946,7 +834,7 @@ func TestUnlinkLastUsable(t *testing.T) {
 	t.Run("stale_session", func(t *testing.T) {
 		t.Parallel()
 		f, u := setup(t, pwOptions{}, true)
-		pr := f.sessionPrincipal(t, u, access.SessionFull, time.Now().Add(-time.Hour))
+		pr := f.sessionPrincipal(t, u, time.Now().Add(-time.Hour))
 		if err := f.svc.UnlinkOIDC(t.Context(), pr); !errors.Is(err, access.ErrRecentAuthRequired) {
 			t.Errorf("UnlinkOIDC from a stale session = %v, want ErrRecentAuthRequired", err)
 		}

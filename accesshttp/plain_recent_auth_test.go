@@ -18,7 +18,7 @@ func (e *env) staleSession(t *testing.T, name string, secure bool) *http.Cookie 
 	now := time.Now()
 	s := &access.Session{
 		ID: hex.EncodeToString(randomBytes(16)), UserID: e.user(t, name).ID, TokenHash: hash, AuthMethod: access.MethodPassword,
-		Kind: access.SessionFull, CreatedAt: now.Add(-2 * time.Hour), LastActivity: now, AuthTime: now.Add(-2 * time.Hour), Secure: secure,
+		CreatedAt: now.Add(-2 * time.Hour), LastActivity: now, AuthTime: now.Add(-2 * time.Hour), Secure: secure,
 	}
 	if err := e.mem.CreateSession(t.Context(), s); err != nil {
 		t.Fatalf("CreateSession: %v", err)
@@ -86,7 +86,7 @@ func TestPlainRecentAuth(t *testing.T) {
 	t.Run("logout_ends_presented", func(t *testing.T) {
 		e := newEnv(t, perRequest)
 		e.createUser(t, "alice", access.RoleUser)
-		cookie := e.transportSession(t, "alice", access.SessionFull, false)
+		cookie := e.transportSession(t, "alice", false)
 		rt := e.route(t, "authLogout")
 		if w := do(rt, requestAt(plainOrigin, rt.Path, rt, "", cookie)); w.Code != http.StatusNoContent {
 			t.Fatalf("plain logout: status %d, errors %+v; want 204", w.Code, e.errs.all())

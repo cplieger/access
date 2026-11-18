@@ -2,18 +2,19 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/cplieger/access.svg)](https://pkg.go.dev/github.com/cplieger/access) [![Go version](https://img.shields.io/github/go-mod/go-version/cplieger/access)](https://github.com/cplieger/access/blob/main/go.mod) [![Mutation](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/cplieger/access/badges/mutation.json)](https://github.com/cplieger/access/issues?q=label%3Agremlins-tracker)
 
-access gives your Go web service its sign-in: Argon2id passwords, passkeys, OIDC sign-in, sessions, API keys, invites and recovery, served as JSON routes you mount on your own mux, with a typed browser client. You write the storage and the pages.
+access gives your Go web service its sign-in: Argon2id passwords, passkeys, authenticator-app codes, OIDC sign-in, sessions, API keys and invites, served as JSON routes you mount on your own mux, with a typed browser client. You write the storage and the pages.
 
-It reads no environment variables, and every setting lives on the value you construct. It is licensed under Apache-2.0. It has four direct dependencies at run time: `golang.org/x/crypto`, `golang.org/x/oauth2`, `golang.org/x/sync` and `golang.org/x/text`.
+It reads no environment variables, and every setting lives on the value you construct. It is licensed under Apache-2.0. It has five direct dependencies at run time: `github.com/cplieger/go/keylock`, `golang.org/x/crypto`, `golang.org/x/oauth2`, `golang.org/x/sync` and `golang.org/x/text`.
 
 ## Why use it
 
 access is built for a Go service that owns its login pages and its database.
 
-- Every sign-in path, password, passkey, OIDC, invite, recovery and first-user setup, runs through one admission path, which checks the rate limits before any password is hashed.
+- Every sign-in path, password, passkey, OIDC, invite, self-registration and first-user setup, runs through one admission path, which checks the rate limits before any password is hashed.
 - Passwords hash with Argon2id at OWASP's parameters. When every `Hasher` is given the same `HashBudget`, that bound is process-wide. With no `HashBudget`, each `Hasher` has its own budget of four derivations. An unknown username costs the same work as a wrong password.
-- Repeated wrong passwords lock the method durably: after 100 consecutive failures for one account, method and trust context, that method is locked in that context until the user, signed in another way, re-enables it. A browser that signed in before keeps its own context, so a stranger's guesses do not lock the owner out.
+- Repeated wrong passwords lock the method durably: after 100 consecutive failures for one account, method and trust context, that method is locked in that context until the user, signed in another way, re-enables it. A browser that signed in before keeps its own context, so a stranger's guesses do not lock the account's holder out.
 - Your store keeps only the SHA-256 hash of each 256-bit random session token. The session cookie holds only the token, and the cookies that carry state are sealed with AES-256-GCM.
+- A password sign-in from a user with an authenticator app asks for its code or a passkey before any session exists, and under `RequireSecondFactor` every password sign-in proves or binds a second factor. A recovery code or an admin's single-use temporary password lets a person back in.
 - Passkey ceremonies accept only your exact origin by default.
 - OIDC sign-in sends a PKCE S256 challenge, checks the ID token's nonce and keeps the flow in a sealed cookie, with nothing stored on the server.
 - API keys can carry scopes, and two permissions you grant explicitly let a key manage regular users or mint narrower keys, each act attributed to the key's whole lineage. A key rotates to a new secret in place, and its old secret keeps working through a short overlap.
@@ -28,11 +29,12 @@ Consider [Authboss](https://github.com/aarondl/authboss) if you want ready-made 
 | --- | --- |
 | `access` | The building blocks: the `Authenticator` that verifies a request, the refusal codes, the password hasher, session and API-key tokens, cookies, `Secret`, `Hash` and `Sealer` |
 | `access/gate` | Guards your own routes: one table of routes, each with the class of caller it admits, answered through your error writer. It needs nothing of passkeys or OIDC |
-| `account` | Sign-in, sessions, passkeys, OIDC, keys, invites, recovery, the user set and the [security log](docs/security-log.md), run over your `account.Store` |
+| `account` | Sign-in, sessions, passkeys, OIDC, keys, invites, the user set and the [security log](docs/security-log.md), run over your `account.Store` |
 | `accesshttp` | Every `account` operation as a JSON route with a descriptor, for your own mux |
 | `ratelimit` | Per-IP, per-account and per-device limits on failed attempts, with trusted-device cookies |
+| `totp` | Authenticator-app codes, RFC 6238 |
 | `webauthn` | Passkey ceremonies |
-| `oidc` | OpenID Connect sign-in, link and step-up |
+| `oidc` | OpenID Connect sign-in, link, step-up and invite acceptance |
 | `accesstest` | An in-memory store, the store contract suite, a test identity provider and a software passkey |
 | [`@cplieger/access`](web/README.md) | The browser client for `accesshttp`'s routes |
 
@@ -100,7 +102,7 @@ func main() {
 
 	svc, err := account.New(ctx, account.Config{
 		Store:         store,
-		Policy:        account.RolePolicy{KeepLocalAdmin: true},
+		Policy:        account.RolePolicy{},
 		Authenticator: authn,
 		Hasher:        hasher,
 		Limiter:       limiter,
@@ -167,7 +169,7 @@ Neither `accesshttp` nor the gate writes an error body itself: every refusal rea
 - `access/gate`: `New` builds a `Gate` from a `Config` and a table of `Route` values, `Principal` reads the admitted caller, and `Codes` and `MountCodes` list the codes a route can answer.
 - `account`: `New` builds the `Service` that runs every operation over your `Store`, and `Actor` names who performs each operation.
 - `accesshttp`: `New` builds the `Handler` whose `Route` values carry each operation, and the request and view types are its wire format.
-- `ratelimit`, `oidc` and `webauthn`: the `Limiter`, the `Provider` with its `Flow`, and the `RelyingParty` with its ceremony functions.
+- `ratelimit`, `oidc`, `webauthn` and `totp`: the `Limiter`, the `Provider` with its `Flow`, the `RelyingParty` with its ceremony functions, and `Match` with the secret and URI helpers.
 - `accesstest`: `MemStore`, the `IdP` fake and `StoreContract`.
 
 The full reference is on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access).
@@ -189,7 +191,7 @@ access hardens the building blocks, and the security of your service depends on 
 - `Config.Bypass` grants a synthetic admin user, whose ID is 0 and names no stored user, to every request while its callback returns true. `account` refuses every write made under it. Keep it off in production.
 - When hosts you do not control share your relying-party domain, keep the default exact origin. [Passkeys](docs/webauthn.md#the-origin-policy) explains `AllowSubdomains` and `Origins`.
 - Three rules stay with you. Guard every route of your own with `access/gate`, set `ClientAddr.Secure` from where TLS ends ([Authenticator configuration](docs/configuration.md#authenticator-configuration)), and keep the store contract. [Implementing the store](docs/storage.md) states the contract, and `accesstest.StoreContract` checks it.
-- Fuzz targets cover password hashes and checks, cookie settings, API keys, opaque tokens, sealed values, redirect paths, the JSON body decoder, OIDC claims, the rate limiter, and WebAuthn origins and stored credentials.
+- Fuzz targets cover password hashes and checks, cookie settings, API keys, opaque tokens, sealed values, redirect paths, the JSON body decoder, OIDC claims, ID tokens, discovery documents and key sets, the rate limiter, TOTP codes and URIs, temporary-password and recovery-code input, and WebAuthn origins, stored credentials, and registration and sign-in responses.
 - The cryptography has had no independent third-party audit.
 
 Report a vulnerability privately through the [security policy](https://github.com/cplieger/.github/blob/main/SECURITY.md), not in a public issue.
@@ -198,15 +200,14 @@ Report a vulnerability privately through the [security policy](https://github.co
 
 These are left out on purpose. [Non-goals](docs/non-goals.md) gives the reason for each and what to use instead.
 
-- Several processes over one store. Every read-check-write decision runs inside one store transaction, but the rate limiter's windows and the pending passkey ceremonies live in the process, so run one process per store.
+- Several processes over one store. Every read-check-write decision runs inside one store transaction, but the rate limiter's windows, the pending passkey ceremonies and the pending sign-ins and enrolments live in the process, so run one process per store.
 - Page rendering. The browser client renders nothing.
 - A CSRF token, because Go's `http.CrossOriginProtection` refuses cross-origin state-changing requests without needing one.
 - OIDC token refresh, a registry of several providers, back-channel logout and the userinfo endpoint.
 - WebAuthn metadata-service verification, attestation conveyance, filtering authenticators by AAGUID, and the passkey well-known endpoints.
 - Role hierarchies and permission sets. Each user has one role, and `HasRole` passes when it matches the role a route needs or when the user is an admin.
 - Encrypting or signing the session cookie, because it holds only a random token.
-
-The library has no TOTP or SMS second factor. A custom `CredentialVerifier` passed as `Config.Verifier` can add one.
+- SMS and email codes, and recovery by an emailed link. The library stores no phone number or address.
 
 ## Documentation
 
@@ -217,7 +218,9 @@ The library has no TOTP or SMS second factor. A custom `CredentialVerifier` pass
 - [Implementing the store](docs/storage.md) explains the transaction boundary, the store contract and what each write costs.
 - [The security log](docs/security-log.md) lists what is logged, how long it is kept, and who can read it.
 - [Passkeys](docs/webauthn.md) explains how ceremonies check origins and what registration requires.
-- [OIDC sign-in](docs/oidc.md) explains the sealed flow cookie, the link and step-up checks and the limits on outbound calls.
+- [OIDC sign-in](docs/oidc.md) explains the sealed flow cookie, the link, step-up and invite checks and the limits on outbound calls.
+- [Second factors and temporary passwords](docs/totp.md) covers authenticator apps, the recovery code and an admin's ways to let a person back in.
+- [Identity and single sign-on](docs/identity.md) explains owners, the SSO mode, linking and offboarding.
 - [Migrating from auth v6](docs/migration-v7.md) lists every change and its replacement.
 - [Non-goals](docs/non-goals.md) gives the reason for each feature left out.
 

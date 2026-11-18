@@ -18,6 +18,7 @@ import (
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/internal/printcheck"
 	"github.com/cplieger/access/oidc"
+	"github.com/cplieger/access/webauthn"
 )
 
 func TestNewRefuses(t *testing.T) {
@@ -64,6 +65,22 @@ func TestNewRefuses(t *testing.T) {
 		{name: "breach_fail_closed_without_client", field: "Breach", edit: func(c *account.Config) {
 			c.Rules = func() account.Rules { return account.Rules{Breach: account.BreachFailClosed} }
 		}},
+		// Config.TOTP is optional, and a half-set value is refused.
+		{name: "totp_sealer_without_issuer", field: "TOTP.Issuer", edit: func(c *account.Config) {
+			c.TOTP = account.TOTPConfig{Sealer: access.NewEphemeralSealer()}
+		}},
+		{name: "totp_issuer_without_sealer", field: "TOTP.Sealer", edit: func(c *account.Config) { c.TOTP = account.TOTPConfig{Issuer: "Example"} }},
+		{name: "totp_zero_sealer", field: "TOTP.Sealer", edit: func(c *account.Config) {
+			c.TOTP = account.TOTPConfig{Sealer: &access.Sealer{}, Issuer: "Example"}
+		}},
+		// Key Uri Format: the issuer prefixes the label, where a colon is the separator.
+		{name: "totp_issuer_colon", field: "TOTP.Issuer", edit: func(c *account.Config) {
+			c.TOTP = account.TOTPConfig{Sealer: access.NewEphemeralSealer(), Issuer: "Ex:ample"}
+		}},
+		// RequireSecondFactor with no wired second factor.
+		{name: "require_second_factor_unwired", field: "RequireSecondFactor", edit: func(c *account.Config) {
+			c.Rules = func() account.Rules { return account.Rules{RequireSecondFactor: true} }
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -97,6 +114,35 @@ func TestNewRefuses(t *testing.T) {
 			t.Fatalf("New(BreachFailOpen with a client) error = %v, want nil", err)
 		}
 		_ = svc.Shutdown(t.Context())
+	})
+	t.Run("second_factor_wired", func(t *testing.T) {
+		t.Parallel()
+		for name, edit := range map[string]func(*account.Config){
+			"totp": func(c *account.Config) {
+				c.TOTP = account.TOTPConfig{Sealer: access.NewEphemeralSealer(), Issuer: "Example"}
+			},
+			"passkeys": func(c *account.Config) { c.RP = func() *webauthn.RelyingParty { return nil } },
+		} {
+			cfg := ownAuthenticator(t, base)
+			cfg.Rules = func() account.Rules { return account.Rules{RequireSecondFactor: true} }
+			edit(&cfg)
+			svc, err := account.New(t.Context(), cfg)
+			if err != nil {
+				t.Errorf("%s: New(RequireSecondFactor) = %v, want nil", name, err)
+				continue
+			}
+			_ = svc.Shutdown(t.Context())
+		}
+	})
+	t.Run("require_second_factor_error_matches", func(t *testing.T) {
+		t.Parallel()
+		cfg := base
+		cfg.Rules = func() account.Rules { return account.Rules{RequireSecondFactor: true} }
+		_, err := account.New(t.Context(), cfg)
+		var re *account.RulesError
+		if !errors.Is(err, account.ErrRulesInvalid) || !errors.As(err, &re) || re.Field != "RequireSecondFactor" {
+			t.Errorf("New(RequireSecondFactor, nothing wired) = %v, want a *RulesError for RequireSecondFactor", err)
+		}
 	})
 	t.Run("rules_error_matches", func(t *testing.T) {
 		t.Parallel()
@@ -177,6 +223,7 @@ func TestServicePrinting(t *testing.T) {
 			Types: []string{
 				"access.Authenticator", "ratelimit.Limiter", "http.Client",
 				"slog.Logger", "webauthn.Ceremony", "access.User", "time.Time",
+				"access.Sealer",
 			},
 			Fields: []string{
 				"account.Service.store", "account.Service.policy",
@@ -188,6 +235,23 @@ func TestServicePrinting(t *testing.T) {
 				// and on the entry; finishing a ceremony still needs the
 				// authenticator's signature.
 				"account.pendingEntry.id", "account.pendingCache.byID",
+				// A draft's or a setup ceremony's owner is the HashKey of the
+				// token it spends, which shows no more than the Hash.
+				"account.owner.token",
+				// The app's name in an authenticator, shown in every otpauth URI.
+				"account.TOTPConfig.Issuer",
+				// A pending sign-in's step and methods are its public answer;
+				// the digest and the matched recovery code's key are HashKeys,
+				// which show no more than the Hash.
+				"account.ticket.next", "account.ticket.methods", "account.ticket.digest", "account.ticket.recovered",
+				// A draft's creation path is a public route's name for it.
+				"account.draftOf.via",
+				// A session ID names a session, as Principal.SessionID does;
+				// only its token, which the store holds as a hash, signs in.
+				"account.enrolment.sessionID",
+				// The name lock's keys: canonical usernames, as access.User
+				// holds them, each kept only while its verifier runs.
+				"keylock.Set[string].m",
 			},
 		}
 		for _, line := range printcheck.Unmasked(allow, reflect.TypeFor[*account.Service]()) {
@@ -201,7 +265,8 @@ func TestRulesValidate(t *testing.T) {
 	valid := []account.Rules{
 		{},
 		{RecentAuth: time.Minute, MaxSessionsPerUser: 50, Breach: account.BreachFailClosed},
-		{Provisioning: oidc.Provisioning{Enabled: true, Claim: "groups", AllowedValues: []string{"staff"}}},
+		{Provisioning: account.Provisioning{Enabled: true}, OIDCAdmission: account.OIDCAdmission{Claim: "groups", AllowedValues: []string{"staff"}}},
+		{Provisioning: account.Provisioning{Role: access.RoleAdmin, RoleClaim: "groups", AdminValues: []string{"ops"}, SyncRole: true}},
 		{Scopes: []string{"read", "manage_users", "files:write"}},
 		{KeyRotationOverlap: time.Minute},
 		{KeyRotationOverlap: 24 * time.Hour},
@@ -224,10 +289,17 @@ func TestRulesValidate(t *testing.T) {
 		"breach_unknown":            {field: "Breach", r: account.Rules{Breach: account.BreachFailClosed + 1}},
 		"breach_negative":           {field: "Breach", r: account.Rules{Breach: -1}},
 		"max_sessions_negative":     {field: "MaxSessionsPerUser", r: account.Rules{MaxSessionsPerUser: -1}},
+		"registration_unknown":      {field: "Registration", r: account.Rules{Registration: account.RegistrationApproval + 1}},
+		"registration_negative":     {field: "Registration", r: account.Rules{Registration: -1}},
+		"max_waiting_negative":      {field: "MaxWaitingRegistrations", r: account.Rules{MaxWaitingRegistrations: -1}},
 		"overlap_below_1m":          {field: "KeyRotationOverlap", r: account.Rules{KeyRotationOverlap: time.Minute - time.Nanosecond}},
 		"overlap_negative":          {field: "KeyRotationOverlap", r: account.Rules{KeyRotationOverlap: -time.Hour}},
 		"overlap_above_24h":         {field: "KeyRotationOverlap", r: account.Rules{KeyRotationOverlap: 24*time.Hour + time.Nanosecond}},
-		"provisioning":              {field: "Provisioning", r: account.Rules{Provisioning: oidc.Provisioning{Enabled: true, Claim: "groups"}}},
+		"admission_claim_no_values": {field: "OIDCAdmission", r: account.Rules{OIDCAdmission: account.OIDCAdmission{Claim: "groups"}}},
+		"admission_values_no_claim": {field: "OIDCAdmission", r: account.Rules{OIDCAdmission: account.OIDCAdmission{AllowedValues: []string{"staff"}}}},
+		"provisioning_role":         {field: "Provisioning", r: account.Rules{Provisioning: account.Provisioning{Enabled: true, Role: "owner"}}},
+		"admin_values_no_claim":     {field: "Provisioning", r: account.Rules{Provisioning: account.Provisioning{AdminValues: []string{"ops"}}}},
+		"sync_role_no_claim":        {field: "Provisioning", r: account.Rules{Provisioning: account.Provisioning{SyncRole: true}}},
 		"key_prefix_invalid":        {field: "KeyPrefix", r: account.Rules{KeyPrefix: "ak-"}},
 		"scope_space":               {field: "Scopes", r: account.Rules{Scopes: []string{"read", "read write"}}},
 		"scope_empty":               {field: "Scopes", r: account.Rules{Scopes: []string{""}}},
@@ -285,7 +357,7 @@ func TestRulesReadOncePerOperation(t *testing.T) {
 		return account.Rules{RecentAuth: 2 * time.Minute}
 	}})
 	u := mustUser(t, f.mem, "alice", access.RoleAdmin)
-	p := f.sessionPrincipal(t, u, access.SessionFull, time.Now().Add(-90*time.Second))
+	p := f.sessionPrincipal(t, u, time.Now().Add(-90*time.Second))
 	calls = 0
 	if err := f.svc.RequireRecentAuth(p); err != nil {
 		t.Errorf("RequireRecentAuth(a 90s-old sign-in, RecentAuth 2m) = %v, want nil", err)
@@ -323,10 +395,10 @@ func TestRulesDefaults(t *testing.T) {
 		t.Errorf("the zero RecentAuth reads as %v, want 10m", r.RecentAuth)
 	}
 	u := mustUser(t, f.mem, "alice", access.RoleAdmin)
-	if err := f.svc.RequireRecentAuth(f.sessionPrincipal(t, u, access.SessionFull, time.Now().Add(-9*time.Minute))); err != nil {
+	if err := f.svc.RequireRecentAuth(f.sessionPrincipal(t, u, time.Now().Add(-9*time.Minute))); err != nil {
 		t.Errorf("RequireRecentAuth(9 minutes old) under the default = %v, want nil", err)
 	}
-	if err := f.svc.RequireRecentAuth(f.sessionPrincipal(t, u, access.SessionFull, time.Now().Add(-11*time.Minute))); !errors.Is(err, access.ErrRecentAuthRequired) {
+	if err := f.svc.RequireRecentAuth(f.sessionPrincipal(t, u, time.Now().Add(-11*time.Minute))); !errors.Is(err, access.ErrRecentAuthRequired) {
 		t.Errorf("RequireRecentAuth(11 minutes old) under the default = %v, want ErrRecentAuthRequired", err)
 	}
 }

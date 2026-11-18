@@ -10,7 +10,6 @@ import (
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
-	"github.com/cplieger/access/oidc"
 )
 
 // gatePolicy answers as RolePolicy. Once armed it records every decision
@@ -24,6 +23,8 @@ type gatePolicy struct {
 
 // gateReason is the reason of every refusal gatePolicy makes itself.
 const gateReason = "gate_refused"
+
+func (*gatePolicy) SingleUser() bool { return false }
 
 func (p *gatePolicy) Authorize(ctx context.Context, d account.Decision) error {
 	p.mu.Lock()
@@ -57,7 +58,6 @@ var errNotLinked = errors.New("oidc callback answered NotLinked")
 // policyVariants are catalogued operations called in the configuration
 // that asks a Policy operation their catalogue call does not.
 func policyVariants() []operation {
-	sso := func(r *account.Rules) { r.SSOGoverned = true }
 	return []operation{
 		{name: "UpdateUser_role_and_enabled", class: classManageUsers, asks: []account.Operation{account.OpSetRole, account.OpSetEnabled}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			target := w.user(t)
@@ -81,7 +81,7 @@ func policyVariants() []operation {
 				return err
 			}}
 		}},
-		// Design 9.5 "Provisioning": a refusing Policy makes the callback
+		// A refusing Policy makes the callback
 		// answer NotLinked, not an error.
 		{name: "OIDCComplete_provisioning", class: classPublic, refused: errNotLinked, asks: []account.Operation{account.OpCreateUser}, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
 			flow, claims := w.rig.signInFlow(t)
@@ -92,24 +92,6 @@ func policyVariants() []operation {
 				}
 				return err
 			}}
-		}},
-		{name: "LinkPendingOIDC_sso_governed", class: classRecentAuth, rules: sso, asks: []account.Operation{account.OpMigrateToSSO}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
-			pending := account.PendingLink{Identity: access.OIDCIdentity{Issuer: oidcIssuer, Subject: w.name("pending-")}}
-			return opCall{actor: actorOf(p), target: w.owner(t, p).ID, run: func(ctx context.Context) error {
-				_, _, err := w.svc.LinkPendingOIDC(ctx, p, pending)
-				return err
-			}}
-		}},
-		{name: "OIDCComplete_link_sso_governed", class: classPublic, rules: sso, asks: []account.Operation{account.OpMigrateToSSO}, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
-			sess := putSession(t, w.mem, liveSession(t, w.alice))
-			flow, claims := w.rig.sessionFlow(t, oidc.IntentLink, w.alice, sess.ID)
-			return opCall{
-				actor: account.EventActor{UserID: w.alice.ID, SessionID: sess.ID}, target: w.alice.ID,
-				run: func(ctx context.Context) error {
-					_, err := w.svc.OIDCComplete(ctx, localClient, flow, claims)
-					return err
-				},
-			}
 		}},
 	}
 }

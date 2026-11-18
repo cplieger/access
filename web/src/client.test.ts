@@ -2,7 +2,7 @@ import { createFetch } from "@cplieger/reactive/fetch";
 import type { ApiResult } from "@cplieger/reactive/fetch";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { createAuthClient } from "./client.js";
-import type { AuthReason } from "./wire.js";
+import type { AuthReason, CodeRequest, SetPasswordRequest, StepUpCodeRequest } from "./wire.js";
 import { authReason } from "./wire.js";
 import type { AuthClient, PublicKeyCredentialJSON } from "./client.js";
 import { fakeServer } from "./test-helpers/server.js";
@@ -68,6 +68,8 @@ interface Binding {
   readonly call: Call;
   // A WebAuthn finish route: the body is the browser's credential JSON, not a wire type.
   readonly credential?: true;
+  // The query a route requires, which the call sends.
+  readonly search?: string;
 }
 
 // The one hand-written part: which client method serves which accesshttp route. Path
@@ -82,6 +84,50 @@ const bindings: Readonly<Record<string, Binding>> = {
     credential: true,
   },
   authLoginPassword: { method: "loginPassword", call: (c, b) => c.loginPassword(b) },
+  authLoginCode: {
+    method: "loginCode",
+    call: (c, b: CodeRequest) => c.loginCode(b.ticket, b.code),
+  },
+  authLoginSecondPasskeyBegin: {
+    method: "loginSecondPasskeyBegin",
+    call: (c, b) => c.loginSecondPasskeyBegin(b),
+  },
+  authLoginSecondPasskeyFinish: {
+    method: "loginSecondPasskeyFinish",
+    call: (c) => c.loginSecondPasskeyFinish(CEREMONY, credential),
+    credential: true,
+  },
+  authLoginRecoveryCode: {
+    method: "loginRecoveryCode",
+    call: (c, b: CodeRequest) => c.loginRecoveryCode(b.ticket, b.code),
+  },
+  authLoginSetPassword: {
+    method: "loginSetPassword",
+    call: (c, b: SetPasswordRequest) => c.loginSetPassword(b.ticket, b.password),
+  },
+  authLoginSetPasskeyBegin: {
+    method: "loginSetPasskeyBegin",
+    call: (c, b) => c.loginSetPasskeyBegin(b),
+  },
+  authLoginSetPasskeyFinish: {
+    method: "loginSetPasskeyFinish",
+    call: (c) => c.loginSetPasskeyFinish(CEREMONY, credential),
+    credential: true,
+  },
+  authPendingTOTPBegin: { method: "pendingTOTPBegin", call: (c, b) => c.pendingTOTPBegin(b) },
+  authPendingTOTPFinish: {
+    method: "pendingTOTPFinish",
+    call: (c, b: CodeRequest) => c.pendingTOTPFinish(b.ticket, b.code),
+  },
+  authPendingPasskeyBegin: {
+    method: "pendingPasskeyBegin",
+    call: (c, b) => c.pendingPasskeyBegin(b),
+  },
+  authPendingPasskeyFinish: {
+    method: "pendingPasskeyFinish",
+    call: (c) => c.pendingPasskeyFinish(CEREMONY, credential),
+    credential: true,
+  },
   authLoginPasskeyBegin: { method: "loginPasskeyBegin", call: (c) => c.loginPasskeyBegin() },
   authLoginPasskeyFinish: {
     method: "loginPasskeyFinish",
@@ -91,29 +137,44 @@ const bindings: Readonly<Record<string, Binding>> = {
   authLogout: { method: "logout", call: (c) => c.logout() },
   authOIDCStartLink: { method: "oidcStartLink", call: (c, b) => c.oidcStartLink(b) },
   authOIDCStartStepUp: { method: "oidcStartStepUp", call: (c, b) => c.oidcStartStepUp(b) },
+  authInviteAcceptOIDC: { method: "inviteAcceptOIDC", call: (c, b) => c.inviteAcceptOIDC(b) },
   authOIDCPending: { method: "oidcPending", call: (c) => c.oidcPending() },
+  authOIDCCreatePending: {
+    method: "oidcCreatePending",
+    call: (c, b) => c.oidcCreatePending(b),
+  },
+  authOIDCLinkByAdmin: { method: "oidcLinkByAdmin", call: (c, b) => c.oidcLinkByAdmin(b) },
   authOIDCLinkPending: { method: "oidcLinkPending", call: (c) => c.oidcLinkPending() },
   authOIDCUnlink: { method: "oidcUnlink", call: (c) => c.oidcUnlink() },
-  authRecoveryStart: { method: "recoveryStart", call: (c, b) => c.recoveryStart(b) },
-  authRecoveryPassword: { method: "recoveryPassword", call: (c, b) => c.recoveryPassword(b) },
-  authRecoveryPasskeyBegin: {
-    method: "recoveryPasskeyBegin",
-    call: (c) => c.recoveryPasskeyBegin(),
-  },
-  authRecoveryPasskeyFinish: {
-    method: "recoveryPasskeyFinish",
-    call: (c) =>
-      c.recoveryPasskeyFinish(CEREMONY, credential, { keepSessions: false, keepKeys: false }),
-    credential: true,
-  },
   authInviteAcceptPassword: {
     method: "inviteAcceptPassword",
     call: (c, b) => c.inviteAcceptPassword(b),
+  },
+  authRegisterPassword: { method: "registerPassword", call: (c, b) => c.registerPassword(b) },
+  authRegisterPasskeyBegin: {
+    method: "registerPasskeyBegin",
+    call: (c, b) => c.registerPasskeyBegin(b),
+  },
+  authRegisterPasskeyFinish: {
+    method: "registerPasskeyFinish",
+    call: (c) => c.registerPasskeyFinish(CEREMONY, credential),
+    credential: true,
   },
   authMe: { method: "me", call: (c) => c.me() },
   authProfile: { method: "updateProfile", call: (c, b) => c.updateProfile(b) },
   authMethodReenable: { method: "reenableMethod", call: (c) => c.reenableMethod("password") },
   authStepUpPassword: { method: "stepUpPassword", call: (c, b) => c.stepUpPassword(b) },
+  authStepUpCode: {
+    method: "stepUpCode",
+    call: (c, b: StepUpCodeRequest) => c.stepUpCode(b.code),
+  },
+  authTOTPBegin: { method: "beginTOTP", call: (c) => c.beginTOTP() },
+  authTOTPFinish: { method: "finishTOTP", call: (c, b) => c.finishTOTP(b) },
+  authTOTPRemove: { method: "removeTOTP", call: (c, b) => c.removeTOTP(b) },
+  authRecoveryCodeRegenerate: {
+    method: "regenerateRecoveryCode",
+    call: (c, b) => c.regenerateRecoveryCode(b),
+  },
   authStepUpPasskeyBegin: { method: "stepUpPasskeyBegin", call: (c) => c.stepUpPasskeyBegin() },
   authStepUpPasskeyFinish: {
     method: "stepUpPasskeyFinish",
@@ -125,7 +186,7 @@ const bindings: Readonly<Record<string, Binding>> = {
   authPasskeys: { method: "passkeys", call: (c) => c.passkeys() },
   authPasskeyRegisterBegin: {
     method: "passkeyRegisterBegin",
-    call: (c) => c.passkeyRegisterBegin(),
+    call: (c, b) => c.passkeyRegisterBegin(b),
   },
   authPasskeyRegisterFinish: {
     method: "passkeyRegisterFinish",
@@ -133,7 +194,7 @@ const bindings: Readonly<Record<string, Binding>> = {
     credential: true,
   },
   authPasskeyRename: { method: "renamePasskey", call: (c, b) => c.renamePasskey(7, b) },
-  authPasskeyRemove: { method: "removePasskey", call: (c) => c.removePasskey(7) },
+  authPasskeyRemove: { method: "removePasskey", call: (c, b) => c.removePasskey(7, b) },
   authWebAuthnSignals: { method: "webauthnSignals", call: (c) => c.webauthnSignals() },
   authSessions: { method: "sessions", call: (c) => c.sessions() },
   authSessionRename: { method: "renameSession", call: (c, b) => c.renameSession("7", b) },
@@ -150,8 +211,24 @@ const bindings: Readonly<Record<string, Binding>> = {
   authAdminUsers: { method: "adminUsers", call: (c) => c.adminUsers() },
   authAdminUserCreate: { method: "adminCreateUser", call: (c, b) => c.adminCreateUser(b) },
   authAdminUserUpdate: { method: "adminUpdateUser", call: (c, b) => c.adminUpdateUser(7, b) },
+  authAdminOwner: { method: "adminSetOwner", call: (c, b) => c.adminSetOwner(7, b) },
+  authAdminOIDCUnlink: { method: "adminUnlinkOIDC", call: (c) => c.adminUnlinkOIDC(7) },
+  authAdminOIDCRelink: { method: "adminRelinkOIDC", call: (c, b) => c.adminRelinkOIDC(7, b) },
+  authAdminSecondFactorReset: {
+    method: "adminResetSecondFactor",
+    call: (c) => c.adminResetSecondFactor(7),
+  },
+  authAdminTemporaryPassword: {
+    method: "adminTemporaryPassword",
+    call: (c, b) => c.adminTemporaryPassword(7, b),
+  },
+  authAdminSSOReadiness: {
+    method: "adminSSOReadiness",
+    call: (c) => c.adminSSOReadiness("for_linked"),
+    search: "?mode=for_linked",
+  },
+  authAdminSSOApply: { method: "adminApplySSO", call: (c) => c.adminApplySSO("for_linked") },
   authAdminUserDelete: { method: "adminDeleteUser", call: (c) => c.adminDeleteUser(7) },
-  authAdminRecovery: { method: "adminIssueRecovery", call: (c, b) => c.adminIssueRecovery(7, b) },
   authAdminInvite: { method: "adminInvite", call: (c, b) => c.adminInvite(b) },
   authAdminKeys: { method: "adminKeys", call: (c) => c.adminKeys() },
   authAdminKeyRevoke: { method: "adminRevokeKey", call: (c) => c.adminRevokeKey(7) },
@@ -229,7 +306,11 @@ describe("app-defined methods, roles and purposes", () => {
     ["adminUsers()", [user], (c) => c.adminUsers()],
     ["sessions()", [session], (c) => c.sessions()],
     ["adminTokens()", [token], (c) => c.adminTokens()],
-    ["loginPassword()", signedIn, (c) => c.loginPassword({ username: "u", password: "p" })],
+    [
+      "loginPassword()",
+      { signed_in: signedIn },
+      (c) => c.loginPassword({ username: "u", password: "p" }),
+    ],
   ])("%s decodes them", async (_, body, call) => {
     const result = await call(stub(200, body).client);
     expect(result).toMatchObject({ ok: true, data: body });
@@ -249,8 +330,8 @@ describe("the route table", () => {
     const methods = Object.keys(client).filter(
       (k) => typeof client[k as keyof AuthClient] === "function",
     );
-    expect(methods).toHaveLength(51);
-    expect(jsonRoutes).toHaveLength(51);
+    expect(methods).toHaveLength(75);
+    expect(jsonRoutes).toHaveLength(75);
     expect(Object.keys(bindings).sort()).toEqual(jsonRoutes.map((r) => r.name).sort());
     expect(
       Object.values(bindings)
@@ -288,7 +369,7 @@ describe.each(jsonRoutes)("$name", (route) => {
     const req = sent[0];
     expect(req?.method).toBe(route.method);
     expect(req?.url.pathname).toBe(expectedPath(route));
-    expect(req?.url.search).toBe("");
+    expect(req?.url.search).toBe(b.search ?? "");
     if (b.credential === true) {
       expect(route.request).toBeNull();
       expect(req?.body).toEqual(credential);
@@ -305,7 +386,9 @@ describe.each(jsonRoutes)("$name", (route) => {
 
   if (route.response !== null) {
     it(`${b.method} refuses a 2xx body that is not ${route.response}`, async () => {
-      const { client } = stub(200, route.array ? [{}] : {});
+      // A member no wire type declares: {} is a whole answer where every field is optional.
+      const bad = { not_a_wire_field: true };
+      const { client } = stub(200, route.array ? [bad] : bad);
       const result = await b.call(client, request as never);
       expect(result).toMatchObject({ ok: false, status: 200, code: "decode" });
     });
@@ -316,6 +399,20 @@ describe.each(jsonRoutes)("$name", (route) => {
     const { client } = stub(403, body);
     const result = await b.call(client, request as never);
     expect(result).toMatchObject({ ok: false, status: 403, code: body.code, body });
+  });
+});
+
+// A proof rides the body only when the screen has one.
+describe("an optional proof", () => {
+  it.each<[string, (c: AuthClient) => Promise<ApiResult<unknown>>]>([
+    ["removeTOTP()", (c) => c.removeTOTP()],
+    ["removePasskey(7)", (c) => c.removePasskey(7)],
+    ["passkeyRegisterBegin()", (c) => c.passkeyRegisterBegin()],
+  ])("%s sends no body", async (_, call) => {
+    const { client, sent } = stub(204);
+    await call(client);
+    expect(sent[0]?.body).toBeUndefined();
+    expect(sent[0]?.headers.get("Content-Type")).toBeNull();
   });
 });
 
@@ -333,11 +430,18 @@ describe("queries", () => {
     }
     const sentByClient = [...queries.keys()].filter((n) => jsonRoutes.some((r) => r.name === n));
     expect(sentByClient.sort()).toEqual([
+      "authAdminSSOReadiness",
       "authAdminSecurityLog",
       "authAdminUsers",
       "authLoginPasskeyBegin",
-      "authRecoveryPasskeyFinish",
     ]);
+  });
+
+  it("adminSSOReadiness sends its mode as the route's one query key", async () => {
+    const s = stub(200, fixture("Readiness"));
+    await s.client.adminSSOReadiness("only");
+    expect(keys(s)).toEqual(queries.get("authAdminSSOReadiness"));
+    expect(s.sent[0]?.url.searchParams.get("mode")).toBe("only");
   });
 
   it("loginPasskeyBegin sends mediation=conditional only when asked", async () => {
@@ -348,29 +452,6 @@ describe("queries", () => {
     const none = stub(200, fixture("CeremonyResponse"));
     await none.client.loginPasskeyBegin({});
     expect(none.sent[0]?.url.search).toBe("");
-  });
-
-  it.each([
-    [
-      { keepSessions: true, keepKeys: true },
-      { keep_sessions: "true", keep_keys: "true" },
-    ],
-    [{ keepSessions: true, keepKeys: false }, { keep_sessions: "true" }],
-    [{ keepSessions: false, keepKeys: true }, { keep_keys: "true" }],
-    [{ keepSessions: false, keepKeys: false }, {}],
-  ])("recoveryPasskeyFinish with %o sends %o", async (flags, query) => {
-    const s = stub(204);
-    await s.client.recoveryPasskeyFinish(CEREMONY, credential, flags);
-    expect(Object.fromEntries(s.sent[0]?.url.searchParams ?? [])).toEqual(query);
-  });
-
-  it("recoveryPasskeyFinish can send exactly its route's keys", async () => {
-    const s = stub(204);
-    await s.client.recoveryPasskeyFinish(CEREMONY, credential, {
-      keepSessions: true,
-      keepKeys: true,
-    });
-    expect(keys(s)).toEqual(queries.get("authRecoveryPasskeyFinish"));
   });
 
   it("adminUsers sends /users with no query, and /users?key=12 with a key", async () => {
@@ -470,5 +551,50 @@ describe("path parameters", () => {
   it("exposes the prefixes it was built with", () => {
     const { client } = stub(204);
     expect([client.prefix, client.oidcPrefix]).toEqual([PREFIX, OIDC_PREFIX]);
+  });
+});
+
+// Password setup and invite acceptance answer the sign-in union, pending under the rule.
+describe.each([
+  ["setupPassword", (c: AuthClient) => c.setupPassword({ username: "u", password: "p" })],
+  [
+    "inviteAcceptPassword",
+    (c: AuthClient) => c.inviteAcceptPassword({ token: "t", username: "u", password: "p" }),
+  ],
+] as const)("%s()", (_, call) => {
+  it.each([
+    ["signed_in", fixture("SignInOutcome")],
+    ["pending", fixture("SignInOutcome.pending")],
+  ])("decodes its %s arm", async (_arm, body) => {
+    expect(await call(stub(200, body).client)).toMatchObject({ ok: true, data: body });
+  });
+
+  it("refuses a bare SignedInResponse", async () => {
+    expect((await call(stub(200, fixture("SignedInResponse")).client)).ok).toBe(false);
+  });
+});
+
+// A password sign-in answers signed_in or pending, never both.
+describe("loginPassword()", () => {
+  const signedIn = fixture("SignInOutcome");
+  const pending = fixture("SignInOutcome.pending");
+
+  it.each([
+    ["signed_in", signedIn],
+    ["pending", pending],
+  ])("decodes its %s arm", async (_, body) => {
+    const result = await stub(200, body).client.loginPassword({ username: "u", password: "p" });
+    expect(result).toMatchObject({ ok: true, data: body });
+  });
+
+  it("refuses both arms at once, and a bare SignedInResponse", async () => {
+    for (const body of [
+      { ...(signedIn as object), ...(pending as object) },
+      fixture("SignedInResponse"),
+    ]) {
+      expect(
+        (await stub(200, body).client.loginPassword({ username: "u", password: "p" })).ok,
+      ).toBe(false);
+    }
   });
 });

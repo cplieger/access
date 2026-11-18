@@ -25,7 +25,7 @@ func activityCounting(writes *atomic.Int64) envOptions {
 	}}
 }
 
-// TestPassiveRoutes is §1.2's passive verification through accesshttp: GET
+// TestPassiveRoutes is passive verification through accesshttp: GET
 // /state, /me and /oidc/pending, sent a session whose activity write is
 // due on every request, write none, while a session route that is not
 // passive writes one.

@@ -59,7 +59,7 @@ func isWrite(name string) bool {
 	case "UserByID", "UserByUsername", "UserByOIDC", "UserByWebAuthnHandle", "ListUsers", "UserCount",
 		"SessionByHash", "SessionsByUserID", "PasskeysByUserID", "APIKeyByHash", "ListAPIKeysByUserID",
 		"ListAPIKeys", "OneTimeTokenByHash", "LiveOneTimeTokens", "ListKeyAttributions", "AuthFailure",
-		"UnreportedLocks":
+		"UnreportedLocks", "SSOMode", "TemporaryPasswordByUserID", "TOTPByUserID", "RecoveryCodeByUserID", "ListTOTP", "UsersWaiting":
 		return false
 	}
 	return true
@@ -69,15 +69,19 @@ func isWrite(name string) bool {
 // the operation answers as its own refusal: a store contract error that no
 // read in the same Update rules out.
 var storeRefusals = map[string]map[string]error{
-	"SetupWithPassword":     {"CreateInitialUser": account.ErrSetupComplete},
-	"SetupPasskeyFinish":    {"CreateInitialUser": account.ErrSetupComplete},
-	"AcceptInvitePassword":  {"CreateUser": account.ErrUsernameTaken},
-	"CreateUser":            {"CreateUser": account.ErrUsernameTaken},
-	"RenamePasskey":         {"RenamePasskey": account.ErrNotFound},
-	"RenameSession":         {"UpdateSessionLabel": account.ErrNotFound},
-	"RevokeSession":         {"DeleteSession": account.ErrNotFound},
-	"PasskeyRegisterFinish": {"CreatePasskey": account.ErrDuplicateCredential},
-	"RecoverPasskeyFinish":  {"CreatePasskey": account.ErrDuplicateCredential},
+	"SetupWithPassword":          {"CreateInitialUser": account.ErrSetupComplete},
+	"SetupPasskeyFinish":         {"CreateInitialUser": account.ErrSetupComplete},
+	"AcceptInvitePassword":       {"CreateUser": account.ErrUsernameTaken},
+	"RegisterPassword":           {"CreateUser": account.ErrUsernameTaken},
+	"RegisterPasskeyFinish":      {"CreateUser": account.ErrUsernameTaken},
+	"CreateUser":                 {"CreateUser": account.ErrUsernameTaken},
+	"CreatePendingOIDC":          {"CreateUser": account.ErrUsernameTaken},
+	"RenamePasskey":              {"RenamePasskey": account.ErrNotFound},
+	"RenameSession":              {"UpdateSessionLabel": account.ErrNotFound},
+	"RevokeSession":              {"DeleteSession": account.ErrNotFound},
+	"PasskeyRegisterFinish":      {"CreatePasskey": account.ErrDuplicateCredential},
+	"PendingPasskeyFinish":       {"CreatePasskey": account.ErrDuplicateCredential},
+	"SetCredentialPasskeyFinish": {"CreatePasskey": account.ErrDuplicateCredential},
 }
 
 var storeSentinels = []error{account.ErrNotFound, account.ErrUsernameTaken, account.ErrOIDCIdentityTaken, account.ErrDuplicateCredential, account.ErrSetupComplete}

@@ -7,10 +7,17 @@ import (
 	"unicode/utf8"
 )
 
-// The callback's markers (§7.2): the query key each sets.
+// The callback's markers: the query key each sets.
 const (
 	markerOIDC  = "oidc"
 	markerError = "auth_error"
+)
+
+// markerOIDC's values, one per callback outcome that redirects with one.
+const (
+	oidcLinked    = "linked"
+	oidcSteppedUp = "stepped_up"
+	oidcNotLinked = "not_linked"
 )
 
 // withMarker is target with key=value as its only oidc or auth_error pair,
@@ -48,9 +55,9 @@ func withMarker(target, key, value string) string {
 // 10.2.2). http.Redirect escapes the same bytes but also runs path.Clean
 // before the first '?', a fragment included, so "/settings#/../../admin"
 // would land on "/admin", not the validated target.
-func redirect(w http.ResponseWriter, location string) {
+func redirect(w http.ResponseWriter, status int, location string) {
 	w.Header().Set("Location", escapeNonASCII(location))
-	w.WriteHeader(http.StatusFound)
+	w.WriteHeader(status)
 }
 
 func escapeNonASCII(s string) string {

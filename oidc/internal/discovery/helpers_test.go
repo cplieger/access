@@ -1,6 +1,7 @@
 package discovery_test
 
 import (
+	"bytes"
 	json "encoding/json/v2"
 	"io"
 	"maps"
@@ -36,6 +37,12 @@ func docFor(t testing.TB, issuer string, set map[string]any, drop ...string) []b
 		t.Fatal(err)
 	}
 	return b
+}
+
+// padded is the JSON value b followed by spaces to size bytes, still one
+// valid JSON value (RFC 8259 §2 allows trailing whitespace).
+func padded(b []byte, size int) []byte {
+	return append(b, bytes.Repeat([]byte{' '}, size-len(b))...)
 }
 
 // fakeIdP is an http.RoundTripper standing in for the network: it records

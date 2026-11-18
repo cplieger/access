@@ -135,15 +135,12 @@ func (v *sessionVerifier) resolve(ctx context.Context, hash Hash, now time.Time)
 		v.cfg.log().Debug("access: session user missing or disabled", "session_id", sess.ID, "user_id", sess.UserID)
 		return nil, nil, ts, failreason.Wrap(errSessionGone, failreason.AccountDisabled)
 	}
-	if sess.Kind == SessionRecovery && !allowsRecoverySession(ctx) {
-		return nil, nil, ts, &InvalidCredentialError{Method: sess.AuthMethod, Err: ErrRestrictedSession}
-	}
 	return sess, user, ts, nil
 }
 
 // activityDue reports whether this request writes sess's activity: once the
 // stored LastActivity is the throttle old, the window clamped to half the
-// session's own idle limit, its cap and the recovery lifetime included. A
+// session's own idle limit, its cap included. A
 // window at or above that limit would let an active session expire between
 // two writes. The stored time is the throttle's only state, so a failed
 // write is retried by the next request.
@@ -158,7 +155,6 @@ func sessionPrincipal(sess *Session, user *User, hash Hash, ts SessionTimeouts) 
 		User:             user,
 		Method:           sess.AuthMethod,
 		SessionID:        sess.ID,
-		SessionKind:      sess.Kind,
 		AuthTime:         sess.AuthTime,
 		IdleDeadline:     idle,
 		AbsoluteDeadline: absolute,

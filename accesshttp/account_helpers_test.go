@@ -39,8 +39,8 @@ func (s stubAccount) State(ctx context.Context, c account.Client) (account.State
 	return stubbed(s, "State", func() (account.State, error) { return s.accountAPI.State(ctx, c) })
 }
 
-func (s stubAccount) SetupWithPassword(ctx context.Context, c account.Client, in account.SetupPassword) (account.SignedIn, error) {
-	return stubbed(s, "SetupWithPassword", func() (account.SignedIn, error) { return s.accountAPI.SetupWithPassword(ctx, c, in) })
+func (s stubAccount) SetupWithPassword(ctx context.Context, c account.Client, in account.SetupPassword) (account.LoginResult, error) {
+	return stubbed(s, "SetupWithPassword", func() (account.LoginResult, error) { return s.accountAPI.SetupWithPassword(ctx, c, in) })
 }
 
 func (s stubAccount) SetupPasskeyBegin(ctx context.Context, c account.Client, in account.SetupPasskey) (account.PendingCeremony, error) {
@@ -53,8 +53,8 @@ func (s stubAccount) SetupPasskeyFinish(ctx context.Context, c account.Client, c
 	})
 }
 
-func (s stubAccount) PasswordLogin(ctx context.Context, c account.Client, in account.Credentials) (account.SignedIn, error) {
-	return stubbed(s, "PasswordLogin", func() (account.SignedIn, error) { return s.accountAPI.PasswordLogin(ctx, c, in) })
+func (s stubAccount) PasswordLogin(ctx context.Context, c account.Client, in account.Credentials) (account.LoginResult, error) {
+	return stubbed(s, "PasswordLogin", func() (account.LoginResult, error) { return s.accountAPI.PasswordLogin(ctx, c, in) })
 }
 
 func (s stubAccount) PasskeyLoginBegin(ctx context.Context, c account.Client, origin webauthn.Origin, mode account.LoginMode) (account.PendingCeremony, error) {
@@ -88,6 +88,40 @@ func (s stubAccount) LinkPendingOIDC(ctx context.Context, p access.Principal, pe
 	return s.accountAPI.LinkPendingOIDC(ctx, p, pending)
 }
 
+func (s stubAccount) AcceptInviteOIDCBegin(ctx context.Context, c account.Client, token access.Secret) (oidc.BeginRequest, error) {
+	return stubbed(s, "AcceptInviteOIDCBegin", func() (oidc.BeginRequest, error) { return s.accountAPI.AcceptInviteOIDCBegin(ctx, c, token) })
+}
+
+func (s stubAccount) CreatePendingOIDC(ctx context.Context, c account.Client, pending account.PendingLink, username string) (account.SignedIn, error) {
+	return stubbed(s, "CreatePendingOIDC", func() (account.SignedIn, error) { return s.accountAPI.CreatePendingOIDC(ctx, c, pending, username) })
+}
+
+func (s stubAccount) LinkPendingOIDCByAdmin(ctx context.Context, c account.Client, pending account.PendingLink, username string, secret access.Secret) (account.SignedIn, error) {
+	return stubbed(s, "LinkPendingOIDCByAdmin", func() (account.SignedIn, error) {
+		return s.accountAPI.LinkPendingOIDCByAdmin(ctx, c, pending, username, secret)
+	})
+}
+
+func (s stubAccount) AdminRelinkOIDC(ctx context.Context, a account.Actor, userID int64, in account.TemporaryPasswordOptions) (account.IssuedTemporaryPassword, error) {
+	return stubbed(s, "AdminRelinkOIDC", func() (account.IssuedTemporaryPassword, error) {
+		return s.accountAPI.AdminRelinkOIDC(ctx, a, userID, in)
+	})
+}
+
+func (s stubAccount) AdminUnlinkOIDC(ctx context.Context, a account.Actor, userID int64) error {
+	return stubbedErr(s, "AdminUnlinkOIDC", func() error { return s.accountAPI.AdminUnlinkOIDC(ctx, a, userID) })
+}
+
+func (s stubAccount) SetTemporaryPassword(ctx context.Context, a account.Actor, userID int64, in account.TemporaryPasswordOptions) (account.IssuedTemporaryPassword, error) {
+	return stubbed(s, "SetTemporaryPassword", func() (account.IssuedTemporaryPassword, error) {
+		return s.accountAPI.SetTemporaryPassword(ctx, a, userID, in)
+	})
+}
+
+func (s stubAccount) ResetSecondFactor(ctx context.Context, a account.Actor, userID int64) error {
+	return stubbedErr(s, "ResetSecondFactor", func() error { return s.accountAPI.ResetSecondFactor(ctx, a, userID) })
+}
+
 func (s stubAccount) UnlinkOIDC(ctx context.Context, p access.Principal) error {
 	return stubbedErr(s, "UnlinkOIDC", func() error { return s.accountAPI.UnlinkOIDC(ctx, p) })
 }
@@ -96,36 +130,20 @@ func (s stubAccount) Logout(ctx context.Context, tokenHash access.Hash) error {
 	return stubbedErr(s, "Logout", func() error { return s.accountAPI.Logout(ctx, tokenHash) })
 }
 
-func (s stubAccount) StartRecovery(ctx context.Context, c account.Client, token access.Secret) (account.Recovery, error) {
-	return stubbed(s, "StartRecovery", func() (account.Recovery, error) { return s.accountAPI.StartRecovery(ctx, c, token) })
-}
-
-func (s stubAccount) RecoverWithPassword(ctx context.Context, p access.Principal, password access.Secret, opts account.RecoverOptions) error {
-	return stubbedErr(s, "RecoverWithPassword", func() error { return s.accountAPI.RecoverWithPassword(ctx, p, password, opts) })
-}
-
-func (s stubAccount) RecoverPasskeyBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (account.PendingCeremony, error) {
-	return stubbed(s, "RecoverPasskeyBegin", func() (account.PendingCeremony, error) {
-		return s.accountAPI.RecoverPasskeyBegin(ctx, p, origin)
-	})
-}
-
-func (s stubAccount) RecoverPasskeyFinish(ctx context.Context, p access.Principal, ceremonyID string, body io.Reader, opts account.RecoverOptions) error {
-	return stubbedErr(s, "RecoverPasskeyFinish", func() error {
-		return s.accountAPI.RecoverPasskeyFinish(ctx, p, ceremonyID, body, opts)
-	})
-}
-
-func (s stubAccount) AcceptInvitePassword(ctx context.Context, c account.Client, in account.AcceptInvite) (account.SignedIn, error) {
-	return stubbed(s, "AcceptInvitePassword", func() (account.SignedIn, error) { return s.accountAPI.AcceptInvitePassword(ctx, c, in) })
+func (s stubAccount) AcceptInvitePassword(ctx context.Context, c account.Client, in account.AcceptInvite) (account.LoginResult, error) {
+	return stubbed(s, "AcceptInvitePassword", func() (account.LoginResult, error) { return s.accountAPI.AcceptInvitePassword(ctx, c, in) })
 }
 
 func (s stubAccount) StepUpPassword(ctx context.Context, c account.Client, p access.Principal, password access.Secret) (account.Issued, error) {
 	return stubbed(s, "StepUpPassword", func() (account.Issued, error) { return s.accountAPI.StepUpPassword(ctx, c, p, password) })
 }
 
-func (s stubAccount) SetPassword(ctx context.Context, c account.Client, p access.Principal, current, password access.Secret) (account.Issued, error) {
-	return stubbed(s, "SetPassword", func() (account.Issued, error) { return s.accountAPI.SetPassword(ctx, c, p, current, password) })
+func (s stubAccount) SetPassword(ctx context.Context, c account.Client, p access.Principal, current, password access.Secret) (account.PasswordSet, error) {
+	return stubbed(s, "SetPassword", func() (account.PasswordSet, error) { return s.accountAPI.SetPassword(ctx, c, p, current, password) })
+}
+
+func (s stubAccount) RegenerateRecoveryCode(ctx context.Context, c account.Client, p access.Principal, proof account.SecondFactorProof) (access.Secret, error) {
+	return stubbed(s, "RegenerateRecoveryCode", func() (access.Secret, error) { return s.accountAPI.RegenerateRecoveryCode(ctx, c, p, proof) })
 }
 
 func (s stubAccount) RemovePassword(ctx context.Context, c account.Client, p access.Principal, current access.Secret) (account.Issued, error) {
@@ -156,14 +174,104 @@ func (s stubAccount) StepUpPasskeyFinish(ctx context.Context, c account.Client, 
 	})
 }
 
-func (s stubAccount) Passkeys(ctx context.Context, p access.Principal) ([]access.PasskeyCredential, error) {
-	return stubbed(s, "Passkeys", func() ([]access.PasskeyCredential, error) { return s.accountAPI.Passkeys(ctx, p) })
+func (s stubAccount) Passkeys(ctx context.Context, p access.Principal) ([]account.Passkey, error) {
+	return stubbed(s, "Passkeys", func() ([]account.Passkey, error) { return s.accountAPI.Passkeys(ctx, p) })
 }
 
-func (s stubAccount) PasskeyRegisterBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (account.PendingCeremony, error) {
+func (s stubAccount) PasskeyRegisterBegin(ctx context.Context, c account.Client, p access.Principal, origin webauthn.Origin, proof account.SecondFactorProof) (account.PendingCeremony, error) {
 	return stubbed(s, "PasskeyRegisterBegin", func() (account.PendingCeremony, error) {
-		return s.accountAPI.PasskeyRegisterBegin(ctx, p, origin)
+		return s.accountAPI.PasskeyRegisterBegin(ctx, c, p, origin, proof)
 	})
+}
+
+func (s stubAccount) SignInWithCode(ctx context.Context, c account.Client, ticket access.Secret, code string) (account.LoginResult, error) {
+	return stubbed(s, "SignInWithCode", func() (account.LoginResult, error) { return s.accountAPI.SignInWithCode(ctx, c, ticket, code) })
+}
+
+func (s stubAccount) SecondFactorPasskeyBegin(ctx context.Context, c account.Client, ticket access.Secret, origin webauthn.Origin) (account.PendingCeremony, error) {
+	return stubbed(s, "SecondFactorPasskeyBegin", func() (account.PendingCeremony, error) {
+		return s.accountAPI.SecondFactorPasskeyBegin(ctx, c, ticket, origin)
+	})
+}
+
+func (s stubAccount) SignInWithRecoveryCode(ctx context.Context, c account.Client, ticket access.Secret, code string) (account.LoginResult, error) {
+	return stubbed(s, "SignInWithRecoveryCode", func() (account.LoginResult, error) {
+		return s.accountAPI.SignInWithRecoveryCode(ctx, c, ticket, code)
+	})
+}
+
+func (s stubAccount) SetCredentialPassword(ctx context.Context, c account.Client, ticket, password access.Secret) (account.LoginResult, error) {
+	return stubbed(s, "SetCredentialPassword", func() (account.LoginResult, error) {
+		return s.accountAPI.SetCredentialPassword(ctx, c, ticket, password)
+	})
+}
+
+func (s stubAccount) SetCredentialPasskeyBegin(ctx context.Context, c account.Client, ticket access.Secret, origin webauthn.Origin) (account.PendingCeremony, error) {
+	return stubbed(s, "SetCredentialPasskeyBegin", func() (account.PendingCeremony, error) {
+		return s.accountAPI.SetCredentialPasskeyBegin(ctx, c, ticket, origin)
+	})
+}
+
+func (s stubAccount) SetCredentialPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.SignedIn, error) {
+	return stubbed(s, "SetCredentialPasskeyFinish", func() (account.SignedIn, error) {
+		return s.accountAPI.SetCredentialPasskeyFinish(ctx, c, ceremonyID, body)
+	})
+}
+
+func (s stubAccount) PendingTOTPBegin(ctx context.Context, c account.Client, ticket access.Secret) (account.PendingTOTP, error) {
+	return stubbed(s, "PendingTOTPBegin", func() (account.PendingTOTP, error) { return s.accountAPI.PendingTOTPBegin(ctx, c, ticket) })
+}
+
+func (s stubAccount) PendingTOTPFinish(ctx context.Context, c account.Client, ticket access.Secret, code string) (account.EnrolmentResult, error) {
+	return stubbed(s, "PendingTOTPFinish", func() (account.EnrolmentResult, error) { return s.accountAPI.PendingTOTPFinish(ctx, c, ticket, code) })
+}
+
+func (s stubAccount) PendingPasskeyBegin(ctx context.Context, c account.Client, ticket access.Secret, origin webauthn.Origin) (account.PendingCeremony, error) {
+	return stubbed(s, "PendingPasskeyBegin", func() (account.PendingCeremony, error) {
+		return s.accountAPI.PendingPasskeyBegin(ctx, c, ticket, origin)
+	})
+}
+
+func (s stubAccount) PendingPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.EnrolmentResult, error) {
+	return stubbed(s, "PendingPasskeyFinish", func() (account.EnrolmentResult, error) {
+		return s.accountAPI.PendingPasskeyFinish(ctx, c, ceremonyID, body)
+	})
+}
+
+func (s stubAccount) RegisterPassword(ctx context.Context, c account.Client, in account.Registration) (account.RegistrationResult, error) {
+	return stubbed(s, "RegisterPassword", func() (account.RegistrationResult, error) { return s.accountAPI.RegisterPassword(ctx, c, in) })
+}
+
+func (s stubAccount) RegisterPasskeyBegin(ctx context.Context, c account.Client, in account.RegistrationPasskey) (account.PendingCeremony, error) {
+	return stubbed(s, "RegisterPasskeyBegin", func() (account.PendingCeremony, error) { return s.accountAPI.RegisterPasskeyBegin(ctx, c, in) })
+}
+
+func (s stubAccount) RegisterPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.EnrolmentResult, error) {
+	return stubbed(s, "RegisterPasskeyFinish", func() (account.EnrolmentResult, error) {
+		return s.accountAPI.RegisterPasskeyFinish(ctx, c, ceremonyID, body)
+	})
+}
+
+func (s stubAccount) SecondFactorPasskeyFinish(ctx context.Context, c account.Client, ceremonyID string, body io.Reader) (account.LoginResult, error) {
+	return stubbed(s, "SecondFactorPasskeyFinish", func() (account.LoginResult, error) {
+		return s.accountAPI.SecondFactorPasskeyFinish(ctx, c, ceremonyID, body)
+	})
+}
+
+func (s stubAccount) StepUpCode(ctx context.Context, c account.Client, p access.Principal, code string) (account.Issued, error) {
+	return stubbed(s, "StepUpCode", func() (account.Issued, error) { return s.accountAPI.StepUpCode(ctx, c, p, code) })
+}
+
+func (s stubAccount) BeginTOTP(ctx context.Context, p access.Principal) (account.TOTPEnrolment, error) {
+	return stubbed(s, "BeginTOTP", func() (account.TOTPEnrolment, error) { return s.accountAPI.BeginTOTP(ctx, p) })
+}
+
+func (s stubAccount) FinishTOTP(ctx context.Context, c account.Client, p access.Principal, in account.TOTPFinish) (account.Enrolled, error) {
+	return stubbed(s, "FinishTOTP", func() (account.Enrolled, error) { return s.accountAPI.FinishTOTP(ctx, c, p, in) })
+}
+
+func (s stubAccount) RemoveTOTP(ctx context.Context, c account.Client, p access.Principal, proof account.SecondFactorProof) error {
+	return stubbedErr(s, "RemoveTOTP", func() error { return s.accountAPI.RemoveTOTP(ctx, c, p, proof) })
 }
 
 func (s stubAccount) PasskeyRegisterFinish(ctx context.Context, p access.Principal, ceremonyID string, body io.Reader) (account.Registered, error) {
@@ -176,8 +284,8 @@ func (s stubAccount) RenamePasskey(ctx context.Context, p access.Principal, id i
 	return stubbedErr(s, "RenamePasskey", func() error { return s.accountAPI.RenamePasskey(ctx, p, id, name) })
 }
 
-func (s stubAccount) RemovePasskey(ctx context.Context, p access.Principal, id int64) error {
-	return stubbedErr(s, "RemovePasskey", func() error { return s.accountAPI.RemovePasskey(ctx, p, id) })
+func (s stubAccount) RemovePasskey(ctx context.Context, c account.Client, p access.Principal, id int64, proof account.SecondFactorProof) error {
+	return stubbedErr(s, "RemovePasskey", func() error { return s.accountAPI.RemovePasskey(ctx, c, p, id, proof) })
 }
 
 func (s stubAccount) WebAuthnSignals(ctx context.Context, p access.Principal) (webauthn.Signals, error) {
@@ -236,8 +344,16 @@ func (s stubAccount) DeleteUser(ctx context.Context, p access.Principal, userID 
 	return stubbedErr(s, "DeleteUser", func() error { return s.accountAPI.DeleteUser(ctx, p, userID) })
 }
 
-func (s stubAccount) IssueRecovery(ctx context.Context, a account.Actor, userID int64, ttl time.Duration) (account.IssuedToken, error) {
-	return stubbed(s, "IssueRecovery", func() (account.IssuedToken, error) { return s.accountAPI.IssueRecovery(ctx, a, userID, ttl) })
+func (s stubAccount) SetOwner(ctx context.Context, a account.Actor, userID int64, owner bool) (*access.User, error) {
+	return stubbed(s, "SetOwner", func() (*access.User, error) { return s.accountAPI.SetOwner(ctx, a, userID, owner) })
+}
+
+func (s stubAccount) SSOReadiness(ctx context.Context, a account.Actor, mode account.SSOMode) (account.Readiness, error) {
+	return stubbed(s, "SSOReadiness", func() (account.Readiness, error) { return s.accountAPI.SSOReadiness(ctx, a, mode) })
+}
+
+func (s stubAccount) ApplySSO(ctx context.Context, a account.Actor, mode account.SSOMode) error {
+	return stubbedErr(s, "ApplySSO", func() error { return s.accountAPI.ApplySSO(ctx, a, mode) })
 }
 
 func (s stubAccount) CreateInvite(ctx context.Context, p access.Principal, role access.Role, ttl time.Duration) (account.IssuedToken, error) {

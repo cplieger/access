@@ -8,48 +8,52 @@ import (
 )
 
 // SetPassword sets p's own password, for a full session within RecentAuth
-// (plain c or p under PostureSecure: access.ErrHTTPSRequired); a linked user
-// under Rules.SSOGoverned is ErrSSOGoverned. A user holding a password gives it
-// as current (zero: ErrCurrentPasswordRequired before any limiter call),
-// counted like StepUpPassword's attempt; one holding none has current ignored,
-// committing while it still holds none. One Update writes the hash, rotates p's
-// session into Issued, revokes the other sessions and, under
-// RevokeKeysOnCredentialChange, the user's keys and tokens.
-func (s *Service) SetPassword(ctx context.Context, c Client, p access.Principal, current, password access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
+// (plain c or p under PostureSecure: access.ErrHTTPSRequired); a dormant
+// user is ErrSSOOnly. A user holding a password gives it as current (zero:
+// ErrCurrentPasswordRequired before any limiter call), counted like
+// StepUpPassword's attempt; for one holding none current is ignored. One
+// Update writes the hash, rotates p's session into Issued, revokes the other
+// sessions and, under RevokeKeysOnCredentialChange, the user's keys and
+// tokens; a first password's Update runs issueRecoveryIn.
+func (s *Service) SetPassword(ctx context.Context, c Client, p access.Principal, current, password access.Secret) (PasswordSet, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
 	r, err := s.beginRecentSession(plainPerRequest, c.Secure && p.Secure, p)
 	if err != nil {
-		return Issued{}, err
+		return PasswordSet{}, err
 	}
 	u, err := s.ownUser(ctx, p)
 	if err != nil {
-		return Issued{}, err
+		return PasswordSet{}, err
 	}
-	if r.SSOGoverned && !u.OIDC.IsZero() {
-		return Issued{}, ErrSSOGoverned
+	if modeErr := s.localAllowed(ctx, u); modeErr != nil {
+		return PasswordSet{}, modeErr
 	}
 	held, err := holds(ctx, s.store, u, credential{method: access.MethodPassword})
 	if err != nil {
-		return Issued{}, storeErr(err)
+		return PasswordSet{}, storeErr(err)
 	}
 	if held && current.IsZero() {
-		return Issued{}, ErrCurrentPasswordRequired
+		return PasswordSet{}, ErrCurrentPasswordRequired
 	}
-	if err := s.checkPassword(ctx, r, u.Username, password); err != nil {
-		return Issued{}, err
+	if checkErr := s.checkPassword(ctx, r, u.Username, password); checkErr != nil {
+		return PasswordSet{}, checkErr
 	}
 	if !held {
 		return s.firstPassword(ctx, r, c, p, password)
 	}
-	return s.changePassword(ctx, r, c, p, current, password)
+	is, err := s.changePassword(ctx, r, c, p, current, password)
+	return PasswordSet{Issued: is}, err
 }
 
-func (s *Service) firstPassword(ctx context.Context, r Rules, c Client, p access.Principal, password access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the operation's one Rules value, Client and Principal
+func (s *Service) firstPassword(ctx context.Context, r Rules, c Client, p access.Principal, password access.Secret) (PasswordSet, error) { //nolint:gocritic // hugeParam: the operation's one Rules value, Client and Principal
 	hash, err := s.hasher.Hash(ctx, password.Reveal())
 	if err != nil {
-		return Issued{}, err
+		return PasswordSet{}, err
 	}
-	var ch credentialChange
-	err = s.change(ctx, byClient(As(p), c), func(tx Tx, j *journal) error {
+	var (
+		ch    credentialChange
+		shown access.Secret
+	)
+	err = s.issuingChange(ctx, byClient(As(p), c), false, func(tx Tx, j *journal, code *issuable) error {
 		u, found, readErr := tx.UserByID(ctx, p.User.ID)
 		switch {
 		case readErr != nil:
@@ -64,12 +68,15 @@ func (s *Service) firstPassword(ctx context.Context, r Rules, c Client, p access
 			return chErr
 		}
 		s.addCredentialChange(j, EventPasswordSet, p, &ch)
-		return nil
+		var issueErr error
+		shown, issueErr = s.issueRecoveryIn(ctx, tx, j, r, u, code, eventActor(As(p)))
+		return issueErr
 	})
 	if err != nil {
-		return Issued{}, err
+		return PasswordSet{}, err
 	}
-	return Issued{Token: ch.rot.token, Session: ch.rot.session}, nil
+	s.pending.dropUser(p.User.ID)
+	return PasswordSet{Issued: Issued{Token: ch.rot.token, Session: ch.rot.session}, RecoveryCode: shown}, nil
 }
 
 func (s *Service) changePassword(ctx context.Context, r Rules, c Client, p access.Principal, current, password access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the operation's one Rules value, Client and Principal
@@ -95,7 +102,7 @@ func (s *Service) changePassword(ctx context.Context, r Rules, c Client, p acces
 		if chErr := s.changeCredential(ctx, tx, r, p, u, &ch); chErr != nil {
 			return chErr
 		}
-		s.addReenabled(j, cleared, p, a.ref.Trusted)
+		j.addReenabled(cleared, a.ref, s.now(), eventActor(As(p)))
 		s.addCredentialChange(j, EventPasswordChanged, p, &ch)
 		return nil
 	})
@@ -103,18 +110,19 @@ func (s *Service) changePassword(ctx context.Context, r Rules, c Client, p acces
 		a.res.Fail()
 		return Issued{}, err
 	}
-	device := a.res.Succeed()
-	return Issued{Token: ch.rot.token, DeviceCookie: device, Session: ch.rot.session}, nil
+	a.res.Succeed()
+	s.pending.dropUser(p.User.ID)
+	return Issued{Token: ch.rot.token, DeviceCookie: s.deviceCookie(p.User.Username, c), Session: ch.rot.session}, nil
 }
 
 // RemovePassword removes p's own password, for a full session within RecentAuth
-// (plain c or p: access.ErrHTTPSRequired). current is that password: zero is
-// ErrCurrentPasswordRequired before any limiter call. A user holding no
-// password is ErrNotFound, and the last-method guard (ErrLastMethod) runs next,
-// both before the count, so neither refusal charges or counts anything. current
-// is then counted as SetPassword's. The removal commits only while the guard
-// passes and the verified hash is still stored, resets the password's failure
-// records, and rotates p's session into Issued with the device cookie.
+// (plain c or p: access.ErrHTTPSRequired). current is that password, zero being
+// ErrCurrentPasswordRequired; then a user holding none is ErrNotFound and the
+// last-method guard ErrLastMethod, all before any limiter charge or count.
+// current is counted as SetPassword's. The removal commits only while the guard
+// passes and the verified hash is stored, resets the password's failure
+// record of c's trust context, deletes the TOTP record and recovery code it
+// protected, and rotates p's session into Issued with the device cookie.
 func (s *Service) RemovePassword(ctx context.Context, c Client, p access.Principal, current access.Secret) (Issued, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
 	r, err := s.beginRecentSession(plainRefused, c.Secure && p.Secure, p)
 	if err != nil {
@@ -151,8 +159,9 @@ func (s *Service) RemovePassword(ctx context.Context, c Client, p access.Princip
 		a.res.Fail()
 		return Issued{}, err
 	}
-	device := a.res.Succeed()
-	return Issued{Token: rot.token, DeviceCookie: device, Session: rot.session}, nil
+	a.res.Succeed()
+	s.pending.dropUser(p.User.ID)
+	return Issued{Token: rot.token, DeviceCookie: s.deviceCookie(p.User.Username, c), Session: rot.session}, nil
 }
 
 // removePasswordIn is RemovePassword's change: the verified hash still
@@ -174,9 +183,24 @@ func (s *Service) removePasswordIn(ctx context.Context, tx Tx, j *journal, r Rul
 	if err != nil {
 		return rotated{}, err
 	}
-	s.addReenabled(j, cleared, p, a.ref.Trusted)
+	j.addReenabled(cleared, a.ref, s.now(), eventActor(As(p)))
 	j.add(Event{Kind: EventPasswordRemoved, At: s.now(), UserID: p.User.ID, Method: access.MethodPassword, Actor: eventActor(As(p))})
-	return rot, nil
+	return rot, s.dropSecondFactors(ctx, tx, j, stored, eventActor(As(p)))
+}
+
+// dropSecondFactors deletes, inside tx, the TOTP record and recovery code
+// of u, whose password is gone: both protect only a password sign-in.
+func (s *Service) dropSecondFactors(ctx context.Context, tx Tx, j *journal, u *access.User, actor EventActor) error {
+	held, err := holds(ctx, tx, u, credential{method: access.MethodTOTP})
+	if err != nil {
+		return err
+	}
+	if held {
+		if err := s.deleteTOTPIn(ctx, tx, j, u, actor); err != nil {
+			return err
+		}
+	}
+	return tx.DeleteRecoveryCode(ctx, u.ID)
 }
 
 // beginRecentSession is the head of a change to p's own credential:
@@ -235,14 +259,22 @@ type credentialChange struct {
 	rot      rotated
 }
 
-// changeCredential writes u's new credential inside tx, then rotates p's
+// changeCredential writes u's new credential inside tx, deletes a live
+// temporary password, then rotates p's
 // session, revokes every other session of the user and, under
 // Rules.RevokeKeysOnCredentialChange, deletes the user's keys and their
-// tokens, all in the caller's Update.
+// tokens, all in the caller's Update. A u, as tx read it, that is a dormant
+// user is ErrSSOOnly.
 func (s *Service) changeCredential(ctx context.Context, tx Tx, r Rules, p access.Principal, u *access.User, ch *credentialChange) error { //nolint:gocritic // hugeParam: the operation's one Rules value and its Principal
 	*ch = credentialChange{}
+	if err := requireLocal(ctx, tx, u, ErrSSOOnly); err != nil {
+		return err
+	}
 	u.UpdatedAt = s.now()
 	if err := tx.UpdateUser(ctx, u); err != nil {
+		return err
+	}
+	if err := tx.DeleteTemporaryPassword(ctx, u.ID); err != nil {
 		return err
 	}
 	var err error
@@ -265,12 +297,4 @@ func (s *Service) addCredentialChange(j *journal, kind EventKind, p access.Princ
 	j.add(Event{Kind: kind, At: s.now(), UserID: userID, Method: access.MethodPassword, Actor: actor})
 	s.addRevoked(j, userID, ch.sessions, actor)
 	s.addKeysRevoked(j, userID, ch.keys, actor)
-}
-
-// addReenabled adds the EventMethodReenabled of a reported lock a verified
-// password's reset cleared.
-func (s *Service) addReenabled(j *journal, reenabled bool, p access.Principal, trusted bool) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	if reenabled {
-		j.add(Event{Kind: EventMethodReenabled, At: s.now(), UserID: p.User.ID, Method: access.MethodPassword, Trusted: trusted, Actor: eventActor(As(p))})
-	}
 }

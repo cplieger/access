@@ -1,6 +1,7 @@
 package accesstest
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -14,7 +15,7 @@ import (
 
 // scoping: rule 6.
 func (c *contract) scoping(t *testing.T) {
-	t.Run("wrong_owner", c.wrongOwner)
+	t.Run("wrong_user", c.wrongUser)
 	t.Run("issued_by", c.issuedBy)
 }
 
@@ -76,17 +77,17 @@ func (o owned) unchanged(t *testing.T, s account.Store) []string {
 	return changed
 }
 
-func (c *contract) wrongOwner(t *testing.T) {
+func (c *contract) wrongUser(t *testing.T) {
 	s := c.store(t)
-	owner, other := mustUser(t, s, "owner"), mustUser(t, s, "other")
-	o := owned{passkey: newPasskey(owner.ID), session: newSession(owner.ID, epoch), key: newKey(owner.ID)}
+	holder, other := mustUser(t, s, "holder"), mustUser(t, s, "other")
+	o := owned{passkey: newPasskey(holder.ID), session: newSession(holder.ID, epoch), key: newKey(holder.ID)}
 	mustPasskey(t, s, o.passkey)
 	mustSession(t, s, o.session)
 	mustKey(t, s, o.key)
 	mine := target{sessionID: o.session.ID, passkeyID: o.passkey.ID, keyID: o.key.ID}
 	wrong, partial := mine, mine
 	wrong.userID = other.ID
-	for name, tg := range map[string]target{"wrong owner": wrong, "zero ref": {}, "partial ref": partial} {
+	for name, tg := range map[string]target{"wrong user": wrong, "zero ref": {}, "partial ref": partial} {
 		for op, call := range o.ops(t, s, tg) {
 			if err := call(); !errors.Is(err, account.ErrNotFound) {
 				t.Errorf("%s with a %s = %v, want ErrNotFound", op, name, err)
@@ -94,14 +95,13 @@ func (c *contract) wrongOwner(t *testing.T) {
 		}
 	}
 	if changed := o.unchanged(t, s); len(changed) > 0 {
-		t.Errorf("refused ops changed the owner's %v", changed)
+		t.Errorf("refused ops changed the holder's %v", changed)
 	}
 }
 
 func (c *contract) issuedBy(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
-	u := mustUser(t, s, "subject")
-	tokens := issueTokens(t, s, u.ID, 7, 8, 0)
+	tokens := issueTokens(t, s, 7, 8, 0)
 	for _, ids := range [][]int64{{}, {0}} {
 		if n, err := s.DeleteOneTimeTokensIssuedBy(ctx, ids); err != nil || n != 0 {
 			t.Errorf("DeleteOneTimeTokensIssuedBy(%v) = (%d, %v), want (0, nil)", ids, n, err)
@@ -116,22 +116,16 @@ func (c *contract) issuedBy(t *testing.T) {
 			t.Errorf("token issued by %d: (found %t, IssuedByKey %d, %v), want found %t", tok.IssuedByKey, found, got.IssuedByKey, err, want)
 		}
 	}
-	rec := newSession(u.ID, epoch)
-	rec.Kind, rec.IssuedByKey = access.SessionRecovery, 7
-	mustSession(t, s, rec)
-	if got, found := sessionFound(t, s, rec.TokenHash); !found || got.IssuedByKey != 7 {
-		t.Errorf("recovery session IssuedByKey read back = %v, want 7", got)
-	}
 }
 
-// issueTokens writes a setup, an invite and a recovery token for subject
-// from each issuer.
-func issueTokens(t *testing.T, s account.Store, subject int64, issuers ...int64) []access.OneTimeToken {
+// issueTokens writes a setup, an invite and an app-defined token from each
+// issuer.
+func issueTokens(t *testing.T, s account.Store, issuers ...int64) []access.OneTimeToken {
 	t.Helper()
 	out := make([]access.OneTimeToken, 0, 3*len(issuers))
 	for _, issuer := range issuers {
-		for _, purpose := range []access.TokenPurpose{access.PurposeSetup, access.PurposeInvite, access.PurposeRecovery} {
-			tok := newToken(purpose, subject, epoch.Add(time.Hour))
+		for _, purpose := range []access.TokenPurpose{access.PurposeSetup, access.PurposeInvite, purposeApp} {
+			tok := newToken(purpose, epoch.Add(time.Hour))
 			tok.IssuedByKey = issuer
 			mustToken(t, s, tok)
 			out = append(out, tok)
@@ -148,7 +142,7 @@ func (c *contract) expiry(t *testing.T) {
 
 func (c *contract) expiredConsume(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
-	tok := newToken(access.PurposeInvite, 0, epoch)
+	tok := newToken(access.PurposeInvite, epoch)
 	mustToken(t, s, tok)
 	for _, when := range []string{"first", "second"} {
 		if _, found, err := s.ConsumeOneTimeToken(ctx, tok.Hash, epoch.Add(time.Millisecond)); err != nil || found {
@@ -164,28 +158,28 @@ func (c *contract) liveTokens(t *testing.T) {
 	s, ctx := c.store(t), t.Context()
 	now := epoch.Add(time.Hour)
 	live := map[access.TokenPurpose]access.OneTimeToken{}
-	mustToken(t, s, newToken(access.PurposeSetup, 0, now.Add(time.Hour)))
-	for _, p := range []access.TokenPurpose{access.PurposeInvite, access.PurposeRecovery} {
-		tok := newToken(p, 1, now.Add(time.Hour))
+	mustToken(t, s, newToken(access.PurposeSetup, now.Add(time.Hour)))
+	for _, p := range []access.TokenPurpose{access.PurposeInvite, purposeApp} {
+		tok := newToken(p, now.Add(time.Hour))
 		tok.Role = access.RoleAdmin
 		mustToken(t, s, tok)
 		live[p] = tok
-		mustToken(t, s, newToken(p, 1, now))
+		mustToken(t, s, newToken(p, now))
 	}
-	got, err := s.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeInvite, access.PurposeRecovery}, now)
+	got, err := s.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeInvite, purposeApp}, now)
 	if err != nil || len(got) != 2 {
-		t.Fatalf("LiveOneTimeTokens([invite recovery]) = (%d tokens, %v), want the 2 live ones", len(got), err)
+		t.Fatalf("LiveOneTimeTokens([invite contract-app]) = (%d tokens, %v), want the 2 live ones", len(got), err)
 	}
 	for _, g := range got {
 		w, ok := live[g.Purpose]
-		if !ok || !g.Hash.Equal(w.Hash) || g.Role != w.Role || g.Subject != w.Subject || !g.ExpiresAt.Equal(w.ExpiresAt) {
+		if !ok || !g.Hash.Equal(w.Hash) || g.Role != w.Role || !g.ExpiresAt.Equal(w.ExpiresAt) {
 			t.Errorf("listed %v, want the live %s token as written", g, g.Purpose)
 		}
 	}
-	got[0].Purpose, got[0].Subject = mutated, 99
-	again, _ := s.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeInvite, access.PurposeRecovery}, now)
+	got[0].Purpose, got[0].Role = mutated, mutated
+	again, _ := s.LiveOneTimeTokens(ctx, []access.TokenPurpose{access.PurposeInvite, purposeApp}, now)
 	for _, g := range again {
-		if g.Purpose == mutated || g.Subject == 99 {
+		if g.Purpose == mutated || g.Role == mutated {
 			t.Error("mutating a listed token changed the store")
 		}
 	}
@@ -250,6 +244,7 @@ func (c *contract) callerFaults(t *testing.T) {
 // failureRecords: rule 15.
 func (c *contract) failureRecords(t *testing.T) {
 	t.Run("put_get_delete", c.failurePutGetDelete)
+	t.Run("delete_one", c.failureDeleteOne)
 	t.Run("prune", c.failurePrune)
 	t.Run("unreported_locks", c.failureUnreported)
 }
@@ -295,6 +290,61 @@ func (c *contract) failurePutGetDelete(t *testing.T) {
 	if got := present(); !slices.Equal(got, []int{3, 4}) {
 		t.Errorf("after DeleteAuthFailures(n1, [password oidc]) records left %v, want [3 4]", got)
 	}
+}
+
+// failureDeleteOne: DeleteAuthFailure removes exactly the record its ref
+// names, the same name and method in the other trust context kept, and
+// skips an absent one.
+func (c *contract) failureDeleteOne(t *testing.T) {
+	s, ctx := c.store(t), t.Context()
+	records := []account.FailureCount{
+		{FailureRef: failureRef("n1", access.MethodPassword, false), Count: 1},
+		{FailureRef: failureRef("n1", access.MethodPassword, true), Count: 2, Locked: true, LockedAt: epoch},
+		{FailureRef: failureRef("n1", access.MethodTOTP, false), Count: 3},
+		{FailureRef: failureRef("n2", access.MethodPassword, false), Count: 4},
+		{FailureRef: failureRef("n2", access.MethodPassword, true), Count: 5},
+	}
+	for _, f := range records {
+		if err := s.PutAuthFailure(ctx, f); err != nil {
+			t.Fatalf("PutAuthFailure: %v", err)
+		}
+	}
+	present := func() []int { return presentFailures(t, s, records) }
+	absent := failureRef("absent", access.MethodPassword, true)
+	if err := deleteFailures(ctx, s.DeleteAuthFailure, records[0].FailureRef, records[0].FailureRef, absent); err != nil {
+		t.Fatalf("%v; want nil, an absent record skipped", err)
+	}
+	if got := present(); !slices.Equal(got, []int{2, 3, 4, 5}) {
+		t.Errorf("after DeleteAuthFailure(n1, password, untrusted) records left %v, want [2 3 4 5]", got)
+	}
+	if err := s.Update(ctx, func(tx account.Tx) error {
+		if err := deleteFailures(ctx, tx.DeleteAuthFailure, records[3].FailureRef); err != nil {
+			return err
+		}
+		return errContract
+	}); !errors.Is(err, errContract) {
+		t.Fatalf("Update = %v, want the callback's error", err)
+	}
+	if got := present(); !slices.Equal(got, []int{2, 3, 4, 5}) {
+		t.Errorf("a rolled-back DeleteAuthFailure left %v, want [2 3 4 5]", got)
+	}
+	if err := deleteFailures(ctx, s.DeleteAuthFailure, records[1].FailureRef, records[3].FailureRef); err != nil {
+		t.Fatalf("%v; want nil", err)
+	}
+	if got := present(); !slices.Equal(got, []int{3, 5}) {
+		t.Errorf("after DeleteAuthFailure of (n1, password, trusted) and (n2, password, untrusted) records left %v, want [3 5]", got)
+	}
+}
+
+// deleteFailures calls del on each of refs in order, stopping at the first
+// error, which names its ref.
+func deleteFailures(ctx context.Context, del func(context.Context, account.FailureRef) error, refs ...account.FailureRef) error {
+	for _, ref := range refs {
+		if err := del(ctx, ref); err != nil {
+			return fmt.Errorf("DeleteAuthFailure(%v): %w", ref, err)
+		}
+	}
+	return nil
 }
 
 // presentFailures returns the Count of each of records still found, failing

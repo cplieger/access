@@ -1,7 +1,6 @@
 package account_test
 
 import (
-	"bytes"
 	"errors"
 	"slices"
 	"testing"
@@ -9,15 +8,13 @@ import (
 	"time"
 
 	"github.com/cplieger/access"
-	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
-	"github.com/cplieger/access/webauthn"
 )
 
 // raceEnv is one row's world: an admin A whose session-minted root P
 // carries the operation's scope S, and K, minted by P with S, expiring at
 // T an hour after the row starts. The operation acts through K; a second
-// admin B makes the owner and target changes.
+// admin B makes the changes to A and to the target.
 type raceEnv struct {
 	f      *fixture
 	fs     *faultStore
@@ -33,14 +30,10 @@ type raceEnv struct {
 	// lastChild and childPrincipal are the key the mint row minted.
 	lastChild      account.CreatedKey
 	childPrincipal access.Principal
-	// issued is the token the invite or recovery row minted, and the
-	// invite the acceptance row redeems; spare is another invite K issued.
+	// issued is the invite the invite row minted or the acceptance row
+	// redeems; spare is another invite K issued.
 	issued account.IssuedToken
 	spare  account.IssuedToken
-	// recovery is the session the recovery start row opened, or the
-	// completion rows' setup started, from issued.
-	recovery access.Principal
-	origin   webauthn.Origin
 }
 
 // countEvents counts the recorded events of kind that match.
@@ -93,14 +86,14 @@ var keyChanges = []keyChange{
 	{n: 4, name: "descope", run: func(t *testing.T, e *raceEnv) error {
 		return e.fs.descope(t.Context(), e.k.key.ID, e.k.scope())
 	}},
-	{n: 5, name: "disable_owner", run: func(t *testing.T, e *raceEnv) error {
+	{n: 5, name: "disable_user", run: func(t *testing.T, e *raceEnv) error {
 		_, err := e.f.svc.UpdateUser(t.Context(), e.bp, e.admin.ID, account.UserChange{Enabled: new(false)})
 		return err
 	}},
-	{n: 6, name: "delete_owner", run: func(t *testing.T, e *raceEnv) error {
+	{n: 6, name: "delete_user", run: func(t *testing.T, e *raceEnv) error {
 		return e.f.svc.DeleteUser(t.Context(), e.bp, e.admin.ID)
 	}},
-	{n: 7, name: "demote_owner", run: func(t *testing.T, e *raceEnv) error {
+	{n: 7, name: "demote_user", run: func(t *testing.T, e *raceEnv) error {
 		_, err := e.f.svc.UpdateUser(t.Context(), e.bp, e.admin.ID, account.UserChange{Role: new(access.RoleUser)})
 		return err
 	}},
@@ -123,24 +116,18 @@ func (m minted) scope() string { return m.key.Scopes[0] }
 func newRaceEnv(t *testing.T, scope string, policy account.Policy) *raceEnv {
 	t.Helper()
 	fs := newFaultStore()
-	rp := newRP(t)
-	origin, err := webauthn.ParseOrigin("https://" + rpID)
-	if err != nil {
-		t.Fatalf("ParseOrigin: %v", err)
-	}
 	f := newFixture(t, keyOptions(options{store: fs, edit: func(c *account.Config) {
 		c.CleanupInterval = 1000 * time.Hour
-		c.RP = func() *webauthn.RelyingParty { return rp }
 	}}, policy))
-	e := &raceEnv{f: f, fs: fs, origin: origin, admin: mustUser(t, f.mem, "root", access.RoleAdmin), boss: mustUser(t, f.mem, "boss", access.RoleAdmin)}
-	e.pr = f.sessionPrincipal(t, e.admin, access.SessionFull, time.Now())
-	e.bp = f.sessionPrincipal(t, e.boss, access.SessionFull, time.Now())
+	e := &raceEnv{f: f, fs: fs, admin: mustUser(t, f.mem, "root", access.RoleAdmin), boss: mustUser(t, f.mem, "boss", access.RoleAdmin)}
+	e.pr = f.sessionPrincipal(t, e.admin, time.Now())
+	e.bp = f.sessionPrincipal(t, e.boss, time.Now())
 	parentScopes := []string{scope, scopeKeys}
 	if scope == scopeKeys {
 		parentScopes = []string{scopeKeys, "read"}
 	}
 	e.parent = f.mint(t, account.As(e.pr), e.admin.ID, account.NewKey{Label: uniqueLabel(), Scopes: parentScopes})
-	e.pr = f.sessionPrincipal(t, e.admin, access.SessionFull, time.Now())
+	e.pr = f.sessionPrincipal(t, e.admin, time.Now())
 	kScopes := []string{scope}
 	if scope == scopeKeys {
 		kScopes = []string{scopeKeys, "read"}
@@ -166,7 +153,7 @@ func (e *raceEnv) childKey(t *testing.T) (access.Key, bool) {
 // kTokens is every stored token K issued, expired ones included.
 func (e *raceEnv) kTokens(t *testing.T) []access.OneTimeToken {
 	t.Helper()
-	all, err := e.f.mem.LiveOneTimeTokens(t.Context(), []access.TokenPurpose{access.PurposeInvite, access.PurposeRecovery}, time.Time{})
+	all, err := e.f.mem.LiveOneTimeTokens(t.Context(), []access.TokenPurpose{access.PurposeInvite}, time.Time{})
 	if err != nil {
 		t.Fatalf("LiveOneTimeTokens: %v", err)
 	}
@@ -234,58 +221,42 @@ func mintOf(scopes ...string) keyWrite {
 	}
 }
 
-// tokenRow is the CreateInvite or IssueRecovery row: K mints a token, and
-// its check is the token arms of each change.
-func tokenRow(name string, issue func(t *testing.T, e *raceEnv) (account.IssuedToken, error)) keyWrite {
-	return keyWrite{
-		name: name, scope: scopeUsers,
-		run: func(t *testing.T, e *raceEnv) error {
-			tok, err := issue(t, e)
-			if err == nil {
-				e.issued = tok
+// inviteWrite is the CreateInvite row: K mints an invite, and its check is
+// the token arms of each change.
+var inviteWrite = keyWrite{
+	name: "CreateInvite", scope: scopeUsers,
+	run: func(t *testing.T, e *raceEnv) error {
+		tok, err := e.f.svc.CreateInvite(t.Context(), e.k.p, access.RoleUser, 0)
+		if err == nil {
+			e.issued = tok
+		}
+		return err
+	},
+	produced: func(t *testing.T, e *raceEnv) int { return len(e.kTokens(t)) },
+	check: func(t *testing.T, e *raceEnv, change int) {
+		toks := e.kTokens(t)
+		switch change {
+		case 1, 2, 5, 6:
+			if len(toks) != 0 {
+				t.Errorf("after change %d K's invite is still stored", change)
 			}
-			return err
-		},
-		produced: func(t *testing.T, e *raceEnv) int {
-			return len(e.kTokens(t)) + countEvents(e.f.events, account.EventRecoveryIssued, func(ev account.Event) bool { return ev.Actor.KeyID == e.k.key.ID })
-		},
-		check: func(t *testing.T, e *raceEnv, change int) {
-			if name == "IssueRecovery" {
-				e.emittedByK(t, account.EventRecoveryIssued)
+			return
+		case 3:
+			for _, c := range e.fs.recorded() {
+				t.Errorf("store call %s (Update %d) between the commit and the expiry, want none", c.name, c.update)
 			}
-			toks := e.kTokens(t)
-			switch change {
-			case 1, 2, 5, 6:
-				if len(toks) != 0 {
-					t.Errorf("after change %d K's token is still stored", change)
-				}
-				return
-			case 3:
-				for _, c := range e.fs.recorded() {
-					t.Errorf("store call %s (Update %d) between the commit and the expiry, want none", c.name, c.update)
-				}
-				if len(toks) != 1 || toks[0].ExpiresAt.After(e.t) {
-					t.Errorf("after the expiry K's tokens are %+v, want one expiring with K", toks)
-				}
-			case 4, 7:
-				if len(toks) != 1 {
-					t.Errorf("after change %d K's tokens are %d, want the one it issued, refused at redemption", change, len(toks))
-				}
-			case 8:
-				if len(toks) != 1 {
-					t.Errorf("after change 8 K's tokens are %d, want the recovery token it issued", len(toks))
-				}
-				e.promoted(t)
-				return
+			if len(toks) != 1 || toks[0].ExpiresAt.After(e.t) {
+				t.Errorf("after the expiry K's tokens are %+v, want one expiring with K", toks)
 			}
-			if name != "CreateInvite" {
-				return
+		case 4, 7:
+			if len(toks) != 1 {
+				t.Errorf("after change %d K's tokens are %d, want the invite it issued, refused at redemption", change, len(toks))
 			}
-			if _, err := e.f.accept(t, e.issued.Plaintext, "joiner"); !errors.Is(err, access.ErrTokenInvalid) {
-				t.Errorf("redeeming K's invite after change %d = %v, want access.ErrTokenInvalid", change, err)
-			}
-		},
-	}
+		}
+		if _, err := e.f.accept(t, e.issued.Plaintext, "joiner"); !errors.Is(err, access.ErrTokenInvalid) {
+			t.Errorf("redeeming K's invite after change %d = %v, want access.ErrTokenInvalid", change, err)
+		}
+	},
 }
 
 var (
@@ -366,12 +337,6 @@ var (
 			e.emittedByK(t, account.EventUserDeleted)
 		},
 	}
-	inviteWrite = tokenRow("CreateInvite", func(t *testing.T, e *raceEnv) (account.IssuedToken, error) {
-		return e.f.svc.CreateInvite(t.Context(), e.k.p, access.RoleUser, 0)
-	})
-	recoveryWrite = tokenRow("IssueRecovery", func(t *testing.T, e *raceEnv) (account.IssuedToken, error) {
-		return e.f.svc.IssueRecovery(t.Context(), account.As(e.k.p), e.alice.ID, 0)
-	})
 )
 
 // childExpired is the expiry arm: the child expires no later than K, so at
@@ -478,7 +443,7 @@ func TestKeyWriteRaces(t *testing.T) {
 			switch n {
 			case 7:
 				if !errors.Is(err, account.ErrPolicyRefused) || reason(err) == "key_not_current" {
-					t.Errorf("the write after its owner's demotion = %v, want the Policy's ErrPolicyRefused", err)
+					t.Errorf("the write after its user's demotion = %v, want the Policy's ErrPolicyRefused", err)
 				}
 			case 8:
 				if reason(err) != "admin_target" {
@@ -492,9 +457,9 @@ func TestKeyWriteRaces(t *testing.T) {
 		}
 	}
 	policy := account.RolePolicy{KeysAdminOnly: true}
-	for _, w := range []keyWrite{mintWrite, revokeAnyWrite, createUserWrite, disableUserWrite, deleteUserWrite, inviteWrite, recoveryWrite} {
+	for _, w := range []keyWrite{mintWrite, revokeAnyWrite, createUserWrite, disableUserWrite, deleteUserWrite, inviteWrite} {
 		changes := keyChanges
-		if w.name == "UpdateUser" || w.name == "DeleteUser" || w.name == "IssueRecovery" {
+		if w.name == "UpdateUser" || w.name == "DeleteUser" {
 			changes = append(slices.Clone(keyChanges), promoteTarget)
 		}
 		for _, ch := range changes {
@@ -584,187 +549,14 @@ func TestKeyConsumptionRaces(t *testing.T) {
 		}
 	}
 	policy := account.RolePolicy{KeysAdminOnly: true}
-	rows := []struct {
-		w       keyWrite
-		refused func(t *testing.T, e *raceEnv, err error)
-		first   string
-	}{
-		{w: acceptWrite, refused: refused, first: "accept_first"},
-		{w: recoveryStartWrite, refused: recoveryRefused, first: "start_first"},
-		{w: completionWrite("RecoverWithPassword", completeByPassword), refused: recoveryRefused, first: "complete_first"},
-		{w: completionWrite("RecoverPasskeyFinish", completeByPasskey), refused: recoveryRefused, first: "complete_first"},
-	}
-	for _, row := range rows {
-		for _, ch := range keyChanges {
-			t.Run(row.w.name+"/change_first/"+ch.name, func(t *testing.T) {
-				t.Parallel()
-				raceRun(t, row.w, ch, policy, true, row.refused)
-			})
-			t.Run(row.w.name+"/"+row.first+"/"+ch.name, func(t *testing.T) {
-				t.Parallel()
-				raceRun(t, row.w, ch, policy, false, committed)
-			})
-		}
-	}
-}
-
-// recoverySetup gives alice the password goodPassword and has K issue her
-// a recovery link, e.issued, and a spare invite, e.spare.
-func (e *raceEnv) recoverySetup(t *testing.T) {
-	t.Helper()
-	hash, err := fastHasher(t).Hash(t.Context(), goodPassword)
-	if err != nil {
-		t.Fatalf("Hash: %v", err)
-	}
-	u := stored(t, e.f, e.alice.ID)
-	u.PasswordHash = hash
-	if err := e.f.mem.UpdateUser(t.Context(), u); err != nil {
-		t.Fatalf("UpdateUser: %v", err)
-	}
-	if e.issued, err = e.f.svc.IssueRecovery(t.Context(), account.As(e.k.p), e.alice.ID, 0); err != nil {
-		t.Fatalf("IssueRecovery from K = %v", err)
-	}
-	if e.spare, err = e.f.svc.CreateInvite(t.Context(), e.k.p, access.RoleUser, 0); err != nil {
-		t.Fatalf("CreateInvite from K = %v", err)
-	}
-}
-
-// startRecovery redeems e.issued and keeps the recovery session's
-// principal.
-func (e *raceEnv) startRecovery(t *testing.T) error {
-	t.Helper()
-	rec, err := e.f.svc.StartRecovery(t.Context(), localClient, e.issued.Plaintext)
-	if err == nil {
-		e.recovery, err = e.f.authenticate(t.Context(), rec.Issued.Token)
-	}
-	return err
-}
-
-// oldPasswordSignsIn requires alice's old password to sign her in.
-func (e *raceEnv) oldPasswordSignsIn(t *testing.T) {
-	t.Helper()
-	if _, err := e.f.svc.PasswordLogin(t.Context(), localClient, account.Credentials{Username: "alice", Password: access.NewSecret(goodPassword)}); err != nil {
-		t.Errorf("alice's old password = %v, want it still signing in", err)
-	}
-}
-
-// recovered reports whether alice holds what a completion sets: the
-// recovered password or a passkey.
-func (e *raceEnv) recovered(t *testing.T) bool {
-	t.Helper()
-	ok, _, err := fastHasher(t).Verify(t.Context(), recoveredPassword, stored(t, e.f, e.alice.ID).PasswordHash)
-	if err != nil {
-		t.Fatalf("Verify: %v", err)
-	}
-	return ok || len(passkeysOf(t, e.f.mem, e.alice.ID)) > 0
-}
-
-// recoveryRefused is the change-first expectation of the recovery rows:
-// access.ErrTokenInvalid, no recovery session and no credential, the link
-// spent, and the old password still signing in.
-func recoveryRefused(t *testing.T, e *raceEnv, err error) {
-	t.Helper()
-	if !errors.Is(err, access.ErrTokenInvalid) {
-		t.Errorf("the recovery after the change = %v, want access.ErrTokenInvalid", err)
-	}
-	if n := len(recoverySessions(t, e.f.mem, e.alice.ID)); n != 0 {
-		t.Errorf("alice holds %d recovery sessions after the refusal, want none", n)
-	}
-	if e.recovered(t) {
-		t.Error("the refused recovery set its credential")
-	}
-	if _, found, _ := e.f.mem.OneTimeTokenByHash(t.Context(), hashOf(e.issued)); found {
-		t.Error("K's recovery link is still stored")
-	}
-	e.oldPasswordSignsIn(t)
-}
-
-// spareGone is the cascade arm of the consumption-first rows: changes 1,
-// 2, 5 and 6 delete K's spare invite, and the others leave it.
-func (e *raceEnv) spareGone(t *testing.T, change int) {
-	t.Helper()
-	_, found, _ := e.f.mem.OneTimeTokenByHash(t.Context(), hashOf(e.spare))
-	switch change {
-	case 1, 2, 5, 6:
-		if found {
-			t.Errorf("after change %d K's spare invite is still stored", change)
-		}
-	default:
-		if !found {
-			t.Errorf("after change %d K's spare invite is gone", change)
-		}
-	}
-}
-
-// recoveryStartWrite is the StartRecovery row: the redemption of K's link
-// for alice. Start first, the recovery session outlives the change, and
-// its completion afterwards is refused.
-var recoveryStartWrite = keyWrite{
-	name: "StartRecovery", scope: scopeUsers,
-	setup: func(t *testing.T, e *raceEnv) { e.recoverySetup(t) },
-	run:   func(t *testing.T, e *raceEnv) error { return e.startRecovery(t) },
-	produced: func(t *testing.T, e *raceEnv) int {
-		return len(recoverySessions(t, e.f.mem, e.alice.ID)) + len(eventsOf(e.f.events, account.EventRecoveryConsumed)) + len(attributionsOf(t, e.f, e.alice.ID))
-	},
-	check: func(t *testing.T, e *raceEnv, change int) {
-		if n := len(recoverySessions(t, e.f.mem, e.alice.ID)); n != 1 {
-			t.Fatalf("after change %d alice holds %d recovery sessions, want the one the start opened", change, n)
-		}
-		if !e.attributed(t, e.alice.ID, access.AttributionRecoveryStarted) {
-			t.Errorf("after change %d alice lacks the recovery_started record with K's path", change)
-		}
-		e.spareGone(t, change)
-		err := e.f.svc.RecoverWithPassword(t.Context(), e.recovery, access.NewSecret(recoveredPassword), account.RecoverOptions{})
-		recoveryRefused(t, e, err)
-	},
-}
-
-// completeByPassword and completeByPasskey complete e.recovery.
-func completeByPassword(t *testing.T, e *raceEnv) error {
-	t.Helper()
-	return e.f.svc.RecoverWithPassword(t.Context(), e.recovery, access.NewSecret(recoveredPassword), account.RecoverOptions{})
-}
-
-func completeByPasskey(t *testing.T, e *raceEnv) error {
-	t.Helper()
-	pc, err := e.f.svc.RecoverPasskeyBegin(t.Context(), e.recovery, e.origin)
-	if err != nil {
-		return err
-	}
-	body := accesstest.NewPasskeyDevice(t).Register(browserJSON(t, pc.Creation))
-	return e.f.svc.RecoverPasskeyFinish(t.Context(), e.recovery, pc.ID, bytes.NewReader(body), account.RecoverOptions{})
-}
-
-// completionWrite is a completion row: the recovery K's link opened,
-// completed by complete. Completion first, the credential and its
-// recovered record ending with K stay through the change.
-func completionWrite(name string, complete func(t *testing.T, e *raceEnv) error) keyWrite {
-	return keyWrite{
-		name: name, scope: scopeUsers,
-		setup: func(t *testing.T, e *raceEnv) {
-			e.recoverySetup(t)
-			if err := e.startRecovery(t); err != nil {
-				t.Fatalf("StartRecovery = %v", err)
-			}
-		},
-		run: complete,
-		produced: func(t *testing.T, e *raceEnv) int {
-			return b2i(e.recovered(t)) + len(eventsOf(e.f.events, account.EventRecoveryCompleted)) + len(attributionsOf(t, e.f, e.alice.ID))
-		},
-		check: func(t *testing.T, e *raceEnv, change int) {
-			if !e.recovered(t) {
-				t.Errorf("after change %d the completed recovery's credential is gone", change)
-			}
-			if !slices.ContainsFunc(attributionsOf(t, e.f, e.alice.ID), func(a access.KeyAttribution) bool {
-				return a.Action == access.AttributionRecovered && a.KeyLineage[len(a.KeyLineage)-1] == e.k.key.ID
-			}) {
-				t.Errorf("after change %d alice lacks the recovered record ending with K", change)
-			}
-			listed, err := e.f.svc.Users(t.Context(), e.bp, account.UserFilter{AttributedToKey: e.parent.key.ID})
-			if err != nil || !slices.ContainsFunc(listed, func(u account.ListedUser) bool { return u.User.ID == e.alice.ID }) {
-				t.Errorf("after change %d Users attributed to K's parent = %v, %v; want alice", change, listed, err)
-			}
-			e.spareGone(t, change)
-		},
+	for _, ch := range keyChanges {
+		t.Run("AcceptInvitePassword/change_first/"+ch.name, func(t *testing.T) {
+			t.Parallel()
+			raceRun(t, acceptWrite, ch, policy, true, refused)
+		})
+		t.Run("AcceptInvitePassword/accept_first/"+ch.name, func(t *testing.T) {
+			t.Parallel()
+			raceRun(t, acceptWrite, ch, policy, false, committed)
+		})
 	}
 }

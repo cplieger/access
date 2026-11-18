@@ -89,8 +89,8 @@ func FuzzEmailVerified(f *testing.F) {
 
 // FuzzIDTokenClaims: any payload either refuses or yields Claims for the
 // configured issuer, a sub of 1 to 255 printable ASCII characters
-// (OpenID Connect Core 1.0 §2), an aud of this client alone, the sealed
-// nonce and an unexpired token (§3.1.3.7 steps 2, 3, 9 and 11); it never
+// (OpenID Connect Core 1.0 §2), an aud of this client alone, the sealed nonce
+// and an unexpired token (Core 1.0 §3.1.3.7 steps 2, 3, 9 and 11); it never
 // panics.
 func FuzzIDTokenClaims(f *testing.F) {
 	f.Add(fuzzToken(f))

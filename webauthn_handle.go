@@ -2,8 +2,9 @@ package access
 
 import "crypto/rand"
 
-// WebAuthnHandleSize is the length of a generated user handle. WebAuthn caps a
-// user handle at 64 bytes and §14.6.1 recommends using all of them, randomly.
+// WebAuthnHandleSize is the length of a generated user handle.
+// WebAuthn §5.4.3 caps a user handle at 64 bytes, and WebAuthn §14.6.1
+// recommends using all of them, randomly.
 const WebAuthnHandleSize = 64
 
 // GenerateWebAuthnHandle returns a new WebAuthn user handle: 64 random bytes, as

@@ -218,12 +218,18 @@ func TestRecordPrinting(t *testing.T) {
 	u := User{ID: 4242, Username: "alice", Role: RoleUser, PasswordHash: NewHash(known)}
 	s := Session{ID: "sess-4242", UserID: 1, TokenHash: NewHash(known)}
 	k := Key{ID: 4242, UserID: 1, KeyHash: NewHash(known), KeyPrefix: "pfx", Scopes: []string{"read"}}
-	tok := OneTimeToken{Purpose: PurposeInvite, Subject: 4242, Hash: NewHash(known)}
+	tok := OneTimeToken{Purpose: PurposeInvite, IssuedByKey: 4242, Hash: NewHash(known)}
+	totp := TOTP{UserID: 4242, Sealed: "sealed-at-rest", LastStep: 1}
+	code := RecoveryCode{UserID: 4242, Hash: NewHash(known)}
+	temp := TemporaryPassword{UserID: 4242, Hash: NewHash(known), IssuedByUser: 1}
 	values := map[string]any{
 		"User": u, "*User": &u,
 		"Session": s, "*Session": &s,
 		"Key": k, "*Key": &k,
 		"OneTimeToken": tok, "*OneTimeToken": &tok,
+		"TOTP": totp, "*TOTP": &totp,
+		"RecoveryCode": code, "*RecoveryCode": &code,
+		"TemporaryPassword": temp, "*TemporaryPassword": &temp,
 	}
 	// No marker where fmt prints no decimal: %x and %X print hex, %q runes,
 	// %T the type, and %p of a pointer or a []any, or any verb on a []any
@@ -248,20 +254,22 @@ func TestRecordPrinting(t *testing.T) {
 	t.Run("type_graph", func(t *testing.T) {
 		t.Parallel()
 		checkTypes(t, printcheck.Allow{Fields: recordFields, Types: []string{"time.Time"}}, reflect.TypeFor[*User](), reflect.TypeFor[*Session](),
-			reflect.TypeFor[*Key](), reflect.TypeFor[*OneTimeToken]())
+			reflect.TypeFor[*Key](), reflect.TypeFor[*OneTimeToken](), reflect.TypeFor[*TOTP](),
+			reflect.TypeFor[*RecoveryCode](), reflect.TypeFor[*TemporaryPassword]())
 	})
 }
 
 // recordFields are the stored records' fields that hold text and no secret:
 // names, labels, enums, identifiers, the shown parts of a key, and a
-// passkey's user handle, which opens nothing.
+// passkey's user handle, which opens nothing, and a TOTP record's sealed
+// secret, which opens only under the Sealer's key.
 var recordFields = []string{
 	"access.User.Username", "access.User.Email", "access.User.DisplayName", "access.User.Role",
 	"access.User.WebAuthnHandle", "access.OIDCIdentity.Issuer", "access.OIDCIdentity.Subject",
-	"access.Session.ID", "access.Session.AuthMethod", "access.Session.Kind", "access.Session.UserAgent",
+	"access.Session.ID", "access.Session.AuthMethod", "access.Session.UserAgent",
 	"access.Session.Label", "access.Session.LastIP",
 	"access.Key.KeyPrefix", "access.Key.KeySuffix", "access.Key.Label", "access.Key.Scopes", "access.Key.LineageIDs",
-	"access.OneTimeToken.Purpose", "access.OneTimeToken.Role",
+	"access.OneTimeToken.Purpose", "access.OneTimeToken.Role", "access.TOTP.Sealed",
 }
 
 // logAttrs returns a LogValue group's attributes by key.
@@ -292,27 +300,43 @@ func TestRecordLogValue(t *testing.T) {
 				WebAuthnHandle: []byte{1}, OIDC: OIDCIdentity{Issuer: "https://idp.example", Subject: "s"},
 			},
 			want: map[string]any{
-				"id": int64(5), "username": "alice", "role": "admin",
+				"id": int64(5), "username": "alice", "role": "admin", "owner": false, "waiting_approval": false,
 				"has_password": true, "has_webauthn_handle": true, "has_oidc": true,
+			},
+		},
+		{
+			name: "User owner",
+			v:    User{ID: 7, Username: "olive", Role: RoleAdmin, Owner: true},
+			want: map[string]any{
+				"id": int64(7), "username": "olive", "role": "admin", "owner": true, "waiting_approval": false,
+				"has_password": false, "has_webauthn_handle": false, "has_oidc": false,
+			},
+		},
+		{
+			name: "User waiting",
+			v:    User{ID: 8, Username: "wendy", Role: RoleUser, WaitingApproval: true},
+			want: map[string]any{
+				"id": int64(8), "username": "wendy", "role": "user", "owner": false, "waiting_approval": true,
+				"has_password": false, "has_webauthn_handle": false, "has_oidc": false,
 			},
 		},
 		{
 			name: "User bare",
 			v:    User{ID: 6, Username: "bob", Role: RoleUser},
 			want: map[string]any{
-				"id": int64(6), "username": "bob", "role": "user",
+				"id": int64(6), "username": "bob", "role": "user", "owner": false, "waiting_approval": false,
 				"has_password": false, "has_webauthn_handle": false, "has_oidc": false,
 			},
 		},
 		{
 			name: "Session",
 			v: Session{
-				ID: "sid", UserID: 5, AuthMethod: MethodPasskey, Kind: SessionRecovery, IssuedByKey: 8,
+				ID: "sid", UserID: 5, AuthMethod: MethodPasskey,
 				IdleCap: 30 * time.Minute, AbsoluteCap: 12 * time.Hour,
 				CreatedAt: at, LastActivity: at.Add(time.Minute), AuthTime: at.Add(2 * time.Minute), TokenHash: NewHash("h"), Secure: true,
 			},
 			want: map[string]any{
-				"id": "sid", "user_id": int64(5), "auth_method": "passkey", "kind": "recovery", "secure": true, "issued_by_key": int64(8),
+				"id": "sid", "user_id": int64(5), "auth_method": "passkey", "secure": true,
 				"created_at": at, "last_activity": at.Add(time.Minute), "auth_time": at.Add(2 * time.Minute),
 			},
 		},
@@ -325,9 +349,30 @@ func TestRecordLogValue(t *testing.T) {
 		},
 		{
 			name: "OneTimeToken",
-			v:    OneTimeToken{Purpose: PurposeRecovery, Subject: 5, IssuedByKey: 3, ExpiresAt: at, Hash: NewHash("h")},
+			v:    OneTimeToken{Purpose: PurposeInvite, Role: RoleUser, IssuedByKey: 3, ExpiresAt: at, Hash: NewHash("h")},
 			want: map[string]any{
-				"purpose": "recovery", "subject": int64(5), "issued_by_key": int64(3), "expires_at": at,
+				"purpose": "invite", "issued_by_key": int64(3), "expires_at": at,
+			},
+		},
+		{
+			name: "TOTP",
+			v:    TOTP{UserID: 5, Sealed: "sealed", CreatedAt: at, LastStep: 59},
+			want: map[string]any{"user_id": int64(5), "created_at": at, "last_step": int64(59)},
+		},
+		{
+			name: "RecoveryCode",
+			v:    RecoveryCode{UserID: 5, Hash: NewHash("h"), CreatedAt: at},
+			want: map[string]any{"user_id": int64(5), "created_at": at},
+		},
+		{
+			name: "TemporaryPassword",
+			v: TemporaryPassword{
+				UserID: 5, Hash: NewHash("h"), CreatedAt: at, ExpiresAt: at.Add(24 * time.Hour),
+				IssuedByUser: 2, IssuedByKey: 3, Dormant: true,
+			},
+			want: map[string]any{
+				"user_id": int64(5), "issued_by_user": int64(2), "issued_by_key": int64(3), "dormant": true,
+				"created_at": at, "expires_at": at.Add(24 * time.Hour),
 			},
 		},
 	}
@@ -344,7 +389,7 @@ func TestRecordLogValue(t *testing.T) {
 func TestNewOneTimeToken(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
-	plain, rec := NewOneTimeToken(PurposeRecovery, 9, time.Hour, now)
+	plain, rec := NewOneTimeToken(PurposeInvite, time.Hour, now)
 	raw, err := hex.DecodeString(plain.Reveal())
 	if err != nil || len(raw) != 32 {
 		t.Fatalf("plaintext %q decodes to %d bytes (err %v), want 32", plain.Reveal(), len(raw), err)
@@ -354,12 +399,12 @@ func TestNewOneTimeToken(t *testing.T) {
 	}
 	want := OneTimeToken{
 		CreatedAt: now, ExpiresAt: now.Add(time.Hour), Hash: NewHash(HexSHA256(plain.Reveal())),
-		Purpose: PurposeRecovery, Subject: 9,
+		Purpose: PurposeInvite,
 	}
 	if !reflect.DeepEqual(rec, want) {
 		t.Errorf("record = %+v, want %+v", rec, want)
 	}
-	if again, _ := NewOneTimeToken(PurposeRecovery, 9, time.Hour, now); again.Reveal() == plain.Reveal() {
+	if again, _ := NewOneTimeToken(PurposeInvite, time.Hour, now); again.Reveal() == plain.Reveal() {
 		t.Error("two tokens share a plaintext")
 	}
 }

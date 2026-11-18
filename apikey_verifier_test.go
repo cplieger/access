@@ -314,8 +314,8 @@ func TestRefusalCarriesNoPresentedBytes(t *testing.T) {
 			key   string
 			keyID int64
 		}{
-			"expired":        {a: expired, key: key, keyID: 9},
-			"owner disabled": {a: disabled, key: f.key, keyID: f.keyID},
+			"expired":       {a: expired, key: key, keyID: 9},
+			"user disabled": {a: disabled, key: f.key, keyID: f.keyID},
 		} {
 			_, err := tt.a.Authenticate(bearerRequest(tt.key))
 			var ice *InvalidCredentialError
@@ -355,7 +355,7 @@ func wantRetired(t *testing.T, name string, err error, keyID int64) {
 	}
 }
 
-// TestPreviousSecret pins design 2.4 "Verification": a rotated key's
+// TestPreviousSecret: a rotated key's
 // previous secret verifies while PreviousUntil is ahead and the new secret
 // is unused, and never touches; the new secret's first use is always
 // written and ends the overlap.
@@ -500,7 +500,7 @@ func TestPreviousSecretDeadline(t *testing.T) {
 	})
 }
 
-// TestFirstUseTouchFailure pins design 2.4 "A failed touch": while the
+// TestFirstUseTouchFailure: while the
 // previous secret still verifies, the new secret's first use is granted
 // only once its touch is written, so no client sees the new secret work
 // while the old one still does.
@@ -561,8 +561,8 @@ func TestKeyVerifierFailReasons(t *testing.T) {
 		"unknown key":       {a: plain, key: unknown, reason: failreason.KeyUnknown},
 		"expired key":       {a: expired, key: expiredKey, reason: failreason.KeyExpired},
 		"retired secret":    {a: retired, key: old, reason: failreason.KeyRetired},
-		"owner disabled":    {a: disabled, key: f.key, reason: failreason.AccountDisabled},
-		"owner missing":     {a: missing, key: g.key, reason: failreason.AccountDisabled},
+		"user disabled":     {a: disabled, key: f.key, reason: failreason.AccountDisabled},
+		"user missing":      {a: missing, key: g.key, reason: failreason.AccountDisabled},
 	} {
 		_, err := tt.a.Authenticate(bearerRequest(tt.key))
 		if got := failreason.Of(err); got != tt.reason {

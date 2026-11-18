@@ -21,16 +21,16 @@ func TestTokensListsLiveTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateInvite = %v", err)
 	}
-	recovery, err := w.f.svc.IssueRecovery(ctx, account.As(w.pr), w.alice.ID, 0)
+	admin, err := w.f.svc.CreateInvite(ctx, w.pr, access.RoleAdmin, 12*time.Hour)
 	if err != nil {
-		t.Fatalf("IssueRecovery = %v", err)
+		t.Fatalf("CreateInvite(admin) = %v", err)
 	}
 	byGrand, err := w.f.svc.CreateInvite(ctx, grand.p, access.RoleUser, time.Hour)
 	if err != nil {
 		t.Fatalf("CreateInvite from the grandchild = %v", err)
 	}
-	seedToken(t, w.f.mem, access.PurposeSetup, 0, 0, time.Hour)
-	seedToken(t, w.f.mem, access.PurposeInvite, 0, 0, -time.Minute)
+	seedToken(t, w.f.mem, access.PurposeSetup, 0, time.Hour)
+	seedToken(t, w.f.mem, access.PurposeInvite, 0, -time.Minute)
 	w.fs.resetRecord()
 	rows, err := w.f.svc.Tokens(ctx, w.pr)
 	if err != nil {
@@ -42,9 +42,9 @@ func TestTokensListsLiveTokens(t *testing.T) {
 		}
 	}
 	if len(rows) != 3 {
-		t.Fatalf("Tokens = %d rows, want the three live invite and recovery tokens", len(rows))
+		t.Fatalf("Tokens = %d rows, want the three live invites", len(rows))
 	}
-	wantOrder := []time.Time{byGrand.ExpiresAt, recovery.ExpiresAt, invite.ExpiresAt}
+	wantOrder := []time.Time{byGrand.ExpiresAt, admin.ExpiresAt, invite.ExpiresAt}
 	for i, r := range rows {
 		if !r.Token.ExpiresAt.Equal(wantOrder[i]) {
 			t.Errorf("row %d expires at %v, want %v (by expiry)", i, r.Token.ExpiresAt, wantOrder[i])
@@ -65,14 +65,11 @@ func TestTokensListsLiveTokens(t *testing.T) {
 	if rows, err := w.f.svc.Tokens(ctx, w.pr); err != nil || len(rows) != 2 || rows[0].Token.IssuedByKey != 0 {
 		t.Errorf("Tokens after the grandchild's revocation = %d rows, %v; want its invite gone", len(rows), err)
 	}
-	up := w.f.sessionPrincipal(t, w.alice, access.SessionFull, time.Now())
+	up := w.f.sessionPrincipal(t, w.alice, time.Now())
 	if _, err := w.f.svc.Tokens(ctx, up); !errors.Is(err, account.ErrPolicyRefused) {
 		t.Errorf("Tokens from a RoleUser session = %v, want ErrPolicyRefused", err)
 	}
 	if _, err := w.f.svc.Tokens(ctx, root.p); !errors.Is(err, account.ErrScopeRequired) {
 		t.Errorf("Tokens from a key without the admin scope = %v, want ErrScopeRequired", err)
-	}
-	if _, err := w.f.svc.Tokens(ctx, w.f.sessionPrincipal(t, w.root, access.SessionRecovery, time.Now())); !errors.Is(err, account.ErrSessionRequired) {
-		t.Errorf("Tokens from a recovery session = %v, want ErrSessionRequired", err)
 	}
 }

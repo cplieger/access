@@ -48,6 +48,7 @@ func TestLockReportedBySweep(t *testing.T) {
 		}
 		sweepFailures(t, p.svc)
 		events := &eventLog{}
+		mustOwner(t, p.mem, "root")
 		cfg := ownAuthenticator(t, p.cfg)
 		cfg.OnEvent = events.record
 		next, err := account.New(t.Context(), cfg)
@@ -78,6 +79,7 @@ func TestLockReportedBySweep(t *testing.T) {
 		u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
 		p.failN(t, clientAt(1), "alice", account.FailureCap)
 		events := &eventLog{}
+		mustOwner(t, p.mem, "root")
 		cfg := ownAuthenticator(t, p.cfg)
 		cfg.OnEvent = events.record
 		next, err := account.New(t.Context(), cfg)
@@ -181,7 +183,7 @@ func TestFailureNames(t *testing.T) {
 		if rec, found := record(t, p.mem, other, "alice", false); found {
 			t.Errorf("a Service under another key reads %+v, want no record", rec)
 		}
-		if _, err := other.PasswordLogin(t.Context(), localClient, account.Credentials{Username: "alice", Password: access.NewSecret(wrongPassword)}); !errors.Is(err, account.ErrInvalidCredentials) {
+		if _, err := completed(other.PasswordLogin(t.Context(), localClient, account.Credentials{Username: "alice", Password: access.NewSecret(wrongPassword)})); !errors.Is(err, account.ErrInvalidCredentials) {
 			t.Fatalf("PasswordLogin: %v", err)
 		}
 		if rec, _ := record(t, p.mem, other, "alice", false); rec.Count != 1 {

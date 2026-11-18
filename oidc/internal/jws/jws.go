@@ -94,8 +94,9 @@ func base64URL(c byte) bool {
 	return 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '-' || c == '_'
 }
 
-// decode is base64url without padding and with zero trailing bits (RFC
-// 4648 §3.5), so each byte string has one encoding (PyJWT CVE-2026-102269).
+// decode is base64url without padding and with zero trailing bits
+// (RFC 4648 §3.5), so each byte string has one encoding (PyJWT
+// CVE-2026-102269).
 func decode(part string) ([]byte, error) {
 	return base64.RawURLEncoding.Strict().DecodeString(part)
 }

@@ -173,17 +173,24 @@ func mustUser(t *testing.T, s account.Store, name string, role access.Role) *acc
 	return u
 }
 
+// mustOwner stores an enabled admin carrying the owner flag.
+func mustOwner(t *testing.T, s account.Store, name string) *access.User {
+	t.Helper()
+	u := &access.User{Username: name, Role: access.RoleAdmin, Enabled: true, Owner: true, WebAuthnHandle: access.GenerateWebAuthnHandle(), CreatedAt: time.Now()}
+	if err := s.CreateUser(t.Context(), u); err != nil {
+		t.Fatalf("CreateUser(%s): %v", name, err)
+	}
+	return u
+}
+
 // sessionPrincipal stores a session of u signed in at authTime and returns
 // the principal the Authenticator grants for it.
-func (f *fixture) sessionPrincipal(t *testing.T, u *access.User, kind access.SessionKind, authTime time.Time) access.Principal {
+func (f *fixture) sessionPrincipal(t *testing.T, u *access.User, authTime time.Time) access.Principal {
 	t.Helper()
 	now := time.Now()
 	sess := &access.Session{
-		ID: newSessionID(t), UserID: u.ID, Kind: kind,
+		ID: newSessionID(t), UserID: u.ID,
 		AuthMethod: access.MethodPassword, CreatedAt: now, LastActivity: now, AuthTime: authTime, Secure: true,
-	}
-	if kind == access.SessionRecovery {
-		sess.AuthMethod = access.MethodRecovery
 	}
 	p, _ := f.principalOf(t, sess)
 	return p
@@ -208,7 +215,7 @@ func (f *fixture) principalOf(t testing.TB, sess *access.Session) (access.Princi
 // authenticate runs the Authenticator on a request carrying token as its
 // session cookie.
 func (f *fixture) authenticate(ctx context.Context, token access.Secret) (access.Principal, error) {
-	req := httptest.NewRequestWithContext(access.AllowRecoverySession(ctx), http.MethodGet, "https://example.com/", http.NoBody)
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "https://example.com/", http.NoBody)
 	cookie := f.authn.Cookie()
 	req.AddCookie(&http.Cookie{Name: cookie.CookieName(true), Value: token.Reveal()})
 	return f.authn.Authenticate(req)

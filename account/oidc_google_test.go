@@ -34,9 +34,10 @@ func googleRig(t *testing.T, iss string) *oidcRig {
 // TestOIDCGoogleIssuerForms: Google's ID tokens carry iss as
 // "https://accounts.google.com" or "accounts.google.com"
 // (https://developers.google.com/identity/openid-connect/openid-connect#validatinganidtoken),
-// and both are the configured issuer's one identity (OpenID Connect Core
-// 1.0 §3.1.3.7 step 2): a link under one form signs in and steps up under
-// the other as the same user, with no provisioning and no pending link.
+// and both are the configured issuer's one identity
+// (OpenID Connect Core 1.0 §3.1.3.7 step 2): a link under one form signs in
+// and steps up under the other as the same user, with no provisioning and no
+// pending link.
 func TestOIDCGoogleIssuerForms(t *testing.T) {
 	t.Parallel()
 	want := access.OIDCIdentity{Issuer: googleIssuer, Subject: accesstest.DefaultIdPSubject}

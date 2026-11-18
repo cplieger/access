@@ -25,7 +25,7 @@ type Class int
 // The classes.
 const (
 	Public  Class = iota + 1 // nothing is read: no principal, no refusal
-	Session                  // a full session only
+	Session                  // a session only
 	Key                      // an API key only; with a Scope, Allow decides it too
 	Scoped                   // Allow decides, for every principal
 )

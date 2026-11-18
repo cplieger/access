@@ -34,8 +34,9 @@ func newRotWorld(t *testing.T, rules func(*account.Rules)) rotWorld {
 		return r
 	}}
 	w.f = newFixture(t, keyOptions(o, w.pol))
+	mustOwner(t, w.f.mem, "root")
 	w.alice = mustUser(t, w.f.mem, "alice", access.RoleUser)
-	w.sess = w.f.sessionPrincipal(t, w.alice, access.SessionFull, time.Now())
+	w.sess = w.f.sessionPrincipal(t, w.alice, time.Now())
 	w.key = w.create(t, w.alice, "Deploy")
 	if _, err := w.f.bearer(t, w.key.Plaintext); err != nil {
 		t.Fatalf("Authenticate(key) = %v", err)
@@ -195,11 +196,10 @@ func TestRotateAPIKey(t *testing.T) {
 			t.Fatalf("Authenticate(key) = %v", err)
 		}
 		for name, a := range map[string]account.Actor{
-			"own_key":          account.As(keyP),
-			"bypass":           account.As(w.f.bypassPrincipal(t)),
-			"custom":           account.As(w.f.customPrincipal(t, access.MethodAPIKey, w.key.Key.ID, scopeKeys)),
-			"recovery_session": account.As(w.f.sessionPrincipal(t, w.alice, access.SessionRecovery, time.Now())),
-			"zero_principal":   account.As(access.Principal{Secure: true}),
+			"own_key":        account.As(keyP),
+			"bypass":         account.As(w.f.bypassPrincipal(t)),
+			"custom":         account.As(w.f.customPrincipal(t, access.MethodAPIKey, w.key.Key.ID, scopeKeys)),
+			"zero_principal": account.As(access.Principal{Secure: true}),
 		} {
 			t.Run(name, func(t *testing.T) {
 				w.fs.resetRecord()
@@ -225,7 +225,7 @@ func TestRotateAPIKey(t *testing.T) {
 	t.Run("stale_session", func(t *testing.T) {
 		t.Parallel()
 		w := newRotWorld(t, nil)
-		stale := w.f.sessionPrincipal(t, w.alice, access.SessionFull, time.Now().Add(-time.Hour))
+		stale := w.f.sessionPrincipal(t, w.alice, time.Now().Add(-time.Hour))
 		if _, err := w.f.svc.RotateAPIKey(t.Context(), account.As(stale), w.key.Key.ID); !errors.Is(err, access.ErrRecentAuthRequired) {
 			t.Errorf("RotateAPIKey from a session signed in an hour ago = %v, want ErrRecentAuthRequired", err)
 		}
@@ -235,7 +235,7 @@ func TestRotateAPIKey(t *testing.T) {
 		t.Parallel()
 		w := newRotWorld(t, nil)
 		bob := mustUser(t, w.f.mem, "bob", access.RoleAdmin)
-		bobSess := w.f.sessionPrincipal(t, bob, access.SessionFull, time.Now())
+		bobSess := w.f.sessionPrincipal(t, bob, time.Now())
 		w.pol.arm("")
 		_, other := w.f.svc.RotateAPIKey(t.Context(), account.As(bobSess), w.key.Key.ID)
 		_, missing := w.f.svc.RotateAPIKey(t.Context(), account.As(bobSess), w.key.Key.ID+1000)
@@ -298,7 +298,7 @@ func TestRotateAPIKey(t *testing.T) {
 		t.Parallel()
 		w := newRotWorld(t, nil)
 		w.clock.add(49 * time.Hour)
-		late := w.f.sessionPrincipal(t, w.alice, access.SessionFull, w.clock.now())
+		late := w.f.sessionPrincipal(t, w.alice, w.clock.now())
 		for name, a := range map[string]account.Actor{"session": account.As(late), "out_of_band": account.OutOfBand("admin socket")} {
 			t.Run(name, func(t *testing.T) {
 				_, err := w.f.svc.RotateAPIKey(t.Context(), a, w.key.Key.ID)
@@ -311,23 +311,23 @@ func TestRotateAPIKey(t *testing.T) {
 	})
 }
 
-// ownerlessStore runs every Update over an ownerHidden Tx.
-type ownerlessStore struct{ account.Store }
+// userHiddenStore runs every Update over an userHidden Tx.
+type userHiddenStore struct{ account.Store }
 
-func (s ownerlessStore) Update(ctx context.Context, fn func(account.Tx) error) error {
-	return s.Store.Update(ctx, func(tx account.Tx) error { return fn(ownerHidden{tx}) })
+func (s userHiddenStore) Update(ctx context.Context, fn func(account.Tx) error) error {
+	return s.Store.Update(ctx, func(tx account.Tx) error { return fn(userHidden{tx}) })
 }
 
-func TestRotateAPIKeyOwnerMissing(t *testing.T) {
+func TestRotateAPIKeyUserMissing(t *testing.T) {
 	t.Parallel()
 	w := newRotWorld(t, nil)
-	svc := newFixture(t, keyOptions(options{store: w.fs, edit: func(c *account.Config) { c.Store = ownerlessStore{c.Store} }}, w.pol)).svc
+	svc := newFixture(t, keyOptions(options{store: w.fs, edit: func(c *account.Config) { c.Store = userHiddenStore{c.Store} }}, w.pol)).svc
 	w.pol.arm("")
 	if _, err := svc.RotateAPIKey(t.Context(), account.OutOfBand("admin socket"), w.key.Key.ID); !errors.Is(err, account.ErrNotFound) {
-		t.Errorf("RotateAPIKey of a key whose owner row is gone = %v, want ErrNotFound", err)
+		t.Errorf("RotateAPIKey of a key whose user row is gone = %v, want ErrNotFound", err)
 	}
 	if d := w.pol.taken(); len(d) != 0 {
-		t.Errorf("Policy decisions = %+v, want none for a key with no owner", d)
+		t.Errorf("Policy decisions = %+v, want none for a key with no user", d)
 	}
 	w.unchanged(t)
 }

@@ -25,8 +25,8 @@ func TestAuthenticate_bypass(t *testing.T) {
 		if p.User == nil || p.User.Role != RoleAdmin || p.User.ID != 0 || p.Method != MethodBypass {
 			t.Errorf("Authenticate(bypass enabled) = %+v, want MethodBypass with a synthetic admin of ID 0", p)
 		}
-		if p.IsSession() || p.IsRecoverySession() {
-			t.Error("bypass principal passes IsSession or IsRecoverySession, want neither")
+		if p.IsSession() {
+			t.Error("bypass principal passes IsSession, want not")
 		}
 		if _, err := on.Recheck(t.Context(), p); !errors.Is(err, ErrNotRecheckable) {
 			t.Errorf("Recheck(bypass principal) error = %v, want ErrNotRecheckable", err)

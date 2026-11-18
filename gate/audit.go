@@ -16,15 +16,13 @@ const (
 	kindForbidden = "gate.forbidden"
 )
 
-// The gate.forbidden reasons that are not a class refusal's code.
-const (
-	reasonRecoverySession = "recovery_session"
-	reasonCrossOrigin     = "cross_origin"
-)
+// reasonCrossOrigin is the gate.forbidden reason that is not a class
+// refusal's code.
+const reasonCrossOrigin = "cross_origin"
 
 // auditUnauthenticated reports the Authenticate error err the gate answers
-// with code: a recovery session is gate.forbidden, any other refused
-// credential gate.failure with the verifier's reason. No credential, a 503
+// with code: a refused credential is gate.failure with the verifier's
+// reason. No credential, a 503
 // and auth_https_required report nothing, so neither a store outage nor an
 // unlisted TLS proxy counts as failed sign-ins.
 func (g *Gate) auditUnauthenticated(r *http.Request, err error, code access.Code) {
@@ -32,8 +30,6 @@ func (g *Gate) auditUnauthenticated(r *http.Request, err error, code access.Code
 	switch code {
 	case access.CodeAuthRequired, access.CodeUnavailable, access.CodeHTTPSRequired:
 		return
-	case access.CodeSessionRequired:
-		e.Kind, e.Reason = kindForbidden, reasonRecoverySession
 	default:
 		// Only a custom verifier's refusal carries no reason.
 		e.Reason = cmp.Or(failreason.Of(err), failreason.CredentialInvalid)

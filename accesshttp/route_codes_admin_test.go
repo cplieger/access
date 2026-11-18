@@ -44,7 +44,6 @@ func adminScenarios() map[scenarioKey]scenario {
 		}
 	}
 	aliceID := func(t *testing.T, e *env) string { return e.userID(t, "alice") }
-	rootID := func(t *testing.T, e *env) string { return e.userID(t, "root") }
 	missing := func(*testing.T, *env) string { return missingUserID }
 	newUser := func(name, password string) string {
 		return `{"username":"` + name + `","password":"` + password + `","role":"user"}`
@@ -82,12 +81,55 @@ func adminScenarios() map[scenarioKey]scenario {
 	out[scenarioKey{del, access.CodeUnavailable}] = closing(envOptions{}, byRoot(del, aliceID, ""))
 	out[scenarioKey{del, access.CodeNotFound}] = scenario{arrange: byRoot(del, missing, "")}
 
-	const recovery, invite = "authAdminRecovery", "authAdminInvite"
-	hours := func(n int) string { return `{"hours":` + strconv.Itoa(n) + `}` }
-	out[scenarioKey{recovery, access.CodeForbidden}] = scenario{arrange: byRoot(recovery, rootID, hours(0))}
-	out[scenarioKey{recovery, access.CodeUnavailable}] = closing(envOptions{}, byRoot(recovery, aliceID, hours(0)))
-	out[scenarioKey{recovery, access.CodeBadRequest}] = scenario{arrange: byRoot(recovery, aliceID, hours(7*24+1))}
-	out[scenarioKey{recovery, access.CodeNotFound}] = scenario{arrange: byRoot(recovery, missing, hours(0))}
+	const owner = "authAdminOwner"
+	makeOwner := `{"owner":true}`
+	out[scenarioKey{owner, access.CodeForbidden}] = byAlice(owner, makeOwner)
+	out[scenarioKey{owner, access.CodeUnavailable}] = closing(envOptions{}, byRoot(owner, aliceID, makeOwner))
+	out[scenarioKey{owner, access.CodeNotFound}] = scenario{arrange: byRoot(owner, missing, makeOwner)}
+
+	const unlinkOIDC = "authAdminOIDCUnlink"
+	out[scenarioKey{unlinkOIDC, access.CodeForbidden}] = byAlice(unlinkOIDC, "")
+	out[scenarioKey{unlinkOIDC, access.CodeUnavailable}] = closing(envOptions{}, byRoot(unlinkOIDC, aliceID, ""))
+	out[scenarioKey{unlinkOIDC, access.CodeNotFound}] = scenario{arrange: byRoot(unlinkOIDC, aliceID, "")}
+
+	const temp = "authAdminTemporaryPassword"
+	out[scenarioKey{temp, access.CodeForbidden}] = byAlice(temp, `{}`)
+	out[scenarioKey{temp, access.CodeBusy}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		r := byRoot(temp, aliceID, `{}`)(t, e)
+		e.holdBudget(t)
+		return r
+	}}
+	out[scenarioKey{temp, access.CodeUnavailable}] = closing(envOptions{}, byRoot(temp, aliceID, `{}`))
+	out[scenarioKey{temp, access.CodeBadRequest}] = scenario{arrange: byRoot(temp, aliceID, `{"ttl_hours":169}`)}
+	out[scenarioKey{temp, access.CodeNotFound}] = scenario{arrange: byRoot(temp, missing, `{}`)}
+	out[scenarioKey{temp, access.CodeSSOOnly}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		r := byRoot(temp, aliceID, `{}`)(t, e)
+		e.keepDormant(t, "alice")
+		return r
+	}}
+
+	const relink = "authAdminOIDCRelink"
+	linkedAlice := func(t *testing.T, e *env) string {
+		e.linkUser(t, "alice", idpIdentity(testIssuer))
+		return e.userID(t, "alice")
+	}
+	out[scenarioKey{relink, access.CodeForbidden}] = byAlice(relink, `{}`)
+	out[scenarioKey{relink, access.CodeBusy}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		r := byRoot(relink, linkedAlice, `{}`)(t, e)
+		e.holdBudget(t)
+		return r
+	}}
+	out[scenarioKey{relink, access.CodeUnavailable}] = closing(envOptions{}, byRoot(relink, linkedAlice, `{}`))
+	out[scenarioKey{relink, access.CodeBadRequest}] = scenario{arrange: byRoot(relink, linkedAlice, `{"ttl_hours":169}`)}
+	out[scenarioKey{relink, access.CodeNotFound}] = scenario{arrange: byRoot(relink, aliceID, `{}`)}
+
+	const reset = "authAdminSecondFactorReset"
+	out[scenarioKey{reset, access.CodeForbidden}] = byAlice(reset, "")
+	out[scenarioKey{reset, access.CodeUnavailable}] = closing(envOptions{}, byRoot(reset, aliceID, ""))
+	// alice holds no TOTP and no recovery code.
+	out[scenarioKey{reset, access.CodeNotFound}] = scenario{arrange: byRoot(reset, aliceID, "")}
+
+	const invite = "authAdminInvite"
 	inviteBody := func(n int) string { return `{"role":"user","hours":` + strconv.Itoa(n) + `}` }
 	out[scenarioKey{invite, access.CodeForbidden}] = byAlice(invite, inviteBody(0))
 	out[scenarioKey{invite, access.CodeUnavailable}] = closing(envOptions{}, byRoot(invite, missing, inviteBody(0)))

@@ -18,35 +18,39 @@ import (
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/internal/failreason"
-	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/webauthn"
 )
 
-// designOwnReasons is accesshttp's part of the reason list from §7.2 and
-// errata E12, E22, E26 and E33, written from the spec, not from ownReasons.
-var designOwnReasons = []string{
-	"sso_governed", "ttl_too_long", "ttl_negative", "no_change", "expiry_invalid", "redirect_too_long",
+// wantOwnReasons is accesshttp's part of the reason list, written by hand
+// rather than read from ownReasons.
+var wantOwnReasons = []string{
+	"ttl_too_long", "ttl_negative", "no_change", "expiry_invalid", "redirect_too_long",
 	"current_password_required", "session_gone", "pending_too_large", "stale_authentication",
-	"flow_invalid", "discovery_failed", "exchange_failed", "token_invalid", "nonce_mismatch",
-	"no_username", "provisioning_disabled", "not_admitted", "username_invalid", "recovery",
+	"flow_invalid", "exchange_failed", "token_invalid", "nonce_mismatch",
+	"provisioning_disabled", "not_admitted",
 	"reenable_needs_other_method", "trailing_data", "malformed_json", "content_type", "body",
-	"unknown_field", "token_in_query",
+	"unknown_field", "token_in_query", "enrol_needs_known_device", "no_usable_method",
+	// Proofs and second factors.
+	"second_factor_proof_required", "last_second_factor", "second_factor_held", "totp_needs_password",
+	"enable_without_second_factor",
+	"linked",
+	// The burn of a temporary password sent over plain HTTP.
+	"temporary_password_exposed",
 }
 
 // wireReasons is every Reason classify gives for the fixed-reason
 // producers: each sentinel row, each typed error built from its owner's
-// list, the guard's recovery refusal, account's re-enable refusal, the
+// list, account's re-enable refusal, the
 // session verifier's transport refusal, the recent-auth refusal of a plain
-// session and each fixed refusal of the body,
+// session, a temporary password's plain burn and each fixed refusal of the body,
 // path and query decoders.
 func wireReasons(t *testing.T) []string {
 	t.Helper()
 	errs := []error{
-		(&Handler{}).admit(&Descriptor{Class: ClassRecovery}, access.Principal{}),
 		failreason.Wrap(access.ErrRecentAuthRequired, failreason.ReenableNeedsOtherMethod),
 		&access.InvalidCredentialError{Method: access.MethodPassword, Err: access.ErrSessionTransport},
 		failreason.Wrap(access.ErrRecentAuthRequired, failreason.SignInAgain),
-		&oidc.UsernameError{},
+		account.ErrTemporaryPasswordExposed,
 	}
 	errs = append(errs, requestReasonErrors(t)...)
 	for _, row := range sentinelCodes {
@@ -57,6 +61,9 @@ func wireReasons(t *testing.T) []string {
 	}
 	for _, r := range account.PolicyReasons() {
 		errs = append(errs, &account.PolicyError{Reason: r})
+	}
+	for _, r := range account.CodeReasons() {
+		errs = append(errs, &account.CodeError{Reason: r})
 	}
 	for _, r := range account.UsernameReasons() {
 		errs = append(errs, &account.UsernameError{Reason: r})
@@ -93,7 +100,7 @@ func requestReasonErrors(t *testing.T) []error {
 		_, err := decodeJSON[LoginRequest](httptest.NewRecorder(), req)
 		return err
 	}
-	_, inQuery := decodeQuery(specNamed(t, "authRecoveryStart"), httptest.NewRequest(http.MethodPost, "/x?token=t", nil))
+	_, inQuery := decodeQuery(specNamed(t, "authInviteAcceptPassword"), httptest.NewRequest(http.MethodPost, "/x?token=t", nil))
 	errs := []error{
 		body("text/plain", strings.NewReader(`{}`)),
 		body("application/json", strings.NewReader(`{"username":`)),
@@ -116,8 +123,8 @@ func TestReasonTable(t *testing.T) {
 	got := Reasons()
 	t.Run("own_part", func(t *testing.T) {
 		t.Parallel()
-		if !slices.Equal(got[:min(len(got), len(designOwnReasons))], designOwnReasons) {
-			t.Errorf("Reasons() starts %v, want %v", got[:min(len(got), len(designOwnReasons))], designOwnReasons)
+		if !slices.Equal(got[:min(len(got), len(wantOwnReasons))], wantOwnReasons) {
+			t.Errorf("Reasons() starts %v, want %v", got[:min(len(got), len(wantOwnReasons))], wantOwnReasons)
 		}
 	})
 	t.Run("no_display_name_empty", func(t *testing.T) {
@@ -128,12 +135,13 @@ func TestReasonTable(t *testing.T) {
 	})
 	t.Run("composition", func(t *testing.T) {
 		t.Parallel()
-		want := slices.Clone(designOwnReasons)
+		want := slices.Clone(wantOwnReasons)
 		want = append(want, "transport_changed", "sign_in_again")
 		for _, r := range access.PasswordRejections() {
 			want = append(want, string(r))
 		}
 		want = append(want, account.PolicyReasons()...)
+		want = append(want, "code_invalid", "code_reused", "method_locked", "current_code_invalid")
 		want = append(want, account.UsernameReasons()...)
 		want = append(want, "label_empty", "label_disallowed_character", "label_too_long", "display_name_disallowed_character", "display_name_too_long")
 		want = append(want, "log_limit", "log_range", "log_kind", "log_id")
@@ -167,6 +175,50 @@ func TestReasonTable(t *testing.T) {
 			}
 		}
 	})
+}
+
+// appReasons is each reason only an app's own route answers, with the
+// account error that route maps to it: an app's settings save answers
+// CheckSecondFactorReady's refusal.
+var appReasons = map[string]error{
+	ReasonEnableWithoutSecondFactor: account.ErrEnableWithoutSecondFactor,
+}
+
+// TestEveryReasonHasAProducer checks that every Reasons value has a
+// producer: a route lists it, it is a Policy's reason reaching a
+// route whose auth_forbidden is open, or an app's own route answers it.
+func TestEveryReasonHasAProducer(t *testing.T) {
+	t.Parallel()
+	onRoute := map[string]bool{}
+	policyOpen := false
+	for i := range specs {
+		for code, rs := range listedAnswers(&specs[i]) {
+			for _, r := range rs.listed {
+				onRoute[r] = true
+			}
+			policyOpen = policyOpen || code == access.CodeForbidden && rs.open
+		}
+	}
+	for _, r := range Reasons() {
+		switch {
+		case onRoute[r]:
+		case slices.Contains(account.PolicyReasons(), r):
+			if !policyOpen {
+				t.Errorf("Policy reason %q: no route's auth_forbidden is open", r)
+			}
+		case appReasons[r] != nil:
+			if e, ok := classify(appReasons[r], ceremonyNone); !ok || e.Reason != r {
+				t.Errorf("app reason %q: %v classifies as %q", r, appReasons[r], e.Reason)
+			}
+		default:
+			t.Errorf("Reasons() lists %q, which no route and no app route answers", r)
+		}
+	}
+	for r := range appReasons {
+		if onRoute[r] {
+			t.Errorf("app reason %q is listed on a route", r)
+		}
+	}
 }
 
 // TestReasonLiterals parses accesshttp's non-test files. A producer's fixed

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/internal/failreason"
 )
 
 // Errors a store returns for caller faults. An operation answers one only
@@ -28,12 +29,12 @@ var (
 	// ErrMethodNotLocked is ReenableMethod on a method locked in neither
 	// trust context.
 	ErrMethodNotLocked = errors.New("account: method is not locked")
-	// ErrSessionRequired is an operation for a full or a recovery session
-	// reached by any other principal, and RequireAdminScope or
-	// RequireKeyPermission refusing a recovery session or an empty scope.
+	// ErrSessionRequired is an operation for a session reached by any other
+	// principal, and RequireKeyScope or RequireKeyPermission refusing an
+	// empty scope.
 	ErrSessionRequired = errors.New("account: a signed-in session is required")
-	// ErrScopeRequired is RequireAdminScope or RequireKeyPermission under a
-	// set scope, for a principal that is no full session and no key carrying
+	// ErrScopeRequired is RequireKeyScope or RequireKeyPermission under a
+	// set scope, for a principal that is no session and no key carrying
 	// that scope.
 	ErrScopeRequired = errors.New("account: a key scope is required")
 	// ErrNoChange is an UpdateUser with no field set.
@@ -43,7 +44,7 @@ var (
 	ErrCurrentPasswordRequired = errors.New("account: the current password is required")
 	ErrKeyExpiryInvalid        = errors.New("account: key expiry must not be negative")
 	// ErrKeyLabelTaken is a key label another unexpired key of the same
-	// owner already carries, compared after NFC and Unicode case folding.
+	// user already carries, compared after NFC and Unicode case folding.
 	ErrKeyLabelTaken = errors.New("account: a key with this label already exists")
 	// ErrRulesInvalid is matched by every *RulesError: New refusing the
 	// Rules() value, and an operation refusing a later invalid one.
@@ -53,8 +54,8 @@ var (
 	ErrServiceClosed = fmt.Errorf("account: service closed: %w", access.ErrAuthBackend)
 	// ErrTTLTooLong is a token lifetime above 7 times its kind's default.
 	ErrTTLTooLong = errors.New("account: token lifetime too long")
-	// ErrTTLNegative is a negative token lifetime given to IssueRecovery,
-	// CreateInvite or IssueSetupToken.
+	// ErrTTLNegative is a negative token lifetime given to CreateInvite or
+	// IssueSetupToken.
 	ErrTTLNegative        = errors.New("account: token lifetime must not be negative")
 	ErrSetupTokenRequired = errors.New("account: a setup token is required")
 	// ErrPolicyRefused is matched by every *PolicyError.
@@ -62,7 +63,6 @@ var (
 	// ErrLastMethod is a removal that would leave the user no method that
 	// can sign in now.
 	ErrLastMethod          = errors.New("account: the last sign-in method cannot be removed")
-	ErrSSOGoverned         = errors.New("account: the account is governed by its identity provider")
 	ErrPasskeysUnavailable = errors.New("account: passkeys are not available")
 	ErrOIDCUnavailable     = errors.New("account: OIDC is not available")
 	ErrCeremonyInvalid     = errors.New("account: ceremony unknown, expired or of another kind")
@@ -72,14 +72,78 @@ var (
 	// ErrBreachCheckUnavailable is access's sentinel, so either name matches
 	// the refusal under BreachFailClosed.
 	ErrBreachCheckUnavailable = access.ErrBreachCheckUnavailable
+	// ErrCodeInvalid is matched by every *CodeError: a TOTP or recovery
+	// code that does not match, or a match refused as reused or locked.
+	ErrCodeInvalid = errors.New("account: the code is not valid")
+	// ErrCodeMalformed is matched by every *MalformedError.
+	ErrCodeMalformed = errors.New("account: the code is malformed")
+	// ErrSecondFactorProofRequired is a change that needs a current second
+	// factor, sent with no proof; nothing is counted for it.
+	ErrSecondFactorProofRequired = errors.New("account: a current second factor is required")
+	// ErrLastSecondFactor is a removal Rules.RequireSecondFactor refuses,
+	// since it leaves a user who holds a second factor none they can use;
+	// it matches ErrLastMethod.
+	ErrLastSecondFactor = fmt.Errorf("account: the last second factor cannot be removed: %w", ErrLastMethod)
+	// ErrSecondFactorHeld is a password step-up of a user who holds a
+	// second factor, who steps up with it; it matches
+	// ErrSecondFactorRequired.
+	ErrSecondFactorHeld = fmt.Errorf("account: a user holding a second factor steps up with it: %w", ErrSecondFactorRequired)
+	// ErrPasswordRequired is a TOTP enrolment of a user who holds no
+	// password, the only sign-in a code protects.
+	ErrPasswordRequired = errors.New("account: an authenticator app needs a password to protect")
+	// ErrSecondFactorRequired is a password sign-in or a setting that needs
+	// a second factor the user cannot bind or does not hold.
+	ErrSecondFactorRequired = errors.New("account: a second factor is required")
+	// ErrNoUsableMethod is a sign-in whose next step the app's rules allow
+	// no method for, so the account can take no step this app allows.
+	ErrNoUsableMethod = errors.New("account: this app allows no method this sign-in's next step needs")
+	// ErrEnrolNeedsKnownDevice is a password sign-in that would bind the
+	// account's first second factor from a device no secure sign-in of it
+	// has used; it matches ErrSecondFactorRequired.
+	ErrEnrolNeedsKnownDevice = fmt.Errorf("account: a first second factor is bound only from a known device: %w", ErrSecondFactorRequired)
+	// ErrEnableWithoutSecondFactor is CheckSecondFactorReady's refusal of an
+	// admin who holds no usable second factor; it matches
+	// ErrSecondFactorRequired.
+	ErrEnableWithoutSecondFactor = fmt.Errorf("account: set up your own second factor before requiring one: %w", ErrSecondFactorRequired)
+	// ErrSecondFactorUnavailable is a TOTP record no Sealer key opens; it
+	// counts as no wrong code.
+	ErrSecondFactorUnavailable = errors.New("account: the second factor cannot be opened")
+	// ErrTOTPDisabled is a TOTP operation under Rules.DisableTOTP.
+	ErrTOTPDisabled = errors.New("account: authenticator apps are turned off")
+	// ErrRegistrationClosed is a registration while Rules.Registration is
+	// off.
+	ErrRegistrationClosed = errors.New("account: registration is closed")
+	// ErrRegistrationFull is a registration while the waiting accounts are
+	// at Rules.MaxWaitingRegistrations.
+	ErrRegistrationFull = errors.New("account: registration is full")
+	// ErrNoOwner is New refusing a store that holds users and no enabled
+	// admin, and Service.Owner on a single-user store whose owner flag is
+	// not on its one enabled admin alone. Its text names the repair.
+	ErrNoOwner = errors.New("account: no owner")
+	// ErrNotSingleUser is Service.Owner under a multi-user Policy.
+	ErrNotSingleUser = errors.New("account: the policy admits more than one account")
+	// ErrUnknownSSOMode is a mode outside the SSOMode constants.
+	ErrUnknownSSOMode = errors.New("account: unknown SSO mode")
+	// ErrSSOOnly is a local-method operation the stored SSO mode forbids
+	// for the user.
+	ErrSSOOnly = errors.New("account: the identity provider is this account's only sign-in")
+	// ErrTemporaryPasswordExposed is a password sign-in that matched a
+	// temporary password over plain HTTP where its path cannot finish; the
+	// secret crossed in clear, so the sign-in deleted it. It matches
+	// access.ErrHTTPSRequired.
+	ErrTemporaryPasswordExposed = failreason.Wrap(fmt.Errorf("account: a temporary password sent over plain HTTP is cancelled: %w", access.ErrHTTPSRequired), failreason.TemporaryPasswordExposed)
+	// ErrSSOLinked is a temporary password for a linked user whose local
+	// methods the stored mode keeps dormant, which could neither sign in nor
+	// link; it matches ErrSSOOnly.
+	ErrSSOLinked = fmt.Errorf("account: a linked account signs in only by single sign-on: %w", ErrSSOOnly)
 )
 
 // The PolicyError Reasons, in PolicyReasons order. RolePolicy and
-// SingleOwnerPolicy give the role and owner reasons; ReasonNotPrincipal,
-// ReasonUnknownOperation, ReasonUnknownVia and ReasonViaWithActor answer a
-// Decision no account operation builds. ReasonKeyRetiring is a key principal
-// presenting a secret a rotation superseded, which an operation that creates
-// or restores a way in refuses.
+// SingleOwnerPolicy give the role and owner reasons; ReasonUnknownOperation,
+// ReasonUnknownVia and ReasonViaWithActor answer a Decision no account
+// operation builds. ReasonKeyRetiring is a key principal presenting a secret
+// a rotation superseded, which an operation that creates or restores a way
+// in refuses.
 const (
 	ReasonOutOfBandOnly      = "out_of_band_only"
 	ReasonKeyNotCurrent      = "key_not_current"
@@ -90,20 +154,26 @@ const (
 	ReasonExpiryAfterParent  = "expiry_after_parent"
 	ReasonLineageTooDeep     = "lineage_too_deep"
 	ReasonPermissionNotAdmin = "permission_not_admin"
-	ReasonSelfRecovery       = "self_recovery"
+	ReasonSelfRecovery       = "self_recovery" // an issue or reset of a principal's own factors
 	ReasonOtherUser          = "other_user"
 	ReasonTargetNotEligible  = "target_not_eligible"
-	ReasonNotPrincipal       = "not_principal"
 	ReasonUnknownOperation   = "unknown_operation"
 	ReasonNotEnabledUser     = "not_enabled_user"
 	ReasonNotAdmin           = "not_admin"
 	ReasonSelfDelete         = "self_delete"
-	ReasonLastAdmin          = "last_admin"
-	ReasonLastLocalAdmin     = "last_local_admin"
 	ReasonSingleOwner        = "single_owner"
 	ReasonNotOwner           = "not_owner"
 	ReasonUnknownVia         = "unknown_via"
 	ReasonViaWithActor       = "via_with_actor"
+	// The owner protections account applies after the Policy, for every
+	// Policy.
+	ReasonOwnerTarget           = "owner_target"             // a principal that is no owner acting on an owner
+	ReasonOwnerRole             = "owner_role"               // a role change of an owner
+	ReasonLastOwner             = "last_owner"               // a change that leaves no enabled owner
+	ReasonOwnerNeedsLocalMethod = "owner_needs_local_method" // an owner must be an enabled admin with a usable password or passkey
+	// ReasonRegistrationEnabled is SSOOnly refused while Rules.Registration
+	// is on: under it, people join only through the identity provider.
+	ReasonRegistrationEnabled = "registration_enabled"
 )
 
 // PolicyReasons returns every Reason account's own rules and policies put
@@ -122,17 +192,19 @@ func PolicyReasons() []string {
 		ReasonSelfRecovery,
 		ReasonOtherUser,
 		ReasonTargetNotEligible,
-		ReasonNotPrincipal,
 		ReasonUnknownOperation,
 		ReasonNotEnabledUser,
 		ReasonNotAdmin,
 		ReasonSelfDelete,
-		ReasonLastAdmin,
-		ReasonLastLocalAdmin,
 		ReasonSingleOwner,
 		ReasonNotOwner,
 		ReasonUnknownVia,
 		ReasonViaWithActor,
+		ReasonOwnerTarget,
+		ReasonOwnerRole,
+		ReasonLastOwner,
+		ReasonOwnerNeedsLocalMethod,
+		ReasonRegistrationEnabled,
 	}
 }
 
@@ -151,6 +223,44 @@ func (e *PolicyError) Error() string {
 
 // Is reports ErrPolicyRefused.
 func (*PolicyError) Is(target error) bool { return target == ErrPolicyRefused }
+
+// The CodeError Reasons, in CodeReasons order.
+const (
+	ReasonCodeInvalid  = "code_invalid"
+	ReasonCodeReused   = "code_reused" // a code whose step was already accepted
+	ReasonMethodLocked = "method_locked"
+	// ReasonCurrentCodeInvalid is a replacement's current code, from the
+	// old secret, that does not match.
+	ReasonCurrentCodeInvalid = "current_code_invalid"
+)
+
+// CodeReasons returns every CodeError Reason, in a stable order.
+func CodeReasons() []string {
+	return []string{ReasonCodeInvalid, ReasonCodeReused, ReasonMethodLocked, ReasonCurrentCodeInvalid}
+}
+
+// CodeError is a code an operation refused, with why. Reason is one of
+// CodeReasons. It matches ErrCodeInvalid.
+type CodeError struct {
+	Reason string
+}
+
+func (e *CodeError) Error() string { return "account: code refused: " + e.Reason }
+
+// Is reports ErrCodeInvalid.
+func (*CodeError) Is(target error) bool { return target == ErrCodeInvalid }
+
+// MalformedError is a code that cannot be one: not six ASCII digits once
+// spaces are removed. Field names the input that held it. Nothing is
+// counted for it. It matches ErrCodeMalformed.
+type MalformedError struct {
+	Field string
+}
+
+func (e *MalformedError) Error() string { return "account: malformed code: " + e.Field }
+
+// Is reports ErrCodeMalformed.
+func (*MalformedError) Is(target error) bool { return target == ErrCodeMalformed }
 
 // ErrLogFilterInvalid is matched by every *LogFilterError.
 var ErrLogFilterInvalid = errors.New("account: log filter invalid")

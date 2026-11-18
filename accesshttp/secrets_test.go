@@ -15,6 +15,7 @@ import (
 	"github.com/cplieger/access/accesshttp"
 	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
+	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/ratelimit"
 )
 
@@ -25,8 +26,9 @@ const secretsPassword = "correct-horse-battery-staple-9" // gitleaks:allow (test
 // Service it embeds.
 type recordingAccount struct {
 	accesshttp.AccountAPI
-	got map[string][]string
-	mu  sync.Mutex
+	provider *oidc.Provider
+	got      map[string][]string
+	mu       sync.Mutex
 }
 
 func (a *recordingAccount) record(op string, secrets ...access.Secret) {
@@ -39,9 +41,9 @@ func (a *recordingAccount) record(op string, secrets ...access.Secret) {
 
 var signedIn = account.SignedIn{User: &access.User{ID: 1, Username: "x"}}
 
-func (a *recordingAccount) SetupWithPassword(_ context.Context, _ account.Client, in account.SetupPassword) (account.SignedIn, error) {
+func (a *recordingAccount) SetupWithPassword(_ context.Context, _ account.Client, in account.SetupPassword) (account.LoginResult, error) {
 	a.record("authSetupPassword", in.Token, in.Password)
-	return signedIn, nil
+	return account.LoginResult{SignedIn: signedIn}, nil
 }
 
 func (a *recordingAccount) SetupPasskeyBegin(_ context.Context, _ account.Client, in account.SetupPasskey) (account.PendingCeremony, error) {
@@ -49,24 +51,33 @@ func (a *recordingAccount) SetupPasskeyBegin(_ context.Context, _ account.Client
 	return account.PendingCeremony{ID: "c"}, nil
 }
 
-func (a *recordingAccount) PasswordLogin(_ context.Context, _ account.Client, in account.Credentials) (account.SignedIn, error) {
+func (a *recordingAccount) PasswordLogin(_ context.Context, _ account.Client, in account.Credentials) (account.LoginResult, error) {
 	a.record("authLoginPassword", in.Password)
-	return signedIn, nil
+	return account.LoginResult{SignedIn: signedIn}, nil
 }
 
-func (a *recordingAccount) StartRecovery(_ context.Context, _ account.Client, token access.Secret) (account.Recovery, error) {
-	a.record("authRecoveryStart", token)
-	return account.Recovery{}, nil
+func (a *recordingAccount) SetCredentialPassword(_ context.Context, _ account.Client, ticket, password access.Secret) (account.LoginResult, error) {
+	a.record("authLoginSetPassword", ticket, password)
+	return account.LoginResult{SignedIn: signedIn}, nil
 }
 
-func (a *recordingAccount) RecoverWithPassword(_ context.Context, _ access.Principal, password access.Secret, _ account.RecoverOptions) error {
-	a.record("authRecoveryPassword", password)
-	return nil
-}
-
-func (a *recordingAccount) AcceptInvitePassword(_ context.Context, _ account.Client, in account.AcceptInvite) (account.SignedIn, error) {
+func (a *recordingAccount) AcceptInvitePassword(_ context.Context, _ account.Client, in account.AcceptInvite) (account.LoginResult, error) {
 	a.record("authInviteAcceptPassword", in.Token, in.Password)
-	return signedIn, nil
+	return account.LoginResult{SignedIn: signedIn}, nil
+}
+
+func (a *recordingAccount) RegisterPassword(_ context.Context, _ account.Client, in account.Registration) (account.RegistrationResult, error) {
+	a.record("authRegisterPassword", in.Password)
+	return account.RegistrationResult{SignedIn: signedIn}, nil
+}
+
+// AdmitOIDC admits every request with the fixture's provider, so the
+// invite start reaches AcceptInviteOIDCBegin.
+func (a *recordingAccount) AdmitOIDC(account.Client) (*oidc.Provider, error) { return a.provider, nil }
+
+func (a *recordingAccount) AcceptInviteOIDCBegin(_ context.Context, _ account.Client, token access.Secret) (oidc.BeginRequest, error) {
+	a.record("authInviteAcceptOIDC", token)
+	return oidc.BeginRequest{Intent: oidc.IntentInvite, InviteHash: []byte("hash")}, nil
 }
 
 func (a *recordingAccount) StepUpPassword(_ context.Context, _ account.Client, _ access.Principal, password access.Secret) (account.Issued, error) {
@@ -74,9 +85,9 @@ func (a *recordingAccount) StepUpPassword(_ context.Context, _ account.Client, _
 	return account.Issued{}, nil
 }
 
-func (a *recordingAccount) SetPassword(_ context.Context, _ account.Client, _ access.Principal, current, password access.Secret) (account.Issued, error) {
+func (a *recordingAccount) SetPassword(_ context.Context, _ account.Client, _ access.Principal, current, password access.Secret) (account.PasswordSet, error) {
 	a.record("authPasswordSet", current, password)
-	return account.Issued{}, nil
+	return account.PasswordSet{}, nil
 }
 
 func (a *recordingAccount) RemovePassword(_ context.Context, _ account.Client, _ access.Principal, current access.Secret) (account.Issued, error) {
@@ -136,27 +147,26 @@ type secretCase struct {
 func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler, *recordingAccount, map[string]secretCase) {
 	t.Helper()
 	svc, authn := newService(t)
-	u, err := svc.CreateUser(t.Context(), account.OutOfBand("test"), account.NewUser{Username: "alice", Password: access.NewSecret(secretsPassword), Role: access.RoleAdmin})
+	_, err := svc.CreateUser(t.Context(), account.OutOfBand("test"), account.NewUser{Username: "alice", Password: access.NewSecret(secretsPassword), Role: access.RoleAdmin})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := authn.Cookie()
-	in, err := svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: "alice", Password: access.NewSecret(secretsPassword)})
-	if err != nil {
-		t.Fatal(err)
+	out, err := svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: "alice", Password: access.NewSecret(secretsPassword)})
+	if err != nil || out.Pending != nil {
+		t.Fatalf("PasswordLogin = %+v, %v, want a session", out.Pending, err)
 	}
+	in := out.SignedIn
 	session := &http.Cookie{Name: cfg.CookieName(true), Value: in.Token.Reveal()}
-	tok, err := svc.IssueRecovery(t.Context(), account.OutOfBand("test"), u.ID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rec, err := svc.StartRecovery(t.Context(), account.Client{Secure: true}, tok.Plaintext)
-	if err != nil {
-		t.Fatal(err)
-	}
-	recovery := &http.Cookie{Name: cfg.CookieName(true), Value: rec.Issued.Token.Reveal()}
 
-	fake := &recordingAccount{AccountAPI: svc, got: map[string][]string{}}
+	idp := accesstest.NewIdP(t, accesstest.IdPOptions{})
+	provider, err := oidc.NewProvider(t.Context(), oidc.Config{
+		IssuerURL: idp.Issuer(), ClientID: idp.ClientID(), RedirectURL: "https://app.example.com/api/auth/oidc/callback", HTTPClient: idp.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &recordingAccount{AccountAPI: svc, provider: provider, got: map[string][]string{}}
 	h, err := accesshttp.NewWithAccount(accesshttp.Config{
 		Errors: func(w http.ResponseWriter, _ *http.Request, e access.Error) {
 			errs(e)
@@ -167,16 +177,17 @@ func secretsFixture(t *testing.T, errs func(access.Error)) (*accesshttp.Handler,
 	if err != nil {
 		t.Fatal(err)
 	}
-	// required is the design's: a setup token is optional (Rules decides
+	// required is the route's own: a setup token is optional (Rules decides
 	// whether setup needs one), an absent current password is account's to
 	// refuse, and an admin may create a user with no password.
 	cases := map[string]secretCase{
 		"authSetupPassword":        {body: map[string]string{"token": "tok-setup", "username": "bob", "password": "pw-setup"}, want: []string{"tok-setup", "pw-setup"}, required: []string{"password"}},
 		"authSetupPasskeyBegin":    {body: map[string]string{"token": "tok-passkey", "username": "bob"}, want: []string{"tok-passkey"}},
 		"authLoginPassword":        {body: map[string]string{"username": "bob", "password": "pw-login"}, want: []string{"pw-login"}, required: []string{"password"}},
-		"authRecoveryStart":        {body: map[string]string{"token": "tok-recovery"}, want: []string{"tok-recovery"}, required: []string{"token"}},
-		"authRecoveryPassword":     {cookie: recovery, body: map[string]string{"password": "pw-recovered"}, want: []string{"pw-recovered"}, required: []string{"password"}},
+		"authLoginSetPassword":     {body: map[string]string{"ticket": "tk-set", "password": "pw-set"}, want: []string{"tk-set", "pw-set"}, required: []string{"ticket", "password"}},
 		"authInviteAcceptPassword": {body: map[string]string{"token": "tok-invite", "username": "carol", "password": "pw-invite"}, want: []string{"tok-invite", "pw-invite"}, required: []string{"token", "password"}},
+		"authInviteAcceptOIDC":     {body: map[string]string{"token": "tok-invite-oidc"}, want: []string{"tok-invite-oidc"}, required: []string{"token"}},
+		"authRegisterPassword":     {body: map[string]string{"username": "carol", "password": "pw-register"}, want: []string{"pw-register"}, required: []string{"password"}},
 		"authStepUpPassword":       {cookie: session, body: map[string]string{"password": "pw-stepup"}, want: []string{"pw-stepup"}, required: []string{"password"}},
 		"authPasswordSet":          {cookie: session, body: map[string]string{"current_password": "pw-current", "password": "pw-next"}, want: []string{"pw-current", "pw-next"}, required: []string{"password"}},
 		"authPasswordRemove":       {cookie: session, body: map[string]string{"current_password": "pw-removed"}, want: []string{"pw-removed"}},

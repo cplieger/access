@@ -17,7 +17,8 @@ import (
 const newPassword = "fresh-horse-battery-11"
 
 func (p *pwFixture) setPassword(ctx context.Context, pr access.Principal, current, next string) (account.Issued, error) {
-	return p.svc.SetPassword(ctx, localClient, pr, secretOrZero(current), access.NewSecret(next))
+	set, err := p.svc.SetPassword(ctx, localClient, pr, secretOrZero(current), access.NewSecret(next))
+	return set.Issued, err
 }
 
 func secretOrZero(s string) access.Secret {
@@ -177,36 +178,6 @@ func keysOf(t *testing.T, s account.Store, userID int64) []access.Key {
 	return keys
 }
 
-func TestSetPasswordSSOGoverned(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name             string
-		governed, linked bool
-		want             error
-	}{
-		{"governed_linked", true, true, account.ErrSSOGoverned},
-		{"governed_unlinked", true, false, nil},
-		{"ungoverned_linked", false, true, nil},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			p := newPW(t, pwOptions{rules: func() account.Rules { return account.Rules{SSOGoverned: tc.governed} }})
-			u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
-			if tc.linked {
-				linkUser(t, p.mem, u, "https://idp.example")
-			}
-			pr, _ := p.signedInVia(t, u, access.MethodPassword)
-			_, err := p.setPassword(t.Context(), pr, goodPassword, newPassword)
-			if !errors.Is(err, tc.want) || (tc.want == nil && err != nil) {
-				t.Errorf("SetPassword = %v, want %v", err, tc.want)
-			}
-			if got := p.verifies(t, u, newPassword); got != (tc.want == nil) {
-				t.Errorf("the stored hash is the new password's: %t, want %t", got, tc.want == nil)
-			}
-		})
-	}
-}
-
 func TestSetPasswordCurrent(t *testing.T) {
 	t.Parallel()
 	t.Run("right", func(t *testing.T) {
@@ -288,18 +259,18 @@ func TestSetPasswordCurrent(t *testing.T) {
 			t.Error("the locked password was replaced")
 		}
 	})
-	t.Run("recovered_between_verify_and_commit", func(t *testing.T) {
+	t.Run("replaced_between_verify_and_commit", func(t *testing.T) {
 		t.Parallel()
 		var hk armed
 		p := newPW(t, pwOptions{hooks: account.Hooks{AfterVerify: hk.hook}})
 		u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
 		pr, _ := p.signedInVia(t, u, access.MethodPassword)
-		recovered := recoverPassword(t, p, u, &hk)
+		replaced := replacePassword(t, p, u, &hk)
 		if _, err := p.setPassword(t.Context(), pr, goodPassword, newPassword); !errors.Is(err, account.ErrInvalidCredentials) {
-			t.Fatalf("SetPassword racing a recovery = %v, want ErrInvalidCredentials", err)
+			t.Fatalf("SetPassword racing another writer = %v, want ErrInvalidCredentials", err)
 		}
-		if !storedUser(t, p.mem, u.ID).PasswordHash.Equal(recovered) {
-			t.Error("the recovered hash was replaced")
+		if !storedUser(t, p.mem, u.ID).PasswordHash.Equal(replaced) {
+			t.Error("the other writer's hash was replaced")
 		}
 	})
 	t.Run("new_hash_busy", func(t *testing.T) {
@@ -363,25 +334,25 @@ func TestSetPasswordCurrent(t *testing.T) {
 	})
 }
 
-// recoverPassword arms hk so that, once the next verification passes, a
-// direct store write gives u another hash, standing in for a recovery
-// completed between that verification and its success Update. It returns
+// replacePassword arms hk so that, once the next verification passes, a
+// direct store write gives u another hash, standing in for another writer
+// committing between that verification and its success Update. It returns
 // that hash.
-func recoverPassword(t *testing.T, p *pwFixture, u *access.User, hk *armed) access.Hash {
+func replacePassword(t *testing.T, p *pwFixture, u *access.User, hk *armed) access.Hash {
 	t.Helper()
-	recovered, err := p.hasher.Hash(t.Context(), "recovered-horse-battery-5")
+	replaced, err := p.hasher.Hash(t.Context(), "replaced-horse-battery-5")
 	if err != nil {
 		t.Fatalf("Hash: %v", err)
 	}
 	hk.arm(func(ctx context.Context) {
 		hk.disarm()
 		cur := storedUser(t, p.mem, u.ID)
-		cur.PasswordHash = recovered
+		cur.PasswordHash = replaced
 		if err := p.mem.UpdateUser(ctx, cur); err != nil {
 			t.Errorf("UpdateUser: %v", err)
 		}
 	})
-	return recovered
+	return replaced
 }
 
 func TestRemovePasswordCurrent(t *testing.T) {
@@ -517,16 +488,16 @@ func TestRemovePasswordCurrent(t *testing.T) {
 			t.Error("the password is gone")
 		}
 	})
-	t.Run("recovered_between_verify_and_commit", func(t *testing.T) {
+	t.Run("replaced_between_verify_and_commit", func(t *testing.T) {
 		t.Parallel()
 		var hk armed
 		p, u, pr := setup(t, pwOptions{hooks: account.Hooks{AfterVerify: hk.hook}}, true)
-		recovered := recoverPassword(t, p, u, &hk)
+		replaced := replacePassword(t, p, u, &hk)
 		if _, err := remove(t, p, pr, goodPassword); !errors.Is(err, account.ErrInvalidCredentials) {
-			t.Fatalf("RemovePassword racing a recovery = %v, want ErrInvalidCredentials", err)
+			t.Fatalf("RemovePassword racing another writer = %v, want ErrInvalidCredentials", err)
 		}
-		if !storedUser(t, p.mem, u.ID).PasswordHash.Equal(recovered) {
-			t.Error("the recovered hash is gone")
+		if !storedUser(t, p.mem, u.ID).PasswordHash.Equal(replaced) {
+			t.Error("the other writer's hash is gone")
 		}
 	})
 }

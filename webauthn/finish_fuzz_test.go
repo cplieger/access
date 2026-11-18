@@ -9,9 +9,9 @@ import (
 	"github.com/cplieger/access/webauthn/internal/cose"
 )
 
-// fuzzCeremony is a ceremony of kind begun at the §16 vectors' origin with
-// challenge, which the fuzz input carries so that a body answering it
-// reaches every step after the client data's.
+// fuzzCeremony is a ceremony of kind begun at the WebAuthn §16 vectors'
+// origin with challenge, which the fuzz input carries so that a body
+// answering it reaches every step after the client data's.
 func fuzzCeremony(t testing.TB, kind ceremonyKind, challenge []byte, user *User) Ceremony {
 	st := &ceremonyState{
 		kind:      kind,
@@ -33,11 +33,11 @@ func fuzzCeremony(t testing.TB, kind ceremonyKind, challenge []byte, user *User)
 }
 
 // FuzzFinishRegistration runs untrusted bodies through FinishRegistration,
-// seeded with every §16 registration half as published and rebuilt under
-// none with UV set. It never panics, returns a record or a refusal, and a
-// record is of a present, verified user (§7.1), holds no more bytes than the
-// body (no slice sized from a declared length) and a key that parses again
-// for the sign-in that reads it.
+// seeded with every WebAuthn §16 registration half as published and rebuilt
+// under none with UV set. It never panics, returns a record or a refusal, and
+// a record is of a present, verified user (WebAuthn §7.1), holds no more
+// bytes than the body (no slice sized from a declared length) and a key that
+// parses again for the sign-in that reads it.
 func FuzzFinishRegistration(f *testing.F) {
 	for section, v := range s16(f) {
 		published := regCaseWith(f, section, v.Registration.bytes(f, "attestationObject"))
@@ -68,11 +68,12 @@ func FuzzFinishRegistration(f *testing.F) {
 }
 
 // FuzzCompleteAssertion runs untrusted bodies through CompleteLogin and
-// CompleteReauthentication against every §16 credential, seeded with every
-// §16 authentication half as published and §16.2's, §16.3's, §16.10's and
-// §16.11's re-signed with UV set. Neither panics; a refusal writes no
-// custody, and a sign-in, of a present, verified user (§7.2), writes it once
-// for the credential it returns, which holds no more bytes than the body.
+// CompleteReauthentication against every WebAuthn §16 credential, seeded with
+// every WebAuthn §16 authentication half as published and with vectors 16.2,
+// 16.3, 16.10 and 16.11 re-signed with UV set. Neither panics; a
+// refusal writes no custody, and a sign-in, of a present, verified user
+// (WebAuthn §7.2), writes it once for the credential it returns, which holds
+// no more bytes than the body.
 func FuzzCompleteAssertion(f *testing.F) {
 	vectors := s16(f)
 	creds := make([]access.PasskeyCredential, 0, len(vectors))

@@ -1,20 +1,25 @@
 # OIDC sign-in
 
-The `oidc` package signs a user in with an OpenID Connect provider. It verifies the provider's ID tokens with its own code on Go's standard library, and uses `golang.org/x/oauth2` for the code exchange and PKCE. This page explains how a flow travels from start to callback, what the provider must prove for a link or a step-up, which tokens and keys it accepts, and how outbound calls are bounded. Read it before you wire the start and callback routes yourself. The `accesshttp` package wires them for you.
+The `oidc` package signs a user in with an OpenID Connect provider. It verifies the provider's ID tokens with its own code on Go's standard library, and uses `golang.org/x/oauth2` for the code exchange and PKCE. This page explains how a flow travels from start to callback, what the provider must prove for a link, a step-up or an invite, which tokens and keys it accepts, and how outbound calls are bounded. Read it before you wire the start and callback routes yourself. The `accesshttp` package wires them for you.
 
 ## The provider
 
-`oidc.NewProvider` takes an `oidc.Config`, runs discovery and fetches the provider's key set. `Config.Validate` requires a client ID and an `https` issuer and redirect URL. It also accepts `http` on a loopback host, such as a local test provider. `Scopes` defaults to `openid`, `profile` and `email`, and a list you set must include `openid`.
+`oidc.NewProvider` takes an `oidc.Config`, runs discovery and fetches the provider's key set. `Config.Validate` requires a client ID and an `https` issuer and redirect URL. It also accepts `http` on a loopback host, such as a local test provider. `Scopes` defaults to `openid`, `profile` and `email`, and a list you set must include `openid`. `Validate` also checks that the largest flow cookie fits, as "The flow cookie" describes. It makes no request, and `NewProvider` calls it first, so every `ErrConfigInvalid` a configuration can earn comes from `Validate`: call it when an owner saves the settings, and show its error on the field it names.
 
 Discovery reads the issuer with one trailing `/` removed, followed by `/.well-known/openid-configuration`, so an issuer such as `https://tenant.auth0.com/` works. The document's `issuer` must equal `Config.IssuerURL` exactly, trailing slash included.
 
-`NewProvider` fails with `ErrDiscovery` in each of these cases, and the error never names a URL:
+A failed `NewProvider` matches exactly one of two errors, and neither names a URL.
 
-- the document or the key set cannot be fetched, redirects, or answers with a status other than 200
-- the document's `issuer` is another issuer
-- the document's `authorization_endpoint`, `token_endpoint` or `jwks_uri` is not an absolute `https` URL with a host and no user information. The error names the field. A loopback `http` endpoint is accepted only while the issuer is itself a loopback `http` URL.
-- the document's `id_token_signing_alg_values_supported` shares no algorithm with the table below. When the field is absent, the provider's set is `RS256`, the OpenID Connect default.
-- the key set holds no usable key
+`ErrDiscovery` means the provider could not be reached: the connection or TLS handshake failed, the client timed out, or the document or the key set redirected or answered with a status other than 200. A retry can succeed, so an app may retry on a short interval.
+
+`ErrProviderInvalid` means the provider answered with something access will not use. Retrying soon cannot help: show the error on the issuer field, and retry when the settings are saved or on a long interval, since the provider's administrator can fix their side. It covers:
+
+- a document or key set over 1 MiB
+- a document that is not one JSON object, or holds a duplicate member
+- a document whose `issuer` is another issuer. Check the issuer URL, trailing slash included.
+- a document whose `authorization_endpoint`, `token_endpoint` or `jwks_uri` is not an absolute `https` URL with a host and no user information. The error names the field. A loopback `http` endpoint is accepted only while the issuer is itself a loopback `http` URL.
+- a document whose `id_token_signing_alg_values_supported` shares no algorithm with the table below. When the field is absent, the provider's set is `RS256`, the OpenID Connect default.
+- a key set that is not a JWK Set, or holds no usable key
 
 `Config.Logger` receives the key set's warnings, described in "The key cache". When it is nil, each warning goes to `slog.Default()` as it is at that moment.
 
@@ -26,14 +31,14 @@ A `Provider` does not change after `NewProvider` returns. When the settings chan
 
 `Config.FlowSealer` seals the cookie. When you leave it nil, each `Provider` gets its own ephemeral sealer, and a flow begun under one provider value cannot finish under a rebuilt one. If you rebuild providers while flows are in flight, pass one sealer that outlives them.
 
-`NewProvider` sizes the cookie before discovery. It refuses with `ErrConfigInvalid` a configuration whose largest flow the sealer refuses as too large, which also matches `access.ErrSealTooLarge`. It also refuses a configuration whose largest sealed flow plus the longest flow-cookie name a valid session cookie config gives passes 4096 bytes, the most a browser keeps. A long issuer, client ID or redirect URL is what pushes a flow past these limits, so `Begin` never refuses a flow for its size.
+`Config.Validate` sizes the cookie, with the sealer and clock the provider will use, or an ephemeral sealer and the current time when they are unset: a sealed value's length depends only on what it seals. It refuses with `ErrConfigInvalid` a configuration whose largest flow the sealer refuses as too large, which also matches `access.ErrSealTooLarge`. It also refuses a configuration whose largest sealed flow plus the longest flow-cookie name a valid session cookie config gives passes 4096 bytes, the most a browser keeps. A long issuer, client ID or redirect URL is what pushes a flow past these limits, so `Begin` never refuses a flow for its size.
 
 `Begin` refuses each of these before it sets any cookie:
 
 - a `Redirect` longer than `MaxRedirectBytes`, which is 512, with `ErrRedirectTooLong`
 - a session cookie config that fails `Validate`, with `ErrConfigInvalid`
-- a `BeginRequest` whose intent is unknown, or whose session ID and user ID do not fit its intent, with `ErrFlowInvalid`. A sign-in carries neither, and a link or step-up needs both, with a positive user ID.
-- a link or step-up request whose `Sec-Fetch-Site` header is present and is not `same-origin`, with `ErrFlowInvalid`
+- a `BeginRequest` whose intent is unknown, or whose session ID, user ID and invite hash do not fit its intent, with `ErrFlowInvalid`. A link or step-up needs a session ID and a positive user ID, an invite needs an `InviteHash` of at most `MaxInviteHashBytes` (64) bytes, and no intent carries a field another intent needs.
+- a request of any intent but sign-in whose `Sec-Fetch-Site` header is present and is not `same-origin`, with `ErrFlowInvalid`
 
 The redirect goes through `access.ValidateRedirectURI`, so an unsafe path becomes `/`.
 
@@ -44,13 +49,15 @@ Decode the callback's query once and pass its `state`, `code` and `error` values
 1. It opens the cookie. A cookie that is missing, forged, expired or duplicated fails with `ErrFlowInvalid`, and so does one sealed by a provider with another issuer, client ID or redirect URL.
 2. It compares the state, and only then reads the provider's error. That error becomes a `*ProviderError` whose `Code` is one of the RFC 6749 codes or `other`. The `error_description` is never read.
 3. It exchanges the code with the PKCE verifier. A failure is `ErrExchange`.
-4. It verifies the ID token's signature, as "Parsing a token" describes, then checks its claims, as "The ID-token claims" describes. A refused token is `ErrTokenInvalid`, a nonce that differs from the sealed one is `ErrNonceMismatch`, and a link or step-up without fresh authentication is `ErrStaleAuthentication`.
+4. It verifies the ID token's signature, as "Parsing a token" describes, then checks its claims, as "The ID-token claims" describes. A refused token is `ErrTokenInvalid`, a nonce that differs from the sealed one is `ErrNonceMismatch`, and a link, step-up or invite without fresh authentication is `ErrStaleAuthentication`.
 
 An error from step 2 on comes with the opened `Flow`, so you can send the browser back to the page the flow began on. Before that, the `Flow` is zero.
 
-## Linking and step-up
+## Linking, step-up and invites
 
-A link adds a sign-in method to an account and a step-up proves the user again. Both need proof that the user signed in at the provider just now, rather than a silent single sign-on answer. For `IntentLink` and `IntentStepUp`, `Begin` sends both `max_age=0` and `prompt=login`. `Finish` then requires an `auth_time` claim no earlier than 60 seconds before the flow began, and a missing or older one is `ErrStaleAuthentication`.
+A link adds a sign-in method to an account, a step-up proves the user again, and an invite creates the invited account for the identity that signs in. Each needs proof that the person signed in at the provider just now, rather than a silent single sign-on answer, so a shared browser's existing provider session cannot bind the wrong person. For `IntentLink`, `IntentStepUp` and `IntentInvite`, `Begin` sends both `max_age=0` and `prompt=login`. `Finish` then requires an `auth_time` claim no earlier than 60 seconds before the flow began, and a missing or older one is `ErrStaleAuthentication`. OpenID Connect Core 1.0 section 2 makes `auth_time` required once `max_age` is sent, so a provider that omits it fails closed.
+
+An invite's flow carries the invite's stored hash in `BeginRequest.InviteHash`. The hash is sealed in the flow cookie and never sent in the authorization request; `Finish` returns it in `Flow.InviteHash`, and `account` reads the invite by it at the callback.
 
 Providers honour different parameters, which is why both are sent. Authentik 2026.8.3 ignores `max_age=0` and honours `prompt=login`. On Authentik the forced sign-in comes from `prompt=login`, and the `auth_time` check proves that it happened.
 
@@ -126,7 +133,7 @@ A required claim that is missing, or a claim of the wrong type, refuses the toke
 | `iat` | yes | a time no later than now plus 5 minutes |
 | `nbf` | no | a time no later than now plus 5 minutes |
 | `nonce` | yes | a string equal to the sealed nonce |
-| `auth_time` | for a link and a step-up | a time no earlier than 60 seconds before the flow began |
+| `auth_time` | for a link, a step-up and an invite | a time no earlier than 60 seconds before the flow began |
 | `email`, `preferred_username`, `name` | no | a string |
 | `email_verified` | no | a boolean, or the string `"true"` or `"false"` |
 
@@ -151,7 +158,9 @@ A key the provider retires keeps verifying from the cache until the first succes
 
 ## Provisioning and usernames
 
-`Provisioning` decides whether an identity with no account may get one, and its zero value is off. With `Claim` set, `Admit` admits a token whose claim holds one of `AllowedValues`, as a string or in an array of strings. `Validate` refuses a `Claim` without `AllowedValues`, `AllowedValues` without a `Claim`, and a `Role` other than empty, `access.RoleUser` or `access.RoleAdmin`.
+`oidc` holds no claim policy. `account.Rules.OIDCAdmission` admits a token whose claim holds one of `AllowedValues`, as a string or in an array of strings, at every sign-in, link, invite acceptance and step-up; a refused token is `account.ErrNotAdmitted`. `account.Rules.Provisioning` decides whether an admitted identity with no account may get one, and its zero value is off. An identity whose username is taken gets the pending link with a create offer, and `CreatePendingOIDC` creates the account under a name the person picks. An invite accepted by single sign-on needs no provisioning: the callback creates the account linked to the identity with the invite's role, and a taken name gives the same pick, with the invite in the pending state. A single-user app accepts no identity but the owner's: any other is `account.ErrInvalidCredentials`, with no pending link. [Identity and single sign-on](identity.md) explains admission, role sync and the SSO mode for an operator.
+
+Under `account.SSOOnly` an unlinked account other than an owner's has no local sign-in to link from. An admin issues it a temporary password with `SetTemporaryPassword`, or with `AdminRelinkOIDC` (`authAdminOIDCRelink`), which unlinks a linked account and issues one in the same step. The person signs in at the provider, then enters the account's name and that password on the pending link: `LinkPendingOIDCByAdmin` (`authOIDCLinkByAdmin`) links the identity, spends the password and signs in by OIDC. It never accepts the account's own password. A wrong name or password, an owner's name and any other mode answer one `account.ErrInvalidCredentials`, counted on the pending identity rather than the account; a pending cookie that does not open answers `account.ErrNotFound`.
 
 `UsernameCandidate` proposes a username. It takes `preferred_username` when present, or else the email when `email_verified` is true, and normalises it with `access.NormalizeUsername`. It returns `ErrNoUsername` when neither applies. When the chosen value does not normalise, it returns a `*UsernameError` naming the claim.
 
@@ -160,6 +169,8 @@ A key the provider retires keeps verifying from the cache until the first succes
 Earlier versions verified tokens with `coreos/go-oidc`, and these behaviours changed:
 
 - `NewProvider` also fails when the key set cannot be fetched or holds no usable key, and when the provider's algorithms share nothing with the table above.
+- A provider that answers with a document or key set access refuses fails `NewProvider` with `ErrProviderInvalid`, where it failed with `ErrDiscovery`, which now means only that the provider could not be reached.
+- `Config.Validate` refuses a configuration whose largest flow cookie does not fit, which only `NewProvider` refused before.
 - A provider that signs outside the table, with `HS256` or EdDSA on Ed448, while it lists an accepted algorithm, now fails at `Finish` with `ErrTokenInvalid`.
 - `exp` gains 5 minutes of grace, and an `iat` that is missing or more than 5 minutes ahead is now refused. `nbf` keeps its 5 minutes.
 - A `sub` that is not 1 to 255 ASCII characters is refused. A provider set to send a username as `sub`, such as Authentik's mode based on the user's username, can produce one.
@@ -167,7 +178,7 @@ Earlier versions verified tokens with `coreos/go-oidc`, and these behaviours cha
 - Discovery and key-set redirects are refused, and a status other than 200 is a failed fetch.
 - PS256, PS384 and PS512 accept only a salt the size of the hash, where any salt length passed before.
 - A key set that holds a key access cannot use, such as an `oct` key or a malformed RSA, EC or Ed25519 key, now verifies with that key skipped, where it failed the whole set before.
-- An RSA key with a modulus under 2048 bits is now skipped (RFC 7518 §3.3). A provider that signs only with one fails `NewProvider` with `ErrDiscovery`, so rotate it to a key of 2048 bits or more.
+- An RSA key with a modulus under 2048 bits is now skipped (RFC 7518 §3.3). A provider that signs only with one fails `NewProvider` with `ErrProviderInvalid`, so rotate it to a key of 2048 bits or more.
 - An RSA key with the CVE-2017-15361 fingerprint, and an Ed25519 key of small order, are now skipped.
 - A key whose `alg` names another algorithm than the token's header no longer verifies it, where any key of the right type did before (RFC 8725 §3.1). Publish the key with the algorithm the provider signs with, or without an `alg`.
 - An ID token over 64 KiB is refused with `ErrTokenInvalid`.

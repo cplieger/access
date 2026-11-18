@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/build"
+	"go/constant"
 	"go/importer"
 	"go/parser"
 	"go/token"
@@ -25,19 +26,19 @@ import (
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
+	"github.com/cplieger/access/internal/failreason"
 	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/ratelimit"
 	"github.com/cplieger/access/webauthn"
 )
 
-// TestOpCodesFromProducers holds opCodes against the code that answers each
-// route: every error chain its serve function can return or hand
-// (*Handler).refusal, followed through accesshttp, account, access, oidc,
-// webauthn, ratelimit and accesstest's reference store, mapped through
-// classify. A code the producers can answer is in the route's Codes or
-// refuted; every opCodes code is one they can answer; every producer error
-// they return has a producerErrors row, and the error table names it or
-// refuted does; and every refuted row still describes such a path.
+// TestOpCodesFromProducers holds opAnswers against each route's serve
+// function: every error chain it can return or hand (*Handler).refusal,
+// followed through the module up to the app's Policy and mapped through
+// classify, answers a listed code and Reason, or one in its code's open
+// family, or is refuted; every listed code, reason and open
+// mark has such a producer; every producer error has a producerErrors row
+// the error table names; and every refuted row still describes a path.
 func TestOpCodesFromProducers(t *testing.T) {
 	t.Parallel()
 	p := loadProducers(t)
@@ -51,19 +52,19 @@ func TestOpCodesFromProducers(t *testing.T) {
 		}
 		return false
 	}
+	usedReason := make([]bool, len(refutedReasons))
+	reasonRefuted := func(route string, code access.Code, reason string) bool {
+		for i, r := range refutedReasons {
+			if r.route == route && r.code == code && r.reason == reason {
+				usedReason[i] = true
+				return true
+			}
+		}
+		return false
+	}
 	for i := range specs {
 		s := &specs[i]
-		produced := map[access.Code]string{}
-		for _, c := range p.routeErrors(p.serveFunc(t, s)) {
-			vals, ok := values(c)
-			if !ok || len(vals) == 0 && s.cer == ceremonyNone {
-				continue
-			}
-			e, ok := classify(errors.Join(vals...), s.cer)
-			if ok {
-				produced[e.Code] = chainString(c)
-				continue
-			}
+		produced := p.produced(t, p.serveFunc(t, s), s.cer, func(c chain) {
 			named := false
 			for _, tm := range c {
 				named = tm.kind == termLeaf && refutedAt(s.name, "", qualified(tm.obj)) || named
@@ -71,27 +72,52 @@ func TestOpCodesFromProducers(t *testing.T) {
 			if !named {
 				t.Errorf("%s can return %s, which the error table does not name", s.name, chainString(c))
 			}
-		}
-		listed := map[access.Code]bool{}
-		for _, dc := range []DescriptorConfig{{}, {AdminScope: "a", ManageUsersScope: "u", CreateKeysScope: "k"}} {
-			class, _ := s.classFor(&dc)
-			for _, c := range slices.Concat(guardCodes(class), s.transportCodes(), opCodes[s.op]) {
-				listed[c] = true
+		})
+		listed := listedAnswers(s)
+		for code, reasons := range produced {
+			rs, ok := listed[code]
+			if !ok {
+				if !refutedAt(s.name, code, "") {
+					t.Errorf("%s can answer %s from %s, which opAnswers[%q] does not list", s.name, code, firstFrom(reasons), s.op)
+				}
+				continue
+			}
+			for r, from := range reasons {
+				if !rs.admitsProduced(code, r) && !reasonRefuted(s.name, code, r) {
+					t.Errorf("%s can answer %s with reason %s from %s, which its answers do not list", s.name, code, reasonLabel(r), from)
+				}
 			}
 		}
-		for code, from := range produced {
-			if !listed[code] && !refutedAt(s.name, code, "") {
-				t.Errorf("%s can answer %s from %s, which opCodes[%q] does not list", s.name, code, from, s.op)
+		seen := map[access.Code]bool{}
+		for _, a := range opAnswers[s.op] {
+			if seen[a.code] {
+				t.Errorf("opAnswers[%q] lists %s twice", s.op, a.code)
 			}
-		}
-		for _, code := range opCodes[s.op] {
-			if _, ok := produced[code]; !ok {
-				t.Errorf("%s: opCodes[%q] lists %s, which no producer answers", s.name, s.op, code)
+			seen[a.code] = true
+			reasons, ok := produced[a.code]
+			if !ok {
+				t.Errorf("%s: opAnswers[%q] lists %s, which no producer answers", s.name, s.op, a.code)
+				continue
+			}
+			for _, r := range a.listed {
+				if _, ok := reasons[r]; !ok {
+					t.Errorf("%s: opAnswers[%q] lists reason %q of %s, which no producer gives there", s.name, s.op, r, a.code)
+				}
+			}
+			if a.open && !hasFamily(reasons) {
+				t.Errorf("%s: opAnswers[%q] marks %s open, which no producer answers with a reason the route does not fix", s.name, s.op, a.code)
 			}
 		}
 		for _, r := range refuted {
-			if r.route == s.name && r.leaf == "" && listed[r.code] {
-				t.Errorf("refuted %s %s is listed in its Codes", r.route, r.code)
+			if r.route == s.name && r.leaf == "" {
+				if _, ok := listed[r.code]; ok {
+					t.Errorf("refuted %s %s is listed in its Codes", r.route, r.code)
+				}
+			}
+		}
+		for _, r := range refutedReasons {
+			if rs, ok := listed[r.code]; r.route == s.name && ok && slices.Contains(rs.listed, r.reason) {
+				t.Errorf("refuted %s %s reason %q is listed in its answers", r.route, r.code, r.reason)
 			}
 		}
 	}
@@ -100,9 +126,272 @@ func TestOpCodesFromProducers(t *testing.T) {
 			t.Errorf("refuted %s %s%s: no producer path reaches it", r.route, r.code, r.leaf)
 		}
 	}
+	for i, r := range refutedReasons {
+		if !usedReason[i] {
+			t.Errorf("refuted %s %s reason %q: no producer path reaches it", r.route, r.code, r.reason)
+		}
+	}
 	for name := range p.unregistered {
 		t.Errorf("%s is a producer error with no producerErrors row", name)
 	}
+}
+
+// TestFrontAnswersFromProducers holds the guard's and the transport's
+// answers against what runs before a serve function (method, origin,
+// guard, path value, query) and the body decodes in it: a code listed with
+// more than one reason, or open, has a producer for each, and each front
+// answer is listed by some route. A code with one reason is
+// TestDescriptorCodesReached's, whose boundary cases checkReason holds.
+func TestFrontAnswersFromProducers(t *testing.T) {
+	t.Parallel()
+	p := loadProducers(t)
+	front := map[access.Code]map[string]string{}
+	unnamed := func(c chain) {
+		t.Errorf("the front can return %s, which the error table does not name", chainString(c))
+	}
+	for _, name := range []string{"guard", "pathValues", "decodeQuery"} {
+		for code, reasons := range p.produced(t, p.declNamed(t, name), ceremonyNone, unnamed) {
+			for r, from := range reasons {
+				addProduced(front, code, r, from)
+			}
+		}
+	}
+	for _, err := range []error{errMethodNotAllowed, errCrossOrigin} {
+		e, _ := classify(err, ceremonyNone)
+		addProduced(front, e.Code, e.Reason, err.Error())
+	}
+	for name := range p.unregistered {
+		t.Errorf("%s is a producer error with no producerErrors row", name)
+	}
+	anywhere := map[access.Code]reasonSet{}
+	for i := range specs {
+		s := &specs[i]
+		serve := p.produced(t, p.serveFunc(t, s), s.cer, func(chain) {})
+		for _, dc := range scopeConfigs {
+			class, _ := s.classFor(&dc)
+			for code, rs := range slices.Concat(guardAnswers(class), s.transportAnswers()).reasons() {
+				anywhere[code] = mergeReasons(anywhere[code], rs)
+				if len(rs.listed) == 1 && !rs.open {
+					continue // its boundary case answers it, with that one reason
+				}
+				for _, r := range rs.listed {
+					if _, ok := front[code][r]; !ok {
+						if _, ok := serve[code][r]; !ok {
+							t.Errorf("%s: its guard or transport lists reason %q of %s, which nothing before or in its serve function gives", s.name, r, code)
+						}
+					}
+				}
+				if rs.open && !hasFamily(front[code]) && !hasFamily(serve[code]) {
+					t.Errorf("%s: its guard or transport marks %s open, which nothing before or in its serve function answers with a reason the route does not fix", s.name, code)
+				}
+			}
+		}
+	}
+	for code, reasons := range front {
+		for r, from := range reasons {
+			if !anywhere[code].admitsProduced(code, r) {
+				t.Errorf("the front can answer %s with reason %s from %s, which no route's guard or transport lists", code, reasonLabel(r), from)
+			}
+		}
+	}
+}
+
+// scopeConfigs is the two key-scope settings every route's class takes.
+var scopeConfigs = []DescriptorConfig{{}, {AdminScope: "a", ManageUsersScope: "u", CreateKeysScope: "k"}}
+
+// listedAnswers is s's answers under both scope settings, merged by code.
+func listedAnswers(s *routeSpec) map[access.Code]reasonSet {
+	out := map[access.Code]reasonSet{}
+	for _, dc := range scopeConfigs {
+		class, _ := s.classFor(&dc)
+		for code, rs := range s.answers(class).reasons() {
+			out[code] = mergeReasons(out[code], rs)
+		}
+	}
+	return out
+}
+
+func mergeReasons(a, b reasonSet) reasonSet {
+	listed := slices.Concat(a.listed, b.listed)
+	slices.Sort(listed)
+	return reasonSet{listed: slices.Compact(listed), open: a.open || b.open}
+}
+
+// produced is every code fn's producers can answer, each with the Reasons
+// it carries (producedReason's keys) and the chain that answers it; a
+// chain the error table does not name goes to unnamed.
+func (p *producers) produced(t *testing.T, fn *ast.FuncDecl, cer ceremony, unnamed func(chain)) map[access.Code]map[string]string {
+	t.Helper()
+	out := map[access.Code]map[string]string{}
+	for _, c := range p.routeErrors(fn) {
+		vals, ok := p.values(c)
+		if !ok || len(vals) == 0 && cer == ceremonyNone {
+			continue
+		}
+		e, ok := classify(p.joined(c, vals), cer)
+		if !ok {
+			unnamed(c)
+			continue
+		}
+		r, known := producedReason(e.Code, e.Reason)
+		if !known {
+			t.Errorf("%s can answer %s with reason %q from %s, which access neither fixes nor leaves open there", fn.Name.Name, e.Code, e.Reason, chainString(c))
+			continue
+		}
+		addProduced(out, e.Code, r, chainString(c))
+	}
+	return out
+}
+
+func addProduced(m map[access.Code]map[string]string, code access.Code, reason, from string) {
+	if m[code] == nil {
+		m[code] = map[string]string{}
+	}
+	m[code][reason] = from
+}
+
+func firstFrom(reasons map[string]string) string {
+	for _, k := range slices.Sorted(maps.Keys(reasons)) {
+		return reasons[k]
+	}
+	return ""
+}
+
+// fixedReasons is every Reason access fixes, and "" for none.
+var fixedReasons = func() map[string]bool {
+	m := map[string]bool{"": true}
+	for _, r := range Reasons() {
+		m[r] = true
+	}
+	return m
+}()
+
+// producedReason is how a Reason classify gave code stands against the
+// route's answers: itself when access fixes it, else the open family that
+// leaves it to the request, the IdP or the Policy; false for
+// a reason in none.
+func producedReason(code access.Code, r string) (string, bool) {
+	switch {
+	case r == policyReason:
+		return familyPolicy, code == access.CodeForbidden
+	case code == access.CodeOIDCFailed && strings.HasPrefix(r, providerErrorPrefix):
+		return familyProvider, true
+	case strings.Contains(r, unresolved) || !fixedReasons[r]:
+		return familyField, code == access.CodeBadRequest
+	}
+	return r, true
+}
+
+// familyCode is the one code each open family reaches.
+var familyCode = map[string]access.Code{
+	familyField:    access.CodeBadRequest,
+	familyProvider: access.CodeOIDCFailed,
+	familyPolicy:   access.CodeForbidden,
+}
+
+// admitsProduced reports whether rs holds r, producedReason's key for
+// code: the reason listed, or its family's code marked open.
+func (rs reasonSet) admitsProduced(code access.Code, r string) bool {
+	if fc, isFamily := familyCode[r]; isFamily {
+		return rs.open && fc == code
+	}
+	return slices.Contains(rs.listed, r)
+}
+
+// admits reports whether code may carry r at run time on a route with
+// rs: r listed, or, with rs open, r in its code's family: a field's name
+// on auth_bad_request, an IdP's error code on auth_oidc_failed, and any
+// Policy's reason on auth_forbidden.
+func (rs reasonSet) admits(code access.Code, r string) bool {
+	if slices.Contains(rs.listed, r) {
+		return true
+	}
+	if !rs.open {
+		return false
+	}
+	switch code {
+	case access.CodeForbidden:
+		return true
+	case access.CodeOIDCFailed:
+		return strings.HasPrefix(r, providerErrorPrefix)
+	case access.CodeBadRequest:
+		return !fixedReasons[r]
+	default:
+		return false
+	}
+}
+
+func hasFamily(reasons map[string]string) bool {
+	for r := range reasons {
+		if _, ok := familyCode[r]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func reasonLabel(r string) string {
+	switch r {
+	case familyField:
+		return "naming a field"
+	case familyProvider:
+		return "carrying an IdP's error code"
+	case familyPolicy:
+		return "of the app's Policy"
+	}
+	return fmt.Sprintf("%q", r)
+}
+
+// declNamed is accesshttp's function or Handler method name.
+func (p *producers) declNamed(t *testing.T, name string) *ast.FuncDecl {
+	t.Helper()
+	obj := p.accesshttp().Scope().Lookup(name)
+	if obj == nil {
+		h, _ := p.accesshttp().Scope().Lookup("Handler").(*types.TypeName)
+		obj, _, _ = types.LookupFieldOrMethod(types.NewPointer(h.Type()), false, p.accesshttp(), name)
+	}
+	fn, ok := obj.(*types.Func)
+	if !ok || p.decls[fn] == nil {
+		t.Fatalf("no declaration of %s", name)
+	}
+	return p.decls[fn]
+}
+
+// The invariants the analysis cannot read: it follows no condition on a
+// Decision's operation, so a refusal account gives one operation reaches
+// every route whose operation shares the check.
+const (
+	singleOwnerRefuted = "authorize refuses single_owner itself only for a Decision addsAccount holds for (a creation other than setup's, an invite, or an enable), and checkRules refuses registration in a single-user app; this route's operation decides none of them there, so only the app's Policy can answer it"
+	ownerRoleRefuted   = "ownerGuard answers owner_role only to OpSetRole, which UpdateUser alone decides"
+	lastOwnerRefuted   = "ownerGuard answers last_owner only where removesOwner holds: OpDeleteUser, OpSetEnabled to false and OpSetOwner to false"
+)
+
+// refutedReasons is each Reason the analysis follows to a route that the
+// runtime rules out there, with the invariant that rules it out.
+var refutedReasons = func() []refutedReason {
+	var out []refutedReason
+	add := func(code access.Code, reason, invariant string, routes ...string) {
+		for _, r := range routes {
+			out = append(out, refutedReason{route: r, code: code, reason: reason, invariant: invariant})
+		}
+	}
+	add(access.CodeForbidden, "single_owner", singleOwnerRefuted,
+		"authSetupPassword", "authSetupPasskeyFinish", "authRegisterPassword", "authRegisterPasskeyBegin", "authRegisterPasskeyFinish",
+		"authKeys", "authKeyCreate", "authKeyRename", "authKeyRotate", "authKeyRevoke", "authAdminKeys", "authAdminKeyRevoke",
+		"authAdminUsers", "authAdminUserDelete", "authAdminOwner", "authAdminSSOReadiness", "authAdminOIDCUnlink", "authAdminOIDCRelink",
+		"authAdminTemporaryPassword", "authAdminSecondFactorReset", "authAdminTokens", "authAdminSecurityLog")
+	add(access.CodeForbidden, "owner_role", ownerRoleRefuted,
+		"authAdminUserDelete", "authAdminOwner", "authAdminOIDCUnlink", "authAdminOIDCRelink", "authAdminTemporaryPassword", "authAdminSecondFactorReset")
+	add(access.CodeForbidden, "last_owner", lastOwnerRefuted,
+		"authAdminOIDCUnlink", "authAdminOIDCRelink", "authAdminTemporaryPassword", "authAdminSecondFactorReset")
+	add(access.CodeBadRequest, "redirect_too_long", "AcceptInviteOIDCBegin answers a BeginRequest with no Redirect, so Begin's ErrRedirectTooLong arm cannot fire there",
+		"authInviteAcceptOIDC")
+	return out
+}()
+
+type refutedReason struct {
+	route, reason, invariant string
+	code                     access.Code
 }
 
 // oidcConfigRefuted is why no validated configuration reaches an
@@ -121,114 +410,219 @@ var refuted = []struct {
 	{route: "authOIDCStartSignIn", code: access.CodeOIDCFailed, invariant: "serveOIDCStartSignIn begins IntentSignIn with no session or user, which BeginRequest.check's sign-in arm accepts, and Begin skips its Sec-Fetch-Site check for a sign-in"},
 	{route: "authOIDCStartLink", code: access.CodeOIDCFailed, invariant: "startSessionFlow refuses a Sec-Fetch-Site other than same-origin before Begin and passes the guard's session ID, 32 hex characters under maxSessionIDBytes, and user ID, which BeginRequest.check's session-bound arms accept"},
 	{route: "authOIDCStartStepUp", code: access.CodeOIDCFailed, invariant: "startSessionFlow refuses a Sec-Fetch-Site other than same-origin before Begin and passes the guard's session ID, 32 hex characters under maxSessionIDBytes, and user ID, which BeginRequest.check's session-bound arms accept"},
+	{route: "authInviteAcceptOIDC", code: access.CodeOIDCFailed, invariant: "serveInviteAcceptOIDC refuses a Sec-Fetch-Site other than same-origin before Begin and passes AcceptInviteOIDCBegin's request, IntentInvite with a 64-byte hex SHA-256 and no redirect, which BeginRequest.check's invite arm accepts"},
+	{route: "authOIDCCallback", code: access.CodeUsernameTaken, invariant: "oidcInvite reads the name inside the Update that creates the account and commits nothing when it is taken, so acceptIn's ErrUsernameTaken refusal of a store's CreateUser cannot fire on the callback under a serialisable Update"},
+	{route: "authTOTPRemove", code: access.CodeTOTPDisabled, invariant: "RemoveTOTP enters verifyProof only while totpOn holds for the Rules value it began with, the one verifyProof's code arm reads, so that arm's ErrTOTPDisabled cannot fire there"},
+	{route: "authSetupPassword", code: access.CodeSecondFactorRequired, invariant: "passwordDraft mints a new account's NextEnrol with ticketMint's unknownDevice false, since only an existing account's enrolment needs a known device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there"},
+	{route: "authInviteAcceptPassword", code: access.CodeSecondFactorRequired, invariant: "passwordDraft mints a new account's NextEnrol with ticketMint's unknownDevice false, since only an existing account's enrolment needs a known device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there"},
+	{route: "authRegisterPassword", code: access.CodeSecondFactorRequired, invariant: "passwordDraft mints a new account's NextEnrol with ticketMint's unknownDevice false, since only an existing account's enrolment needs a known device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there"},
+	{route: "authLoginRecoveryCode", code: access.CodeSecondFactorRequired, invariant: "countRecoveryIn mints its NextEnrol with ticketMint's unknownDevice false, since step 1 settled the device before minting the ticket the recovery code replaces, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there"},
+	{route: "authLoginSetPassword", code: access.CodeSecondFactorRequired, invariant: "stagePassword mints its NextEnrol with ticketMint's unknownDevice false, since a temporary password is the issuer's trust and its step 1 reads no device, so ticketMethods' ErrEnrolNeedsKnownDevice arm cannot fire there"},
+	{route: "authSetupPasskeyFinish", code: access.CodeRateLimited, invariant: noPendRefuted},
+	{route: "authLoginPasskeyFinish", code: access.CodeRateLimited, invariant: noPendRefuted},
+	{route: "authRegisterPasskeyFinish", code: access.CodeRateLimited, invariant: noPendRefuted},
+	{route: "authLoginPassword", code: access.CodeTokenInvalid, invariant: noReplaceRefuted},
+	{route: "authLoginPasskeyFinish", code: access.CodeTokenInvalid, invariant: noReplaceRefuted},
+	{route: "authOIDCLinkByAdmin", code: access.CodeTokenInvalid, invariant: noReplaceRefuted},
+	{route: "authRegisterPassword", code: access.CodeTokenInvalid, invariant: noReplaceRefuted},
+	{route: "authRegisterPasskeyFinish", code: access.CodeTokenInvalid, invariant: noReplaceRefuted},
+	{route: "authLoginSetPassword", leaf: modulePath + ".ErrHashInvalid", invariant: "chosenPassword verifies against the ticket's temporary-password hash, which step 1 verified on the same Hasher, whose Capacity never changes, so Verify's over-budget ErrHashInvalid arm cannot fire there"},
 	{route: "authKeyCreate", leaf: modulePath + ".ErrInvalidKeyPrefix", invariant: "CreateAPIKey's begin validates the Rules value it mints under, and Rules.Validate's KeyPrefix check refuses a KeyPrefix access.ValidateKeyPrefix refuses, so GenerateAPIKey in CreateAPIKey cannot"},
 	{route: "authKeyRotate", leaf: modulePath + ".ErrInvalidKeyPrefix", invariant: "admitRotation's begin validates the Rules value RotateAPIKey generates under, and Rules.Validate's KeyPrefix check refuses a KeyPrefix access.ValidateKeyPrefix refuses, so GenerateAPIKey in RotateAPIKey cannot"},
 	{route: "authOIDCStartSignIn", leaf: modulePath + "/oidc.ErrConfigInvalid", invariant: oidcConfigRefuted},
 	{route: "authOIDCStartLink", leaf: modulePath + "/oidc.ErrConfigInvalid", invariant: oidcConfigRefuted},
 	{route: "authOIDCStartStepUp", leaf: modulePath + "/oidc.ErrConfigInvalid", invariant: oidcConfigRefuted},
+	{route: "authInviteAcceptOIDC", leaf: modulePath + "/oidc.ErrConfigInvalid", invariant: oidcConfigRefuted},
 	{route: "authOIDCCallback", leaf: modulePath + "/oidc.ErrConfigInvalid", invariant: oidcConfigRefuted},
 }
 
 const modulePath = "github.com/cplieger/access"
 
+// noPendRefuted is why no passkey ceremony's finish mints a pending sign-in.
+const noPendRefuted = "the finish's sessionOp sets no pend, and only op.pend gives complete a pending sign-in to mint, so mintTicket's full-list refusal cannot fire there"
+
+// noReplaceRefuted is why only a set-password step replaces a live ticket
+// through complete.
+const noReplaceRefuted = "the operation's sessionOp sets no replaces, and only op.replaces sends heldBack to replaceTicket, so its ended-ticket refusal cannot fire there"
+
 var producerErrors = map[string]error{
-	modulePath + "/accesshttp.errMethodNotAllowed":     errMethodNotAllowed,
-	modulePath + "/accesshttp.errCrossOrigin":          errCrossOrigin,
-	modulePath + "/accesshttp.errPendingTooLarge":      errPendingTooLarge,
-	modulePath + "/accesshttp.requestError":            &requestError{reason: "x"},
-	modulePath + ".ErrRecentAuthRequired":              access.ErrRecentAuthRequired,
-	modulePath + ".ErrHashBusy":                        access.ErrHashBusy,
-	modulePath + ".ErrHTTPSRequired":                   access.ErrHTTPSRequired,
-	modulePath + ".ErrBreachCheckUnavailable":          access.ErrBreachCheckUnavailable,
-	modulePath + ".ErrAuthBackend":                     access.ErrAuthBackend,
-	modulePath + ".ErrTokenInvalid":                    access.ErrTokenInvalid,
-	modulePath + ".PasswordError":                      &access.PasswordError{Reason: access.PasswordCommon},
-	modulePath + "/account.ErrSessionRequired":         account.ErrSessionRequired,
-	modulePath + "/account.ErrScopeRequired":           account.ErrScopeRequired,
-	modulePath + "/account.ErrSSOGoverned":             account.ErrSSOGoverned,
-	modulePath + "/account.ErrBreachCheckUnavailable":  account.ErrBreachCheckUnavailable,
-	modulePath + "/account.ErrServiceClosed":           account.ErrServiceClosed,
-	modulePath + "/account.ErrRulesInvalid":            account.ErrRulesInvalid,
-	modulePath + "/account.ErrTTLTooLong":              account.ErrTTLTooLong,
-	modulePath + "/account.ErrTTLNegative":             account.ErrTTLNegative,
-	modulePath + "/account.ErrNoChange":                account.ErrNoChange,
-	modulePath + "/account.ErrKeyExpiryInvalid":        account.ErrKeyExpiryInvalid,
-	modulePath + "/account.ErrCurrentPasswordRequired": account.ErrCurrentPasswordRequired,
-	modulePath + "/account.ErrUsernameTaken":           account.ErrUsernameTaken,
-	modulePath + "/account.ErrKeyLabelTaken":           account.ErrKeyLabelTaken,
-	modulePath + "/account.ErrPasswordLoginDisabled":   account.ErrPasswordLoginDisabled,
-	modulePath + "/account.ErrSetupComplete":           account.ErrSetupComplete,
-	modulePath + "/account.ErrSetupTokenRequired":      account.ErrSetupTokenRequired,
-	modulePath + "/account.ErrLastMethod":              account.ErrLastMethod,
-	modulePath + "/account.ErrOIDCIdentityTaken":       account.ErrOIDCIdentityTaken,
-	modulePath + "/account.ErrAlreadyLinked":           account.ErrAlreadyLinked,
-	modulePath + "/account.ErrMethodNotLocked":         account.ErrMethodNotLocked,
-	modulePath + "/account.ErrDuplicateCredential":     account.ErrDuplicateCredential,
-	modulePath + "/account.ErrUnknownScope":            account.ErrUnknownScope,
-	modulePath + "/account.ErrPasskeysUnavailable":     account.ErrPasskeysUnavailable,
-	modulePath + "/account.ErrCeremonyInvalid":         account.ErrCeremonyInvalid,
-	modulePath + "/account.ErrOIDCUnavailable":         account.ErrOIDCUnavailable,
-	modulePath + "/account.ErrSessionGone":             account.ErrSessionGone,
-	modulePath + "/account.ErrNotFound":                account.ErrNotFound,
-	modulePath + "/account.ErrInvalidCredentials":      account.ErrInvalidCredentials,
-	modulePath + "/account.ErrPolicyRefused":           account.ErrPolicyRefused,
-	modulePath + "/account.PolicyError":                &account.PolicyError{Op: account.OpCreateUser, Reason: account.ReasonAdminTarget},
-	modulePath + "/account.RulesError":                 &account.RulesError{Field: "Breach", Reason: "no client"},
-	modulePath + "/account.UsernameError":              &account.UsernameError{Reason: account.ReasonTooLong},
-	modulePath + "/account.TextError":                  &account.TextError{Field: account.TextFieldLabel, Reason: account.ReasonTooLong},
-	modulePath + "/account.LogFilterError":             &account.LogFilterError{Reason: account.ReasonLogKind},
-	modulePath + "/webauthn.ErrResponseTooLarge":       webauthn.ErrResponseTooLarge,
-	modulePath + "/webauthn.ErrNotDiscoverable":        webauthn.ErrNotDiscoverable,
-	modulePath + "/webauthn.ErrUnknownCredential":      webauthn.ErrUnknownCredential,
-	modulePath + "/webauthn.OriginError":               &webauthn.OriginError{Reason: webauthn.RejectNotAllowlisted},
-	modulePath + "/ratelimit.RefusedError":             &ratelimit.RefusedError{Dimension: "ip", RetryAfter: time.Second},
-	modulePath + "/oidc.ErrRedirectTooLong":            oidc.ErrRedirectTooLong,
-	modulePath + "/oidc.ErrStaleAuthentication":        oidc.ErrStaleAuthentication,
-	modulePath + "/oidc.ErrFlowInvalid":                oidc.ErrFlowInvalid,
-	modulePath + "/oidc.ErrDiscovery":                  oidc.ErrDiscovery,
-	modulePath + "/oidc.ErrExchange":                   oidc.ErrExchange,
-	modulePath + "/oidc.ErrTokenInvalid":               oidc.ErrTokenInvalid,
-	modulePath + "/oidc.ErrNonceMismatch":              oidc.ErrNonceMismatch,
-	modulePath + "/oidc.ErrNoUsername":                 oidc.ErrNoUsername,
-	modulePath + "/oidc.ErrProvisioningDisabled":       oidc.ErrProvisioningDisabled,
-	modulePath + "/oidc.ErrNotAdmitted":                oidc.ErrNotAdmitted,
-	modulePath + "/oidc.ProviderError":                 &oidc.ProviderError{Code: "access_denied"},
-	modulePath + "/oidc.UsernameError":                 &oidc.UsernameError{},
-	modulePath + "/oidc.ErrConfigInvalid":              oidc.ErrConfigInvalid,
-	modulePath + ".ErrSealTooLarge":                    access.ErrSealTooLarge,
-	modulePath + "/webauthn.ErrCeremonyUnbound":        webauthn.ErrCeremonyUnbound,
-	modulePath + ".ErrHashInvalid":                     access.ErrHashInvalid,
-	modulePath + ".ErrInvalidKeyPrefix":                access.ErrInvalidKeyPrefix,
-	modulePath + ".ErrSealExpired":                     access.ErrSealExpired,
-	modulePath + ".ErrSealInvalid":                     access.ErrSealInvalid,
+	modulePath + "/accesshttp.errMethodNotAllowed":       errMethodNotAllowed,
+	modulePath + "/accesshttp.errCrossOrigin":            errCrossOrigin,
+	modulePath + "/accesshttp.errPendingTooLarge":        errPendingTooLarge,
+	modulePath + "/accesshttp.requestError":              &requestError{reason: "x"},
+	modulePath + ".ErrRecentAuthRequired":                access.ErrRecentAuthRequired,
+	modulePath + ".ErrUnauthenticated":                   access.ErrUnauthenticated,
+	modulePath + ".ErrAccountDisabled":                   access.ErrAccountDisabled,
+	modulePath + ".ErrInvalidAPIKey":                     access.ErrInvalidAPIKey,
+	modulePath + ".ErrSessionExpired":                    access.ErrSessionExpired,
+	modulePath + ".ErrSessionNotFound":                   access.ErrSessionNotFound,
+	modulePath + ".ErrSessionTransport":                  access.ErrSessionTransport,
+	modulePath + ".InvalidCredentialError":               &access.InvalidCredentialError{Err: access.ErrAccountDisabled},
+	modulePath + ".ErrHashBusy":                          access.ErrHashBusy,
+	modulePath + ".ErrHTTPSRequired":                     access.ErrHTTPSRequired,
+	modulePath + ".ErrBreachCheckUnavailable":            access.ErrBreachCheckUnavailable,
+	modulePath + ".ErrAuthBackend":                       access.ErrAuthBackend,
+	modulePath + ".ErrTokenInvalid":                      access.ErrTokenInvalid,
+	modulePath + ".PasswordError":                        &access.PasswordError{Reason: access.PasswordCommon},
+	modulePath + "/account.ErrSessionRequired":           account.ErrSessionRequired,
+	modulePath + "/account.ErrScopeRequired":             account.ErrScopeRequired,
+	modulePath + "/account.ErrSSOOnly":                   account.ErrSSOOnly,
+	modulePath + "/account.ErrSSOLinked":                 account.ErrSSOLinked,
+	modulePath + "/account.ErrTemporaryPasswordExposed":  account.ErrTemporaryPasswordExposed,
+	modulePath + "/account.ErrNotAdmitted":               account.ErrNotAdmitted,
+	modulePath + "/account.ErrNoUsableMethod":            account.ErrNoUsableMethod,
+	modulePath + "/account.ErrEnrolNeedsKnownDevice":     account.ErrEnrolNeedsKnownDevice,
+	modulePath + "/account.ErrProvisioningDisabled":      account.ErrProvisioningDisabled,
+	modulePath + "/account.ErrUnknownSSOMode":            account.ErrUnknownSSOMode,
+	modulePath + "/account.ErrBreachCheckUnavailable":    account.ErrBreachCheckUnavailable,
+	modulePath + "/account.ErrServiceClosed":             account.ErrServiceClosed,
+	modulePath + "/account.ErrRulesInvalid":              account.ErrRulesInvalid,
+	modulePath + "/account.ErrTTLTooLong":                account.ErrTTLTooLong,
+	modulePath + "/account.ErrTTLNegative":               account.ErrTTLNegative,
+	modulePath + "/account.ErrNoChange":                  account.ErrNoChange,
+	modulePath + "/account.ErrKeyExpiryInvalid":          account.ErrKeyExpiryInvalid,
+	modulePath + "/account.ErrCurrentPasswordRequired":   account.ErrCurrentPasswordRequired,
+	modulePath + "/account.ErrUsernameTaken":             account.ErrUsernameTaken,
+	modulePath + "/account.ErrKeyLabelTaken":             account.ErrKeyLabelTaken,
+	modulePath + "/account.ErrPasswordLoginDisabled":     account.ErrPasswordLoginDisabled,
+	modulePath + "/account.ErrSetupComplete":             account.ErrSetupComplete,
+	modulePath + "/account.ErrRegistrationClosed":        account.ErrRegistrationClosed,
+	modulePath + "/account.ErrRegistrationFull":          account.ErrRegistrationFull,
+	modulePath + "/account.ErrSetupTokenRequired":        account.ErrSetupTokenRequired,
+	modulePath + "/account.ErrLastMethod":                account.ErrLastMethod,
+	modulePath + "/account.ErrOIDCIdentityTaken":         account.ErrOIDCIdentityTaken,
+	modulePath + "/account.ErrAlreadyLinked":             account.ErrAlreadyLinked,
+	modulePath + "/account.ErrMethodNotLocked":           account.ErrMethodNotLocked,
+	modulePath + "/account.ErrDuplicateCredential":       account.ErrDuplicateCredential,
+	modulePath + "/account.ErrUnknownScope":              account.ErrUnknownScope,
+	modulePath + "/account.ErrPasskeysUnavailable":       account.ErrPasskeysUnavailable,
+	modulePath + "/account.ErrCeremonyInvalid":           account.ErrCeremonyInvalid,
+	modulePath + "/account.ErrOIDCUnavailable":           account.ErrOIDCUnavailable,
+	modulePath + "/account.ErrSessionGone":               account.ErrSessionGone,
+	modulePath + "/account.ErrNotFound":                  account.ErrNotFound,
+	modulePath + "/account.ErrInvalidCredentials":        account.ErrInvalidCredentials,
+	modulePath + "/account.ErrPolicyRefused":             account.ErrPolicyRefused,
+	modulePath + "/account.PolicyError":                  &account.PolicyError{Op: account.OpCreateUser, Reason: account.ReasonAdminTarget},
+	modulePath + "/account.RulesError":                   &account.RulesError{Field: "Breach", Reason: "no client"},
+	modulePath + "/account.UsernameError":                &account.UsernameError{Reason: account.ReasonTooLong},
+	modulePath + "/account.TextError":                    &account.TextError{Field: account.TextFieldLabel, Reason: account.ReasonTooLong},
+	modulePath + "/account.LogFilterError":               &account.LogFilterError{Reason: account.ReasonLogKind},
+	modulePath + "/account.CodeError":                    &account.CodeError{Reason: account.ReasonCodeInvalid},
+	modulePath + "/account.MalformedError":               &account.MalformedError{Field: "code"},
+	modulePath + "/account.ErrSecondFactorProofRequired": account.ErrSecondFactorProofRequired,
+	modulePath + "/account.ErrLastSecondFactor":          account.ErrLastSecondFactor,
+	modulePath + "/account.ErrSecondFactorHeld":          account.ErrSecondFactorHeld,
+	modulePath + "/account.ErrPasswordRequired":          account.ErrPasswordRequired,
+	modulePath + "/account.ErrTOTPDisabled":              account.ErrTOTPDisabled,
+	modulePath + "/account.ErrSecondFactorUnavailable":   account.ErrSecondFactorUnavailable,
+	modulePath + "/webauthn.ErrResponseTooLarge":         webauthn.ErrResponseTooLarge,
+	modulePath + "/webauthn.ErrNotDiscoverable":          webauthn.ErrNotDiscoverable,
+	modulePath + "/webauthn.ErrUnknownCredential":        webauthn.ErrUnknownCredential,
+	modulePath + "/webauthn.OriginError":                 &webauthn.OriginError{Reason: webauthn.RejectNotAllowlisted},
+	modulePath + "/ratelimit.RefusedError":               &ratelimit.RefusedError{Dimension: "ip", RetryAfter: time.Second},
+	modulePath + "/oidc.ErrRedirectTooLong":              oidc.ErrRedirectTooLong,
+	modulePath + "/oidc.ErrStaleAuthentication":          oidc.ErrStaleAuthentication,
+	modulePath + "/oidc.ErrFlowInvalid":                  oidc.ErrFlowInvalid,
+	modulePath + "/oidc.ErrExchange":                     oidc.ErrExchange,
+	modulePath + "/oidc.ErrTokenInvalid":                 oidc.ErrTokenInvalid,
+	modulePath + "/oidc.ErrNonceMismatch":                oidc.ErrNonceMismatch,
+	modulePath + "/oidc.ProviderError":                   &oidc.ProviderError{Code: "access_denied"},
+	modulePath + "/oidc.ErrConfigInvalid":                oidc.ErrConfigInvalid,
+	modulePath + ".ErrSealTooLarge":                      access.ErrSealTooLarge,
+	modulePath + "/webauthn.ErrCeremonyUnbound":          webauthn.ErrCeremonyUnbound,
+	modulePath + ".ErrHashInvalid":                       access.ErrHashInvalid,
+	modulePath + ".ErrInvalidKeyPrefix":                  access.ErrInvalidKeyPrefix,
+	modulePath + ".ErrSealExpired":                       access.ErrSealExpired,
+	modulePath + ".ErrSealInvalid":                       access.ErrSealInvalid,
 }
 
 // termKind is what one part of an error chain is.
 type termKind int
 
 const (
-	termLeaf      termKind = iota // a module error: obj is its var or type name
-	termOpaque                    // an error no module producer names
-	termParam                     // the error parameter obj holds, bound at the call
-	termParamCall                 // what calling parameter obj, or its field at path, returns
-	termWrapper                   // an unregistered wrapper type obj, for errors.AsType
-	termDeclared                  // refused when it matches a sentinel bound to the slice parameter obj
+	termLeaf       termKind = iota // a module error: obj is its var or type name
+	termOpaque                     // an error no module producer names
+	termParam                      // the error parameter obj holds, bound at the call
+	termParamCall                  // what calling parameter obj, or its field at path, returns in result res
+	termParamField                 // the error parameter obj's field at path holds, bound at the call
+	termWrapper                    // an unregistered wrapper type obj, for errors.AsType
+	termDeclared                   // refused when it matches a sentinel bound to the slice parameter obj
 )
 
 type term struct {
 	obj    types.Object
 	guards *guardList // the filters a parameter's value passes, applied at its binding
+	// fields is the reason-bearing string fields a leaf's or wrapper's
+	// literal sets; nil for a leaf no literal built.
+	fields *fieldList
 	path   string
 	kind   termKind
+	res    int
 }
 
 func (t term) key() string {
-	k := fmt.Sprintf("%d:%p:%s", t.kind, t.obj, t.path)
+	k := fmt.Sprintf("%d:%p:%s:%d", t.kind, t.obj, t.path, t.res)
 	if t.guards != nil {
 		k += ":" + t.guards.key
 	}
+	if t.fields != nil {
+		k += ":f" + t.fields.key
+	}
 	return k
 }
+
+// strKind is what the analysis knows of a string a typed error's field
+// holds.
+type strKind int
+
+const (
+	strConst strKind = iota // the constant s
+	strParam                // parameter obj's value, or its field at path, bound at the call
+	strOpen                 // a value the analysis does not follow
+)
+
+type strVal struct {
+	obj  *types.Var
+	s    string
+	path string
+	kind strKind
+}
+
+var openStr = []strVal{{kind: strOpen}}
+
+// fieldVal is one string field a literal sets.
+type fieldVal struct {
+	name string
+	val  strVal
+}
+
+// fieldList is an interned list of a literal's reason-bearing fields, so
+// equal lists are one pointer and terms stay comparable.
+type fieldList struct {
+	key  string
+	vals []fieldVal
+}
+
+// strKey is one string evaluation in progress, for its cycle guard.
+type strKey struct {
+	at   any // the variable or the called declaration
+	path string
+}
+
+// The placeholders a built leaf carries for a string the analysis does
+// not fix, so classify's Reason shows what it came from.
+const (
+	unresolved   = "\x00open"   // a value the analysis does not follow
+	policyReason = "\x00policy" // whatever the app's Policy answers
+)
+
+// The families of reasons a route does not fix, as a
+// produced reason's key.
+const (
+	familyField    = "\x00field"    // auth_bad_request naming a field, path value or query key
+	familyProvider = "\x00provider" // auth_oidc_failed carrying an IdP's error code
+	familyPolicy   = "\x00policy"   // auth_forbidden carrying the Policy's reason
+)
 
 // guardStep is one errors.Is or errors.AsType test a value passed, or
 // failed when holds is false.
@@ -302,11 +696,28 @@ const (
 type summaryKey struct {
 	n  ast.Node
 	ch channel
+	// res is the result a chReturned summary follows; lastErr is the last
+	// error result, so a function returning (refused, err error) is
+	// followed in each.
+	res int
 }
+
+// lastErr names a function's last error result.
+const lastErr = -1
 
 type funcPath struct {
 	x    ast.Expr
 	path string
+	res  int
+}
+
+// evalKey is one evaluation of v from the definitions starting at first, n
+// of them, so a definition that reads v's earlier value (err = f(err))
+// evaluates those earlier definitions instead of stopping at v.
+type evalKey struct {
+	v     *types.Var
+	first ast.Node
+	n     int
 }
 
 // varDef is one assignment to a local variable.
@@ -332,10 +743,17 @@ type producers struct {
 	stack        map[summaryKey]bool
 	parent       map[ast.Node]ast.Node
 	guardLists   map[string]*guardList
-	evaluating   map[*types.Var]bool
+	evaluating   map[evalKey]bool
 	resolving    map[funcPath]bool
 	impls        map[*types.Func][]*types.Func
 	unregistered map[string]bool
+	fieldDefs    map[*types.Var]map[string][]varDef // each assignment to a variable's field, by its path
+	fieldAssigns map[types.Object][]varDef          // each assignment to a struct field, by the field
+	fieldLists   map[string]*fieldList
+	strBusy      map[strKey]bool
+	bearing      map[string]bool
+	policy       *types.TypeName
+	policyError  *types.TypeName
 	module       string
 	root         string
 	concrete     []types.Type
@@ -344,6 +762,15 @@ type producers struct {
 }
 
 var errorType = types.Universe.Lookup("error").Type()
+
+// errResult reports whether a result of type t carries a function's
+// error: error itself, or a pointer to an error type, as a helper building
+// one *OriginError returns; a value type such as access.Error is an
+// answer, not an error the function returns.
+func errResult(t types.Type) bool {
+	_, ptr := t.(*types.Pointer)
+	return types.Identical(t, errorType) || ptr && isError(t)
+}
 
 func isError(t types.Type) bool {
 	return t != nil && types.Implements(t, errorType.Underlying().(*types.Interface))
@@ -393,10 +820,15 @@ func loadProducers(t *testing.T) *producers {
 		stack:        map[summaryKey]bool{},
 		parent:       map[ast.Node]ast.Node{},
 		guardLists:   map[string]*guardList{},
-		evaluating:   map[*types.Var]bool{},
+		evaluating:   map[evalKey]bool{},
 		resolving:    map[funcPath]bool{},
 		impls:        map[*types.Func][]*types.Func{},
 		unregistered: map[string]bool{},
+		fieldDefs:    map[*types.Var]map[string][]varDef{},
+		fieldAssigns: map[types.Object][]varDef{},
+		fieldLists:   map[string]*fieldList{},
+		strBusy:      map[strKey]bool{},
+		bearing:      map[string]bool{},
 		module:       module,
 		root:         root,
 	}
@@ -424,6 +856,12 @@ func loadProducers(t *testing.T) *producers {
 			}
 			p.concrete = append(p.concrete, tn.Type(), types.NewPointer(tn.Type()))
 		}
+	}
+	acct := p.pkgs[module+"/account"].Scope()
+	p.policy, _ = acct.Lookup("Policy").(*types.TypeName)
+	p.policyError, _ = acct.Lookup("PolicyError").(*types.TypeName)
+	if p.policy == nil || p.policyError == nil {
+		t.Fatal("no account.Policy or account.PolicyError")
 	}
 	h, _ := p.accesshttp().Scope().Lookup("Handler").(*types.TypeName)
 	m, _, _ := types.LookupFieldOrMethod(types.NewPointer(h.Type()), false, p.accesshttp(), "refusal")
@@ -476,6 +914,18 @@ func (m *moduleImporter) Import(path string) (*types.Package, error) {
 // assignment to a variable.
 func (p *producers) index(f *ast.File) {
 	def := func(lhs, rhs ast.Expr, index int) {
+		if sel, ok := ast.Unparen(lhs).(*ast.SelectorExpr); ok {
+			if s, ok := p.info.Selections[sel]; ok && s.Kind() == types.FieldVal {
+				p.fieldAssigns[s.Obj()] = append(p.fieldAssigns[s.Obj()], varDef{at: sel, rhs: rhs, index: index})
+			}
+			if v, path, ok := p.fieldPath(sel); ok {
+				if p.fieldDefs[v] == nil {
+					p.fieldDefs[v] = map[string][]varDef{}
+				}
+				p.fieldDefs[v][path] = append(p.fieldDefs[v][path], varDef{at: sel, rhs: rhs, index: index})
+			}
+			return
+		}
 		id, ok := ast.Unparen(lhs).(*ast.Ident)
 		if !ok {
 			return
@@ -594,7 +1044,7 @@ func (p *producers) routeErrors(fn *ast.FuncDecl) errValue {
 	for {
 		p.iter++
 		p.changed = false
-		v := errValue{}.add(p.summary(fn, chReturned)).add(p.summary(fn, chAnswered))
+		v := errValue{}.add(p.summary(fn, chReturned, lastErr)).add(p.summary(fn, chAnswered, lastErr))
 		if !p.changed {
 			return v
 		}
@@ -611,17 +1061,17 @@ func (p *producers) signature(n ast.Node) (*ast.BlockStmt, *types.Signature) {
 	panic(fmt.Sprintf("no function: %T", n))
 }
 
-// summary is what n returns in its last error result, or hands refusal,
-// with its parameters left as terms.
-func (p *producers) summary(n ast.Node, ch channel) errValue {
-	k := summaryKey{n: n, ch: ch}
+// summary is what n returns in error result res (lastErr for its last), or
+// hands refusal, with its parameters left as terms.
+func (p *producers) summary(n ast.Node, ch channel, res int) errValue {
+	k := summaryKey{n: n, ch: ch, res: res}
 	if p.round[k] == p.iter || p.stack[k] {
 		return p.sums[k]
 	}
 	p.stack[k] = true
 	var out errValue
 	if ch == chReturned {
-		out = p.returned(n)
+		out = p.returned(n, res)
 	} else {
 		out = p.answered(n)
 	}
@@ -634,15 +1084,17 @@ func (p *producers) summary(n ast.Node, ch channel) errValue {
 	return out
 }
 
-func (p *producers) returned(n ast.Node) errValue {
+func (p *producers) returned(n ast.Node, res int) errValue {
 	body, sig := p.signature(n)
-	idx := -1
-	for i := range sig.Results().Len() {
-		if types.Identical(sig.Results().At(i).Type(), errorType) {
-			idx = i
+	idx := res
+	if res == lastErr {
+		for i := range sig.Results().Len() {
+			if errResult(sig.Results().At(i).Type()) {
+				idx = i
+			}
 		}
 	}
-	if idx < 0 {
+	if idx < 0 || !errResult(sig.Results().At(idx).Type()) {
 		return nil
 	}
 	var out errValue
@@ -682,7 +1134,7 @@ func (p *producers) answered(n ast.Node) errValue {
 		if fn == p.refusal {
 			out = out.add(p.eval(call.Args[1]))
 		} else if decl := p.decls[fn.Origin()]; decl != nil {
-			out = out.add(p.bind(p.summary(decl, chAnswered), decl, call))
+			out = out.add(p.bind(p.summary(decl, chAnswered, lastErr), decl, call))
 		}
 		return true
 	})
@@ -708,6 +1160,10 @@ func (p *producers) eval(e ast.Expr) errValue {
 			return p.evalObj(p.info.Uses[e.Sel])
 		case sel.Kind() == types.FieldVal && isError(p.info.TypeOf(e.X)):
 			return p.eval(e.X)
+		case sel.Kind() == types.FieldVal:
+			if v, path, ok := p.fieldPath(e); ok {
+				return p.varField(v, path)
+			}
 		}
 	case *ast.CallExpr:
 		return p.evalCall(e, -1)
@@ -721,6 +1177,132 @@ func (p *producers) eval(e ast.Expr) errValue {
 		return p.eval(e.X)
 	}
 	return opaqueValue
+}
+
+// varField is the error v's field at path holds: a parameter's stays a
+// term bound at the call, a local's is every definition's and every
+// assignment to the field, flow-insensitively.
+func (p *producers) varField(v *types.Var, path string) errValue {
+	switch v.Kind() {
+	case types.ParamVar, types.RecvVar:
+		return valueOf(chain{{kind: termParamField, obj: v, path: path}})
+	case types.PackageVar:
+		if init := p.inits[v]; init != nil {
+			return p.exprField(init, path)
+		}
+		return opaqueValue
+	default:
+	}
+	k := strKey{at: v, path: "error:" + path}
+	if p.strBusy[k] {
+		return nil
+	}
+	p.strBusy[k] = true
+	defer delete(p.strBusy, k)
+	var out errValue
+	for _, d := range p.defs[v] {
+		switch {
+		case d.rng:
+			out = out.add(opaqueValue)
+		case d.index >= 0:
+			out = out.add(p.calledField(d.rhs, d.index, path))
+		default:
+			out = out.add(p.exprField(d.rhs, path))
+		}
+	}
+	for _, d := range p.fieldDefs[v][path] {
+		if d.index >= 0 {
+			out = out.add(p.evalCall(d.rhs, d.index))
+		} else {
+			out = out.add(p.eval(d.rhs))
+		}
+	}
+	return out
+}
+
+// exprField is the error the field at path of the value x holds; a
+// literal leaving it out holds none.
+func (p *producers) exprField(x ast.Expr, path string) errValue {
+	switch e := ast.Unparen(x).(type) {
+	case *ast.UnaryExpr:
+		if e.Op == token.AND {
+			return p.exprField(e.X, path)
+		}
+	case *ast.StarExpr:
+		return p.exprField(e.X, path)
+	case *ast.CompositeLit:
+		name, rest, _ := strings.Cut(path, ".")
+		for _, elt := range e.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				return opaqueValue
+			}
+			if isIdentNamed(kv.Key, name) {
+				if rest == "" {
+					return p.eval(kv.Value)
+				}
+				return p.exprField(kv.Value, rest)
+			}
+		}
+		return nil
+	case *ast.Ident:
+		if v, ok := p.info.Uses[e].(*types.Var); ok {
+			return p.varField(v, path)
+		}
+	case *ast.SelectorExpr:
+		if v, base, ok := p.fieldPath(e); ok {
+			return p.varField(v, base+"."+path)
+		}
+	case *ast.CallExpr:
+		return p.calledField(e, -1, path)
+	}
+	return opaqueValue
+}
+
+// calledField is the error the field at path of what x's call of a module
+// function returns in result index holds, its only one when index is -1,
+// the callee's parameters bound to the call's arguments.
+func (p *producers) calledField(x ast.Expr, index int, path string) errValue {
+	call, ok := ast.Unparen(x).(*ast.CallExpr)
+	if !ok {
+		return opaqueValue
+	}
+	fn, ok := p.callee(call.Fun).(*types.Func)
+	if !ok || p.decls[fn.Origin()] == nil {
+		return opaqueValue
+	}
+	results := fn.Signature().Results().Len()
+	if index < 0 && results == 1 {
+		index = 0
+	}
+	if index < 0 || index >= results {
+		return opaqueValue
+	}
+	decl := p.decls[fn.Origin()]
+	k := strKey{at: decl, path: fmt.Sprintf("error:%d:%s", index, path)}
+	if p.strBusy[k] {
+		return nil
+	}
+	p.strBusy[k] = true
+	defer delete(p.strBusy, k)
+	var sum errValue
+	ast.Inspect(decl.Body, func(n ast.Node) bool {
+		switch r := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.ReturnStmt:
+			switch {
+			case len(r.Results) == results:
+				sum = sum.add(p.exprField(r.Results[index], path))
+			case len(r.Results) == 1:
+				sum = sum.add(p.calledField(r.Results[0], index, path))
+			default:
+				sum = sum.add(opaqueValue)
+			}
+		}
+		return true
+	})
+	return p.bind(sum, decl, call)
 }
 
 func registered(obj types.Object) bool {
@@ -779,13 +1361,14 @@ func (p *producers) evalObj(obj types.Object) errValue {
 }
 
 // evalLocal is what local or parameter v holds where ref reads it: the
-// definitions before ref from the last one in a block enclosing ref, or,
-// when none precedes it, every definition and the parameter's own value.
+// definitions before ref, but the one whose right side holds ref, from the
+// last one in a block enclosing ref, or, when none precedes it, every
+// definition and the parameter's own value.
 func (p *producers) evalLocal(v *types.Var, ref ast.Node) errValue {
 	var before []varDef
 	kill := -1
 	for _, d := range p.defs[v] {
-		if d.at.Pos() >= ref.Pos() {
+		if d.at.Pos() >= ref.Pos() || d.rhs != nil && p.encloses(d.rhs, ref) {
 			continue
 		}
 		if p.encloses(p.block(d.at), ref) {
@@ -825,11 +1408,15 @@ func (p *producers) encloses(outer, n ast.Node) bool {
 func (p *producers) evalVar(v *types.Var) errValue { return p.evalDefs(v, p.defs[v]) }
 
 func (p *producers) evalDefs(v *types.Var, defs []varDef) errValue {
-	if p.evaluating[v] {
+	key := evalKey{v: v, n: len(defs)}
+	if len(defs) > 0 {
+		key.first = defs[0].at
+	}
+	if p.evaluating[key] {
 		return nil
 	}
-	p.evaluating[v] = true
-	defer delete(p.evaluating, v)
+	p.evaluating[key] = true
+	defer delete(p.evaluating, key)
 	var out errValue
 	for _, d := range defs {
 		switch {
@@ -847,42 +1434,202 @@ func (p *producers) evalDefs(v *types.Var, defs []varDef) errValue {
 // elements is what ranging over x yields: a package slice literal's
 // elements.
 func (p *producers) elements(x ast.Expr) errValue {
-	if id, ok := ast.Unparen(x).(*ast.Ident); ok {
-		if v, ok := p.info.Uses[id].(*types.Var); ok {
+	elts := p.elementExprs(x, map[types.Object]bool{})
+	if elts == nil {
+		return opaqueValue
+	}
+	var out errValue
+	for _, elt := range elts {
+		out = out.add(p.eval(elt))
+	}
+	return out
+}
+
+// elementExprs is every element a package slice literal x holds, or a
+// struct field x every assignment builds from literals and appends; nil
+// when x is neither.
+func (p *producers) elementExprs(x ast.Expr, seen map[types.Object]bool) []ast.Expr {
+	switch x := ast.Unparen(x).(type) {
+	case *ast.Ident:
+		if v, ok := p.info.Uses[x].(*types.Var); ok {
 			if lit, ok := p.inits[v].(*ast.CompositeLit); ok {
-				var out errValue
-				for _, elt := range lit.Elts {
-					out = out.add(p.eval(elt))
-				}
-				return out
+				return lit.Elts
 			}
 		}
+	case *ast.SelectorExpr:
+		sel, ok := p.info.Selections[x]
+		if !ok || sel.Kind() != types.FieldVal || seen[sel.Obj()] {
+			return nil
+		}
+		seen[sel.Obj()] = true
+		var out []ast.Expr
+		for _, d := range p.fieldAssigns[sel.Obj()] {
+			if d.index >= 0 {
+				continue
+			}
+			switch r := ast.Unparen(d.rhs).(type) {
+			case *ast.CompositeLit:
+				out = append(out, r.Elts...)
+			case *ast.CallExpr:
+				if b, ok := p.callee(r.Fun).(*types.Builtin); ok && b.Name() == "append" && len(r.Args) > 0 {
+					out = append(append(out, p.elementExprs(r.Args[0], seen)...), r.Args[1:]...)
+				}
+			}
+		}
+		return out
 	}
-	return opaqueValue
+	return nil
 }
 
 // evalLit is an error literal: a registered or exported type is a leaf
-// over its error fields, any other is its error fields alone.
+// over its error fields, any other is its error fields alone; either
+// carries the reason-bearing string fields the literal sets.
 func (p *producers) evalLit(lit *ast.CompositeLit) errValue {
 	var fields []errValue
+	named, ok := p.info.TypeOf(lit).(*types.Named)
+	var strs [][]fieldVal
 	for _, elt := range lit.Elts {
-		if kv, ok := elt.(*ast.KeyValueExpr); ok {
+		kv, isKV := elt.(*ast.KeyValueExpr)
+		if isKV {
 			elt = kv.Value
 		}
 		fields = append(fields, p.eval(elt))
+		if id, isID := ast.Unparen(kvKey(kv)).(*ast.Ident); isID && ok && p.bearingField(named.Obj(), id.Name) {
+			var alts []fieldVal
+			for _, v := range p.strs(kv.Value) {
+				alts = append(alts, fieldVal{name: id.Name, val: v})
+			}
+			strs = append(strs, alts)
+		}
 	}
 	children := cross(fields...)
-	named, ok := p.info.TypeOf(lit).(*types.Named)
 	switch {
 	case !ok || !p.inModule(named.Obj().Pkg()):
 		return opaqueValue
 	case registered(named.Obj()) || named.Obj().Exported():
-		return cross(p.leaf(named.Obj()), children)
+		p.leaf(named.Obj())
+		return cross(p.withFields(term{kind: termLeaf, obj: named.Obj()}, strs), children)
 	}
 	if c, ok := children[""]; ok && len(c) == 0 {
 		children = opaqueValue
 	}
-	return cross(valueOf(chain{{kind: termWrapper, obj: named.Obj()}}), children)
+	return cross(p.withFields(term{kind: termWrapper, obj: named.Obj()}, strs), children)
+}
+
+func kvKey(kv *ast.KeyValueExpr) ast.Expr {
+	if kv == nil {
+		return nil
+	}
+	return kv.Key
+}
+
+// withFields is base under every combination of one value per field of
+// alts, a literal's fields; with none it is base with no field set.
+func (p *producers) withFields(base term, alts [][]fieldVal) errValue {
+	combos := [][]fieldVal{nil}
+	for _, field := range alts {
+		if len(field) == 0 {
+			field = []fieldVal{{val: strVal{kind: strOpen}}}
+		}
+		var next [][]fieldVal
+		for _, combo := range combos {
+			for _, f := range field {
+				next = append(next, append(slices.Clone(combo), f))
+			}
+		}
+		combos = next
+	}
+	out := errValue{}
+	for _, combo := range combos {
+		t := base
+		t.fields = p.fieldList(combo)
+		out.add(valueOf(chain{t}))
+	}
+	return out
+}
+
+// fieldList interns vals, sorted by name.
+func (p *producers) fieldList(vals []fieldVal) *fieldList {
+	vals = slices.Clone(vals)
+	slices.SortFunc(vals, func(a, b fieldVal) int { return strings.Compare(a.name, b.name) })
+	var b strings.Builder
+	for _, f := range vals {
+		fmt.Fprintf(&b, "%s=%d/%q/%p/%s;", f.name, f.val.kind, f.val.s, f.val.obj, f.val.path)
+	}
+	k := b.String()
+	if l := p.fieldLists[k]; l != nil {
+		return l
+	}
+	l := &fieldList{key: k, vals: vals}
+	p.fieldLists[k] = l
+	return l
+}
+
+// reasonedType is failreason's wrapper, whose reason ErrorFor reads for
+// auth_recent_auth_required and auth_https_required.
+const reasonedType = modulePath + "/internal/failreason.reasoned"
+
+// bearingField reports whether obj's string field name reaches classify's
+// Reason: the wrapper's reason, or a leaf's field whose placeholder the
+// Reason carries.
+func (p *producers) bearingField(obj types.Object, name string) bool {
+	if qualified(obj) == reasonedType {
+		return name == "reason"
+	}
+	k := qualified(obj) + "." + name
+	if b, ok := p.bearing[k]; ok {
+		return b
+	}
+	b := false
+	if e, ok := buildLeaf(obj, map[string]string{name: unresolved}); ok {
+		got, ok := classify(e, ceremonyNone)
+		b = ok && strings.Contains(got.Reason, unresolved)
+	}
+	p.bearing[k] = b
+	return b
+}
+
+// bearingFields is every reason-bearing string field of type obj.
+func (p *producers) bearingFields(obj types.Object) []string {
+	tn, ok := obj.(*types.TypeName)
+	if !ok {
+		return nil
+	}
+	st, ok := tn.Type().Underlying().(*types.Struct)
+	if !ok {
+		return nil
+	}
+	var names []string
+	for f := range st.Fields() {
+		if b, isBasic := f.Type().Underlying().(*types.Basic); isBasic && b.Kind() == types.String && p.bearingField(obj, f.Name()) {
+			names = append(names, f.Name())
+		}
+	}
+	return names
+}
+
+// buildLeaf is obj's error with fields set over a zero value, or its
+// producerErrors row when fields is empty, as for a type with no
+// reason-bearing field.
+func buildLeaf(obj types.Object, fields map[string]string) (error, bool) {
+	tmpl, ok := errorValue(obj)
+	if !ok || len(fields) == 0 {
+		return tmpl, ok
+	}
+	if qualified(obj) == modulePath+"/accesshttp.requestError" {
+		return &requestError{reason: fields["reason"]}, true
+	}
+	v := reflect.ValueOf(tmpl)
+	if v.Kind() != reflect.Pointer || v.Elem().Kind() != reflect.Struct {
+		return tmpl, true
+	}
+	nv := reflect.New(v.Elem().Type())
+	for name, val := range fields {
+		if f := nv.Elem().FieldByName(name); f.CanSet() && f.Kind() == reflect.String {
+			f.SetString(val)
+		}
+	}
+	return reflect.TypeAssert[error](nv)
 }
 
 // evalAddr is &x for an x whose pointer is the error: a literal, or a
@@ -951,7 +1698,14 @@ func (p *producers) evalCall(e ast.Expr, index int) errValue {
 	}
 	fn, ok := p.callee(call.Fun).(*types.Func)
 	if !ok {
-		return p.callValue(call.Fun, "")
+		if lits := p.closures(call.Fun); lits != nil {
+			var out errValue
+			for _, lit := range lits {
+				out = out.add(p.bind(p.summary(lit, chReturned, index), lit, call))
+			}
+			return out
+		}
+		return p.callValue(call.Fun, "", index)
 	}
 	switch qualified(fn.Origin()) {
 	case "errors.New":
@@ -967,7 +1721,29 @@ func (p *producers) evalCall(e ast.Expr, index int) errValue {
 	case p.module + "/account.refusedBy":
 		return p.declare(p.eval(call.Args[0]), call.Args[1:], call.Ellipsis.IsValid())
 	}
-	return p.callFunc(fn, call)
+	return p.callFunc(fn, call, index)
+}
+
+// closures is every function literal a local fun is defined as, so a call
+// of it binds its arguments; nil when fun is anything else.
+func (p *producers) closures(fun ast.Expr) []*ast.FuncLit {
+	id, ok := ast.Unparen(fun).(*ast.Ident)
+	if !ok {
+		return nil
+	}
+	v, ok := p.info.Uses[id].(*types.Var)
+	if !ok || v.Kind() != types.LocalVar || len(p.defs[v]) == 0 {
+		return nil
+	}
+	var lits []*ast.FuncLit
+	for _, d := range p.defs[v] {
+		lit, isLit := ast.Unparen(d.rhs).(*ast.FuncLit)
+		if !isLit || d.index >= 0 || d.rng {
+			return nil
+		}
+		lits = append(lits, lit)
+	}
+	return lits
 }
 
 // declare is account.refusedBy(val, sentinels...): each chain of val that
@@ -997,7 +1773,7 @@ func (p *producers) refuseMatching(val errValue, sentinels []types.Object) errVa
 	for _, c := range val {
 		matched := false
 		for _, s := range sentinels {
-			if m, _ := matches(c, errTest{sentinel: s}); m {
+			if m, _ := p.matches(c, errTest{sentinel: s}); m {
 				matched = true
 			}
 		}
@@ -1026,22 +1802,34 @@ func (p *producers) wrap(args []ast.Expr) errValue {
 	return out
 }
 
-// callFunc is what calling fn returns: its summary bound to call's
-// arguments, over every module implementation of an interface method.
-func (p *producers) callFunc(fn *types.Func, call *ast.CallExpr) errValue {
+// callFunc is what calling fn returns in result res: its summary bound to
+// call's arguments, over every module implementation of an interface
+// method.
+func (p *producers) callFunc(fn *types.Func, call *ast.CallExpr, res int) errValue {
 	fn = fn.Origin()
+	if p.isPolicyAuthorize(fn) {
+		return p.withFields(term{kind: termLeaf, obj: p.policyError}, [][]fieldVal{{{name: "Reason", val: strVal{kind: strConst, s: policyReason}}}})
+	}
 	if decl := p.decls[fn]; decl != nil {
-		return p.bind(p.summary(decl, chReturned), decl, call)
+		return p.bind(p.summary(decl, chReturned, res), decl, call)
 	}
 	var out errValue
 	for _, m := range p.implementations(fn) {
 		decl := p.decls[m]
-		out = out.add(p.bind(p.summary(decl, chReturned), decl, call))
+		out = out.add(p.bind(p.summary(decl, chReturned, res), decl, call))
 	}
 	if out == nil {
 		return opaqueValue
 	}
 	return out
+}
+
+// isPolicyAuthorize reports whether fn is account.Policy's Authorize, which
+// answers the app's own Policy: the analysis stops there, since what a
+// built-in Policy answers describes that Policy, not the route.
+func (p *producers) isPolicyAuthorize(fn *types.Func) bool {
+	recv := fn.Signature().Recv()
+	return fn.Name() == "Authorize" && recv != nil && types.Identical(recv.Type(), p.policy.Type())
 }
 
 // implementations is every module method an interface method fn
@@ -1068,10 +1856,10 @@ func (p *producers) implementations(fn *types.Func) []*types.Func {
 }
 
 // callValue is what calling the function value x, or its field at path,
-// returns, the function's own parameters unbound.
-func (p *producers) callValue(x ast.Expr, path string) errValue {
+// returns in result res, the function's own parameters unbound.
+func (p *producers) callValue(x ast.Expr, path string, res int) errValue {
 	x = ast.Unparen(x)
-	k := funcPath{x: x, path: path}
+	k := funcPath{x: x, path: path, res: res}
 	if p.resolving[k] {
 		return nil
 	}
@@ -1080,24 +1868,24 @@ func (p *producers) callValue(x ast.Expr, path string) errValue {
 	switch x := x.(type) {
 	case *ast.FuncLit:
 		if path == "" {
-			return p.bind(p.summary(x, chReturned), x, nil)
+			return p.bind(p.summary(x, chReturned, res), x, nil)
 		}
 	case *ast.UnaryExpr:
-		return p.callValue(x.X, path)
+		return p.callValue(x.X, path, res)
 	case *ast.CompositeLit:
 		field, rest, _ := strings.Cut(path, ".")
 		for _, elt := range x.Elts {
 			if kv, ok := elt.(*ast.KeyValueExpr); ok && isIdentNamed(kv.Key, field) {
-				return p.callValue(kv.Value, rest)
+				return p.callValue(kv.Value, rest, res)
 			}
 		}
 		return nil
 	case *ast.SelectorExpr:
 		if sel, ok := p.info.Selections[x]; ok && sel.Kind() == types.FieldVal {
-			return p.callValue(x.X, strings.TrimSuffix(x.Sel.Name+"."+path, "."))
+			return p.callValue(x.X, strings.TrimSuffix(x.Sel.Name+"."+path, "."), res)
 		}
 	case *ast.CallExpr:
-		return p.returnedFuncs(x, path)
+		return p.returnedFuncs(x, path, res)
 	}
 	switch obj := p.callee(x).(type) {
 	case *types.Func:
@@ -1105,11 +1893,11 @@ func (p *producers) callValue(x ast.Expr, path string) errValue {
 			break
 		}
 		if decl := p.decls[obj.Origin()]; decl != nil {
-			return p.bind(p.summary(decl, chReturned), decl, nil)
+			return p.bind(p.summary(decl, chReturned, res), decl, nil)
 		}
 		var out errValue
 		for _, m := range p.implementations(obj.Origin()) {
-			out = out.add(p.bind(p.summary(p.decls[m], chReturned), p.decls[m], nil))
+			out = out.add(p.bind(p.summary(p.decls[m], chReturned, res), p.decls[m], nil))
 		}
 		if out != nil {
 			return out
@@ -1117,16 +1905,25 @@ func (p *producers) callValue(x ast.Expr, path string) errValue {
 	case *types.Var:
 		switch obj.Kind() {
 		case types.ParamVar, types.RecvVar:
-			return valueOf(chain{{kind: termParamCall, obj: obj, path: path}})
+			return valueOf(chain{{kind: termParamCall, obj: obj, path: path, res: res}})
 		case types.PackageVar:
 			if init := p.inits[obj]; init != nil {
-				return p.callValue(init, path)
+				return p.callValue(init, path, res)
 			}
 		default:
 			var out errValue
 			for _, d := range p.defs[obj] {
-				if d.index < 0 && !d.rng {
-					out = out.add(p.callValue(d.rhs, path))
+				switch {
+				case d.rng:
+					elts := p.elementExprs(d.rhs, map[types.Object]bool{})
+					if elts == nil {
+						out = out.add(opaqueValue)
+					}
+					for _, elt := range elts {
+						out = out.add(p.callValue(elt, path, res))
+					}
+				case d.index < 0:
+					out = out.add(p.callValue(d.rhs, path, res))
 				}
 			}
 			return out
@@ -1135,9 +1932,9 @@ func (p *producers) callValue(x ast.Expr, path string) errValue {
 	return opaqueValue
 }
 
-// returnedFuncs is what calling the function value call returns, or its
-// field at path: the values its callee's return statements give.
-func (p *producers) returnedFuncs(call *ast.CallExpr, path string) errValue {
+// returnedFuncs is what calling the function value call returns in result
+// res, or its field at path: the values its callee's return statements give.
+func (p *producers) returnedFuncs(call *ast.CallExpr, path string, res int) errValue {
 	fn, ok := p.callee(call.Fun).(*types.Func)
 	if !ok || p.decls[fn.Origin()] == nil {
 		return opaqueValue
@@ -1149,7 +1946,7 @@ func (p *producers) returnedFuncs(call *ast.CallExpr, path string) errValue {
 			return false
 		case *ast.ReturnStmt:
 			if len(x.Results) == 1 {
-				out = out.add(p.callValue(x.Results[0], path))
+				out = out.add(p.callValue(x.Results[0], path, res))
 			}
 		}
 		return true
@@ -1160,32 +1957,17 @@ func (p *producers) returnedFuncs(call *ast.CallExpr, path string) errValue {
 // bind replaces fn's parameter terms in sum with call's arguments; with no
 // call, it drops them.
 func (p *producers) bind(sum errValue, fn ast.Node, call *ast.CallExpr) errValue {
-	_, sig := p.signature(fn)
-	args := map[*types.Var][]ast.Expr{}
-	params := sig.Params()
-	for v := range params.Variables() {
-		args[v] = nil
-	}
-	if recv := sig.Recv(); recv != nil {
-		args[recv] = nil
-		if call != nil {
-			if sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr); ok && p.info.Selections[sel] != nil {
-				args[recv] = []ast.Expr{sel.X}
-			}
-		}
-	}
-	if call != nil && params.Len() > 0 {
-		for i, a := range call.Args {
-			v := params.At(min(i, params.Len()-1))
-			args[v] = append(args[v], a)
-		}
-	}
+	args := p.argsOf(fn, call)
 	var out errValue
 	for _, c := range sum {
 		var fixed chain
 		var parts []errValue
 		var markers [][]ast.Expr
 		for _, tm := range c {
+			if bound, ok := p.bindFields(tm, args); ok {
+				parts = append(parts, bound)
+				continue
+			}
 			v, _ := tm.obj.(*types.Var)
 			bound, isArg := args[v]
 			if tm.kind == termDeclared && isArg {
@@ -1198,10 +1980,13 @@ func (p *producers) bind(sum errValue, fn ast.Node, call *ast.CallExpr) errValue
 			}
 			part := errValue{}
 			for _, a := range bound {
-				if tm.kind == termParam {
+				switch tm.kind {
+				case termParam:
 					part.add(p.eval(a))
-				} else {
-					part.add(p.callValue(a, tm.path))
+				case termParamField:
+					part.add(p.exprField(a, tm.path))
+				default:
+					part.add(p.callValue(a, tm.path, tm.res))
 				}
 			}
 			if tm.guards != nil {
@@ -1232,20 +2017,329 @@ func (p *producers) bind(sum errValue, fn ast.Node, call *ast.CallExpr) errValue
 	return out
 }
 
-// values is c's leaves' errors (errorValue), false when a leaf has none.
-func values(c chain) ([]error, bool) {
+// argsOf is the arguments call binds to each of fn's parameters and its
+// receiver; with no call, each is bound to nothing.
+func (p *producers) argsOf(fn ast.Node, call *ast.CallExpr) map[*types.Var][]ast.Expr {
+	_, sig := p.signature(fn)
+	args := map[*types.Var][]ast.Expr{}
+	params := sig.Params()
+	for v := range params.Variables() {
+		args[v] = nil
+	}
+	if recv := sig.Recv(); recv != nil {
+		args[recv] = nil
+		if call != nil {
+			if sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr); ok && p.info.Selections[sel] != nil {
+				args[recv] = []ast.Expr{sel.X}
+			}
+		}
+	}
+	if call != nil && params.Len() > 0 {
+		for i, a := range call.Args {
+			v := params.At(min(i, params.Len()-1))
+			args[v] = append(args[v], a)
+		}
+	}
+	return args
+}
+
+// bindFields is tm with each string field naming a parameter in args
+// replaced by what its argument holds, one term per combination; false
+// when no field names one.
+func (p *producers) bindFields(tm term, args map[*types.Var][]ast.Expr) (errValue, bool) {
+	if tm.fields == nil || !slices.ContainsFunc(tm.fields.vals, func(f fieldVal) bool {
+		_, isArg := args[f.val.obj]
+		return f.val.kind == strParam && isArg
+	}) {
+		return nil, false
+	}
+	alts := make([][]fieldVal, len(tm.fields.vals))
+	for i, f := range tm.fields.vals {
+		for _, v := range p.bindStrs([]strVal{f.val}, args) {
+			alts[i] = append(alts[i], fieldVal{name: f.name, val: v})
+		}
+	}
+	base := tm
+	base.fields = nil
+	return p.withFields(base, alts), true
+}
+
+// bindStrs is vals with each parameter value in args replaced by what its
+// arguments hold where the call is; a parameter bound to nothing is open.
+func (p *producers) bindStrs(vals []strVal, args map[*types.Var][]ast.Expr) []strVal {
+	var out []strVal
+	for _, v := range vals {
+		bound, isArg := args[v.obj]
+		switch {
+		case v.kind != strParam || !isArg:
+			out = append(out, v)
+		case len(bound) == 0:
+			out = append(out, openStr...)
+		default:
+			for _, a := range bound {
+				if v.path == "" {
+					out = append(out, p.strs(a)...)
+				} else {
+					out = append(out, p.fieldStrs(a, v.path)...)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// strs is every value the string expression e can hold where it appears:
+// a constant, a parameter or its field, a local's definitions, or what a
+// module function returns.
+func (p *producers) strs(e ast.Expr) []strVal {
+	e = ast.Unparen(e)
+	if tv, ok := p.info.Types[e]; ok && tv.Value != nil && tv.Value.Kind() == constant.String {
+		return []strVal{{kind: strConst, s: constant.StringVal(tv.Value)}}
+	}
+	switch e := e.(type) {
+	case *ast.Ident:
+		if v, ok := p.info.Uses[e].(*types.Var); ok {
+			return p.strGuarded(e, v, p.varStrs(v, ""))
+		}
+	case *ast.SelectorExpr:
+		if v, path, ok := p.fieldPath(e); ok {
+			return p.varStrs(v, path)
+		}
+	case *ast.CallExpr:
+		if p.info.Types[e.Fun].IsType() && len(e.Args) == 1 {
+			return p.strs(e.Args[0])
+		}
+		return p.calledStrs(e, "", -1)
+	}
+	return openStr
+}
+
+// strGuarded drops from vals, v's values read at id, each constant an
+// enclosing if's v != c rules out where id sits in its body.
+func (p *producers) strGuarded(id *ast.Ident, v *types.Var, vals []strVal) []strVal {
+	for child, n := ast.Node(id), p.parent[id]; n != nil; child, n = n, p.parent[n] {
+		switch n := n.(type) {
+		case *ast.FuncLit, *ast.FuncDecl:
+			return vals
+		case *ast.IfStmt:
+			be, ok := ast.Unparen(n.Cond).(*ast.BinaryExpr)
+			if !ok || child != n.Body || be.Op != token.NEQ {
+				continue
+			}
+			x, isID := ast.Unparen(be.X).(*ast.Ident)
+			tv := p.info.Types[be.Y]
+			if isID && p.info.Uses[x] == v && tv.Value != nil && tv.Value.Kind() == constant.String {
+				ruled := constant.StringVal(tv.Value)
+				vals = slices.DeleteFunc(slices.Clone(vals), func(sv strVal) bool { return sv.kind == strConst && sv.s == ruled })
+			}
+		}
+	}
+	return vals
+}
+
+// fieldPath is sel as a path of direct fields from a variable: v.a.b is v
+// and "a.b".
+func (p *producers) fieldPath(sel *ast.SelectorExpr) (v *types.Var, path string, ok bool) {
+	s, isSel := p.info.Selections[sel]
+	if !isSel || s.Kind() != types.FieldVal || len(s.Index()) != 1 {
+		return nil, "", false
+	}
+	switch x := ast.Unparen(sel.X).(type) {
+	case *ast.Ident:
+		v, ok = p.info.Uses[x].(*types.Var)
+		return v, sel.Sel.Name, ok
+	case *ast.SelectorExpr:
+		if v, path, ok = p.fieldPath(x); ok {
+			return v, path + "." + sel.Sel.Name, true
+		}
+	}
+	return nil, "", false
+}
+
+// varStrs is what variable v holds, or its field at path: a parameter's
+// stays a parameter value, a local's is every definition's and every
+// assignment to the field, flow-insensitively.
+func (p *producers) varStrs(v *types.Var, path string) []strVal {
+	switch v.Kind() {
+	case types.ParamVar, types.RecvVar:
+		return []strVal{{kind: strParam, obj: v, path: path}}
+	case types.PackageVar:
+		if init := p.inits[v]; init != nil && path != "" {
+			return p.fieldStrs(init, path)
+		}
+		return openStr
+	default:
+	}
+	k := strKey{at: v, path: path}
+	if p.strBusy[k] {
+		return nil
+	}
+	p.strBusy[k] = true
+	defer delete(p.strBusy, k)
+	var out []strVal
+	for _, d := range p.defs[v] {
+		switch {
+		case d.rng:
+			out = append(out, openStr...)
+		case d.index >= 0:
+			out = append(out, p.calledStrs(d.rhs, path, d.index)...)
+		case path == "":
+			out = append(out, p.strs(d.rhs)...)
+		default:
+			out = append(out, p.fieldStrs(d.rhs, path)...)
+		}
+	}
+	for _, d := range p.fieldDefs[v][path] {
+		if d.index >= 0 {
+			out = append(out, p.calledStrs(d.rhs, "", d.index)...)
+		} else {
+			out = append(out, p.strs(d.rhs)...)
+		}
+	}
+	if len(out) == 0 {
+		return openStr
+	}
+	return out
+}
+
+// fieldStrs is what the field at path of the value x holds.
+func (p *producers) fieldStrs(x ast.Expr, path string) []strVal {
+	switch e := ast.Unparen(x).(type) {
+	case *ast.UnaryExpr:
+		if e.Op == token.AND {
+			return p.fieldStrs(e.X, path)
+		}
+	case *ast.StarExpr:
+		return p.fieldStrs(e.X, path)
+	case *ast.CompositeLit:
+		name, rest, _ := strings.Cut(path, ".")
+		for _, elt := range e.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				return openStr
+			}
+			if isIdentNamed(kv.Key, name) {
+				if rest == "" {
+					return p.strs(kv.Value)
+				}
+				return p.fieldStrs(kv.Value, rest)
+			}
+		}
+		return []strVal{{kind: strConst}}
+	case *ast.Ident:
+		if v, ok := p.info.Uses[e].(*types.Var); ok {
+			return p.varStrs(v, path)
+		}
+	case *ast.SelectorExpr:
+		if v, base, ok := p.fieldPath(e); ok {
+			return p.varStrs(v, base+"."+path)
+		}
+	case *ast.CallExpr:
+		return p.calledStrs(e, path, -1)
+	}
+	return openStr
+}
+
+// calledStrs is what x's call of a module function returns in result
+// index, its only one when index is -1, or that result's field at path,
+// its parameters bound to the call's arguments.
+func (p *producers) calledStrs(x ast.Expr, path string, index int) []strVal {
+	call, ok := ast.Unparen(x).(*ast.CallExpr)
+	if !ok {
+		return openStr
+	}
+	fn, ok := p.callee(call.Fun).(*types.Func)
+	if !ok || p.decls[fn.Origin()] == nil {
+		return openStr
+	}
+	results := fn.Signature().Results().Len()
+	if index < 0 && results == 1 {
+		index = 0
+	}
+	if index < 0 || index >= results {
+		return openStr
+	}
+	decl := p.decls[fn.Origin()]
+	k := strKey{at: decl, path: fmt.Sprintf("%d:%s", index, path)}
+	if p.strBusy[k] {
+		return nil
+	}
+	p.strBusy[k] = true
+	defer delete(p.strBusy, k)
+	var vals []strVal
+	ast.Inspect(decl.Body, func(n ast.Node) bool {
+		switch r := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.ReturnStmt:
+			switch {
+			case len(r.Results) == 1 && results > 1:
+				vals = append(vals, p.calledStrs(r.Results[0], path, index)...)
+			case len(r.Results) != results:
+				vals = append(vals, openStr...)
+			case path == "":
+				vals = append(vals, p.strs(r.Results[index])...)
+			default:
+				vals = append(vals, p.fieldStrs(r.Results[index], path)...)
+			}
+		}
+		return true
+	})
+	if len(vals) == 0 {
+		return openStr
+	}
+	return p.bindStrs(vals, p.argsOf(decl, call))
+}
+
+// values is c's leaves' errors, each a literal's fields set over its zero
+// value, false when a leaf has none.
+func (p *producers) values(c chain) ([]error, bool) {
 	var vals []error
 	for _, tm := range c {
 		if tm.kind != termLeaf {
 			continue
 		}
-		v, ok := errorValue(tm.obj)
+		v, ok := buildLeaf(tm.obj, p.fieldStrings(tm))
 		if !ok {
 			return nil, false
 		}
 		vals = append(vals, v)
 	}
 	return vals, true
+}
+
+// fieldStrings is tm's reason-bearing fields as buildLeaf sets them: a
+// literal's constant as it is, its other values unresolved and the fields
+// it leaves out zero; a leaf no literal built has every one unresolved.
+func (p *producers) fieldStrings(tm term) map[string]string {
+	m := map[string]string{}
+	for _, name := range p.bearingFields(tm.obj) {
+		m[name] = unresolved
+		if tm.fields != nil {
+			m[name] = ""
+		}
+	}
+	if tm.fields != nil {
+		for _, f := range tm.fields.vals {
+			m[f.name] = unresolved
+			if f.val.kind == strConst {
+				m[f.name] = f.val.s
+			}
+		}
+	}
+	return m
+}
+
+// joined is c's error as classify sees it: its leaves' errors joined,
+// under each failreason wrapper the chain carries.
+func (p *producers) joined(c chain, vals []error) error {
+	err := errors.Join(vals...)
+	for _, tm := range c {
+		if tm.kind == termWrapper && qualified(tm.obj) == reasonedType {
+			err = failreason.Wrap(err, p.fieldStrings(tm)["reason"])
+		}
+	}
+	return err
 }
 
 func chainString(c chain) string {
@@ -1292,7 +2386,7 @@ func asTypeTest(result types.Type) errTest {
 
 // matches reports whether test holds for c, and false for known when the
 // chain or the test is not one the registry can decide.
-func matches(c chain, test errTest) (match, known bool) {
+func (p *producers) matches(c chain, test errTest) (match, known bool) {
 	params := false
 	for _, tm := range c {
 		if tm.obj != nil && (tm.obj == test.sentinel || tm.obj == test.typ) && (tm.kind == termLeaf || tm.kind == termWrapper) {
@@ -1300,7 +2394,7 @@ func matches(c chain, test errTest) (match, known bool) {
 		}
 		params = params || isParamTerm(tm)
 	}
-	vals, ok := values(c)
+	vals, ok := p.values(c)
 	if !ok {
 		return false, false
 	}
@@ -1336,7 +2430,7 @@ func (p *producers) filter(val errValue, test errTest, holds bool) errValue {
 	}
 	out := errValue{}
 	for k, c := range val {
-		match, known := matches(c, test)
+		match, known := p.matches(c, test)
 		switch {
 		case known && match == holds:
 			out[k] = c
@@ -1350,7 +2444,9 @@ func (p *producers) filter(val errValue, test errTest, holds bool) errValue {
 	return out
 }
 
-func isParamTerm(t term) bool { return t.kind == termParam || t.kind == termParamCall }
+func isParamTerm(t term) bool {
+	return t.kind == termParam || t.kind == termParamCall || t.kind == termParamField
+}
 
 // deferGuard adds step to each parameter term of c, for its binding.
 func (p *producers) deferGuard(c chain, step guardStep) chain {

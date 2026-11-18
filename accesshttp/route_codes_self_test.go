@@ -95,7 +95,7 @@ func (e *env) stepUpFinish(t testing.TB, cookie *http.Cookie, dev *accesstest.Pa
 // fresh device when nil), edited, after between runs.
 func (e *env) registerFinish(t testing.TB, cookie *http.Cookie, dev *accesstest.PasskeyDevice, edit func([]byte) []byte, between func()) *http.Request {
 	t.Helper()
-	pc, err := e.svc.PasskeyRegisterBegin(t.Context(), e.principal(t, cookie), testOriginOf(t))
+	pc, err := e.svc.PasskeyRegisterBegin(t.Context(), account.Client{Secure: true}, e.principal(t, cookie), testOriginOf(t), account.SecondFactorProof{})
 	if err != nil {
 		t.Fatalf("PasskeyRegisterBegin: %v", err)
 	}
@@ -136,8 +136,15 @@ func closing(opts envOptions, build func(t *testing.T, e *env) *http.Request) sc
 	}}
 }
 
-// ssoGoverned governs linked accounts by SSO.
-var ssoGoverned = envOptions{rules: func(r *account.Rules) { r.SSOGoverned = true }}
+// keepDormant links name and stores SSOForLinked, which keeps a linked
+// non-owner's local methods dormant.
+func (e *env) keepDormant(t testing.TB, name string) {
+	t.Helper()
+	e.linkUser(t, name, idpIdentity(testIssuer))
+	if err := e.mem.SetSSOMode(t.Context(), account.SSOForLinked); err != nil {
+		t.Fatalf("SetSSOMode: %v", err)
+	}
+}
 
 // passwordUnusable makes MethodUsable answer false for the password.
 var passwordUnusable = envOptions{rules: func(r *account.Rules) {
@@ -208,6 +215,11 @@ func addAccountScenarios(out map[scenarioKey]scenario) {
 		e.holdBudget(t)
 		return r
 	}}
+	out[scenarioKey{stepUp, access.CodeSSOOnly}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
+		r := e.post(t, stepUp, stepUpBody(t, testPassword), e.aliceSession(t))
+		e.keepDormant(t, "alice")
+		return r
+	}}
 	out[scenarioKey{stepUp, access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		return e.post(t, stepUp, stepUpBody(t, testPassword), e.aliceSession(t))
 	})
@@ -242,9 +254,9 @@ func addPasswordScenarios(out map[scenarioKey]scenario) {
 	out[scenarioKey{set, access.CodeInvalidCredentials}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, set, passwordSetBody(t, "not-"+testPassword, newPassword), e.aliceSession(t))
 	}}
-	out[scenarioKey{set, access.CodeForbidden}] = scenario{opts: ssoGoverned, arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{set, access.CodeSSOOnly}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		r := change(t, e)
-		e.linkUser(t, "alice", idpIdentity(testIssuer))
+		e.keepDormant(t, "alice")
 		return r
 	}}
 	out[scenarioKey{set, access.CodeRateLimited}] = scenario{opts: trustLimits, arrange: func(t *testing.T, e *env) *http.Request {
@@ -307,6 +319,9 @@ func addPasswordScenarios(out map[scenarioKey]scenario) {
 	out[scenarioKey{remove, access.CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: right}
 }
 
+// oneCeremony holds one ceremony in each ceremony list.
+var oneCeremony = envOptions{edit: func(c *account.Config) { c.MaxPending = 1 }}
+
 func addPasskeyScenarios(out map[scenarioKey]scenario) {
 	const stepUpBegin, stepUpFinish = "authStepUpPasskeyBegin", "authStepUpPasskeyFinish"
 	// enrolled is alice's password session with a passkey enrolled.
@@ -320,11 +335,30 @@ func addPasskeyScenarios(out map[scenarioKey]scenario) {
 	}
 	out[scenarioKey{stepUpBegin, access.CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: beginWith}
 	out[scenarioKey{stepUpBegin, access.CodeUnavailable}] = closing(passkeys, beginWith)
+	out[scenarioKey{stepUpBegin, access.CodeRateLimited}] = scenario{opts: with(passkeys, oneCeremony), arrange: func(t *testing.T, e *env) *http.Request {
+		r := beginWith(t, e)
+		e.createUser(t, "bob", access.RoleUser)
+		e.enrol(t, "bob")
+		bob := e.sessionCookie(t, "bob")
+		if _, err := e.svc.StepUpPasskeyBegin(t.Context(), e.principal(t, bob), testOriginOf(t)); err != nil {
+			t.Fatalf("bob's StepUpPasskeyBegin: %v", err)
+		}
+		return r
+	}}
 	out[scenarioKey{stepUpBegin, access.CodePasskeysUnavailable}] = scenario{arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, stepUpBegin, "", e.aliceSession(t))
 	}}
 	out[scenarioKey{stepUpBegin, access.CodeOriginRefused}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 		return fromOrigin(beginWith(t, e), evilOrigin)
+	}}
+	out[scenarioKey{stepUpBegin, access.CodeSSOOnly}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		r := beginWith(t, e)
+		e.keepDormant(t, "alice")
+		return r
+	}}
+	out[scenarioKey{stepUpFinish, access.CodeSSOOnly}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
+		cookie, dev := enrolled(t, e)
+		return e.stepUpFinish(t, cookie, dev, nil, func() { e.keepDormant(t, "alice") })
 	}}
 	out[scenarioKey{stepUpBegin, access.CodeNotFound}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 		return e.post(t, stepUpBegin, "", e.aliceSession(t))
@@ -398,9 +432,9 @@ func addEnrolmentScenarios(out map[scenarioKey]scenario) {
 	const begin, finishRoute = "authPasskeyRegisterBegin", "authPasskeyRegisterFinish"
 	beginOwn := func(t *testing.T, e *env) *http.Request { return e.post(t, begin, "", e.aliceSession(t)) }
 	out[scenarioKey{begin, access.CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: beginOwn}
-	out[scenarioKey{begin, access.CodeForbidden}] = scenario{opts: with(passkeys, ssoGoverned), arrange: func(t *testing.T, e *env) *http.Request {
+	out[scenarioKey{begin, access.CodeSSOOnly}] = scenario{opts: passkeys, arrange: func(t *testing.T, e *env) *http.Request {
 		r := beginOwn(t, e)
-		e.linkUser(t, "alice", idpIdentity(testIssuer))
+		e.keepDormant(t, "alice")
 		return r
 	}}
 	out[scenarioKey{begin, access.CodeUnavailable}] = closing(passkeys, beginOwn)
@@ -428,10 +462,18 @@ func addEnrolmentScenarios(out map[scenarioKey]scenario) {
 		}
 	}
 	out[scenarioKey{finishRoute, access.CodeSessionExpired}] = scenario{opts: with(passkeys, vanishes), arrange: finishOwn(nil, nil, nil)}
-	out[scenarioKey{finishRoute, access.CodeForbidden}] = scenario{opts: with(passkeys, ssoGoverned), arrange: finishOwn(nil, nil, func(t *testing.T, e *env) {
-		e.linkUser(t, "alice", idpIdentity(testIssuer))
+	out[scenarioKey{finishRoute, access.CodeSSOOnly}] = scenario{opts: passkeys, arrange: finishOwn(nil, nil, func(t *testing.T, e *env) {
+		e.keepDormant(t, "alice")
 	})}
 	out[scenarioKey{finishRoute, access.CodeUnavailable}] = scenario{opts: passkeys, arrange: finishOwn(nil, nil, func(t *testing.T, e *env) { e.shutdown(t) })}
+	// A password user's first passkey under the rule issues a
+	// recovery code, whose hash a full budget refuses. The rule goes on once
+	// alice is signed in, which it would hold at enrol_needs_known_device.
+	rule := &atomic.Bool{}
+	out[scenarioKey{finishRoute, access.CodeBusy}] = scenario{opts: with(passkeys, flag(rule, func(r *account.Rules) { r.RequireSecondFactor = true })), arrange: finishOwn(nil, nil, func(t *testing.T, e *env) {
+		rule.Store(true)
+		e.holdBudget(t)
+	})}
 	out[scenarioKey{finishRoute, access.CodeDuplicateCredential}] = scenario{opts: passkeys, arrange: finishOwn(func(t *testing.T, e *env) *accesstest.PasskeyDevice {
 		e.createUser(t, "root", access.RoleAdmin)
 		return e.enrol(t, "root")
@@ -530,4 +572,21 @@ func addKeyScenarios(out map[scenarioKey]scenario) {
 	out[scenarioKey{"authKeys", access.CodeUnavailable}] = closing(envOptions{}, func(t *testing.T, e *env) *http.Request {
 		return e.post(t, "authKeys", "", e.aliceSession(t))
 	})
+	// A key acting on its own keys meets the Policy's
+	// create_own_key, which a session never asks.
+	refused := allScopes
+	refused.edit = func(c *account.Config) {
+		allScopes.edit(c)
+		refuse(account.OpCreateOwnKey)(c)
+	}
+	byKey := func(name, body string) scenario {
+		return scenario{opts: refused, arrange: func(t *testing.T, e *env) *http.Request {
+			e.rootSession(t)
+			k := e.mintKey(t, "root", account.NewKey{Label: "ci", Scopes: []string{scopeKeysName}})
+			return bearer(e.at(t, name, strconv.FormatInt(k.Key.ID, 10), body), k.Plaintext)
+		}}
+	}
+	out[scenarioKey{"authKeys", access.CodeForbidden}] = byKey("authKeys", "")
+	out[scenarioKey{rename, access.CodeForbidden}] = byKey(rename, `{"name":"deploy"}`)
+	out[scenarioKey{revoke, access.CodeForbidden}] = byKey(revoke, "")
 }

@@ -15,7 +15,7 @@ func sessionOf(t *testing.T, s account.Store, u *access.User, secure bool, ago t
 	t.Helper()
 	now := time.Now()
 	return putSession(t, s, access.Session{
-		ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPassword,
+		ID: newSessionID(t), UserID: u.ID, AuthMethod: access.MethodPassword,
 		CreatedAt: now.Add(-time.Hour), LastActivity: now.Add(-ago), AuthTime: now.Add(-time.Hour), Secure: secure,
 	})
 }
@@ -130,25 +130,4 @@ func TestFreshSignInReplacesPresented(t *testing.T) {
 			}
 		})
 	}
-	t.Run("recovery_start_left_alone", func(t *testing.T) {
-		t.Parallel()
-		p := newPW(t, pwOptions{})
-		alice := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
-		presented := sessionOf(t, p.mem, alice, true, time.Minute)
-		tok, err := p.svc.IssueRecovery(t.Context(), account.OutOfBand("socket"), alice.ID, 0)
-		if err != nil {
-			t.Fatalf("IssueRecovery = %v", err)
-		}
-		c := clientAt(1)
-		c.Presented = presented.TokenHash
-		if _, err := p.svc.StartRecovery(t.Context(), c, tok.Plaintext); err != nil {
-			t.Fatalf("StartRecovery = %v", err)
-		}
-		if _, found, err := p.mem.SessionByHash(t.Context(), presented.TokenHash); err != nil || !found {
-			t.Errorf("presented session after a recovery start: found %t, %v; want it kept", found, err)
-		}
-		if again := signedInAgain(t, p.mem); len(again) != 0 {
-			t.Errorf("signed_in_again entries = %v, want none", again)
-		}
-	})
 }

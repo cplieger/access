@@ -1,20 +1,33 @@
 import type { ApiErr, ApiResult } from "@cplieger/reactive/fetch";
-import type { AuthClient, PublicKeyCredentialJSON, RecoverFlags } from "./client.js";
+import type { AuthClient, PublicKeyCredentialJSON } from "./client.js";
 import { authCode } from "./wire.js";
-import type { CeremonyResponse, PasskeyView, SignedInResponse } from "./wire.js";
+import type {
+  CeremonyResponse,
+  EnrolmentOutcome,
+  PasskeyView,
+  RegisterPasskeyBeginRequest,
+  SecondFactorProof,
+  SignInOutcome,
+  SignedInResponse,
+} from "./wire.js";
 
 /** A DOMException's name from the authenticator call, or "" for a throw that is not a DOMException. */
 export type DOMExceptionName = string;
 
 export type RegisterOutcome =
-  | { readonly kind: "registered"; readonly passkey: PasskeyView }
+  | {
+      readonly kind: "registered";
+      readonly passkey: PasskeyView;
+      /** The recovery code this registration issued: show it once. */
+      readonly recovery_code?: string;
+    }
   | { readonly kind: "cancelled" }
   | { readonly kind: "duplicate" }
   | { readonly kind: "timeout" }
   | { readonly kind: "not-discoverable" }
   | { readonly kind: "failed"; readonly error: ApiErr | DOMExceptionName };
 
-export type SignInOutcome =
+export type PasskeySignInOutcome =
   | { readonly kind: "signed-in"; readonly result: SignedInResponse }
   | { readonly kind: "cancelled" }
   | { readonly kind: "timeout" }
@@ -25,10 +38,30 @@ export type SignInOutcome =
 
 /** A step-up signs nobody in: /stepup/passkey/finish answers 204, so success carries no SignedInResponse. */
 export type StepUpOutcome =
-  { readonly kind: "stepped-up" } | Exclude<SignInOutcome, { kind: "signed-in" }>;
+  { readonly kind: "stepped-up" } | Exclude<PasskeySignInOutcome, { kind: "signed-in" }>;
 
-export type RecoverOutcome =
-  Exclude<RegisterOutcome, { kind: "registered" }> | { readonly kind: "recovered" };
+/** A passkey second step's answer: the sign-in step's, or why no assertion was made or taken. */
+export type SecondPasskeyOutcome =
+  | { readonly kind: "answered"; readonly result: SignInOutcome }
+  | Exclude<PasskeySignInOutcome, { kind: "signed-in" }>;
+
+/** A set_credential passkey's answer: the sign-in step's, or why no passkey was registered. */
+export type SetPasskeyOutcome =
+  | { readonly kind: "answered"; readonly result: SignInOutcome }
+  | Exclude<RegisterOutcome, { kind: "registered" }>;
+
+/**
+ * A passkey enrolment's answer, pendingPasskey's and signUpWithPasskey's: the sign-in it
+ * completed or the account it made wait for approval, or why no passkey was bound.
+ */
+export type PasskeyEnrolmentOutcome =
+  | { readonly kind: "answered"; readonly result: EnrolmentOutcome }
+  | Exclude<RegisterOutcome, { kind: "registered" }>;
+
+/** A passkey proof for a change that needs a current second factor, or why none was made. */
+export type PasskeyProofOutcome =
+  | { readonly kind: "proof"; readonly proof: SecondFactorProof }
+  | Extract<PasskeySignInOutcome, { kind: "cancelled" | "timeout" | "failed" }>;
 
 interface Platform {
   readonly isConditionalMediationAvailable?: () => Promise<boolean>;
@@ -290,7 +323,7 @@ type Got =
       readonly id: string;
       readonly rpId: string;
     }
-  | Extract<SignInOutcome, { kind: "cancelled" | "timeout" | "failed" }>;
+  | Extract<PasskeySignInOutcome, { kind: "cancelled" | "timeout" | "failed" }>;
 
 async function get(
   begin: ApiResult<CeremonyResponse>,
@@ -337,7 +370,7 @@ async function get(
 async function assertionRefused(
   res: ApiErr,
   got: { readonly id: string; readonly rpId: string },
-): Promise<Exclude<SignInOutcome, { kind: "signed-in" }>> {
+): Promise<Exclude<PasskeySignInOutcome, { kind: "signed-in" }>> {
   switch (authCode(res)) {
     case "auth_unknown_credential": {
       const pk = platform();
@@ -371,7 +404,7 @@ function registrationRefused(res: ApiErr): Exclude<RegisterOutcome, { kind: "reg
 export async function signInWithPasskey(
   c: AuthClient,
   o?: { readonly mediation?: "conditional"; readonly signal?: AbortSignal },
-): Promise<SignInOutcome> {
+): Promise<PasskeySignInOutcome> {
   const got = await get(
     await c.loginPasskeyBegin(o?.mediation === undefined ? undefined : { mediation: o.mediation }),
     o,
@@ -383,9 +416,70 @@ export async function signInWithPasskey(
   return res.ok ? { kind: "signed-in", result: res.data } : assertionRefused(res, got);
 }
 
-/** Registers a passkey for the signed-in user, then sends the provider the server's signals. */
-export async function registerPasskey(c: AuthClient): Promise<RegisterOutcome> {
-  const made = await create(await c.passkeyRegisterBegin());
+/** Completes a pending sign-in's passkey second step for ticket. */
+export async function loginSecondPasskey(
+  c: AuthClient,
+  ticket: string,
+): Promise<SecondPasskeyOutcome> {
+  const got = await get(await c.loginSecondPasskeyBegin({ ticket }));
+  if (got.kind !== "credential") {
+    return got;
+  }
+  const res = await c.loginSecondPasskeyFinish(got.ceremony, got.json);
+  return res.ok ? { kind: "answered", result: res.data } : assertionRefused(res, got);
+}
+
+/** Registers a passkey in place of the temporary password that minted ticket, signing in. */
+export async function loginSetPasskey(c: AuthClient, ticket: string): Promise<SetPasskeyOutcome> {
+  const made = await create(await c.loginSetPasskeyBegin({ ticket }));
+  if (made.kind !== "credential") {
+    return made;
+  }
+  const res = await c.loginSetPasskeyFinish(made.ceremony, made.json);
+  return res.ok ? { kind: "answered", result: res.data } : registrationRefused(res);
+}
+
+/** Registers a passkey as a pending sign-in's enrolment for ticket, completing the sign-in. */
+export async function pendingPasskey(
+  c: AuthClient,
+  ticket: string,
+): Promise<PasskeyEnrolmentOutcome> {
+  const made = await create(await c.pendingPasskeyBegin({ ticket }));
+  if (made.kind !== "credential") {
+    return made;
+  }
+  const res = await c.pendingPasskeyFinish(made.ceremony, made.json);
+  return res.ok ? { kind: "answered", result: res.data } : registrationRefused(res);
+}
+
+/**
+ * An assertion from one of the signed-in user's passkeys, as the proof removeTOTP,
+ * removePasskey, passkeyRegisterBegin and registerPasskey take; the server spends it once.
+ */
+export async function passkeyProof(c: AuthClient): Promise<PasskeyProofOutcome> {
+  const got = await get(await c.stepUpPasskeyBegin());
+  if (got.kind !== "credential") {
+    return got;
+  }
+  const { json } = got;
+  if (!("signature" in json.response)) {
+    return { kind: "failed", error: wrongKind() };
+  }
+  return {
+    kind: "proof",
+    proof: { ceremony: got.ceremony, assertion: { ...json, response: json.response } },
+  };
+}
+
+/**
+ * Registers a passkey for the signed-in user, then sends the provider the server's signals;
+ * proof is needed while methods.second_factor_held.
+ */
+export async function registerPasskey(
+  c: AuthClient,
+  proof?: SecondFactorProof,
+): Promise<RegisterOutcome> {
+  const made = await create(await c.passkeyRegisterBegin(proof));
   if (made.kind !== "credential") {
     return made;
   }
@@ -394,14 +488,30 @@ export async function registerPasskey(c: AuthClient): Promise<RegisterOutcome> {
     return registrationRefused(res);
   }
   await sendSignals(c);
-  return { kind: "registered", passkey: res.data };
+  const { passkey, recovery_code } = res.data;
+  return recovery_code === undefined
+    ? { kind: "registered", passkey }
+    : { kind: "registered", passkey, recovery_code };
+}
+
+/** Creates an account with a passkey while state().registration is not "off". */
+export async function signUpWithPasskey(
+  c: AuthClient,
+  r: RegisterPasskeyBeginRequest,
+): Promise<PasskeyEnrolmentOutcome> {
+  const made = await create(await c.registerPasskeyBegin(r));
+  if (made.kind !== "credential") {
+    return made;
+  }
+  const res = await c.registerPasskeyFinish(made.ceremony, made.json);
+  return res.ok ? { kind: "answered", result: res.data } : registrationRefused(res);
 }
 
 /** Creates the first user with a passkey; a create-leg duplicate is a failed InvalidStateError here. */
 export async function setupWithPasskey(
   c: AuthClient,
   r: { readonly token?: string; readonly username: string },
-): Promise<SignInOutcome> {
+): Promise<PasskeySignInOutcome> {
   const made = await create(await c.setupPasskeyBegin(r));
   if (made.kind === "duplicate") {
     return { kind: "failed", error: "InvalidStateError" };
@@ -425,16 +535,6 @@ export async function stepUpWithPasskey(c: AuthClient): Promise<StepUpOutcome> {
   }
   const res = await c.stepUpPasskeyFinish(got.ceremony, got.json);
   return res.ok ? { kind: "stepped-up" } : assertionRefused(res, got);
-}
-
-/** Registers a passkey with the recovery session's ceremony; o says which sessions and keys survive. */
-export async function recoverWithPasskey(c: AuthClient, o: RecoverFlags): Promise<RecoverOutcome> {
-  const made = await create(await c.recoveryPasskeyBegin());
-  if (made.kind !== "credential") {
-    return made;
-  }
-  const res = await c.recoveryPasskeyFinish(made.ceremony, made.json, o);
-  return res.ok ? { kind: "recovered" } : registrationRefused(res);
 }
 
 // Safari can leave a Signal API promise pending forever

@@ -98,10 +98,10 @@ func okpJWK(kid string, pub ed25519.PublicKey) map[string]any {
 	return map[string]any{"kty": "OKP", "kid": kid, "crv": "Ed25519", "x": b64(pub)}
 }
 
-// smallOrderEncodings derives, from the edwards25519 curve of RFC 8032
-// §5.1 (-x² + y² = 1 + d·x²·y² over p = 2^255 − 19), every 32-byte encoding
-// of its eight points of order dividing 8: the canonical one, the one with
-// the sign bit set when x is 0, and y + p where that still fits in 255 bits
+// smallOrderEncodings derives, from the edwards25519 curve of RFC 8032 §5.1
+// (-x² + y² = 1 + d·x²·y² over p = 2^255 − 19), every 32-byte encoding of its
+// eight points of order dividing 8: the canonical one, the one with the sign
+// bit set when x is 0, and y + p where that still fits in 255 bits
 // (RFC 8032 §5.1.3 decoding, which Go accepts for public keys). The
 // identity's canonical encoding comes first.
 func smallOrderEncodings(t testing.TB) [][]byte {

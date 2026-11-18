@@ -20,8 +20,14 @@
   "auth_password_rejected",
   "auth_breach_check_unavailable",
   "auth_password_login_disabled",
+  "auth_code_invalid",
+  "auth_second_factor_required",
+  "auth_second_factor_unavailable",
+  "auth_totp_disabled",
   "auth_setup_complete",
   "auth_setup_token_required",
+  "auth_registration_closed",
+  "auth_registration_full",
   "auth_token_invalid",
   "auth_last_method",
   "auth_identity_taken",
@@ -39,6 +45,7 @@
   "auth_registration_failed",
   "auth_oidc_unavailable",
   "auth_oidc_failed",
+  "auth_sso_only",
   "auth_not_found",
   "auth_method_not_allowed"
 ]

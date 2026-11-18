@@ -183,6 +183,24 @@ func TestRouteAuthMethodReenable(t *testing.T) {
 			t.Errorf("locks %+v after the re-enable, want none", got)
 		}
 	})
+	// The Account unlock control: a TOTP lock unlocks from
+	// a session signed in another way.
+	t.Run("totp", func(t *testing.T) {
+		spy := &failureNames{}
+		e := newEnv(t, with(passkeys, totpOn, envOptions{edit: func(c *account.Config) { spy.Store = c.Store; c.Store = spy }}))
+		e.aliceSession(t)
+		cookie := e.passkeySession(t, e.enrol(t, "alice"))
+		decoded[MeResponse](t, e, do(e.route(t, "authMe"), e.post(t, "authMe", "", cookie)), http.StatusOK)
+		lock := account.FailureCount{Count: account.FailureCap, Locked: true, LockedAt: time.Now().Add(-time.Hour)}
+		lock.Name, lock.Method = spy.last(), access.MethodTOTP
+		if err := e.mem.PutAuthFailure(t.Context(), lock); err != nil {
+			t.Fatalf("PutAuthFailure: %v", err)
+		}
+		e.requireStatus(t, do(e.route(t, "authMethodReenable"), e.at(t, "authMethodReenable", string(access.MethodTOTP), "", cookie)), http.StatusNoContent)
+		if _, found, err := e.mem.AuthFailure(t.Context(), lock.FailureRef); err != nil || found {
+			t.Errorf("the TOTP lock after the re-enable: found %t, %v; want it cleared", found, err)
+		}
+	})
 }
 
 func TestRouteAuthStepUpPassword(t *testing.T) {
@@ -227,7 +245,7 @@ func TestRouteAuthStepUpPasskeyFinish(t *testing.T) {
 // signsIn reports whether name signs in with password.
 func (e *env) signsIn(t testing.TB, name, password string) bool {
 	t.Helper()
-	_, err := e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: name, Password: access.NewSecret(password)})
+	_, err := completed(e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: name, Password: access.NewSecret(password)}))
 	return err == nil
 }
 
@@ -235,14 +253,18 @@ func TestRouteAuthPasswordSet(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		cookie := e.aliceSession(t)
-		e.requireStatus(t, do(e.route(t, "authPasswordSet"), e.post(t, "authPasswordSet", passwordSetBody(t, testPassword, newPassword), cookie)), http.StatusNoContent)
+		// A change that issues no recovery code answers none.
+		got := decoded[RecoveryCodeIssuedResponse](t, e, do(e.route(t, "authPasswordSet"), e.post(t, "authPasswordSet", passwordSetBody(t, testPassword, newPassword), cookie)), http.StatusOK)
+		if got.RecoveryCode != "" {
+			t.Errorf("recovery_code %q, want none for a changed password", got.RecoveryCode)
+		}
 		if !e.signsIn(t, "alice", newPassword) || e.signsIn(t, "alice", testPassword) {
 			t.Error("after the change, want the new password to sign in and the old one refused")
 		}
 	})
 }
 
-// TestPasswordSetCurrentHTTP is §9.5 "Current password" through authPasswordSet.
+// TestPasswordSetCurrentHTTP checks the current password through authPasswordSet.
 func TestPasswordSetCurrentHTTP(t *testing.T) {
 	send := func(e *env, cookie *http.Cookie, current string) *httptest.ResponseRecorder {
 		return do(e.route(t, "authPasswordSet"), e.post(t, "authPasswordSet", passwordSetBody(t, current, newPassword), cookie))
@@ -272,7 +294,7 @@ func TestPasswordSetCurrentHTTP(t *testing.T) {
 		cookie := e.aliceSession(t)
 		before := e.principal(t, cookie)
 		w := send(e, cookie, testPassword)
-		e.requireStatus(t, w, http.StatusNoContent)
+		e.requireStatus(t, w, http.StatusOK)
 		e.requireRotated(t, w, cookie, before, "", true)
 	})
 	t.Run("first_password", func(t *testing.T) {
@@ -283,7 +305,7 @@ func TestPasswordSetCurrentHTTP(t *testing.T) {
 		if err := e.mem.UpdateUser(t.Context(), u); err != nil {
 			t.Fatalf("UpdateUser: %v", err)
 		}
-		e.requireStatus(t, send(e, cookie, ""), http.StatusNoContent)
+		e.requireStatus(t, send(e, cookie, ""), http.StatusOK)
 		if !e.signsIn(t, "alice", newPassword) {
 			t.Error("the first password does not sign in")
 		}
@@ -302,7 +324,7 @@ func TestRouteAuthPasswordRemove(t *testing.T) {
 	})
 }
 
-// TestPasswordRemoveCurrentHTTP is §9.5 "Current password" through
+// TestPasswordRemoveCurrentHTTP checks the current password through
 // authPasswordRemove, on a user holding a password and a passkey.
 func TestPasswordRemoveCurrentHTTP(t *testing.T) {
 	setup := func(t *testing.T) (*env, *http.Cookie) {
@@ -356,7 +378,7 @@ func TestRouteAuthPasskeys(t *testing.T) {
 			t.Fatalf("PasskeysByUserID = %d, %v", len(stored), err)
 		}
 		views := decoded[[]PasskeyView](t, e, do(e.route(t, "authPasskeys"), e.post(t, "authPasskeys", "", cookie)), http.StatusOK)
-		if want := passkeyView(&stored[0]); len(views) != 1 || views[0].ID != want.ID || views[0].Name != want.Name || views[0].RPID != testRPID || !views[0].CreatedAt.Equal(want.CreatedAt) {
+		if want := passkeyView(&account.Passkey{Credential: stored[0]}); len(views) != 1 || views[0].ID != want.ID || views[0].Name != want.Name || views[0].RPID != testRPID || !views[0].CreatedAt.Equal(want.CreatedAt) {
 			t.Errorf("passkeys %+v, want alice's one %+v", views, want)
 		}
 	})
@@ -408,7 +430,11 @@ func TestRouteAuthPasskeyRegisterFinish(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		e := newEnv(t, passkeys)
 		cookie := e.aliceSession(t)
-		view := decoded[PasskeyView](t, e, do(e.route(t, "authPasskeyRegisterFinish"), e.registerFinish(t, cookie, nil, nil, nil)), http.StatusCreated)
+		got := decoded[PasskeyRegisteredResponse](t, e, do(e.route(t, "authPasskeyRegisterFinish"), e.registerFinish(t, cookie, nil, nil, nil)), http.StatusCreated)
+		view := got.Passkey
+		if got.RecoveryCode != "" {
+			t.Errorf("recovery_code %q, want none: alice holds no second factor", got.RecoveryCode)
+		}
 		if id := e.passkeyID(t, "alice"); view.ID != id || view.RPID != testRPID || view.Name == "" {
 			t.Errorf("view %+v, want the stored passkey %d under %s", view, id, testRPID)
 		}
@@ -471,12 +497,12 @@ func TestRouteAuthSessions(t *testing.T) {
 }
 
 // TestSessionViewDeadlines: each listed session's deadlines are
-// access.SessionDeadlines under Timeouts, a capped and a recovery session's
+// access.SessionDeadlines under Timeouts, a capped and a plain session's
 // included, and the current one's equal authMe's.
 func TestSessionViewDeadlines(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	cookie := e.aliceSession(t)
-	e.recoveryCookie(t, "alice")
+	e.transportSession(t, "alice", false)
 	_, hash := access.GenerateSessionToken()
 	now := time.Now().Truncate(time.Millisecond)
 	capped := &access.Session{
@@ -495,18 +521,18 @@ func TestSessionViewDeadlines(t *testing.T) {
 	for _, v := range views {
 		byID[v.ID] = v
 	}
-	kinds := map[access.SessionKind]bool{}
+	plain := false
 	for i := range stored {
 		s := &stored[i]
-		kinds[s.Kind] = true
+		plain = plain || !s.Secure
 		idle, absolute := access.SessionDeadlines(s, e.authn.Timeouts())
 		v, ok := byID[s.ID]
 		if !ok || !v.IdleDeadline.Equal(idle) || !v.AbsoluteDeadline.Equal(absolute) {
-			t.Errorf("session %s (kind %q, caps %v/%v): view %+v, want deadlines %v and %v", s.ID, s.Kind, s.IdleCap, s.AbsoluteCap, v, idle, absolute)
+			t.Errorf("session %s (secure %t, caps %v/%v): view %+v, want deadlines %v and %v", s.ID, s.Secure, s.IdleCap, s.AbsoluteCap, v, idle, absolute)
 		}
 	}
-	if !kinds[access.SessionRecovery] {
-		t.Fatal("fixture: no recovery session listed")
+	if !plain {
+		t.Fatal("fixture: no plain session listed")
 	}
 	me := decoded[MeResponse](t, e, do(e.route(t, "authMe"), e.post(t, "authMe", "", cookie)), http.StatusOK)
 	cur := byID[me.Session.ID]
@@ -587,8 +613,8 @@ func TestRouteAuthKeys(t *testing.T) {
 		own := e.mintKey(t, "alice", account.NewKey{Label: "ci"})
 		e.mintKey(t, "bob", account.NewKey{Label: "bob's"})
 		views := decoded[[]KeyView](t, e, do(e.route(t, "authKeys"), e.post(t, "authKeys", "", cookie)), http.StatusOK)
-		if want := keyView(&own.Key, "", time.Now()); len(views) != 1 || views[0].ID != want.ID || views[0].Label != "ci" || views[0].Owner != "" || views[0].Prefix != want.Prefix {
-			t.Errorf("keys %+v, want alice's one %+v with no owner", views, want)
+		if want := keyView(&own.Key, "", time.Now()); len(views) != 1 || views[0].ID != want.ID || views[0].Label != "ci" || views[0].Username != "" || views[0].Prefix != want.Prefix {
+			t.Errorf("keys %+v, want alice's one %+v with no username", views, want)
 		}
 	})
 }
@@ -606,14 +632,14 @@ func TestRouteAuthKeyCreate(t *testing.T) {
 		if d.ID != keys[0].ID || d.Label != "ci" || d.UserID != keys[0].UserID || !d.ExpiresAt.Equal(keys[0].ExpiresAt) || time.Until(d.ExpiresAt).Round(time.Hour) != 48*time.Hour {
 			t.Errorf("details %+v, want the stored key expiring in 2 days", d)
 		}
-		if d.Prefix != keys[0].KeyPrefix || d.Suffix != keys[0].KeySuffix || !d.CreatedAt.Equal(keys[0].CreatedAt) || d.Owner != "" {
-			t.Errorf("details %+v, want the stored key's prefix, suffix and creation time with no owner", d)
+		if d.Prefix != keys[0].KeyPrefix || d.Suffix != keys[0].KeySuffix || !d.CreatedAt.Equal(keys[0].CreatedAt) || d.Username != "" {
+			t.Errorf("details %+v, want the stored key's prefix, suffix and creation time with no username", d)
 		}
 	})
 }
 
 // TestRouteAuthKeyCreateLabel: a label is required and unique among the
-// owner's unexpired keys, compared after NFC and case folding.
+// user's unexpired keys, compared after NFC and case folding.
 func TestRouteAuthKeyCreateLabel(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		e := newEnv(t, envOptions{})

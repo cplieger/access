@@ -73,9 +73,9 @@ func (a Actor) user() (u *access.User, ok bool) { //nolint:gocritic // hugeParam
 }
 
 // requireSession is the session-actor precondition every operation whose
-// actor is a session runs before any read: only a full session the built-in
-// session verifier produced passes. A key, a custom verifier's principal, a
-// bypass principal and a recovery session get ErrSessionRequired.
+// actor is a session runs before any read: only a session the built-in
+// session verifier produced passes. A key, a custom verifier's principal and
+// a bypass principal get ErrSessionRequired.
 func requireSession(p access.Principal) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	if !p.IsSession() || p.User == nil {
 		return ErrSessionRequired

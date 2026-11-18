@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cplieger/access/oidc/internal/bodycap"
 	"github.com/cplieger/access/oidc/internal/discovery"
 	"github.com/cplieger/access/oidc/internal/jwk"
 )
@@ -193,10 +194,10 @@ func endpoints(t *testing.T, field, secret string) {
 }
 
 // OpenID Connect Discovery 1.0 §3 and Core 1.0 §3.1.3.7 step 7: the
-// provider's algorithms are id_token_signing_alg_values_supported, RS256
-// when absent, intersected with the accepted rows (RFC 7518 §3.1; RFC 9864
-// §2.2 names one row EdDSA and Ed25519). An empty intersection, or a list
-// that is not an array of strings, refuses the document.
+// provider's algorithms are id_token_signing_alg_values_supported, RS256 when
+// absent, intersected with the accepted rows (RFC 7518 §3.1; RFC 9864 §2.2
+// names one row EdDSA and Ed25519). An empty intersection, or a list that is
+// not an array of strings, refuses the document.
 func TestParse_Algorithms(t *testing.T) {
 	t.Parallel()
 	const issuer = "https://idp.example"
@@ -340,8 +341,8 @@ func (b *failingBody) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// The fetch goes through the given client's transport, so its body cap,
-// guard and dialer apply, and a body read error is a failed fetch.
+// The fetch goes through the given client's transport, so its guard and
+// dialer apply, and a body read error is a failed fetch.
 func TestFetch_BodyError(t *testing.T) {
 	t.Parallel()
 	const issuer = "https://idp.example"
@@ -354,6 +355,28 @@ func TestFetch_BodyError(t *testing.T) {
 	refusedFetch(t, "a body that fails", err)
 	if !errors.Is(err, errBodyCap) {
 		t.Errorf("err = %v, want it to wrap the body's error", err)
+	}
+}
+
+// A document over the body cap is one the provider published
+// and access refuses, so it is a refused document, never a failed fetch,
+// while one at the cap is read whole.
+func TestFetch_BodyPastCap(t *testing.T) {
+	t.Parallel()
+	const issuer = "https://idp.example"
+	fetch := func(size int) error {
+		doc := padded(docFor(t, issuer, nil), size)
+		idp := &fakeIdP{serve: func(*http.Request) *http.Response { return answer(http.StatusOK, bytes.NewReader(doc)) }}
+		_, err := discovery.Fetch(t.Context(), &http.Client{Transport: bodycap.Transport{Next: idp}}, issuer)
+		return err
+	}
+	if err := fetch(bodycap.MaxBytes); err != nil {
+		t.Errorf("a document of exactly the cap: Fetch = %v, want nil", err)
+	}
+	err := fetch(bodycap.MaxBytes + 1)
+	refusedDocument(t, "a document one byte past the cap", err)
+	if !errors.Is(err, bodycap.ErrTooLarge) {
+		t.Errorf("err = %v, want it to wrap bodycap.ErrTooLarge", err)
 	}
 }
 

@@ -147,8 +147,8 @@ func resigned(t testing.TB, kind ceremonyKind, section string) *loginCase {
 }
 
 // registered is the record finishRegistration stores for section's
-// credential: §16.3's self attestation as published, every other with UV
-// set under none.
+// credential: WebAuthn §16.3's self attestation as published, every other
+// with UV set under none.
 func registered(t testing.TB, section string) access.PasskeyCredential {
 	t.Helper()
 	c := noneCase(t, section)
@@ -163,8 +163,9 @@ func registered(t testing.TB, section string) access.PasskeyCredential {
 }
 
 // vectorSigner is section's credential private key: credential_private_key
-// for ES256, §16.10's RSA key from private_key_p and private_key_q with
-// e = 65537, and §16.11's Ed25519 seed private_key.
+// for ES256, the RSA key of WebAuthn §16.10 from private_key_p and
+// private_key_q with e = 65537, and the Ed25519 seed private_key of
+// WebAuthn §16.11.
 func vectorSigner(t testing.TB, section string) crypto.Signer {
 	t.Helper()
 	r := s16Section(t, section).Registration
@@ -213,7 +214,7 @@ func signM(t testing.TB, k crypto.Signer, m []byte) []byte {
 	return sig
 }
 
-// signedMessage is §7.2's signed message, authData ‖ SHA-256(cData).
+// signedMessage is WebAuthn §7.2's signed message, authData ‖ SHA-256(cData).
 func signedMessage(authData, clientData []byte) []byte {
 	hash := sha256.Sum256(clientData)
 	return append(bytes.Clone(authData), hash[:]...)
@@ -224,8 +225,8 @@ func (c *loginCase) sign(t testing.TB) {
 	c.sig = signM(t, c.signer, signedMessage(c.authData, c.clientData))
 }
 
-// members is the case's AuthenticationResponseJSON (§5.1), as a browser's
-// toJSON() writes it.
+// members is the case's AuthenticationResponseJSON (WebAuthn §5.1), as a
+// browser's toJSON() writes it.
 func (c *loginCase) members() map[string]any {
 	id := b64(c.rawID)
 	resp := map[string]any{
@@ -302,7 +303,8 @@ var bothKinds = []struct {
 
 // TestVerifyLogin_WebAuthn7_2_ceremony checks that the response answers this
 // login: a ceremony from a Begin function (ErrCeremonyUnbound otherwise), of
-// the login kind, holding a challenge that has not outlived it (§13.4.3).
+// the login kind, holding a challenge that has not outlived it
+// (WebAuthn §13.4.3).
 func TestVerifyLogin_WebAuthn7_2_ceremony(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -329,7 +331,7 @@ func TestVerifyLogin_WebAuthn7_2_ceremony(t *testing.T) {
 
 // TestVerifyReauthentication_WebAuthn7_2_ceremony checks that the response
 // answers this step-up: a ceremony of the reauthentication kind, not
-// expired, begun for the user it finishes for (§7.2's identified-user
+// expired, begun for the user it finishes for (WebAuthn §7.2's identified-user
 // branch).
 func TestVerifyReauthentication_WebAuthn7_2_ceremony(t *testing.T) {
 	t.Parallel()
@@ -355,8 +357,8 @@ func TestVerifyReauthentication_WebAuthn7_2_ceremony(t *testing.T) {
 }
 
 // TestVerifyLogin_WebAuthn7_2_response checks that both finishes read the
-// response as §5.1's AuthenticationResponseJSON before any other step, its
-// userHandle 1 to 64 bytes when present (§5.4.3).
+// response as WebAuthn §5.1's AuthenticationResponseJSON before any other
+// step, its userHandle 1 to 64 bytes when present (WebAuthn §5.4.3).
 func TestVerifyLogin_WebAuthn7_2_response(t *testing.T) {
 	t.Parallel()
 	for _, k := range bothKinds {
@@ -482,7 +484,7 @@ func TestVerifyReauthentication_WebAuthn7_2_identification(t *testing.T) {
 // TestVerifyLogin_WebAuthn7_2_clientData checks §7.2's client data steps
 // against the ceremony, each response re-signed so only the step refuses:
 // type webauthn.get, the ceremony's challenge, the origin it began at, so a
-// second allowlisted origin is refused (§13.4.9), and no frame.
+// second allowlisted origin is refused (WebAuthn §13.4.9), and no frame.
 func TestVerifyLogin_WebAuthn7_2_clientData(t *testing.T) {
 	t.Parallel()
 	challenge := b64(s16Section(t, "16.2").Authentication.bytes(t, "challenge"))
@@ -512,8 +514,9 @@ func TestVerifyLogin_WebAuthn7_2_clientData(t *testing.T) {
 }
 
 // TestVerifyLogin_WebAuthn7_2_extensions checks §7.2's extension step: no
-// Begin requests an extension, and unsolicited client outputs (§16.17's prf,
-// appid) and authenticator outputs (ED set, one CBOR map) are ignored.
+// Begin requests an extension, and unsolicited client outputs
+// (WebAuthn §16.17's prf, appid) and authenticator outputs (ED set, one CBOR
+// map) are ignored.
 func TestVerifyLogin_WebAuthn7_2_extensions(t *testing.T) {
 	t.Parallel()
 	for _, k := range bothKinds {
@@ -538,13 +541,13 @@ func TestVerifyLogin_WebAuthn7_2_extensions(t *testing.T) {
 
 // TestVerifyLogin_WebAuthn7_2_authData checks §7.2's authenticator-data
 // steps, each response re-signed so only the step refuses: the rpIdHash, UP,
-// UV (access always requires it), BS only with BE (§6.1.3), BE equal to the
-// stored record's, which never changes (§6.1.3), and no attested credential
-// data (§6.1).
+// UV (access always requires it), BS only with BE (WebAuthn §6.1.3), BE equal
+// to the stored record's, which never changes (WebAuthn §6.1.3), and no
+// attested credential data (WebAuthn §6.1).
 func TestVerifyLogin_WebAuthn7_2_authData(t *testing.T) {
 	t.Parallel()
-	// §16.2's credential is registered BE and BS (0x5d), §16.11's with BE
-	// clear (0x45).
+	// WebAuthn §16.2's credential is registered BE and BS (0x5d), §16.11's
+	// with BE clear (0x45).
 	for _, k := range bothKinds {
 		for _, c := range []struct {
 			edit    func(*loginCase)

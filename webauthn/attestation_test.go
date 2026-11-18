@@ -11,9 +11,9 @@ import (
 	"github.com/cplieger/access/webauthn/internal/cose"
 )
 
-// selfAttestation is §16.3's packed self attestation, taken apart with the
-// CBOR decoder: its authData, its sig, the credential key it signed with and
-// SHA-256 of its clientDataJSON.
+// selfAttestation is WebAuthn §16.3's packed self attestation, taken apart
+// with the CBOR decoder: its authData, its sig, the credential key it signed
+// with and SHA-256 of its clientDataJSON.
 type selfAttestation struct {
 	key      *cose.Key
 	authData []byte
@@ -46,7 +46,7 @@ func s16_3(t *testing.T) selfAttestation {
 		}
 	}
 	if sig == nil {
-		t.Fatal("§16.3 has no sig")
+		t.Fatal("WebAuthn §16.3 has no sig")
 	}
 	return selfAttestation{key: key, authData: authData, sig: sig, hash: sha256.Sum256(v.Registration.bytes(t, "clientDataJSON"))}
 }
@@ -57,7 +57,7 @@ func attObj(format, stmt, authData any) []byte {
 
 // TestParseAttestationObject_WebAuthn6_5_4 checks the attestation object's
 // shape: one CBOR map of exactly fmt (text), attStmt (map) and authData
-// (bytes), with nothing after it; its key order is not checked (§2.4's
+// (bytes), with nothing after it; its key order is not checked (WebAuthn §2.4's
 // canonical form, a stated departure in docs/webauthn.md).
 func TestParseAttestationObject_WebAuthn6_5_4(t *testing.T) {
 	t.Parallel()
@@ -103,7 +103,7 @@ func TestParseAttestationObject_WebAuthn6_5_4(t *testing.T) {
 }
 
 // TestVerifyStatement_WebAuthn8_7_none checks the none format: fmt exactly
-// none (§7.1's USASCII case-sensitive match) with an empty attStmt.
+// none (WebAuthn §7.1's USASCII case-sensitive match) with an empty attStmt.
 func TestVerifyStatement_WebAuthn8_7_none(t *testing.T) {
 	t.Parallel()
 	s := s16_3(t)
@@ -147,7 +147,7 @@ func statementResult(t *testing.T, format string, stmt cborMap, authData []byte,
 // attestation: exactly an integer alg equal to the credential key's and a
 // byte string sig verifying under it over authData ‖ clientDataHash. packed
 // with x5c, and every other format, is refused as a format: access accepts
-// only none and self attestation (§5.4.7's default conveyance).
+// only none and self attestation (WebAuthn §5.4.7's default conveyance).
 func TestVerifyStatement_WebAuthn8_2_self(t *testing.T) {
 	t.Parallel()
 	s := s16_3(t)
@@ -162,7 +162,7 @@ func TestVerifyStatement_WebAuthn8_2_self(t *testing.T) {
 		authData []byte
 		want     error
 	}{
-		{"§16.3 as published", "packed", cborMap{"alg", -7, "sig", s.sig}, s.authData, nil},
+		{"WebAuthn §16.3 as published", "packed", cborMap{"alg", -7, "sig", s.sig}, s.authData, nil},
 		{"members in another order", "packed", cborMap{"sig", s.sig, "alg", -7}, s.authData, nil},
 		{"a flipped signature byte", "packed", cborMap{"alg", -7, "sig", flipped}, s.authData, errAttestationSignature},
 		{"authData other than the signed", "packed", cborMap{"alg", -7, "sig", s.sig}, otherAuthData, errAttestationSignature},

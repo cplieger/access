@@ -2,6 +2,7 @@ package accesshttp
 
 import (
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -54,7 +55,7 @@ func FuzzCallbackLocation(f *testing.F) {
 			withMarker(sealed, markerError, "x"),
 		} {
 			w := httptest.NewRecorder()
-			redirect(w, target)
+			redirect(w, http.StatusFound, target)
 			loc := w.Header().Get("Location")
 			if want := asciiLocation(target); loc != want {
 				t.Fatalf("input %q: Location %q, want %q", s, loc, want)

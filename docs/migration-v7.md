@@ -1,6 +1,6 @@
 # Migrating from auth v6
 
-access changes the API of every package of auth v6, so a v6 caller does not compile against it unchanged. This page lists what was removed, renamed or changed, and what replaces each, for a developer moving a service from `github.com/cplieger/auth/v6`. Two packages are new: `account`, which runs sign-in, sessions, keys and the user set over your store, and `accesshttp`, which serves those operations as HTTP routes you mount yourself. Every symbol in them is new.
+access changes the API of every package of auth v6, so a v6 caller does not compile against it unchanged. This page lists what was removed, renamed or changed, and what replaces each, for a developer moving a service from `github.com/cplieger/auth/v6`. `account`, which runs sign-in, sessions, keys and the user set over your store, `accesshttp`, which serves those operations as HTTP routes you mount yourself, and `totp`, which computes and checks authenticator-app codes, are new packages, and every symbol in them is new.
 
 Change every import from `github.com/cplieger/auth/v6` to `github.com/cplieger/access`. The root package `auth` is now `access`, and `authtest` is now `accesstest`.
 
@@ -47,9 +47,9 @@ Every plaintext credential is an `access.Secret` and every stored hash an `acces
 | `AuthenticatorStore` | adds `APIKeyToucher`; activity takes a `SessionActivity` |
 | `SessionActivityUpdater.UpdateSessionActivity(ctx, hash, now)` | `(ctx, access.Hash, SessionActivity)`. An older or equal time writes nothing |
 
-New in the root package: `Principal`, `Rechecker`, `Authenticator.Recheck`, `RequireRecentAuth`, `Passive`, `AllowRecoverySession`, `ErrAuthBackend`, `ErrInvalidCredential`, `MethodAPIKey`, `MethodBypass`, `MethodRecovery`, `SessionKind`, `SessionRef`, `RecoverySessionLifetime`, `OIDCIdentity`, `OneTimeToken`, `TokenPurpose`, `KeyAttribution`, `Sealer`, `ClientAddr`, `Config.ClientAddr` and `CookieConfig.Derive`. `Via` is new too, with its constants `ViaUnknown`, `ViaDirect`, `ViaUntrustedForwarding`, `ViaProxy` and `ViaProxyNoClient`.
+New in the root package: `Principal`, `Rechecker`, `Authenticator.Recheck`, `RequireRecentAuth`, `Passive`, `ErrAuthBackend`, `ErrInvalidCredential`, `MethodAPIKey`, `MethodBypass`, `SessionRef`, `OIDCIdentity`, `OneTimeToken`, `TokenPurpose`, `KeyAttribution`, `Sealer` with `SealAtRest` and `OpenAtRest`, `TOTP`, `RecoveryCode`, `TemporaryPassword`, `MethodTOTP`, `MethodRecoveryCode`, `StatusOf`, `ClientAddr`, `Config.ClientAddr` and `CookieConfig.Derive`. `Via` is new too, with its constants `ViaUnknown`, `ViaDirect`, `ViaUntrustedForwarding`, `ViaProxy` and `ViaProxyNoClient`.
 
-The refusal vocabulary is in the root package as well, so an app that guards its own routes imports neither `accesshttp` nor the passkey and OIDC packages behind it: `Code`, every `Code…` constant and `Codes`, `Error`, `ErrorWriter`, `AuditEvent`, `NewError`, `ErrorFor`, and `Authenticator.Challenge` with its `Config.Realm`. A service built on an earlier access dev tag renames `accesshttp.Code…`, `accesshttp.Codes`, `accesshttp.Error`, `accesshttp.ErrorWriter` and `accesshttp.AuditEvent` to these `access.` names. The wire strings are unchanged. A service built on an earlier dev tag also replaces `Authenticator.RequireAuth` with `access/gate`, and drops `Config.Unauthorized`, which is gone with it. Every 401 the auth routes answer now carries a `WWW-Authenticate` challenge, and `account.New` and `Rules.Validate` refuse a key scope that is not one RFC 6750 scope-token (printable ASCII other than space, `"` and `\`). Two codes are new: 403 `auth_key_required`, a gate `Key` row reached without an API key, and 409 `auth_key_label_taken`, a key label the owner's keys already carry.
+The refusal vocabulary is in the root package as well, so an app that guards its own routes imports neither `accesshttp` nor the passkey and OIDC packages behind it: `Code`, every `Code…` constant and `Codes`, `Error`, `ErrorWriter`, `AuditEvent`, `NewError`, `ErrorFor`, and `Authenticator.Challenge` with its `Config.Realm`. A service built on an earlier access dev tag renames `accesshttp.Code…`, `accesshttp.Codes`, `accesshttp.Error`, `accesshttp.ErrorWriter` and `accesshttp.AuditEvent` to these `access.` names. The wire strings are unchanged. A service built on an earlier dev tag also replaces `Authenticator.RequireAuth` with `access/gate`, and drops `Config.Unauthorized`, which is gone with it. Every 401 the auth routes answer now carries a `WWW-Authenticate` challenge, and `account.New` and `Rules.Validate` refuse a key scope that is not one RFC 6750 scope-token (printable ASCII other than space, `"` and `\`). Two codes are new: 403 `auth_key_required`, a gate `Key` row reached without an API key, and 409 `auth_key_label_taken`, a key label the same user's keys already carry.
 
 ## Plain HTTP and the request's transport
 
@@ -77,7 +77,7 @@ A session presented on the other transport is refused with `ErrSessionTransport`
 
 Under `PostureSecure`, `Authenticate` refuses every plain request with the new `ErrHTTPSRequired`, before the bypass and every verifier, and revokes nothing ([Session cookie](configuration.md#session-cookie)). `ErrorFor` answers it with the new code 403 `auth_https_required`, which every authenticating route of the gate and of `accesshttp` lists. The gate's new `Route.HTTPS` refuses a plain request on its row with the same code ([Guarding your own routes](gate.md#the-classes)), and `gate.New` refuses it on a `Public` row.
 
-Under `PosturePerRequest`, a plain request may sign in and set up by password and use a password session, and `account` refuses the rest with `ErrHTTPSRequired`: passkeys, OIDC, step-up, recovery, invite acceptance, password removal, key creation and rotation, recovery issuing and invites ([Plain HTTP](plain-http.md)). Under `PostureSecure`, every operation that takes a `Client` refuses a plain one, except `State` and `Logout`. A `Client` or `Principal` built without `Secure` reads plain. `Service.OIDCProvider` is removed: the link and step-up starts call the new `Service.AdmitOIDCSession`, and the pending-link read (`authOIDCPending`) is admitted by `AdmitOIDC` like the sign-in start, so it now also answers `auth_https_required`, `auth_oidc_unavailable`, `auth_rate_limited` and `auth_unavailable`, and each read counts against the per-IP request limit.
+Under `PosturePerRequest`, a plain request may sign in and set up by password and use a password session, and `account` refuses the rest with `ErrHTTPSRequired`: passkeys, OIDC, step-up, invite acceptance, password removal, key creation and rotation, and invites ([Plain HTTP](plain-http.md)). Under `PostureSecure`, every operation that takes a `Client` refuses a plain one, except `State` and `Logout`. A `Client` or `Principal` built without `Secure` reads plain. `Service.OIDCProvider` is removed: the link and step-up starts call the new `Service.AdmitOIDCSession`, and the pending-link read (`authOIDCPending`) is admitted by `AdmitOIDC` like the sign-in start, so it now also answers `auth_https_required`, `auth_oidc_unavailable`, `auth_rate_limited` and `auth_unavailable`, and each read counts against the per-IP request limit.
 
 ### Recent auth and the fresh sign-in
 
@@ -98,7 +98,8 @@ Under `PosturePerRequest`, a plain request may sign in and set up by password an
 | `User.OIDCSub`, `User.OIDCIssuer` | `User.OIDC`, an `access.OIDCIdentity` |
 | `Session.OIDCExpiry` | none; a session lives by your idle and absolute timeouts |
 | `Session.IPAddress` | `Session.LastIP` |
-| `Session` | gains `ID`, `AuthTime`, `Kind`, `UserAgent`, `Label`, `IssuedByKey`, `IdleCap`, `AbsoluteCap` and `Secure`; its JSON tags are dropped |
+| `User` | gains `Owner`, an [owner's](identity.md#owners) flag, and `WaitingApproval`, a registration an admin has not approved |
+| `Session` | gains `ID`, `AuthTime`, `UserAgent`, `Label`, `IdleCap`, `AbsoluteCap` and `Secure`, and its JSON tags are dropped |
 | `Key` | gains `Scopes`, `LastUsedAt` and `LineageIDs`, and the `ParentKeyID()` method, the key that minted it |
 | `PasskeyCredential` | gains `LastUsedAt` |
 | `PasskeyFlags` | `PasskeyLoginUpdate` and `DecodePasskeyFlags` |
@@ -126,7 +127,7 @@ Every derivation now draws on a `HashBudget` (`NewHashBudget`, `HashCost`, `ErrH
 | --- | --- |
 | `CSRFToken`, `VerifyCSRFToken` | [`http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection) |
 | `RotateSessionToken` | `account` rotates sessions through `SessionStore.RotateSession` |
-| `ValidateSession` | has no OIDC expiry arm, and applies the recovery lifetime and a session's own caps through `SessionDeadlines` |
+| `ValidateSession` | has no OIDC expiry arm, and applies the plain-session limits and a session's own caps through `SessionDeadlines` |
 | `CookieConfig.TrustForwardedHeaders` | the transport each cookie method takes, the `ClientAddr.Secure` your resolver answers |
 | `PostureInsecureLAN` | `PosturePerRequest`, whose plain request gets the bare name without Secure |
 | `CookieConfig.Path`, `CookieConfig.Domain` | none; every cookie has `Path=/` and no `Domain`, as the `__Host-` prefix requires |
@@ -149,7 +150,7 @@ The store interfaces move to `account`, and the store contract changes ([Impleme
 | `UserStore.UserByOIDCSub` | `account.UserStore.UserByOIDC(ctx, access.OIDCIdentity)` |
 | `UserByUsername`, `CreateUser`, `UpdateUser` normalising usernames | the store compares bytes exactly, because `account` normalises. Remove any `NormalizeUsername` call from your store |
 | `CreateUser`, `UpdateUser` errors | `account.ErrUsernameTaken`, `account.ErrOIDCIdentityTaken` and `account.ErrNotFound` |
-| `DeleteUser` | cascades, in one transaction, to the user's sessions, passkeys, keys, tokens and key attributions |
+| `DeleteUser` | cascades, in one transaction, to the user's sessions, passkeys, keys, key attributions, TOTP record, recovery code and temporary password |
 | `CreatePasskey` | refuses a credential ID registered to any user with `account.ErrDuplicateCredential` |
 | `PasskeyByCredentialID`, `PasskeyCountForUser` | `ErrDuplicateCredential` from `CreatePasskey`; `len(PasskeysByUserID(...))` |
 | `UpdatePasskeyAfterLogin(ctx, credID, signCount, flags)` | `(ctx, userID, credID, access.PasskeyLoginUpdate)`, scoped to the user |
@@ -159,7 +160,7 @@ The store interfaces move to `account`, and the store contract changes ([Impleme
 | `CreateAPIKey` | appends the ID it assigns to `Key.LineageIDs` |
 | `OIDCStateStore`, `OIDCState`, `OIDCNonce`, `OIDCCodeVerifier` | none; the OIDC flow travels in a sealed cookie |
 
-New roles: `account.FailureStore` for the durable failure cap, `account.AttributionStore` for key attribution and `account.LogStore` for the security log.
+New roles: `account.FailureStore` for the durable failure cap, `account.AttributionStore` for key attribution, `account.LogStore` for the security log, `account.SecondFactorStore` and `account.TemporaryPasswordStore` for the [per-user records](storage.md#second-factors-temporary-passwords-and-the-sso-mode), and `account.SSOModeStore` for the stored SSO mode. `UserStore` gains `UsersWaiting`.
 
 Key rotation adds to the key store, under contract rule 23 ([Key secrets](storage.md#key-secrets)). A store built on an earlier access dev tag adds these:
 
@@ -168,9 +169,9 @@ Key rotation adds to the key store, under contract rule 23 ([Key secrets](storag
 - `account.KeyStore` gains `UpdateAPIKeySecret(ctx, access.KeyRef, access.KeySecret)`, which writes the new secret and zeroes `LastUsedAt` in one write, and `UpdateAPIKeyLabel(ctx, access.KeyRef, label)`.
 - `account.Sweeper` gains `ClearRetiredAPIKeySecrets(ctx, now, limit) (int, error)`.
 
-`account.Service.RotateAPIKey(ctx, a, id)` is the operation that writes them: it gives a key a new secret, keeps its ID and everything else, and lets the superseded secret work for `Rules.KeyRotationOverlap` (1 hour by default) or until the new secret's first use. `Rules.Validate` refuses an overlap below 1 minute or above 24 hours. `accesshttp` serves it as `authKeyRotate` (`POST /apikeys/{id}/rotate`, a session under recent auth, `client.rotateKey` in `@cplieger/access`), which answers a `KeyCreatedResponse`, and `KeyView` gains `previous_until`, set while the superseded secret still verifies. An app's own `Policy` receives the new `OpRotateKey`, with the key's owner as `Target`, from an out-of-band actor or the owner's own session, and the log gains the `key_rotated` kind. The sweep now clears retired previous secrets, and its finished line counts them as `keys`. A key principal presenting a superseded secret is refused by `CreateAPIKey`, `CreateUser`, `CreateInvite`, `IssueRecovery` and an enabling `UpdateUser`, with the new reason `key_retiring`; `PolicyReasons` gains it and `key_expired` after `key_not_current`.
+`account.Service.RotateAPIKey(ctx, a, id)` is the operation that writes them: it gives a key a new secret, keeps its ID and everything else, and lets the superseded secret work for `Rules.KeyRotationOverlap` (1 hour by default) or until the new secret's first use. `Rules.Validate` refuses an overlap below 1 minute or above 24 hours. `accesshttp` serves it as `authKeyRotate` (`POST /apikeys/{id}/rotate`, a session under recent auth, `client.rotateKey` in `@cplieger/access`), which answers a `KeyCreatedResponse`, and `KeyView` gains `previous_until`, set while the superseded secret still verifies. An app's own `Policy` receives the new `OpRotateKey`, with the key's user as `Target`, from an out-of-band actor or that user's own session, and the log gains the `key_rotated` kind. The sweep now clears retired previous secrets, and its finished line counts them as `keys`. A key principal presenting a superseded secret is refused by `CreateAPIKey`, `CreateUser`, `CreateInvite`, `SetTemporaryPassword`, `AdminUnlinkOIDC`, `AdminRelinkOIDC`, `ResetSecondFactor` and an enabling `UpdateUser`, with the new reason `key_retiring`; `PolicyReasons` gains it and `key_expired` after `key_not_current`.
 
-`Service.AllAPIKeys(ctx, a)` and `Service.RevokeAnyAPIKey(ctx, a, id)` take an `account.Actor` in place of an `access.Principal`. Pass `account.As(p)` for a request's principal, or `account.OutOfBand(channel)` for an admin socket or a CLI. Both answer `ErrServiceClosed` after `Shutdown` for every actor, and `ErrSessionRequired` for the zero `Actor`. A key principal's authority is re-read in the operation's transaction, so a revoked or expired key gets a `*PolicyError` with `ReasonKeyNotCurrent` from `AllAPIKeys` as well. The built-in policies allow `OpManageAllKeys` to an out-of-band actor, and an app's own `Policy` now receives it with one.
+`Service.AllAPIKeys(ctx, a)` and `Service.RevokeAnyAPIKey(ctx, a, id)` take an `account.Actor` in place of an `access.Principal`. Pass `account.As(p)` for a request's principal, or `account.OutOfBand(channel)` for an admin socket or a CLI. Both answer `ErrServiceClosed` after `Shutdown` for every actor, and `ErrSessionRequired` for the zero `Actor`. A key principal's authority is re-read in the operation's transaction, so a revoked or expired key gets a `*PolicyError` with `ReasonKeyNotCurrent` from `AllAPIKeys` as well. The built-in policies allow `OpManageAllKeys` to an out-of-band actor, and an app's own `Policy` now receives it with one. `AllAPIKeys` answers `ListedKey{Username, Key}`, the key's user's name in `Username`, and the admin key list's `KeyView` carries it as `username`, set on that list only; `owner` on the wire always means the owner flag.
 
 ## The security log
 
@@ -192,11 +193,11 @@ Code written against an earlier development release, one that predates the secur
 
 ## Tokens and display text in account
 
-`account.Service.CreateInvite` and `IssueRecovery` return an `account.IssuedToken{Plaintext, ExpiresAt}` in place of an `access.Secret`. `ExpiresAt` is the stored expiry, which an API key's own `ExpiresAt` caps when a key issues the token, so the expiry you show is the one the token has. `accesshttp` copies it into `TokenResponse.ExpiresAt`.
+`account.Service.CreateInvite` returns an `account.IssuedToken{Plaintext, ExpiresAt}` in place of an `access.Secret`. `ExpiresAt` is the stored expiry, which an API key's own `ExpiresAt` caps when a key issues the token, so the expiry you show is the one the token has. `accesshttp` copies it into `TokenResponse.ExpiresAt`.
 
 A label (a key or session label, or a passkey name) or a display name that is too long, or that holds a disallowed character, returns an `*account.TextError{Field, Reason}` before any write. A disallowed character is invalid UTF-8, a control, a bidi control or a line separator. `Field` is `label` or `display_name`, and `Reason` is `empty`, `too_long` or `disallowed_character`; `account.TextErrors()` lists the pairs an operation returns. `accesshttp` answers it with 400 `auth_bad_request` and the `Reason` `<field>_<reason>`, for example `label_too_long`, never with a 500.
 
-A key label is required and unique per owner. `CreateAPIKey` refuses an empty label with `TextError{label, empty}` (wire reason `label_empty`), and a label one of the owner's unexpired keys already carries, compared after NFC normalisation and Unicode case folding, with `account.ErrKeyLabelTaken`, answered 409 `auth_key_label_taken`. An expired key's label is free again. A full session renames one of its own keys with `account.Service.RenameAPIKey`, served as `authKeyRename` (`PUT /apikeys/{id}`, a `NameRequest` body, `client.renameKey` in `@cplieger/access`): the new label meets the same rule, the key's own label aside, and another user's key or a missing one is `ErrNotFound`. A rename logs no event. The rule applies when a key is created or renamed: keys already stored with an empty or a repeated label stay as they are, addressable by ID, and a store adds no unique index.
+A key label is required and unique per user. `CreateAPIKey` refuses an empty label with `TextError{label, empty}` (wire reason `label_empty`), and a label one of the same user's unexpired keys already carries, compared after NFC normalisation and Unicode case folding, with `account.ErrKeyLabelTaken`, answered 409 `auth_key_label_taken`. An expired key's label is free again. A full session renames one of its own keys with `account.Service.RenameAPIKey`, served as `authKeyRename` (`PUT /apikeys/{id}`, a `NameRequest` body, `client.renameKey` in `@cplieger/access`): the new label meets the same rule, the key's own label aside, and another user's key or a missing one is `ErrNotFound`. A rename logs no event. The rule applies when a key is created or renamed: keys already stored with an empty or a repeated label stay as they are, addressable by ID, and a store adds no unique index.
 
 ## ratelimit
 
@@ -230,10 +231,10 @@ New: `ErrResponseTooLarge`, `LoginResult`, `BeginReauthentication` and `Complete
 | `Provider.AuthorizationURL`, `Provider.Exchange` | `Provider.Begin` and `Provider.Finish` with an `oidc.Callback` |
 | `GenerateState`, `GeneratePKCE` and the `State`, `Nonce`, `CodeChallenge`, `Code`, `CodeVerifier` types | none; `Begin` and `Finish` handle them |
 | `Claims.Subject`, `Claims.Issuer` and its JSON tags | `Claims.Identity`, an `access.OIDCIdentity`; `Claims` gains `AuthTime`, `Raw` and `Strings` |
-| `ResolveUser` | `Provisioning.Admit` and `UsernameCandidate`, which `account` composes |
-| a discovery document with `http` endpoints | refused with `ErrDiscovery` unless the issuer is a loopback `http` URL |
+| `ResolveUser` | `account.Rules.OIDCAdmission`, `account.Rules.Provisioning` and `UsernameCandidate`, which `account` composes |
+| a discovery document with `http` endpoints | refused with `ErrProviderInvalid` unless the issuer is a loopback `http` URL |
 
-New: `Provider.Issuer`, `BeginRequest`, the `Intent` constants, `Flow`, `MaxRedirectBytes`, `Provisioning`, `ProviderError`, `UsernameError`, `ErrFlowInvalid`, `ErrStaleAuthentication`, `ErrRedirectTooLong`, `ErrProvisioningDisabled` and `ErrNotAdmitted`.
+New: `Provider.Issuer`, `BeginRequest`, the `Intent` constants, `Flow`, `MaxRedirectBytes`, `MaxInviteHashBytes`, `ProviderError`, `UsernameError`, `ErrFlowInvalid`, `ErrStaleAuthentication`, `ErrRedirectTooLong` and `ErrProviderInvalid`.
 
 ## accesstest
 

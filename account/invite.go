@@ -40,7 +40,7 @@ func (s *Service) CreateInvite(ctx context.Context, p access.Principal, role acc
 	if role == "" {
 		role = access.RoleUser
 	}
-	plaintext, base := access.NewOneTimeToken(access.PurposeInvite, 0, ttl, s.now())
+	plaintext, base := access.NewOneTimeToken(access.PurposeInvite, ttl, s.now())
 	base.Role = role
 	var rec access.OneTimeToken
 	err = s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
@@ -52,7 +52,7 @@ func (s *Service) CreateInvite(ctx context.Context, p access.Principal, role acc
 		if keyErr := requireCurrentSecret(OpInvite, ua.key, p); keyErr != nil {
 			return keyErr
 		}
-		if polErr := s.policy.Authorize(ctx, Decision{Op: OpInvite, Actor: ua.actor, Role: role}); polErr != nil {
+		if polErr := s.authorize(ctx, Decision{Op: OpInvite, Actor: ua.actor, Role: role}); polErr != nil {
 			return refuse(polErr)
 		}
 		if ruleErr := ua.target(OpInvite, role); ruleErr != nil {
@@ -71,83 +71,90 @@ func (s *Service) CreateInvite(ctx context.Context, p access.Principal, role acc
 	return IssuedToken{Plaintext: plaintext, ExpiresAt: rec.ExpiresAt}, nil
 }
 
-// AcceptInvitePassword creates the invited account with a password and signs it
-// in; a plain c is access.ErrHTTPSRequired. The username, password and Policy
-// (ViaInvite) checks and the IP limiter run before the hash; a refusal there, a
-// taken name or a backend error leaves the invite usable. One Update consumes
-// the invite and creates the user and session, re-checking a key-issued
-// invite's issuer: a refused issuer deletes the invite and answers
-// access.ErrTokenInvalid, an accepted one appends an invite_accepted
-// attribution.
-func (s *Service) AcceptInvitePassword(ctx context.Context, c Client, in AcceptInvite) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
+// AcceptInvitePassword creates the invited account with a password and signs
+// it in, or under Rules.RequireSecondFactor answers a Pending NextEnrol whose
+// finish consumes the invite; a plain c is access.ErrHTTPSRequired. The
+// username, password and Policy (ViaInvite) checks and the IP limiter run
+// before the hash; a refusal, a taken name or a backend error leaves the
+// invite usable. One Update consumes the invite and creates the user and
+// session; a key-issued invite's refused issuer deletes it and answers
+// access.ErrTokenInvalid, an accepted one appends an invite_accepted record.
+func (s *Service) AcceptInvitePassword(ctx context.Context, c Client, in AcceptInvite) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
 	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {
-		return SignedIn{}, err
+		return LoginResult{}, err
+	}
+	if r.RequireSecondFactor {
+		return s.passwordDraft(ctx, r, c, in.Password, func() (access.User, draftOf, error) {
+			username, role, checkErr := s.inviteChecks(ctx, r, in)
+			if checkErr != nil {
+				return access.User{}, draftOf{}, checkErr
+			}
+			return s.newAccount(username, role), draftOf{token: tokenHash(in.Token), via: ViaInvite}, nil
+		})
 	}
 	var (
 		username string
 		base     access.User
 		acc      accepted
 	)
-	out, err := s.createSession(ctx, r, c, &sessionOp{
+	out, err := s.signIn(ctx, r, c, &sessionOp{
 		method: access.MethodPassword,
 		gate: admission{
 			refusals: func() error {
 				var checkErr error
-				username, checkErr = s.inviteChecks(ctx, r, in)
+				username, _, checkErr = s.inviteChecks(ctx, r, in)
 				return checkErr
 			},
 			limit: s.ipAttempt(c),
 		},
 		prepare: func(*ratelimit.Reservation) error {
 			hash, hashErr := s.hasher.Hash(ctx, in.Password.Reveal())
-			now := s.now()
-			base = access.User{
-				Username: username, PasswordHash: hash, Enabled: true,
-				WebAuthnHandle: access.GenerateWebAuthnHandle(), CreatedAt: now, UpdatedAt: now,
-			}
+			base = s.newAccount(username, "")
+			base.PasswordHash = hash
 			return hashErr
 		},
 		in: func(tx Tx) (*access.User, error) {
 			acc = accepted{user: base}
-			if acceptErr := s.acceptIn(ctx, tx, in.Token, &acc); acceptErr != nil || acc.spent {
+			if modeErr := requireLocal(ctx, tx, &acc.user, ErrSSOOnly); modeErr != nil {
+				return nil, modeErr
+			}
+			if acceptErr := s.acceptIn(ctx, tx, tokenHash(in.Token), &acc); acceptErr != nil || acc.spent {
 				return nil, acceptErr
 			}
 			return &acc.user, nil
 		},
-		announce: func(j *journal, u *access.User, sess *access.Session) {
-			created := Event{Kind: EventUserCreated, At: sess.CreatedAt, UserID: u.ID, Role: u.Role}
-			if acc.issuer != nil {
-				created.KeyID = acc.issuer.ID
-			}
-			j.add(created)
-		},
+		announce: acc.announce,
 	})
 	if err == nil && acc.spent {
-		err = access.ErrTokenInvalid
+		return LoginResult{}, access.ErrTokenInvalid
 	}
 	return out, err
 }
 
 // inviteChecks is the acceptance's refusals before the limiter and the
 // hash: the invite peeked, the username and password rules, then the
-// Policy (OpCreateUser, ViaInvite). It returns the canonical username.
-func (s *Service) inviteChecks(ctx context.Context, r Rules, in AcceptInvite) (string, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and its input
+// Policy (OpCreateUser, ViaInvite). It returns the canonical username and
+// the invite's role.
+func (s *Service) inviteChecks(ctx context.Context, r Rules, in AcceptInvite) (string, access.Role, error) { //nolint:gocritic // hugeParam: the operation's one Rules value and its input
 	invite, err := s.peekToken(ctx, in.Token, access.PurposeInvite)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	username, err := canonicalUsername(in.Username)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := s.checkPassword(ctx, r, username, in.Password); err != nil {
-		return "", err
+		return "", "", err
 	}
-	if err := s.policy.Authorize(ctx, Decision{Op: OpCreateUser, Via: ViaInvite, Role: invite.Role}); err != nil {
-		return "", err
+	if err := s.authorize(ctx, Decision{Op: OpCreateUser, Via: ViaInvite, Role: invite.Role}); err != nil {
+		return "", "", err
 	}
-	return username, nil
+	if err := s.localAllowed(ctx, &access.User{Role: invite.Role, Enabled: true}); err != nil {
+		return "", "", err
+	}
+	return username, invite.Role, nil
 }
 
 // accepted is what an acceptance's Update did: the user, the re-read
@@ -159,13 +166,23 @@ type accepted struct {
 	spent  bool
 }
 
+// announce adds the acceptance's EventUserCreated, naming a key-issued
+// invite's issuer.
+func (acc *accepted) announce(j *journal, u *access.User, sess *access.Session) {
+	created := Event{Kind: EventUserCreated, At: createdAt(u, sess), UserID: u.ID, Role: u.Role}
+	if acc.issuer != nil {
+		created.KeyID = acc.issuer.ID
+	}
+	j.add(created)
+}
+
 // acceptIn is the acceptance's part of the Update, before its session:
-// consume the invite, re-check a key-issued one's issuer, create the user,
-// and append a key-issued invite's attribution. An invite the store found
-// expired or absent, or a refused issuer, sets acc.spent and commits the
-// consumption alone.
-func (s *Service) acceptIn(ctx context.Context, tx Tx, token access.Secret, acc *accepted) error {
-	tok, found, err := tx.ConsumeOneTimeToken(ctx, tokenHash(token), s.now())
+// consume the invite stored under hash, re-check a key-issued one's issuer,
+// create the user with the invite's role, and append a key-issued invite's
+// attribution. An invite the store found expired or absent, or a refused
+// issuer, sets acc.spent and commits the consumption alone.
+func (s *Service) acceptIn(ctx context.Context, tx Tx, hash access.Hash, acc *accepted) error {
+	tok, found, err := tx.ConsumeOneTimeToken(ctx, hash, s.now())
 	switch {
 	case err != nil:
 		return err
@@ -199,7 +216,12 @@ func (s *Service) peekToken(ctx context.Context, token access.Secret, purpose ac
 	if token.IsZero() {
 		return access.OneTimeToken{}, access.ErrTokenInvalid
 	}
-	tok, found, err := s.store.OneTimeTokenByHash(ctx, tokenHash(token))
+	return s.peekTokenHash(ctx, tokenHash(token), purpose)
+}
+
+// peekTokenHash is peekToken of the token stored under hash.
+func (s *Service) peekTokenHash(ctx context.Context, hash access.Hash, purpose access.TokenPurpose) (access.OneTimeToken, error) {
+	tok, found, err := s.store.OneTimeTokenByHash(ctx, hash)
 	if err != nil {
 		return access.OneTimeToken{}, storeErr(err)
 	}
@@ -210,7 +232,7 @@ func (s *Service) peekToken(ctx context.Context, token access.Secret, purpose ac
 }
 
 // tokenIssuer re-checks the issuer keyID of a key-issued token inside the
-// Update that consumes it or completes its recovery: keyAuthority under
+// Update that consumes it: keyAuthority under
 // ManageUsersScope, the issuing operation's d again with that actor, then
 // the admin-target rule on role. It calls keyAuthority, not currentKeyActor,
 // because the issuer is not the change's actor. current is false on any
@@ -224,7 +246,7 @@ func (s *Service) tokenIssuer(ctx context.Context, tx Tx, keyID int64, d Decisio
 		return nil, false, err
 	}
 	d.Actor = actor
-	if s.policy.Authorize(ctx, d) != nil || requireUserTarget(d.Op, role) != nil {
+	if s.authorize(ctx, d) != nil || requireUserTarget(d.Op, role) != nil {
 		return nil, false, nil
 	}
 	return key, true, nil

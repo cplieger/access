@@ -3,6 +3,7 @@ package accesshttp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -45,6 +46,8 @@ type env struct {
 	provider atomic.Pointer[oidc.Provider]
 	// around, when set, wraps the handler of every route route returns.
 	around func(Route) http.Handler
+	// sealer is Config.TOTP.Sealer under envOptions.totp.
+	sealer *access.Sealer
 }
 
 type envOptions struct {
@@ -69,6 +72,8 @@ type envOptions struct {
 	mem *accesstest.MemStore
 	// passkeys sets the relying party for testOrigin.
 	passkeys bool
+	// totp wires TOTP with env.sealer.
+	totp bool
 }
 
 // fastParams is OWASP's lightest Argon2id row, so a test hashes quickly at
@@ -157,6 +162,10 @@ func newEnv(t testing.TB, o envOptions) *env {
 		Logger:     logger,
 		FailureKey: []byte("accesshttp-test-failure-key-32by"),
 	}
+	if o.totp {
+		e.sealer = access.NewEphemeralSealer()
+		cfg.TOTP = account.TOTPConfig{Sealer: e.sealer, Issuer: "Example"}
+	}
 	if o.edit != nil {
 		o.edit(&cfg)
 	}
@@ -224,8 +233,15 @@ func requestFor(rt Route, id, body string, cookies ...*http.Cookie) *http.Reques
 	return requestAt(testOrigin, strings.NewReplacer("{id}", id, "{method}", id).Replace(rt.Path), rt, body, cookies...)
 }
 
+// requiredQueries is the query a route answers auth_bad_request without,
+// which every request requestAt builds for it carries.
+var requiredQueries = map[string]string{"authAdminSSOReadiness": "mode=for_linked"}
+
 // requestAt is a same-origin request for rt to path on origin.
 func requestAt(origin, path string, rt Route, body string, cookies ...*http.Cookie) *http.Request {
+	if q, ok := requiredQueries[rt.Name]; ok && !strings.Contains(path, "?") {
+		path += "?" + q
+	}
 	r := httptest.NewRequest(rt.Method, origin+path, strings.NewReader(body))
 	if body != "" {
 		r.Header.Set("Content-Type", "application/json")
@@ -267,17 +283,31 @@ func (e *env) createUser(t testing.TB, name string, role access.Role) {
 		t.Fatalf("Hash: %v", err)
 	}
 	now := time.Now()
-	u := &access.User{Username: name, PasswordHash: hash, Role: role, Enabled: true, WebAuthnHandle: access.GenerateWebAuthnHandle(), CreatedAt: now, UpdatedAt: now}
+	// root stands for the owner account.New marks at start.
+	owner := name == "root" && role == access.RoleAdmin
+	u := &access.User{Username: name, PasswordHash: hash, Role: role, Enabled: true, Owner: owner, WebAuthnHandle: access.GenerateWebAuthnHandle(), CreatedAt: now, UpdatedAt: now}
 	if err := e.mem.CreateUser(t.Context(), u); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
+}
+
+// errPendingAnswer is completed's refusal of a pending answer.
+var errPendingAnswer = errors.New("test: the sign-in answered a pending sign-in")
+
+// completed is a password sign-in's SignedIn, and errPendingAnswer for a
+// pending one.
+func completed(out account.LoginResult, err error) (account.SignedIn, error) {
+	if err == nil && out.Pending != nil {
+		return account.SignedIn{}, errPendingAnswer
+	}
+	return out.SignedIn, err
 }
 
 // sessionCookie signs name in directly through the Service and returns its
 // session cookie.
 func (e *env) sessionCookie(t testing.TB, name string) *http.Cookie {
 	t.Helper()
-	out, err := e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: name, Password: access.NewSecret(testPassword)})
+	out, err := completed(e.svc.PasswordLogin(t.Context(), account.Client{Secure: true}, account.Credentials{Username: name, Password: access.NewSecret(testPassword)}))
 	if err != nil {
 		t.Fatalf("PasswordLogin: %v", err)
 	}

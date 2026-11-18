@@ -42,8 +42,9 @@ func tokenHash(token access.Secret) access.Hash {
 	return access.NewHash(access.HexSHA256(token.Reveal()))
 }
 
-// State reports whether setup is needed, which sign-in methods c's transport
-// admits, and what HTTPS would add (docs/plain-http.md owns the table). It
+// State reports whether setup is needed, the stored SSO mode, the
+// registration mode a registration would meet, which sign-in
+// methods c's transport admits, and what HTTPS would add (docs/plain-http.md owns the table). It
 // checks no transport, so it answers a plain c under both postures, and it
 // writes nothing.
 func (s *Service) State(ctx context.Context, c Client) (State, error) { //nolint:gocritic // hugeParam: the request's Client, read once
@@ -55,7 +56,14 @@ func (s *Service) State(ctx context.Context, c Client) (State, error) { //nolint
 	if err != nil {
 		return State{}, storeErr(err)
 	}
-	st := State{SetupRequired: n == 0, Secure: c.Secure}
+	mode, err := storedMode(ctx, s.store)
+	if err != nil {
+		return State{}, storeErr(err)
+	}
+	st := State{SetupRequired: n == 0, Secure: c.Secure, SSO: mode, TOTP: s.totpOn(r), Registration: r.Registration}
+	if mode == SSOOnly {
+		st.Registration = RegistrationOff
+	}
 	// Each feature answers its sign-in operations' own plainRule, so the
 	// screen and the operations read one table.
 	admit := func(offered bool, f HTTPSFeature, rule plainRule) bool {
@@ -66,11 +74,12 @@ func (s *Service) State(ctx context.Context, c Client) (State, error) { //nolint
 		return offered
 	}
 	st.PasswordLogin = admit(!r.DisablePasswordLogin, HTTPSPassword, plainPerRequest)
-	admit(st.SetupRequired, HTTPSSetup, plainPerRequest)
+	admit(st.SetupRequired, HTTPSSetup, setupRule(r))
 	st.Passkeys = admit(s.passkeysAvailable(), HTTPSPasskeys, plainRefused)
 	st.OIDC = admit(s.provider() != nil, HTTPSOIDC, plainRefused)
 	if !c.Secure {
 		st.HTTPSOrigin = r.HTTPSOrigin
+		st.TemporaryPasswordHTTPSOnly = r.RequireSecondFactor || r.DisablePasswordLogin || mode == SSOOnly
 		if s.transport(plainPerRequest, false) == nil { // a plain password sign-in is admitted
 			t := s.authn.Timeouts()
 			st.PlainSession = &access.SessionTimeouts{Idle: min(access.PlainSessionIdle, t.Idle), Absolute: min(access.PlainSessionAbsolute, t.Absolute)}
@@ -95,7 +104,7 @@ func (s *Service) IssueSetupToken(ctx context.Context, a Actor, ttl time.Duratio
 	if err != nil {
 		return access.Secret{}, err
 	}
-	plaintext, rec := access.NewOneTimeToken(access.PurposeSetup, 0, ttl, s.now())
+	plaintext, rec := access.NewOneTimeToken(access.PurposeSetup, ttl, s.now())
 	err = s.change(ctx, by(a), func(tx Tx, j *journal) error {
 		n, countErr := tx.UserCount(ctx)
 		switch {
@@ -104,7 +113,7 @@ func (s *Service) IssueSetupToken(ctx context.Context, a Actor, ttl time.Duratio
 		case n != 0:
 			return refuse(ErrSetupComplete)
 		}
-		if _, delErr := tx.DeleteOneTimeTokens(ctx, access.PurposeSetup, 0); delErr != nil {
+		if _, delErr := tx.DeleteOneTimeTokens(ctx, access.PurposeSetup); delErr != nil {
 			return delErr
 		}
 		if createErr := tx.CreateOneTimeToken(ctx, rec); createErr != nil {
@@ -119,43 +128,52 @@ func (s *Service) IssueSetupToken(ctx context.Context, a Actor, ttl time.Duratio
 	return plaintext, nil
 }
 
-// SetupWithPassword creates the first account, an admin, and signs it in. Every
-// check that can refuse runs before the hash: access.ErrHTTPSRequired for a
-// plain c under access.PostureSecure, the user count, the token when
-// Rules.SetupTokenRequired asks for one (nil: always), the username and
-// password rules, then the IP limiter. One Update then consumes the token, asks
-// the Policy (OpCreateUser, ViaSetup), creates the user and the session; a
-// concurrent setup that won makes it ErrSetupComplete or
-// access.ErrTokenInvalid, and a backend error leaves the token usable.
-func (s *Service) SetupWithPassword(ctx context.Context, c Client, in SetupPassword) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
-	r, err := s.beginOver(plainPerRequest, c.Secure)
+// SetupWithPassword creates the first account, an admin and an owner, and
+// signs it in, or under Rules.RequireSecondFactor answers a Pending
+// NextEnrol whose finish creates it. Every refusal but the Policy's
+// (OpCreateUser, ViaSetup) runs before the hash: access.ErrHTTPSRequired
+// where setupRule refuses c, the user count, the token SetupTokenRequired
+// asks for (nil: always), the username and password rules, the IP limiter.
+// A concurrent setup that won is ErrSetupComplete or access.ErrTokenInvalid,
+// and a backend error leaves the token usable.
+func (s *Service) SetupWithPassword(ctx context.Context, c Client, in SetupPassword) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
+	r, err := s.begin()
 	if err != nil {
-		return SignedIn{}, err
+		return LoginResult{}, err
+	}
+	if err := s.transport(setupRule(r), c.Secure); err != nil {
+		return LoginResult{}, err
 	}
 	var (
 		spend    access.Hash
 		username string
 		base     access.User
 	)
-	return s.createSession(ctx, r, c, &sessionOp{
+	checks := func() error {
+		var checkErr error
+		if spend, username, checkErr = s.setupChecks(ctx, r, c, in.Token, in.Username); checkErr != nil {
+			return checkErr
+		}
+		return s.checkPassword(ctx, r, username, in.Password)
+	}
+	if r.RequireSecondFactor {
+		return s.passwordDraft(ctx, r, c, in.Password, func() (access.User, draftOf, error) {
+			if err := checks(); err != nil {
+				return access.User{}, draftOf{}, err
+			}
+			if err := s.authorize(ctx, Decision{Op: OpCreateUser, Via: ViaSetup, Role: access.RoleAdmin}); err != nil {
+				return access.User{}, draftOf{}, err
+			}
+			return s.firstAccount(username), draftOf{token: spend, via: ViaSetup}, nil
+		})
+	}
+	return s.signIn(ctx, r, c, &sessionOp{
 		method: access.MethodPassword,
-		gate: admission{
-			refusals: func() error {
-				var checkErr error
-				if spend, username, checkErr = s.setupChecks(ctx, r, c, in.Token, in.Username); checkErr != nil {
-					return checkErr
-				}
-				return s.checkPassword(ctx, r, username, in.Password)
-			},
-			limit: s.ipAttempt(c),
-		},
+		gate:   admission{refusals: checks, limit: s.ipAttempt(c)},
 		prepare: func(*ratelimit.Reservation) error {
 			hash, hashErr := s.hasher.Hash(ctx, in.Password.Reveal())
-			now := s.now()
-			base = access.User{
-				Username: username, PasswordHash: hash, Role: access.RoleAdmin, Enabled: true,
-				WebAuthnHandle: access.GenerateWebAuthnHandle(), CreatedAt: now, UpdatedAt: now,
-			}
+			base = s.firstAccount(username)
+			base.PasswordHash = hash
 			return hashErr
 		},
 		in: func(tx Tx) (*access.User, error) {
@@ -166,10 +184,38 @@ func (s *Service) SetupWithPassword(ctx context.Context, c Client, in SetupPassw
 	})
 }
 
+// setupRule is password setup's plain rule under r: per request, but
+// refused under Rules.RequireSecondFactor, where setup enrols a second
+// factor, which needs HTTPS.
+func setupRule(r Rules) plainRule { //nolint:gocritic // hugeParam: the operation's one Rules value
+	if r.RequireSecondFactor {
+		return plainRefused
+	}
+	return plainPerRequest
+}
+
+// firstAccount is the account setup creates for username: an admin and an
+// owner.
+func (s *Service) firstAccount(username string) access.User {
+	u := s.newAccount(username, access.RoleAdmin)
+	u.Owner = true
+	return u
+}
+
 // announceCreated adds the EventUserCreated, with the user's role, of a
-// creation that signs the new user in.
+// creation that signs the new user in, or makes it wait for approval (sess
+// nil).
 func announceCreated(j *journal, u *access.User, sess *access.Session) {
-	j.add(Event{Kind: EventUserCreated, At: sess.CreatedAt, UserID: u.ID, Role: u.Role})
+	j.add(Event{Kind: EventUserCreated, At: createdAt(u, sess), UserID: u.ID, Role: u.Role})
+}
+
+// createdAt is when a creation's sign-in made sess, or made u for one with
+// no session.
+func createdAt(u *access.User, sess *access.Session) time.Time {
+	if sess == nil {
+		return u.CreatedAt
+	}
+	return sess.CreatedAt
 }
 
 // setupChecks runs setup steps 1 to 3, the refusals that need neither a
@@ -206,7 +252,7 @@ func (s *Service) createFirstUser(ctx context.Context, tx Tx, spend access.Hash,
 			return err
 		}
 	}
-	if err := s.policy.Authorize(ctx, Decision{Op: OpCreateUser, Via: ViaSetup, Role: access.RoleAdmin}); err != nil {
+	if err := s.authorize(ctx, Decision{Op: OpCreateUser, Via: ViaSetup, Role: access.RoleAdmin}); err != nil {
 		return refuse(err)
 	}
 	return s.createUser(ctx, tx, user, tx.CreateInitialUser, ErrSetupComplete)

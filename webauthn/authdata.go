@@ -25,15 +25,15 @@ var (
 )
 
 const (
-	// maxCredentialIDBytes is §7.1's bound on a credential ID.
+	// maxCredentialIDBytes is WebAuthn §7.1's bound on a credential ID.
 	maxCredentialIDBytes = 1023
-	// rpIdHash, flags and signCount (§6.1).
+	// rpIdHash, flags and signCount (WebAuthn §6.1).
 	minAuthDataBytes = sha256.Size + 1 + 4
-	// AAGUID and credentialIdLength (§6.5.1).
+	// AAGUID and credentialIdLength (WebAuthn §6.5.1).
 	attestedHeadBytes = 16 + 2
 )
 
-// The flags bits that shape authenticator data (§6.1).
+// The flags bits that shape authenticator data (WebAuthn §6.1).
 const (
 	flagAttested   = 1 << 6 // AT
 	flagExtensions = 1 << 7 // ED
@@ -46,8 +46,8 @@ type authData struct {
 	flags     uint8
 }
 
-// attestedCredential is attested credential data (§6.5.1); its slices alias
-// the authenticator data.
+// attestedCredential is attested credential data (WebAuthn §6.5.1); its
+// slices alias the authenticator data.
 type attestedCredential struct {
 	aaguid []byte
 	id     []byte
@@ -55,10 +55,11 @@ type attestedCredential struct {
 	publicKey []byte
 }
 
-// parseAuthData reads authenticator data's structure (§6.1): with AT set,
-// attested credential data with a credential ID of 1 to 1023 bytes and one
-// well-formed CBOR item as its key; with ED set, one CBOR map of extension
-// outputs, checked and not read; no byte after either. It checks no value.
+// parseAuthData reads authenticator data's structure (WebAuthn §6.1): with AT
+// set, attested credential data with a credential ID of 1 to 1023 bytes and
+// one well-formed CBOR item as its key; with ED set, one CBOR map of
+// extension outputs, checked and not read; no byte after either. It checks no
+// value.
 func parseAuthData(raw []byte) (*authData, error) {
 	if len(raw) < minAuthDataBytes {
 		return nil, fmt.Errorf("%w: %d bytes", errAuthData, len(raw))
@@ -115,8 +116,9 @@ func parseAttestedCredential(b []byte) (*attestedCredential, []byte, error) {
 	}, after, nil
 }
 
-// verify runs the checks §7.1 and §7.2 share, in their order: the rpIdHash,
-// UP, UV (access always requires it), and BS only with BE (§6.1.3).
+// verify runs the checks WebAuthn §7.1 and §7.2 share, in their order: the
+// rpIdHash, UP, UV (access always requires it), and BS only with BE
+// (WebAuthn §6.1.3).
 func (a *authData) verify(rpID string) error {
 	want := sha256.Sum256([]byte(rpID))
 	if !bytes.Equal(a.rpIDHash, want[:]) {
@@ -135,9 +137,9 @@ func (a *authData) verify(rpID string) error {
 }
 
 // registrationAuthData parses and checks a registration's authenticator data
-// (§7.1): the shared checks, attested credential data whose ID is rawID, and
-// a credential public key cose.ParseKey accepts, which is also §7.1's check
-// that its alg was offered.
+// (WebAuthn §7.1): the shared checks, attested credential data whose ID is
+// rawID, and a credential public key cose.ParseKey accepts, which is also
+// WebAuthn §7.1's check that its alg was offered.
 func registrationAuthData(raw []byte, rpID string, rawID []byte) (*authData, *cose.Key, error) {
 	a, err := parseAuthData(raw)
 	if err == nil {
@@ -160,8 +162,8 @@ func registrationAuthData(raw []byte, rpID string, rawID []byte) (*authData, *co
 }
 
 // assertionAuthData parses and checks an assertion's authenticator data
-// (§7.2): the shared checks, and AT clear, since only a registration attests
-// a credential (§6.1).
+// (WebAuthn §7.2): the shared checks, and AT clear, since only a registration
+// attests a credential (WebAuthn §6.1).
 func assertionAuthData(raw []byte, rpID string) (*authData, error) {
 	a, err := parseAuthData(raw)
 	if err == nil {

@@ -9,7 +9,6 @@ import (
 
 // The access.Error Reason values accesshttp assigns itself, in Reasons order.
 const (
-	ReasonSSOGoverned              = "sso_governed"
 	ReasonTTLTooLong               = "ttl_too_long"
 	ReasonTTLNegative              = "ttl_negative"
 	ReasonNoChange                 = "no_change"
@@ -20,32 +19,45 @@ const (
 	ReasonPendingTooLarge          = "pending_too_large"
 	ReasonStaleAuthentication      = "stale_authentication"
 	ReasonFlowInvalid              = "flow_invalid"
-	ReasonDiscoveryFailed          = "discovery_failed"
 	ReasonExchangeFailed           = "exchange_failed"
 	ReasonTokenInvalid             = "token_invalid"
 	ReasonNonceMismatch            = "nonce_mismatch"
-	ReasonNoUsername               = "no_username"
 	ReasonProvisioningDisabled     = "provisioning_disabled"
 	ReasonNotAdmitted              = "not_admitted"
-	ReasonUsernameInvalid          = "username_invalid"
-	ReasonRecovery                 = "recovery" // auth_session_required on a recovery route
 	ReasonReenableNeedsOtherMethod = failreason.ReenableNeedsOtherMethod
-	ReasonTrailingData             = "trailing_data"  // auth_bad_request: data after the JSON value
-	ReasonMalformedJSON            = "malformed_json" // auth_bad_request: the body is not one JSON value
-	ReasonContentType              = "content_type"   // auth_bad_request: the body is not application/json
-	ReasonBody                     = "body"           // auth_bad_request: the body is unreadable or not an object
-	ReasonUnknownField             = "unknown_field"  // auth_bad_request: a key the request type lacks
-	ReasonTokenInQuery             = "token_in_query" // auth_bad_request: a token route got a token in its URL
+	ReasonTrailingData             = "trailing_data"            // auth_bad_request: data after the JSON value
+	ReasonMalformedJSON            = "malformed_json"           // auth_bad_request: the body is not one JSON value
+	ReasonContentType              = "content_type"             // auth_bad_request: the body is not application/json
+	ReasonBody                     = "body"                     // auth_bad_request: the body is unreadable or not an object
+	ReasonUnknownField             = "unknown_field"            // auth_bad_request: a key the request type lacks
+	ReasonTokenInQuery             = "token_in_query"           // auth_bad_request: a token route got a token in its URL
+	ReasonEnrolNeedsKnownDevice    = "enrol_needs_known_device" // auth_second_factor_required at a password sign-in
+	ReasonNoUsableMethod           = "no_usable_method"         // auth_forbidden: the app allows no next step
+	// ReasonSecondFactorProofRequired is auth_bad_request: a change that
+	// needs a current second factor carried none.
+	ReasonSecondFactorProofRequired = "second_factor_proof_required"
+	ReasonLastSecondFactor          = "last_second_factor"  // auth_last_method: the rule needs the factor kept
+	ReasonSecondFactorHeld          = "second_factor_held"  // auth_second_factor_required: step up with the factor
+	ReasonTOTPNeedsPassword         = "totp_needs_password" // auth_forbidden: TOTP protects only a password
+	// ReasonEnableWithoutSecondFactor is auth_second_factor_required: an
+	// admin turning the rule on holds no usable second factor.
+	ReasonEnableWithoutSecondFactor = "enable_without_second_factor"
+	ReasonLinked                    = "linked" // auth_sso_only: a temporary password for a linked account
+	// ReasonTemporaryPasswordExposed is auth_https_required: a temporary
+	// password sent over plain HTTP where it could not finish, now cancelled.
+	ReasonTemporaryPasswordExposed = failreason.TemporaryPasswordExposed
 )
 
 // ownReasons is accesshttp's part of Reasons.
 var ownReasons = []string{
-	ReasonSSOGoverned, ReasonTTLTooLong, ReasonTTLNegative, ReasonNoChange, ReasonExpiryInvalid, ReasonRedirectTooLong,
+	ReasonTTLTooLong, ReasonTTLNegative, ReasonNoChange, ReasonExpiryInvalid, ReasonRedirectTooLong,
 	ReasonCurrentPasswordRequired, ReasonSessionGone, ReasonPendingTooLarge, ReasonStaleAuthentication,
-	ReasonFlowInvalid, ReasonDiscoveryFailed, ReasonExchangeFailed, ReasonTokenInvalid, ReasonNonceMismatch,
-	ReasonNoUsername, ReasonProvisioningDisabled, ReasonNotAdmitted, ReasonUsernameInvalid, ReasonRecovery,
+	ReasonFlowInvalid, ReasonExchangeFailed, ReasonTokenInvalid, ReasonNonceMismatch,
+	ReasonProvisioningDisabled, ReasonNotAdmitted,
 	ReasonReenableNeedsOtherMethod, ReasonTrailingData, ReasonMalformedJSON, ReasonContentType, ReasonBody,
-	ReasonUnknownField, ReasonTokenInQuery,
+	ReasonUnknownField, ReasonTokenInQuery, ReasonEnrolNeedsKnownDevice, ReasonNoUsableMethod,
+	ReasonSecondFactorProofRequired, ReasonLastSecondFactor, ReasonSecondFactorHeld, ReasonTOTPNeedsPassword,
+	ReasonEnableWithoutSecondFactor, ReasonLinked, ReasonTemporaryPasswordExposed,
 }
 
 // providerErrorPrefix starts the Reason of an IdP's own error answer, which
@@ -54,7 +66,7 @@ const providerErrorPrefix = "provider_error:"
 
 // Reasons returns every fixed access.Error Reason, each once, in a stable order:
 // accesshttp's own, then access's ErrorReasons and PasswordRejections, account's PolicyReasons,
-// UsernameReasons, TextErrors and LogFilterReasons, and webauthn's
+// CodeReasons, UsernameReasons, TextErrors and LogFilterReasons, and webauthn's
 // OriginRejections.
 // Two families stay open and are not listed: "provider_error:" followed by
 // an IdP's error code on auth_oidc_failed, and on auth_bad_request the name
@@ -67,6 +79,7 @@ func Reasons() []string {
 		all = append(all, string(r))
 	}
 	all = append(all, account.PolicyReasons()...)
+	all = append(all, account.CodeReasons()...)
 	all = append(all, account.UsernameReasons()...)
 	for _, te := range account.TextErrors() {
 		all = append(all, textReason(te.Field, te.Reason))

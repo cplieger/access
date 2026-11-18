@@ -2,6 +2,7 @@ package account
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -57,18 +58,20 @@ func (s *Service) PasskeyLoginBegin(_ context.Context, c Client, origin webauthn
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id := s.pending.put(purposeLogin, pending{ceremony: ceremony}, s.now())
+	id, err := s.pending.put(purposeLogin, pending{ceremony: ceremony}, s.now())
+	if err != nil {
+		return PendingCeremony{}, err
+	}
 	return PendingCeremony{ID: id, Assertion: assertion}, nil
 }
 
 // PasskeyLoginFinish completes the sign-in ceremonyID began and creates a full
 // session for the asserting user, with a device cookie that keeps the ID of
 // c.Device when that is valid for the user. A plain c is
-// access.ErrHTTPSRequired, and an unknown, spent, expired or other ceremony
-// ErrCeremonyInvalid; a credential no user holds is
-// webauthn.ErrUnknownCredential; a disabled user is ErrInvalidCredentials,
-// after the credential's custody update is stored. CloneWarning reports a
-// regressed sign counter.
+// access.ErrHTTPSRequired, an unknown, spent, expired or other ceremony
+// ErrCeremonyInvalid, a credential no user holds webauthn.ErrUnknownCredential,
+// and a disabled or dormant user ErrInvalidCredentials, after the credential's
+// custody update is stored. CloneWarning reports a regressed sign counter.
 func (s *Service) PasskeyLoginFinish(ctx context.Context, c Client, ceremonyID string, body io.Reader) (SignedIn, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	r, err := s.beginOver(plainRefused, c.Secure)
 	if err != nil {
@@ -98,7 +101,7 @@ func (s *Service) PasskeyLoginFinish(ctx context.Context, c Client, ceremonyID s
 			case !found || !u.Enabled:
 				return nil, refuse(ErrInvalidCredentials)
 			}
-			return u, nil
+			return u, requireLocal(ctx, tx, u, ErrInvalidCredentials)
 		},
 	})
 	if err != nil {
@@ -108,11 +111,15 @@ func (s *Service) PasskeyLoginFinish(ctx context.Context, c Client, ceremonyID s
 	return out, nil
 }
 
-// PasskeyRegisterBegin starts enrolling a passkey for p's own user, for a full
-// session within RecentAuth. A plain p is access.ErrHTTPSRequired, a nil RP()
-// ErrPasskeysUnavailable, and a linked user under Rules.SSOGoverned
-// ErrSSOGoverned.
-func (s *Service) PasskeyRegisterBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (PendingCeremony, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
+// PasskeyRegisterBegin starts enrolling a passkey for p's own user, for a
+// full session within RecentAuth. A plain p is access.ErrHTTPSRequired, a
+// nil RP() ErrPasskeysUnavailable, and a dormant user ErrSSOOnly. While the
+// user holds a second factor it takes proof, which verifyProof answers and
+// spends last: a full list's *ratelimit.RefusedError and the origin's
+// *webauthn.OriginError answer before it, spending no code or step-up
+// ceremony, and a passkey proof's ceremony is used once, verified or not.
+// The ceremony replaces the user's earlier one.
+func (s *Service) PasskeyRegisterBegin(ctx context.Context, c Client, p access.Principal, origin webauthn.Origin, proof SecondFactorProof) (PendingCeremony, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
 	r, err := s.beginRecentSession(plainRefused, p.Secure, p)
 	if err != nil {
 		return PendingCeremony{}, err
@@ -125,9 +132,14 @@ func (s *Service) PasskeyRegisterBegin(ctx context.Context, p access.Principal, 
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	if r.SSOGoverned && !u.OIDC.IsZero() {
-		return PendingCeremony{}, ErrSSOGoverned
+	if modeErr := s.localAllowed(ctx, u); modeErr != nil {
+		return PendingCeremony{}, modeErr
 	}
+	slot, err := s.pending.reserve(purposeAddPasskey, u.ID, s.now())
+	if err != nil {
+		return PendingCeremony{}, err
+	}
+	defer slot.release()
 	wu, err := s.webauthnUser(ctx, u)
 	if err != nil {
 		return PendingCeremony{}, err
@@ -136,8 +148,29 @@ func (s *Service) PasskeyRegisterBegin(ctx context.Context, p access.Principal, 
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id := s.pending.put(purposeRegister, pending{user: *u, ceremony: ceremony}, s.now())
-	return PendingCeremony{ID: id, Creation: cc}, nil
+	if proofErr := s.proveIfHeld(ctx, r, c, p, u, proof); proofErr != nil {
+		return PendingCeremony{}, proofErr
+	}
+	return PendingCeremony{ID: slot.fill(pending{user: *u, ceremony: ceremony}, s.now()), Creation: cc}, nil
+}
+
+// proveIfHeld verifies and commits proof, in its own change, while u holds
+// a second factor; it is nil otherwise, any proof sent unread.
+func (s *Service) proveIfHeld(ctx context.Context, r Rules, c Client, p access.Principal, u *access.User, proof SecondFactorProof) error { //nolint:gocritic // hugeParam: the operation's one Rules value, Client and Principal
+	held, err := s.secondFactorHeld(ctx, s.store, r, u)
+	if err != nil {
+		return storeErr(err)
+	}
+	if !held {
+		return nil
+	}
+	pr, err := s.verifyProof(ctx, r, c, p, u, proof)
+	if err != nil {
+		return err
+	}
+	err = s.change(ctx, byClient(As(p), c), func(tx Tx, j *journal) error { return pr.commit(ctx, s, tx, j, p) })
+	pr.settle(err)
+	return err
 }
 
 // PasskeyRegisterFinish stores the passkey ceremonyID enrols for p's own user,
@@ -145,6 +178,7 @@ func (s *Service) PasskeyRegisterBegin(ctx context.Context, p access.Principal, 
 // rotates p's session into Issued, in one Update. A plain p is
 // access.ErrHTTPSRequired, a ceremony another user began ErrCeremonyInvalid,
 // and a credential already registered to any user ErrDuplicateCredential.
+// The same Update runs the recovery code's issue rule (issueRecoveryIn).
 func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal, ceremonyID string, body io.Reader) (Registered, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	r, err := s.beginRecentSession(plainRefused, p.Secure, p)
 	if err != nil {
@@ -154,7 +188,7 @@ func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal,
 	if rp == nil {
 		return Registered{}, ErrPasskeysUnavailable
 	}
-	entry, err := s.takeOwn(ceremonyID, purposeRegister, p)
+	entry, err := s.takeOwn(ceremonyID, purposeAddPasskey, p)
 	if err != nil {
 		return Registered{}, err
 	}
@@ -163,38 +197,46 @@ func (s *Service) PasskeyRegisterFinish(ctx context.Context, p access.Principal,
 		return Registered{}, err
 	}
 	var (
-		pk  access.PasskeyCredential
-		rot rotated
+		pk    Passkey
+		rot   rotated
+		shown access.Secret
 	)
-	err = s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
+	err = s.issuingChange(ctx, by(As(p)), false, func(tx Tx, j *journal, code *issuable) error {
 		u, userErr := ownUserIn(ctx, tx, p)
 		if userErr != nil {
 			return userErr
 		}
-		if r.SSOGoverned && !u.OIDC.IsZero() {
-			return refuse(ErrSSOGoverned)
+		if modeErr := requireLocal(ctx, tx, u, ErrSSOOnly); modeErr != nil {
+			return modeErr
 		}
 		var addErr error
-		if pk, addErr = s.addPasskey(ctx, tx, u.ID, cred, ErrDuplicateCredential); addErr != nil {
+		if pk.Credential, addErr = s.addPasskey(ctx, tx, u.ID, cred, ErrDuplicateCredential); addErr != nil {
+			return addErr
+		}
+		if pk.Removable, addErr = s.removable(ctx, tx, r, u, credential{method: access.MethodPasskey, passkeyID: pk.Credential.ID}); addErr != nil {
 			return addErr
 		}
 		var rotErr error
 		if rot, rotErr = s.rotate(ctx, tx, p, u.ID, ""); rotErr != nil {
 			return rotErr
 		}
-		j.add(Event{Kind: EventPasskeyAdded, At: pk.CreatedAt, UserID: pk.UserID, PasskeyID: pk.ID, Actor: eventActor(As(p))})
-		return nil
+		j.add(Event{Kind: EventPasskeyAdded, At: pk.Credential.CreatedAt, UserID: u.ID, PasskeyID: pk.Credential.ID, Actor: eventActor(As(p))})
+		var issueErr error
+		shown, issueErr = s.issueRecoveryIn(ctx, tx, j, r, u, code, eventActor(As(p)))
+		return issueErr
 	})
 	if err != nil {
 		return Registered{}, err
 	}
-	return Registered{Passkey: pk, Issued: Issued{Token: rot.token, Session: rot.session}}, nil
+	return Registered{Passkey: pk, Issued: Issued{Token: rot.token, Session: rot.session}, RecoveryCode: shown}, nil
 }
 
 // StepUpPasskeyBegin starts re-proving p's user with one of its passkeys under
 // the current relying party's ID, for a full session. A plain p is
-// access.ErrHTTPSRequired, a nil RP() ErrPasskeysUnavailable, and a user
-// holding no such passkey ErrNotFound.
+// access.ErrHTTPSRequired, a nil RP() ErrPasskeysUnavailable, a dormant user
+// ErrSSOOnly, and a user holding no such passkey ErrNotFound. The ceremony
+// replaces the user's earlier step-up ceremony; while its list is full a
+// newcomer is a *ratelimit.RefusedError.
 func (s *Service) StepUpPasskeyBegin(ctx context.Context, p access.Principal, origin webauthn.Origin) (PendingCeremony, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
 	if _, err := s.beginOver(plainRefused, p.Secure); err != nil {
 		return PendingCeremony{}, err
@@ -210,6 +252,9 @@ func (s *Service) StepUpPasskeyBegin(ctx context.Context, p access.Principal, or
 	if err != nil {
 		return PendingCeremony{}, err
 	}
+	if modeErr := s.localAllowed(ctx, u); modeErr != nil {
+		return PendingCeremony{}, modeErr
+	}
 	wu, err := s.webauthnUser(ctx, u)
 	if err != nil {
 		return PendingCeremony{}, err
@@ -222,7 +267,10 @@ func (s *Service) StepUpPasskeyBegin(ctx context.Context, p access.Principal, or
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id := s.pending.put(purposeStepUp, pending{user: *u, ceremony: ceremony}, s.now())
+	id, err := s.pending.put(purposeStepUp, pending{user: *u, ceremony: ceremony}, s.now())
+	if err != nil {
+		return PendingCeremony{}, err
+	}
 	return PendingCeremony{ID: id, Assertion: assertion}, nil
 }
 
@@ -231,6 +279,7 @@ func (s *Service) StepUpPasskeyBegin(ctx context.Context, p access.Principal, or
 // AuthMethod MethodPasskey, returning in Issued a device cookie that keeps the
 // ID of c.Device when that is valid for the user. A plain c or p is
 // access.ErrHTTPSRequired, a ceremony another user began ErrCeremonyInvalid,
+// a dormant user ErrSSOOnly,
 // and a session rotated or ended meanwhile ErrSessionGone.
 func (s *Service) StepUpPasskeyFinish(ctx context.Context, c Client, p access.Principal, ceremonyID string, body io.Reader) (Issued, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
 	if _, err := s.beginOver(plainRefused, c.Secure && p.Secure); err != nil {
@@ -260,6 +309,13 @@ func (s *Service) StepUpPasskeyFinish(ctx context.Context, c Client, p access.Pr
 	}
 	var rot rotated
 	err = s.change(ctx, byClient(As(p), c), func(tx Tx, j *journal) error {
+		cur, userErr := ownUserIn(ctx, tx, p)
+		if userErr != nil {
+			return userErr
+		}
+		if modeErr := requireLocal(ctx, tx, cur, ErrSSOOnly); modeErr != nil {
+			return modeErr
+		}
 		var rotErr error
 		if rot, rotErr = s.rotate(ctx, tx, p, u.ID, access.MethodPasskey); rotErr != nil {
 			return rotErr
@@ -270,24 +326,37 @@ func (s *Service) StepUpPasskeyFinish(ctx context.Context, c Client, p access.Pr
 	if err != nil {
 		return Issued{}, err
 	}
-	device := s.limiter.DeviceCookie(ratelimit.AccountKey(u.Username), c.Device)
+	device := s.deviceCookie(u.Username, c)
 	return Issued{Token: rot.token, DeviceCookie: device, Session: rot.session}, nil
 }
 
-// Passkeys returns p's own passkeys as stored, for a full session. It works
-// with a nil RP(), so stale passkeys stay listable.
-func (s *Service) Passkeys(ctx context.Context, p access.Principal) ([]access.PasskeyCredential, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	if _, err := s.begin(); err != nil {
+// Passkeys returns p's own passkeys as stored, each with whether
+// RemovePasskey would remove it, for a full session. It works with a nil
+// RP(), so stale passkeys stay listable.
+func (s *Service) Passkeys(ctx context.Context, p access.Principal) ([]Passkey, error) { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
+	r, err := s.begin()
+	if err != nil {
 		return nil, err
 	}
-	if err := requireSession(p); err != nil {
+	if sessErr := requireSession(p); sessErr != nil {
+		return nil, sessErr
+	}
+	u, err := s.ownUser(ctx, p)
+	if err != nil {
 		return nil, err
 	}
-	passkeys, err := s.store.PasskeysByUserID(ctx, p.User.ID)
+	creds, err := s.store.PasskeysByUserID(ctx, u.ID)
 	if err != nil {
 		return nil, storeErr(err)
 	}
-	return passkeys, nil
+	out := make([]Passkey, len(creds))
+	for i := range creds {
+		out[i].Credential = creds[i]
+		if out[i].Removable, err = s.removable(ctx, s.store, r, u, credential{method: access.MethodPasskey, passkeyID: creds[i].ID}); err != nil {
+			return nil, storeErr(err)
+		}
+	}
+	return out, nil
 }
 
 // RenamePasskey renames p's own passkey id, for a full session, with or
@@ -312,32 +381,75 @@ func (s *Service) RenamePasskey(ctx context.Context, p access.Principal, id int6
 
 // RemovePasskey removes p's own passkey id, for a full session within
 // RecentAuth, in one Update, with or without an RP(), so stale passkeys
-// stay removable: a passkey the user does not hold is ErrNotFound, and a
-// removal that leaves no method able to sign the user in now ErrLastMethod,
-// both with nothing written.
-func (s *Service) RemovePasskey(ctx context.Context, p access.Principal, id int64) error { //nolint:gocritic // hugeParam: callers pass the Principal Authenticate returned
-	r, err := s.beginRecentSession(plainAllowed, p.Secure, p)
+// stay removable. A passkey the user does not hold is ErrNotFound, a
+// removal that leaves no method able to sign the user in now
+// ErrLastMethod, and one the second-factor guard refuses
+// ErrLastSecondFactor, each with nothing written or counted. While the
+// user holds a second factor it takes proof (verifyProof's answers).
+func (s *Service) RemovePasskey(ctx context.Context, c Client, p access.Principal, id int64, proof SecondFactorProof) error { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
+	r, err := s.beginRecentSession(plainAllowed, c.Secure && p.Secure, p)
+	if err != nil {
+		return err
+	}
+	u, err := s.ownUser(ctx, p)
 	if err != nil {
 		return err
 	}
 	gone := credential{method: access.MethodPasskey, passkeyID: id}
-	return s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
-		u, userErr := ownUserIn(ctx, tx, p)
-		if userErr != nil {
-			return userErr
-		}
-		if heldErr := requireHeld(ctx, tx, u, gone); heldErr != nil {
-			return heldErr
-		}
-		if guardErr := s.guardLastMethod(ctx, tx, r, u, gone); guardErr != nil {
-			return guardErr
-		}
-		if err := tx.DeletePasskey(ctx, access.PasskeyRef{ID: id, UserID: u.ID}); err != nil {
+	if guardErr := answer(s.removalGuards(ctx, s.store, r, u, gone)); guardErr != nil {
+		return guardErr
+	}
+	held, err := s.secondFactorHeld(ctx, s.store, r, u)
+	if err != nil {
+		return storeErr(err)
+	}
+	var pr proven
+	if held {
+		if pr, err = s.verifyProof(ctx, r, c, p, u, proof); err != nil {
 			return err
 		}
-		j.add(Event{Kind: EventPasskeyRemoved, At: s.now(), UserID: p.User.ID, PasskeyID: id, Actor: eventActor(As(p))})
-		return nil
+	}
+	err = s.change(ctx, by(As(p)), func(tx Tx, j *journal) error {
+		return s.removePasskeyIn(ctx, tx, j, r, p, gone, held, &pr)
 	})
+	pr.settle(err)
+	return err
+}
+
+// removePasskeyIn is RemovePasskey's change: the guards and the factor held
+// re-read in tx, the proof committed, then the removal and its entry. A
+// factor bound since the pre-check, which took no proof, refuses.
+func (s *Service) removePasskeyIn(ctx context.Context, tx Tx, j *journal, r Rules, p access.Principal, gone credential, held bool, pr *proven) error { //nolint:gocritic // hugeParam: the operation's one Rules value and its Principal
+	cur, err := ownUserIn(ctx, tx, p)
+	if err != nil {
+		return err
+	}
+	if guardErr := s.removalGuards(ctx, tx, r, cur, gone); guardErr != nil {
+		return guardErr
+	}
+	if heldNow, heldErr := s.secondFactorHeld(ctx, tx, r, cur); heldErr != nil || heldNow && !held {
+		return cmp.Or(heldErr, refuse(ErrSecondFactorProofRequired))
+	}
+	if commitErr := pr.commit(ctx, s, tx, j, p); commitErr != nil {
+		return commitErr
+	}
+	if delErr := tx.DeletePasskey(ctx, access.PasskeyRef{ID: gone.passkeyID, UserID: cur.ID}); delErr != nil {
+		return delErr
+	}
+	j.add(Event{Kind: EventPasskeyRemoved, At: s.now(), UserID: cur.ID, PasskeyID: gone.passkeyID, Actor: eventActor(As(p))})
+	return nil
+}
+
+// removalGuards are a passkey removal's preconditions inside tx: the
+// passkey held, the last-method guard, then the second-factor guard.
+func (s *Service) removalGuards(ctx context.Context, tx Tx, r Rules, u *access.User, gone credential) error { //nolint:gocritic // hugeParam: the operation's one Rules value
+	if err := requireHeld(ctx, tx, u, gone); err != nil {
+		return err
+	}
+	if err := s.guardLastMethod(ctx, tx, r, u, gone); err != nil {
+		return err
+	}
+	return s.guardSecondFactor(ctx, tx, r, u, gone)
 }
 
 // WebAuthnSignals returns the reconciliation payloads for p's own user and

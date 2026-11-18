@@ -7,6 +7,116 @@
       "name": "public_key"
     }
   ],
+  "CodeRequest": [
+    {
+      "name": "ticket"
+    },
+    {
+      "name": "code"
+    }
+  ],
+  "EnrolmentOutcome": [
+    {
+      "name": "signed_in",
+      "fields": [
+        {
+          "name": "session_id"
+        },
+        {
+          "name": "recovery_code",
+          "optional": true
+        },
+        {
+          "name": "user",
+          "fields": [
+            {
+              "name": "created_at"
+            },
+            {
+              "name": "methods",
+              "fields": [
+                {
+                  "name": "temporary_password",
+                  "fields": [
+                    {
+                      "name": "expires_at"
+                    }
+                  ],
+                  "optional": true
+                },
+                {
+                  "name": "passkey_count"
+                },
+                {
+                  "name": "password"
+                },
+                {
+                  "name": "local_methods_dormant"
+                },
+                {
+                  "name": "role_from_provider"
+                },
+                {
+                  "name": "totp"
+                },
+                {
+                  "name": "waiting_approval"
+                }
+              ],
+              "optional": true
+            },
+            {
+              "name": "username"
+            },
+            {
+              "name": "display_name",
+              "optional": true
+            },
+            {
+              "name": "role",
+              "values": [
+                "admin",
+                "user"
+              ],
+              "open": true
+            },
+            {
+              "name": "key_lineage",
+              "optional": true
+            },
+            {
+              "name": "id"
+            },
+            {
+              "name": "enabled"
+            },
+            {
+              "name": "oidc_linked"
+            },
+            {
+              "name": "owner"
+            }
+          ]
+        },
+        {
+          "name": "clone_warning",
+          "optional": true
+        }
+      ],
+      "optional": true,
+      "arm": "signed_in"
+    },
+    {
+      "name": "recovery_code",
+      "optional": true,
+      "arm": "waiting_approval"
+    },
+    {
+      "name": "waiting_approval",
+      "optional": true,
+      "arm": "waiting_approval"
+    }
+  ],
   "InviteAcceptRequest": [
     {
       "name": "token"
@@ -55,7 +165,7 @@
           "optional": true
         },
         {
-          "name": "owner",
+          "name": "username",
           "optional": true
         },
         {
@@ -100,7 +210,7 @@
       "optional": true
     },
     {
-      "name": "owner",
+      "name": "username",
       "optional": true
     },
     {
@@ -156,7 +266,8 @@
             "password",
             "passkey",
             "oidc",
-            "recovery",
+            "totp",
+            "recovery_code",
             "api_key",
             "bypass"
           ],
@@ -171,6 +282,24 @@
       "name": "methods",
       "fields": [
         {
+          "name": "totp",
+          "fields": [
+            {
+              "name": "since",
+              "optional": true
+            },
+            {
+              "name": "enrolled"
+            },
+            {
+              "name": "usable"
+            },
+            {
+              "name": "removable"
+            }
+          ]
+        },
+        {
           "name": "locks",
           "fields": [
             {
@@ -179,7 +308,8 @@
                 "password",
                 "passkey",
                 "oidc",
-                "recovery",
+                "totp",
+                "recovery_code",
                 "api_key",
                 "bypass"
               ],
@@ -210,6 +340,15 @@
         },
         {
           "name": "password_login"
+        },
+        {
+          "name": "recovery_code"
+        },
+        {
+          "name": "second_factor_held"
+        },
+        {
+          "name": "password_step_up"
         }
       ]
     },
@@ -223,10 +362,31 @@
           "name": "methods",
           "fields": [
             {
+              "name": "temporary_password",
+              "fields": [
+                {
+                  "name": "expires_at"
+                }
+              ],
+              "optional": true
+            },
+            {
               "name": "passkey_count"
             },
             {
               "name": "password"
+            },
+            {
+              "name": "local_methods_dormant"
+            },
+            {
+              "name": "role_from_provider"
+            },
+            {
+              "name": "totp"
+            },
+            {
+              "name": "waiting_approval"
             }
           ],
           "optional": true
@@ -258,6 +418,9 @@
         },
         {
           "name": "oidc_linked"
+        },
+        {
+          "name": "owner"
         }
       ]
     },
@@ -265,7 +428,13 @@
       "name": "can_link_oidc"
     },
     {
-      "name": "sso_governed"
+      "name": "sso_only"
+    },
+    {
+      "name": "owner"
+    },
+    {
+      "name": "single_user"
     }
   ],
   "NameRequest": [
@@ -307,6 +476,51 @@
       "name": "url"
     }
   ],
+  "OwnerRequest": [
+    {
+      "name": "owner"
+    }
+  ],
+  "PasskeyRegisteredResponse": [
+    {
+      "name": "recovery_code",
+      "optional": true
+    },
+    {
+      "name": "passkey",
+      "fields": [
+        {
+          "name": "created_at"
+        },
+        {
+          "name": "last_used_at",
+          "optional": true
+        },
+        {
+          "name": "name"
+        },
+        {
+          "name": "rp_id"
+        },
+        {
+          "name": "id"
+        },
+        {
+          "name": "backup_eligible"
+        },
+        {
+          "name": "backed_up"
+        },
+        {
+          "name": "clone_warning",
+          "optional": true
+        },
+        {
+          "name": "removable"
+        }
+      ]
+    }
+  ],
   "PasskeyView": [
     {
       "name": "created_at"
@@ -333,6 +547,9 @@
     {
       "name": "clone_warning",
       "optional": true
+    },
+    {
+      "name": "removable"
     }
   ],
   "PasswordChangeRequest": [
@@ -354,6 +571,19 @@
       "name": "password"
     }
   ],
+  "PendingCreateRequest": [
+    {
+      "name": "username"
+    }
+  ],
+  "PendingLinkByAdminRequest": [
+    {
+      "name": "username"
+    },
+    {
+      "name": "temporary_password"
+    }
+  ],
   "PendingLinkResponse": [
     {
       "name": "issuer"
@@ -365,6 +595,21 @@
     {
       "name": "email",
       "optional": true
+    },
+    {
+      "name": "suggested_username",
+      "optional": true
+    },
+    {
+      "name": "can_create"
+    }
+  ],
+  "PendingTOTPBeginResponse": [
+    {
+      "name": "uri"
+    },
+    {
+      "name": "text"
     }
   ],
   "ProfileRequest": [
@@ -372,74 +617,267 @@
       "name": "display_name"
     }
   ],
-  "RecoverPasswordRequest": [
+  "Readiness": [
     {
-      "name": "password"
-    },
-    {
-      "name": "keep_sessions",
-      "optional": true
-    },
-    {
-      "name": "keep_keys",
-      "optional": true
-    }
-  ],
-  "RecoveryResponse": [
-    {
-      "name": "username"
-    },
-    {
-      "name": "methods",
+      "name": "refusal",
       "fields": [
         {
-          "name": "locks",
-          "fields": [
-            {
-              "name": "method",
-              "values": [
-                "password",
-                "passkey",
-                "oidc",
-                "recovery",
-                "api_key",
-                "bypass"
-              ],
-              "open": true
-            },
-            {
-              "name": "untrusted"
-            },
-            {
-              "name": "trusted"
-            }
+          "name": "code",
+          "values": [
+            "auth_required",
+            "auth_session_expired",
+            "auth_invalid_credentials",
+            "auth_key_invalid",
+            "auth_recent_auth_required",
+            "auth_session_required",
+            "auth_scope_required",
+            "auth_key_required",
+            "auth_https_required",
+            "auth_forbidden",
+            "auth_rate_limited",
+            "auth_busy",
+            "auth_unavailable",
+            "auth_bad_request",
+            "auth_body_too_large",
+            "auth_username_invalid",
+            "auth_username_taken",
+            "auth_key_label_taken",
+            "auth_password_rejected",
+            "auth_breach_check_unavailable",
+            "auth_password_login_disabled",
+            "auth_code_invalid",
+            "auth_second_factor_required",
+            "auth_second_factor_unavailable",
+            "auth_totp_disabled",
+            "auth_setup_complete",
+            "auth_setup_token_required",
+            "auth_registration_closed",
+            "auth_registration_full",
+            "auth_token_invalid",
+            "auth_last_method",
+            "auth_identity_taken",
+            "auth_already_linked",
+            "auth_method_not_locked",
+            "auth_cross_origin",
+            "auth_duplicate_credential",
+            "auth_unknown_scope",
+            "auth_passkeys_unavailable",
+            "auth_origin_refused",
+            "auth_ceremony_invalid",
+            "auth_not_discoverable",
+            "auth_unknown_credential",
+            "auth_assertion_failed",
+            "auth_registration_failed",
+            "auth_oidc_unavailable",
+            "auth_oidc_failed",
+            "auth_sso_only",
+            "auth_not_found",
+            "auth_method_not_allowed"
           ]
         },
         {
-          "name": "passkey_count"
-        },
-        {
-          "name": "password"
-        },
-        {
-          "name": "oidc_linked"
-        },
-        {
-          "name": "oidc_available"
-        },
-        {
-          "name": "passkeys_available"
-        },
-        {
-          "name": "password_login"
+          "name": "reason",
+          "optional": true
         }
-      ]
+      ],
+      "optional": true
+    },
+    {
+      "name": "locked_out"
+    },
+    {
+      "name": "methods_made_dormant"
+    },
+    {
+      "name": "methods_restored"
+    },
+    {
+      "name": "temporary_passwords_withdrawn"
+    }
+  ],
+  "RecoveryCodeIssuedResponse": [
+    {
+      "name": "recovery_code",
+      "optional": true
+    }
+  ],
+  "RecoveryCodeResponse": [
+    {
+      "name": "recovery_code"
     }
   ],
   "RedirectRequest": [
     {
       "name": "redirect",
       "optional": true
+    }
+  ],
+  "RegisterPasskeyBeginRequest": [
+    {
+      "name": "username"
+    }
+  ],
+  "RegisterPasswordRequest": [
+    {
+      "name": "username"
+    },
+    {
+      "name": "password"
+    }
+  ],
+  "RegistrationOutcome": [
+    {
+      "name": "signed_in",
+      "fields": [
+        {
+          "name": "session_id"
+        },
+        {
+          "name": "recovery_code",
+          "optional": true
+        },
+        {
+          "name": "user",
+          "fields": [
+            {
+              "name": "created_at"
+            },
+            {
+              "name": "methods",
+              "fields": [
+                {
+                  "name": "temporary_password",
+                  "fields": [
+                    {
+                      "name": "expires_at"
+                    }
+                  ],
+                  "optional": true
+                },
+                {
+                  "name": "passkey_count"
+                },
+                {
+                  "name": "password"
+                },
+                {
+                  "name": "local_methods_dormant"
+                },
+                {
+                  "name": "role_from_provider"
+                },
+                {
+                  "name": "totp"
+                },
+                {
+                  "name": "waiting_approval"
+                }
+              ],
+              "optional": true
+            },
+            {
+              "name": "username"
+            },
+            {
+              "name": "display_name",
+              "optional": true
+            },
+            {
+              "name": "role",
+              "values": [
+                "admin",
+                "user"
+              ],
+              "open": true
+            },
+            {
+              "name": "key_lineage",
+              "optional": true
+            },
+            {
+              "name": "id"
+            },
+            {
+              "name": "enabled"
+            },
+            {
+              "name": "oidc_linked"
+            },
+            {
+              "name": "owner"
+            }
+          ]
+        },
+        {
+          "name": "clone_warning",
+          "optional": true
+        }
+      ],
+      "optional": true,
+      "arm": "signed_in"
+    },
+    {
+      "name": "pending",
+      "fields": [
+        {
+          "name": "ticket"
+        },
+        {
+          "name": "next",
+          "values": [
+            "second_factor",
+            "set_credential",
+            "enrol"
+          ]
+        },
+        {
+          "name": "methods",
+          "values": [
+            "totp",
+            "passkey",
+            "recovery_code",
+            "password"
+          ]
+        },
+        {
+          "name": "recovered",
+          "optional": true
+        }
+      ],
+      "optional": true,
+      "arm": "pending"
+    },
+    {
+      "name": "waiting_approval",
+      "optional": true,
+      "arm": "waiting_approval"
+    }
+  ],
+  "SSORequest": [
+    {
+      "name": "mode",
+      "values": [
+        "alongside",
+        "for_linked",
+        "only"
+      ]
+    }
+  ],
+  "SecondFactorProof": [
+    {
+      "name": "code",
+      "optional": true,
+      "arm": "code"
+    },
+    {
+      "name": "ceremony",
+      "optional": true,
+      "arm": "passkey"
+    },
+    {
+      "name": "assertion",
+      "optional": true,
+      "arm": "passkey"
     }
   ],
   "SecurityLogView": [
@@ -472,7 +910,8 @@
             "password",
             "passkey",
             "oidc",
-            "recovery",
+            "totp",
+            "recovery_code",
             "api_key",
             "bypass"
           ],
@@ -490,6 +929,24 @@
         },
         {
           "name": "detail",
+          "optional": true
+        },
+        {
+          "name": "sso_mode",
+          "values": [
+            "alongside",
+            "for_linked",
+            "only"
+          ],
+          "optional": true
+        },
+        {
+          "name": "previous_sso_mode",
+          "values": [
+            "alongside",
+            "for_linked",
+            "only"
+          ],
           "optional": true
         },
         {
@@ -545,7 +1002,15 @@
           "optional": true
         },
         {
+          "name": "issuer_user_id",
+          "optional": true
+        },
+        {
           "name": "trusted",
+          "optional": true
+        },
+        {
+          "name": "plain",
           "optional": true
         }
       ]
@@ -606,7 +1071,8 @@
         "password",
         "passkey",
         "oidc",
-        "recovery",
+        "totp",
+        "recovery_code",
         "api_key",
         "bypass"
       ],
@@ -617,6 +1083,14 @@
     },
     {
       "name": "secure"
+    }
+  ],
+  "SetPasswordRequest": [
+    {
+      "name": "ticket"
+    },
+    {
+      "name": "password"
     }
   ],
   "SetupPasskeyBeginRequest": [
@@ -638,6 +1112,129 @@
     },
     {
       "name": "password"
+    }
+  ],
+  "SignInOutcome": [
+    {
+      "name": "signed_in",
+      "fields": [
+        {
+          "name": "session_id"
+        },
+        {
+          "name": "recovery_code",
+          "optional": true
+        },
+        {
+          "name": "user",
+          "fields": [
+            {
+              "name": "created_at"
+            },
+            {
+              "name": "methods",
+              "fields": [
+                {
+                  "name": "temporary_password",
+                  "fields": [
+                    {
+                      "name": "expires_at"
+                    }
+                  ],
+                  "optional": true
+                },
+                {
+                  "name": "passkey_count"
+                },
+                {
+                  "name": "password"
+                },
+                {
+                  "name": "local_methods_dormant"
+                },
+                {
+                  "name": "role_from_provider"
+                },
+                {
+                  "name": "totp"
+                },
+                {
+                  "name": "waiting_approval"
+                }
+              ],
+              "optional": true
+            },
+            {
+              "name": "username"
+            },
+            {
+              "name": "display_name",
+              "optional": true
+            },
+            {
+              "name": "role",
+              "values": [
+                "admin",
+                "user"
+              ],
+              "open": true
+            },
+            {
+              "name": "key_lineage",
+              "optional": true
+            },
+            {
+              "name": "id"
+            },
+            {
+              "name": "enabled"
+            },
+            {
+              "name": "oidc_linked"
+            },
+            {
+              "name": "owner"
+            }
+          ]
+        },
+        {
+          "name": "clone_warning",
+          "optional": true
+        }
+      ],
+      "optional": true,
+      "arm": "signed_in"
+    },
+    {
+      "name": "pending",
+      "fields": [
+        {
+          "name": "ticket"
+        },
+        {
+          "name": "next",
+          "values": [
+            "second_factor",
+            "set_credential",
+            "enrol"
+          ]
+        },
+        {
+          "name": "methods",
+          "values": [
+            "totp",
+            "passkey",
+            "recovery_code",
+            "password"
+          ]
+        },
+        {
+          "name": "recovered",
+          "optional": true
+        }
+      ],
+      "optional": true,
+      "arm": "pending"
     }
   ],
   "Signals": [
@@ -678,6 +1275,10 @@
       "name": "session_id"
     },
     {
+      "name": "recovery_code",
+      "optional": true
+    },
+    {
       "name": "user",
       "fields": [
         {
@@ -687,10 +1288,31 @@
           "name": "methods",
           "fields": [
             {
+              "name": "temporary_password",
+              "fields": [
+                {
+                  "name": "expires_at"
+                }
+              ],
+              "optional": true
+            },
+            {
               "name": "passkey_count"
             },
             {
               "name": "password"
+            },
+            {
+              "name": "local_methods_dormant"
+            },
+            {
+              "name": "role_from_provider"
+            },
+            {
+              "name": "totp"
+            },
+            {
+              "name": "waiting_approval"
             }
           ],
           "optional": true
@@ -722,6 +1344,9 @@
         },
         {
           "name": "oidc_linked"
+        },
+        {
+          "name": "owner"
         }
       ]
     },
@@ -748,12 +1373,39 @@
       "optional": true
     },
     {
+      "name": "sso",
+      "values": [
+        "alongside",
+        "for_linked",
+        "only"
+      ]
+    },
+    {
+      "name": "registration",
+      "values": [
+        "off",
+        "open",
+        "approval"
+      ]
+    },
+    {
       "name": "https_required",
       "values": [
         "password",
         "setup",
         "passkeys",
         "oidc"
+      ]
+    },
+    {
+      "name": "password_length",
+      "fields": [
+        {
+          "name": "min"
+        },
+        {
+          "name": "max"
+        }
       ]
     },
     {
@@ -770,12 +1422,81 @@
     },
     {
       "name": "secure"
+    },
+    {
+      "name": "totp"
+    },
+    {
+      "name": "temporary_password_https_only",
+      "optional": true
     }
   ],
-  "TTLRequest": [
+  "StepUpCodeRequest": [
     {
-      "name": "hours",
+      "name": "code"
+    }
+  ],
+  "TOTPBeginResponse": [
+    {
+      "name": "uri"
+    },
+    {
+      "name": "text"
+    },
+    {
+      "name": "ticket"
+    }
+  ],
+  "TOTPFinishRequest": [
+    {
+      "name": "ticket"
+    },
+    {
+      "name": "code"
+    },
+    {
+      "name": "current_code",
       "optional": true
+    }
+  ],
+  "TemporaryPasswordOptions": [
+    {
+      "name": "ttl_hours",
+      "optional": true
+    },
+    {
+      "name": "revoke_passkeys",
+      "optional": true
+    },
+    {
+      "name": "keep_keys",
+      "optional": true
+    }
+  ],
+  "TemporaryPasswordResponse": [
+    {
+      "name": "expires_at"
+    },
+    {
+      "name": "password"
+    },
+    {
+      "name": "https_origin",
+      "optional": true
+    },
+    {
+      "name": "https_only"
+    },
+    {
+      "name": "dormant"
+    },
+    {
+      "name": "password_kept"
+    }
+  ],
+  "TicketRequest": [
+    {
+      "name": "ticket"
     }
   ],
   "TokenRequest": [
@@ -802,7 +1523,6 @@
       "name": "purpose",
       "values": [
         "setup",
-        "recovery",
         "invite"
       ],
       "open": true
@@ -818,10 +1538,6 @@
     },
     {
       "name": "issuer_lineage",
-      "optional": true
-    },
-    {
-      "name": "subject",
       "optional": true
     },
     {
@@ -852,10 +1568,31 @@
       "name": "methods",
       "fields": [
         {
+          "name": "temporary_password",
+          "fields": [
+            {
+              "name": "expires_at"
+            }
+          ],
+          "optional": true
+        },
+        {
           "name": "passkey_count"
         },
         {
           "name": "password"
+        },
+        {
+          "name": "local_methods_dormant"
+        },
+        {
+          "name": "role_from_provider"
+        },
+        {
+          "name": "totp"
+        },
+        {
+          "name": "waiting_approval"
         }
       ],
       "optional": true
@@ -887,6 +1624,9 @@
     },
     {
       "name": "oidc_linked"
+    },
+    {
+      "name": "owner"
     }
   ]
 }

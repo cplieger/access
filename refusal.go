@@ -20,7 +20,7 @@ type Error struct {
 	Code       Code          // stable data a client branches on
 	Detail     string        // safe to show; never a secret or a raw cause
 	Reason     string        // a stable sub-reason a client may branch on
-	RetryAfter time.Duration // set with 429 and 503
+	RetryAfter time.Duration // set with 429 and every 503 but auth_second_factor_unavailable
 	Status     int
 }
 
@@ -29,48 +29,55 @@ type Code string
 
 // The codes, in Codes order.
 const (
-	CodeAuthRequired           Code = "auth_required"
-	CodeSessionExpired         Code = "auth_session_expired"
-	CodeInvalidCredentials     Code = "auth_invalid_credentials" //nolint:gosec // G101: an error code, not a credential
-	CodeKeyInvalid             Code = "auth_key_invalid"
-	CodeRecentAuthRequired     Code = "auth_recent_auth_required"
-	CodeSessionRequired        Code = "auth_session_required"
-	CodeScopeRequired          Code = "auth_scope_required"
-	CodeKeyRequired            Code = "auth_key_required"
-	CodeHTTPSRequired          Code = "auth_https_required"
-	CodeForbidden              Code = "auth_forbidden"
-	CodeRateLimited            Code = "auth_rate_limited"
-	CodeBusy                   Code = "auth_busy"
-	CodeUnavailable            Code = "auth_unavailable"
-	CodeBadRequest             Code = "auth_bad_request"
-	CodeBodyTooLarge           Code = "auth_body_too_large"
-	CodeUsernameInvalid        Code = "auth_username_invalid"
-	CodeUsernameTaken          Code = "auth_username_taken"
-	CodeKeyLabelTaken          Code = "auth_key_label_taken"
-	CodePasswordRejected       Code = "auth_password_rejected"
-	CodeBreachCheckUnavailable Code = "auth_breach_check_unavailable"
-	CodePasswordLoginDisabled  Code = "auth_password_login_disabled"
-	CodeSetupComplete          Code = "auth_setup_complete"
-	CodeSetupTokenRequired     Code = "auth_setup_token_required" //nolint:gosec // G101: an error code, not a credential
-	CodeTokenInvalid           Code = "auth_token_invalid"        //nolint:gosec // G101: an error code, not a credential
-	CodeLastMethod             Code = "auth_last_method"
-	CodeIdentityTaken          Code = "auth_identity_taken"
-	CodeAlreadyLinked          Code = "auth_already_linked"
-	CodeMethodNotLocked        Code = "auth_method_not_locked"
-	CodeCrossOrigin            Code = "auth_cross_origin"
-	CodeDuplicateCredential    Code = "auth_duplicate_credential" //nolint:gosec // G101: an error code, not a credential
-	CodeUnknownScope           Code = "auth_unknown_scope"
-	CodePasskeysUnavailable    Code = "auth_passkeys_unavailable" //nolint:gosec // G101: an error code, not a credential
-	CodeOriginRefused          Code = "auth_origin_refused"
-	CodeCeremonyInvalid        Code = "auth_ceremony_invalid"
-	CodeNotDiscoverable        Code = "auth_not_discoverable"
-	CodeUnknownCredential      Code = "auth_unknown_credential" //nolint:gosec // G101: an error code, not a credential
-	CodeAssertionFailed        Code = "auth_assertion_failed"
-	CodeRegistrationFailed     Code = "auth_registration_failed"
-	CodeOIDCUnavailable        Code = "auth_oidc_unavailable"
-	CodeOIDCFailed             Code = "auth_oidc_failed"
-	CodeNotFound               Code = "auth_not_found"
-	CodeMethodNotAllowed       Code = "auth_method_not_allowed"
+	CodeAuthRequired            Code = "auth_required"
+	CodeSessionExpired          Code = "auth_session_expired"
+	CodeInvalidCredentials      Code = "auth_invalid_credentials" //nolint:gosec // G101: an error code, not a credential
+	CodeKeyInvalid              Code = "auth_key_invalid"
+	CodeRecentAuthRequired      Code = "auth_recent_auth_required"
+	CodeSessionRequired         Code = "auth_session_required"
+	CodeScopeRequired           Code = "auth_scope_required"
+	CodeKeyRequired             Code = "auth_key_required"
+	CodeHTTPSRequired           Code = "auth_https_required"
+	CodeForbidden               Code = "auth_forbidden"
+	CodeRateLimited             Code = "auth_rate_limited"
+	CodeBusy                    Code = "auth_busy"
+	CodeUnavailable             Code = "auth_unavailable"
+	CodeBadRequest              Code = "auth_bad_request"
+	CodeBodyTooLarge            Code = "auth_body_too_large"
+	CodeUsernameInvalid         Code = "auth_username_invalid"
+	CodeUsernameTaken           Code = "auth_username_taken"
+	CodeKeyLabelTaken           Code = "auth_key_label_taken"
+	CodePasswordRejected        Code = "auth_password_rejected"
+	CodeBreachCheckUnavailable  Code = "auth_breach_check_unavailable"
+	CodePasswordLoginDisabled   Code = "auth_password_login_disabled"
+	CodeCodeInvalid             Code = "auth_code_invalid"
+	CodeSecondFactorRequired    Code = "auth_second_factor_required"
+	CodeSecondFactorUnavailable Code = "auth_second_factor_unavailable"
+	CodeTOTPDisabled            Code = "auth_totp_disabled"
+	CodeSetupComplete           Code = "auth_setup_complete"
+	CodeSetupTokenRequired      Code = "auth_setup_token_required" //nolint:gosec // G101: an error code, not a credential
+	CodeRegistrationClosed      Code = "auth_registration_closed"
+	CodeRegistrationFull        Code = "auth_registration_full"
+	CodeTokenInvalid            Code = "auth_token_invalid" //nolint:gosec // G101: an error code, not a credential
+	CodeLastMethod              Code = "auth_last_method"
+	CodeIdentityTaken           Code = "auth_identity_taken"
+	CodeAlreadyLinked           Code = "auth_already_linked"
+	CodeMethodNotLocked         Code = "auth_method_not_locked"
+	CodeCrossOrigin             Code = "auth_cross_origin"
+	CodeDuplicateCredential     Code = "auth_duplicate_credential" //nolint:gosec // G101: an error code, not a credential
+	CodeUnknownScope            Code = "auth_unknown_scope"
+	CodePasskeysUnavailable     Code = "auth_passkeys_unavailable" //nolint:gosec // G101: an error code, not a credential
+	CodeOriginRefused           Code = "auth_origin_refused"
+	CodeCeremonyInvalid         Code = "auth_ceremony_invalid"
+	CodeNotDiscoverable         Code = "auth_not_discoverable"
+	CodeUnknownCredential       Code = "auth_unknown_credential" //nolint:gosec // G101: an error code, not a credential
+	CodeAssertionFailed         Code = "auth_assertion_failed"
+	CodeRegistrationFailed      Code = "auth_registration_failed"
+	CodeOIDCUnavailable         Code = "auth_oidc_unavailable"
+	CodeOIDCFailed              Code = "auth_oidc_failed"
+	CodeSSOOnly                 Code = "auth_sso_only"
+	CodeNotFound                Code = "auth_not_found"
+	CodeMethodNotAllowed        Code = "auth_method_not_allowed"
 )
 
 type codeRow struct {
@@ -102,8 +109,14 @@ var codeTable = [...]codeRow{
 	{CodePasswordRejected, "The password is not allowed.", http.StatusBadRequest},
 	{CodeBreachCheckUnavailable, "The password check is unavailable. Try again shortly.", http.StatusServiceUnavailable},
 	{CodePasswordLoginDisabled, "Password sign-in is turned off.", http.StatusForbidden},
+	{CodeCodeInvalid, "That code is not right.", http.StatusUnauthorized},
+	{CodeSecondFactorRequired, "A second factor is required.", http.StatusForbidden},
+	{CodeSecondFactorUnavailable, "The second factor cannot be checked right now. Try again later.", http.StatusServiceUnavailable},
+	{CodeTOTPDisabled, "Authenticator apps are turned off in this app.", http.StatusForbidden},
 	{CodeSetupComplete, "Setup is already complete.", http.StatusConflict},
 	{CodeSetupTokenRequired, "A setup token is required.", http.StatusUnauthorized},
+	{CodeRegistrationClosed, "Sign-ups are closed.", http.StatusForbidden},
+	{CodeRegistrationFull, "Sign-ups are paused until an administrator reviews the waiting accounts.", http.StatusForbidden},
 	{CodeTokenInvalid, "The link is not valid or has expired.", http.StatusUnauthorized},
 	{CodeLastMethod, "The last sign-in method cannot be removed.", http.StatusConflict},
 	{CodeIdentityTaken, "That identity is linked to another account.", http.StatusConflict},
@@ -121,6 +134,7 @@ var codeTable = [...]codeRow{
 	{CodeRegistrationFailed, "The passkey could not be registered.", http.StatusBadRequest},
 	{CodeOIDCUnavailable, "Single sign-on is not available.", http.StatusBadRequest},
 	{CodeOIDCFailed, "Single sign-on failed.", http.StatusUnauthorized},
+	{CodeSSOOnly, "Use your organisation's sign-in.", http.StatusForbidden},
 	{CodeNotFound, "Not found.", http.StatusNotFound},
 	{CodeMethodNotAllowed, "Method not allowed.", http.StatusMethodNotAllowed},
 }
@@ -133,8 +147,9 @@ var codeIndex = func() map[Code]int {
 	return m
 }()
 
-// codeStatus is code's status in the code table, 0 for a code it lacks.
-func codeStatus(code Code) int {
+// StatusOf is the HTTP status a refusal with code answers, 0 for a code
+// Codes does not list.
+func StatusOf(code Code) int {
 	if i, ok := codeIndex[code]; ok {
 		return codeTable[i].status
 	}
@@ -195,8 +210,9 @@ func ErrorReasons() []string { return []string{ReasonTransportChanged, ReasonSig
 // returned to its refusal. Its Reason is empty, so the answer names no
 // stored state, except [ReasonTransportChanged] for a session presented on
 // the other transport, which the verifier revokes when a [SessionRevoker] is
-// registered, and for [ErrRecentAuthRequired] the reason the refusal carries, such as
-// [ReasonSignInAgain]. It reports false for any other error.
+// registered, and for [ErrRecentAuthRequired] and [ErrHTTPSRequired] the
+// reason the refusal carries, such as [ReasonSignInAgain]. It reports false
+// for any other error.
 func ErrorFor(err error) (Error, bool) {
 	code, ok := authenticationCode(err)
 	if !ok {
@@ -208,7 +224,7 @@ func ErrorFor(err error) (Error, bool) {
 		if errors.Is(err, ErrSessionTransport) {
 			reason = ReasonTransportChanged
 		}
-	case CodeRecentAuthRequired:
+	case CodeRecentAuthRequired, CodeHTTPSRequired:
 		reason = failreason.Of(err)
 	default:
 	}
@@ -224,8 +240,6 @@ func authenticationCode(err error) (Code, bool) {
 	}
 	if ice, isICE := errors.AsType[*InvalidCredentialError](err); isICE {
 		switch {
-		case errors.Is(err, ErrRestrictedSession):
-			return CodeSessionRequired, true
 		case errors.Is(err, ErrSessionTransport):
 			return CodeSessionExpired, true
 		case ice.Method == MethodAPIKey:

@@ -3,9 +3,11 @@ package account_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -15,9 +17,11 @@ import (
 	"time"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/internal/printcheck"
 	"github.com/cplieger/access/oidc"
+	"github.com/cplieger/access/totp"
 )
 
 // wholeLog is a LogRange Limit no test log reaches.
@@ -47,15 +51,73 @@ func logSince(t testing.TB, s account.Store, before []account.LogEntry) []accoun
 	return entries
 }
 
-// sessionClass is the set of kinds in the session class: sign-ins, step-ups
-// and session revocations.
-var sessionClass = []account.EventKind{account.EventSignedIn, account.EventSteppedUp, account.EventSessionRevoked}
-
-func classOf(k account.EventKind) account.LogClass {
-	if slices.Contains(sessionClass, k) {
-		return account.LogClassSession
+// kindClasses is each kind's class, written by hand: the session
+// class holds sign-ins, step-ups and session revocations (docs/security-log.md
+// "What is logged"), refused OIDC admissions, and refused
+// second steps and spent temporary passwords; every other
+// kind is a change. sessions_expired is never logged.
+var kindClasses = func() map[account.EventKind]account.LogClass {
+	m := map[account.EventKind]account.LogClass{account.EventSessionsExpired: ""}
+	for _, k := range []account.EventKind{
+		account.EventSignedIn, account.EventSteppedUp, account.EventSessionRevoked,
+		account.EventOIDCNotAdmitted, account.EventSecondFactorFailed, account.EventTemporaryPasswordUsed,
+	} {
+		m[k] = account.LogClassSession
 	}
-	return account.LogClassChange
+	for _, k := range []account.EventKind{
+		account.EventUserSessionsRevoked, account.EventPasswordSet, account.EventPasswordChanged, account.EventPasswordRemoved,
+		account.EventPasskeyAdded, account.EventPasskeyRemoved, account.EventOIDCLinked, account.EventOIDCUnlinked,
+		account.EventSetupTokenIssued, account.EventKeyMinted, account.EventKeyRevoked, account.EventKeyRotated,
+		account.EventUserDisabled, account.EventUserEnabled, account.EventUserDeleted, account.EventRoleChanged,
+		account.EventUserCreated, account.EventInviteIssued, account.EventMethodLocked, account.EventMethodReenabled,
+		account.EventOwnerSet, account.EventOwnerRemoved, account.EventSSOModeChanged, account.EventRoleSynced,
+		account.EventRoleSyncSkipped, account.EventTemporaryPasswordSet, account.EventTemporaryPasswordWithdrawn,
+		account.EventTOTPAdded, account.EventTOTPReplaced, account.EventTOTPRemoved, account.EventSecondFactorReset,
+		account.EventRecoveryCodeIssued, account.EventRecoveryCodeUsed, account.EventRecoveryCodeReplaced,
+		account.EventUserApproved, account.EventRegistrationExpired,
+	} {
+		m[k] = account.LogClassChange
+	}
+	return m
+}()
+
+func classOf(k account.EventKind) account.LogClass { return kindClasses[k] }
+
+// TestLogKindCensus holds kindClasses to every declared kind, and
+// docs/security-log.md's "What is logged" table to the same class for each
+// logged kind (each new kind with its class).
+func TestLogKindCensus(t *testing.T) {
+	t.Parallel()
+	kinds := account.EventKinds()
+	for _, k := range kinds {
+		if _, ok := kindClasses[k]; !ok {
+			t.Errorf("kind %q has no class in kindClasses", k)
+		}
+	}
+	for k := range kindClasses {
+		if !slices.Contains(kinds, k) {
+			t.Errorf("kindClasses names %q, which EventKinds lacks", k)
+		}
+	}
+	doc, err := os.ReadFile("../docs/security-log.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	documented := map[account.EventKind]string{}
+	for line := range strings.Lines(string(doc)) {
+		cells := strings.Split(line, " | ")
+		if len(cells) < 3 || !strings.HasPrefix(cells[0], "| `") {
+			continue
+		}
+		for name := range strings.SplitSeq(cells[0][2:], ", ") {
+			documented[account.EventKind(strings.Trim(name, "`"))] = cells[1]
+		}
+	}
+	for k, class := range kindClasses {
+		if got, ok := documented[k]; class == "" && ok || class != "" && got != string(class) {
+			t.Errorf("docs/security-log.md gives %q class %q, want %q", k, got, class)
+		}
+	}
 }
 
 // stateVariants are catalogued operations run on a stored state their
@@ -76,6 +138,118 @@ func stateVariants() []operation {
 				want: events(account.Event{Kind: account.EventUserEnabled, UserID: target.ID, Actor: actorOf(p)}),
 			}
 		}},
+		// Enabling a waiting registration approves it.
+		{name: "UpdateUser_approve", class: classManageUsers, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			target := w.user(t)
+			target.Enabled, target.WaitingApproval = false, true
+			if err := w.mem.UpdateUser(t.Context(), target); err != nil {
+				t.Fatalf("UpdateUser: %v", err)
+			}
+			return opCall{
+				run: func(ctx context.Context) error {
+					_, err := w.svc.UpdateUser(ctx, p, target.ID, account.UserChange{Enabled: new(true)})
+					return err
+				},
+				want: events(account.Event{Kind: account.EventUserApproved, UserID: target.ID, Actor: actorOf(p)}),
+			}
+		}},
+		// A replacement journals totp_replaced.
+		{name: "FinishTOTP_replace", class: classRecentAuth, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			old := sealTOTP(t, w.mem, w.sealer, w.owner(t, p))
+			e, err := w.svc.BeginTOTP(t.Context(), p)
+			if err != nil {
+				t.Fatalf("BeginTOTP = %v", err)
+			}
+			in := account.TOTPFinish{Ticket: e.Ticket, Code: codeNow(secretOf(t, e)), CurrentCode: codeNow(old)}
+			return opCall{
+				run: func(ctx context.Context) error { _, err := w.svc.FinishTOTP(ctx, w.client, p, in); return err },
+				want: events(
+					account.Event{Kind: account.EventTOTPReplaced, UserID: actorOf(p).UserID, Actor: actorOf(p)},
+					account.Event{Kind: account.EventRecoveryCodeIssued, UserID: actorOf(p).UserID, Actor: actorOf(p)},
+				),
+			}
+		}},
+		// A pending sign-in's first refused code journals
+		// second_factor_failed, which the run's refusal answers.
+		{name: "SignInWithCode_refused", class: classPublic, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket, secret := w.pendingTicket(t)
+			wrong := totp.Code(secret, totp.Step(time.Now().Add(-20*totp.Period)))
+			return opCall{
+				run: func(ctx context.Context) error {
+					_, err := w.svc.SignInWithCode(ctx, w.client, ticket, wrong)
+					if errors.Is(err, account.ErrCodeInvalid) {
+						return nil
+					}
+					return fmt.Errorf("a wrong code = %v, want ErrCodeInvalid", err)
+				},
+				want: events(account.Event{Kind: account.EventSecondFactorFailed, UserID: w.alice.ID, Method: access.MethodTOTP}),
+			}
+		}},
+		// A temporary password matched at step 1 is spent and
+		// journalled temporary_password_used with its transport.
+		{name: "PasswordLogin_temporary_password", class: classPublic, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			target := passwordUser(t, w.mem, nil, w.name("user"), "")
+			issued, err := w.svc.SetTemporaryPassword(t.Context(), account.OutOfBand("cli"), target.ID, account.TemporaryPasswordOptions{})
+			if err != nil {
+				t.Fatalf("SetTemporaryPassword = %v", err)
+			}
+			return opCall{
+				run: func(ctx context.Context) error {
+					out, err := w.svc.PasswordLogin(ctx, w.client, account.Credentials{Username: target.Username, Password: issued.Password})
+					if err == nil && out.Pending == nil {
+						return errors.New("a temporary password signed in, want a pending sign-in")
+					}
+					return err
+				},
+				want: func() []account.Event {
+					return []account.Event{{Kind: account.EventTemporaryPasswordUsed, UserID: target.ID, Plain: !w.client.Secure}}
+				},
+			}
+		}},
+		{name: "SetOwner_remove", class: classRecentAuth, ownerOnly: true, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			target := mustOwner(t, w.mem, w.name("owner"))
+			return opCall{
+				run: func(ctx context.Context) error {
+					_, err := w.svc.SetOwner(ctx, account.As(p), target.ID, false)
+					return err
+				},
+				want: events(account.Event{Kind: account.EventOwnerRemoved, UserID: target.ID, Actor: actorOf(p)}),
+			}
+		}},
+		// An unreadable role claim changes no role and is journalled.
+		{name: "OIDCComplete_role_sync_skipped", class: classPublic, rules: syncRoles, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			return oidcSignInCall(t, w, w.rig, account.Event{Kind: account.EventRoleSyncSkipped, Role: access.RoleUser})
+		}},
+		// A changed role ends the user's other sessions and names them.
+		{name: "OIDCComplete_role_synced", class: classPublic, rules: syncRoles, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			*w.rig = *newOIDCRig(t, accesstest.IdPOptions{Subject: &w.rig.subject, Groups: []string{"ops"}})
+			var ended []string
+			for _, s := range sessionsOf(t, w.mem, w.alice.ID) {
+				ended = append(ended, s.ID)
+			}
+			if len(ended) == 0 {
+				t.Fatal("alice holds no session for the sync to end")
+			}
+			slices.Sort(ended)
+			return oidcSignInCall(t, w, w.rig, account.Event{Kind: account.EventRoleSynced, Role: access.RoleAdmin, SessionIDs: ended})
+		}},
+		// A token OIDCAdmission refuses is journalled and refused.
+		{name: "OIDCComplete_not_admitted", class: classPublic, rules: func(r *account.Rules) {
+			r.OIDCAdmission = account.OIDCAdmission{Claim: "groups", AllowedValues: []string{"staff"}}
+		}, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			linkIdentity(t, w.mem, storedUser(t, w.mem, w.alice.ID), w.rig.identity())
+			flow, claims := w.rig.signInFlow(t)
+			return opCall{
+				run: func(ctx context.Context) error {
+					_, err := w.svc.OIDCComplete(ctx, w.client, flow, claims)
+					if errors.Is(err, account.ErrNotAdmitted) {
+						return nil
+					}
+					return fmt.Errorf("OIDCComplete = %v, want ErrNotAdmitted", err)
+				},
+				want: events(account.Event{Kind: account.EventOIDCNotAdmitted, UserID: w.alice.ID, Method: access.MethodOIDC}),
+			}
+		}},
 		{name: "SetPassword_first", class: classRecentAuth, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
 			u := mustUser(t, w.mem, w.name("nopassword"), access.RoleUser)
 			q := w.recent(t, u)
@@ -87,6 +261,30 @@ func stateVariants() []operation {
 				want: events(account.Event{Kind: account.EventPasswordSet, UserID: u.ID, Method: access.MethodPassword, Actor: actorOf(q)}),
 			}
 		}},
+	}
+}
+
+// syncRoles maps the groups claim's "ops" to an admin at each OIDC sign-in.
+func syncRoles(r *account.Rules) {
+	r.Provisioning = account.Provisioning{Enabled: true, RoleClaim: "groups", AdminValues: []string{"ops"}, SyncRole: true}
+}
+
+// oidcSignInCall is alice's OIDC sign-in through rig, which journals sync
+// about alice before EventSignedIn.
+func oidcSignInCall(t *testing.T, w *opWorld, rig *oidcRig, sync account.Event) opCall {
+	t.Helper()
+	linkIdentity(t, w.mem, storedUser(t, w.mem, w.alice.ID), rig.identity())
+	flow, claims := rig.signInFlow(t)
+	var out account.OIDCOutcome
+	return opCall{
+		run: func(ctx context.Context) (err error) {
+			out, err = w.svc.OIDCComplete(ctx, w.client, flow, claims)
+			return err
+		},
+		want: func() []account.Event {
+			sync.UserID = w.alice.ID
+			return []account.Event{sync, signedIn(out.SignedIn, access.MethodOIDC)}
+		},
 	}
 }
 
@@ -213,12 +411,12 @@ func wantShown(before, after records, e *account.LogEntry) shown {
 
 // labeledPrincipal stores a session of u whose Label and UserAgent name it
 // and returns the principal the Authenticator grants for it.
-func labeledPrincipal(t *testing.T, f *fixture, u *access.User, kind access.SessionKind, method access.Method) access.Principal {
+func labeledPrincipal(t *testing.T, f *fixture, u *access.User, method access.Method) access.Principal {
 	t.Helper()
 	now := time.Now()
 	id := newSessionID(t)
 	sess := &access.Session{
-		ID: id, UserID: u.ID, Kind: kind, AuthMethod: method, CreatedAt: now, LastActivity: now, AuthTime: now,
+		ID: id, UserID: u.ID, AuthMethod: method, CreatedAt: now, LastActivity: now, AuthTime: now,
 		Label: "label-" + id[:8], UserAgent: "agent-" + id[:8], Secure: true,
 	}
 	p, _ := f.principalOf(t, sess)
@@ -251,7 +449,7 @@ func labeledKeyPrincipal(t *testing.T, f *fixture, u *access.User, scopes ...str
 
 // keyScopeOf is the scope a key principal needs for an operation of each
 // class that admits one.
-var keyScopeOf = map[opClass]string{classAdminScope: scopeAdmin, classManageUsers: scopeUsers, classCreateKeys: scopeKeys}
+var keyScopeOf = map[opClass]string{classAdminScope: scopeAdmin, classOwnKeys: scopeKeys, classManageUsers: scopeUsers, classCreateKeys: scopeKeys}
 
 // labeledActorFor is opWorld.actorFor with a labeled session.
 func labeledActorFor(t *testing.T, w *opWorld, class opClass) access.Principal {
@@ -259,10 +457,8 @@ func labeledActorFor(t *testing.T, w *opWorld, class opClass) access.Principal {
 	switch class {
 	case classPublic, classOutOfBand:
 		return access.Principal{}
-	case classRecovery:
-		return labeledPrincipal(t, w.fixture, w.alice, access.SessionRecovery, access.MethodRecovery)
 	default:
-		return labeledPrincipal(t, w.fixture, w.root, access.SessionFull, access.MethodPassword)
+		return labeledPrincipal(t, w.fixture, w.root, access.MethodPassword)
 	}
 }
 
@@ -333,10 +529,15 @@ func TestLogActorSnapshot(t *testing.T) {
 				w := newOpWorld(t, worldOptions{scoped: true})
 				p, key := labeledKeyPrincipal(t, w.fixture, w.root, scope)
 				call := op.prep(t, w, p)
-				entries := snapshotCall(t, w.mem, func() error { return call.run(t.Context()) })
+				before, mark := recordsOf(t, w.mem), logOf(t, w.mem)
+				if err := call.run(t.Context()); err != nil {
+					t.Fatalf("%s = %v", op.name, err)
+				}
+				entries := logSince(t, w.mem, mark)
 				if len(entries) != len(call.want()) {
 					t.Fatalf("%s appended %d entries, want one per event, %d", op.name, len(entries), len(call.want()))
 				}
+				checkShown(t, before, recordsOf(t, w.mem), entries)
 				for i := range entries {
 					e := &entries[i]
 					if e.Event.Actor.KeyID != key.ID || shownOf(e) != (shown{label: key.Label, keySuffix: key.KeySuffix}) {
@@ -349,7 +550,7 @@ func TestLogActorSnapshot(t *testing.T) {
 	t.Run("logout", func(t *testing.T) {
 		t.Parallel()
 		w := newOpWorld(t, worldOptions{})
-		p := labeledPrincipal(t, w.fixture, w.alice, access.SessionFull, access.MethodPassword)
+		p := labeledPrincipal(t, w.fixture, w.alice, access.MethodPassword)
 		entries := snapshotCall(t, w.mem, func() error { return w.svc.Logout(t.Context(), p.SessionTokenHash()) })
 		if got := shownOf(&entries[0]); got.label == "" || got.userAgent == "" {
 			t.Errorf("Logout's entry snapshot = %+v, want the ended session's", got)
@@ -359,7 +560,7 @@ func TestLogActorSnapshot(t *testing.T) {
 		t.Parallel()
 		f := newOIDCFixture(t, rigFor(t, "link-subject"), pwOptions{})
 		u := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
-		p := labeledPrincipal(t, f.fixture, u, access.SessionFull, access.MethodPassword)
+		p := labeledPrincipal(t, f.fixture, u, access.MethodPassword)
 		flow, claims := f.rig.sessionFlow(t, oidc.IntentLink, u, p.SessionID)
 		entries := snapshotCall(t, f.mem, func() error { _, err := f.complete(t, localClient, flow, claims); return err })
 		if got := shownOf(&entries[0]); entries[0].Event.Kind != account.EventOIDCLinked || got.label == "" {
@@ -371,7 +572,7 @@ func TestLogActorSnapshot(t *testing.T) {
 		f := newOIDCFixture(t, rigFor(t, "step-subject"), pwOptions{})
 		u := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
 		linkIdentity(t, f.mem, u, f.rig.identity())
-		p := labeledPrincipal(t, f.fixture, u, access.SessionFull, access.MethodPassword)
+		p := labeledPrincipal(t, f.fixture, u, access.MethodPassword)
 		flow, claims := f.rig.sessionFlow(t, oidc.IntentStepUp, u, p.SessionID)
 		entries := snapshotCall(t, f.mem, func() error { _, err := f.complete(t, localClient, flow, claims); return err })
 		e := &entries[0]
@@ -441,7 +642,7 @@ func TestLogActorSnapshot(t *testing.T) {
 	t.Run("actor_deleted_before", func(t *testing.T) {
 		t.Parallel()
 		w := newOpWorld(t, worldOptions{})
-		p := labeledPrincipal(t, w.fixture, w.root, access.SessionFull, access.MethodPassword)
+		p := labeledPrincipal(t, w.fixture, w.root, access.MethodPassword)
 		other := putSession(t, w.mem, liveSession(t, w.root))
 		if err := w.mem.DeleteSession(t.Context(), access.SessionRef{ID: p.SessionID, UserID: w.root.ID}); err != nil {
 			t.Fatalf("DeleteSession: %v", err)
@@ -458,7 +659,7 @@ func TestLogActorSnapshot(t *testing.T) {
 	t.Run("frozen_actor", func(t *testing.T) {
 		t.Parallel()
 		w := newOpWorld(t, worldOptions{scoped: true})
-		p := labeledPrincipal(t, w.fixture, w.root, access.SessionFull, access.MethodPassword)
+		p := labeledPrincipal(t, w.fixture, w.root, access.MethodPassword)
 		kp, key := labeledKeyPrincipal(t, w.fixture, w.root, scopeUsers)
 		other := putSession(t, w.mem, liveSession(t, w.root))
 		if err := w.svc.RevokeSession(t.Context(), p, other.ID); err != nil {
@@ -496,7 +697,9 @@ func mustPrincipal(t *testing.T, f *fixture, token access.Secret) access.Princip
 // clientOperations take a Client, whose IP their entries record.
 var clientOperations = []string{
 	"SetupWithPassword", "SetupPasskeyFinish", "PasswordLogin", "PasskeyLoginFinish", "OIDCComplete",
-	"AcceptInvitePassword", "StartRecovery", "StepUpPassword", "StepUpPasskeyFinish", "SetPassword", "RemovePassword",
+	"AcceptInvitePassword", "CreatePendingOIDC", "LinkPendingOIDCByAdmin", "StepUpPassword", "StepUpPasskeyFinish", "SetPassword", "RemovePassword",
+	"SignInWithCode", "SecondFactorPasskeyFinish", "StepUpCode", "SignInWithRecoveryCode", "PendingTOTPFinish", "PendingPasskeyFinish",
+	"SetCredentialPassword", "SetCredentialPasskeyFinish", "RegisterPassword", "RegisterPasskeyFinish",
 }
 
 func TestLogIP(t *testing.T) {
@@ -595,7 +798,7 @@ func TestLockEntryWrittenBySweep(t *testing.T) {
 		p := newPW(t, pwOptions{store: fs})
 		u := passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
 		p.failN(t, clientAt(1), "alice", account.FailureCap)
-		q := labeledPrincipal(t, p.fixture, u, access.SessionFull, access.MethodPasskey)
+		q := labeledPrincipal(t, p.fixture, u, access.MethodPasskey)
 		fs.resetRecord()
 		if err := p.svc.ReenableMethod(t.Context(), q, access.MethodPassword); err != nil {
 			t.Fatalf("ReenableMethod = %v", err)
@@ -778,7 +981,11 @@ func TestEveryLoggedKindHasAProducer(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		for i := range entries {
-			produced[entries[i].Event.Kind] = true
+			e := &entries[i]
+			produced[e.Event.Kind] = true
+			if want := classOf(e.Event.Kind); e.Class != want {
+				t.Errorf("%s logged in class %q, want %q", e.Event.Kind, e.Class, want)
+			}
 		}
 	}
 	t.Run("producers", func(t *testing.T) {
@@ -803,6 +1010,19 @@ func TestEveryLoggedKindHasAProducer(t *testing.T) {
 			passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
 			p.failN(t, clientAt(1), "alice", account.FailureCap)
 			sweepFailures(t, p.svc)
+			note(logOf(t, p.mem))
+		})
+		t.Run("registration_sweep", func(t *testing.T) {
+			t.Parallel()
+			p := newPW(t, pwOptions{})
+			u := passwordUser(t, p.mem, p.hasher, "waiting", goodPassword)
+			u.Enabled, u.WaitingApproval, u.CreatedAt = false, true, time.Now().Add(-account.WaitingRegistrationLifetime-time.Hour)
+			if err := p.mem.UpdateUser(t.Context(), u); err != nil {
+				t.Fatalf("UpdateUser: %v", err)
+			}
+			if n := account.SweepRegistrations(t.Context(), p.svc); n != 1 {
+				t.Fatalf("SweepRegistrations = %d, want 1", n)
+			}
 			note(logOf(t, p.mem))
 		})
 	})

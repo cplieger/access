@@ -23,12 +23,13 @@ type stateConfig struct {
 	passkeys   bool
 	oidc       bool
 	setupDone  bool // a user exists
+	rule       bool // Rules.RequireSecondFactor
 }
 
 func stateFixture(t *testing.T, sc stateConfig) *fixture {
 	t.Helper()
 	o := options{posture: sc.posture, rules: func() account.Rules {
-		return account.Rules{DisablePasswordLogin: sc.noPassword, HTTPSOrigin: stateOrigin}
+		return account.Rules{DisablePasswordLogin: sc.noPassword, HTTPSOrigin: stateOrigin, RequireSecondFactor: sc.rule}
 	}}
 	if sc.timeouts != nil {
 		o.timeouts = func() access.SessionTimeouts { return *sc.timeouts }
@@ -90,6 +91,16 @@ func TestStateTransport(t *testing.T) {
 				HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys, account.HTTPSOIDC}, HTTPSOrigin: stateOrigin,
 			},
 		},
+		// Under the rule setup enrols a second factor, which
+		// plain HTTP refuses, so the plain screen offers no setup.
+		"per_request_plain_rule_setup_needs_https": {
+			config: stateConfig{posture: access.PosturePerRequest, passkeys: true, rule: true}, client: plain,
+			want: account.State{
+				SetupRequired: true, PasswordLogin: true, PlainSession: defaultPlain,
+				HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup, account.HTTPSPasskeys}, HTTPSOrigin: stateOrigin,
+				TemporaryPasswordHTTPSOnly: true,
+			},
+		},
 		"per_request_plain_oidc_unconfigured": {
 			config: stateConfig{posture: access.PosturePerRequest, passkeys: true}, client: plain,
 			want: account.State{
@@ -105,6 +116,7 @@ func TestStateTransport(t *testing.T) {
 			config: stateConfig{posture: access.PosturePerRequest, noPassword: true, passkeys: true, setupDone: true}, client: plain,
 			want: account.State{
 				PlainSession: defaultPlain, HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys}, HTTPSOrigin: stateOrigin,
+				TemporaryPasswordHTTPSOnly: true,
 			},
 		},
 		"per_request_plain_15_minute_idle": {
@@ -135,11 +147,11 @@ func TestStateTransport(t *testing.T) {
 		},
 		"posture_secure_plain_password_off": {
 			config: stateConfig{posture: access.PostureSecure, setupDone: true, noPassword: true, passkeys: true}, client: plain,
-			want: account.State{HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys}, HTTPSOrigin: stateOrigin},
+			want: account.State{HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys}, HTTPSOrigin: stateOrigin, TemporaryPasswordHTTPSOnly: true},
 		},
 		"posture_secure_plain_setup_password_off": {
 			config: stateConfig{posture: access.PostureSecure, noPassword: true}, client: plain,
-			want: account.State{SetupRequired: true, HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup}, HTTPSOrigin: stateOrigin},
+			want: account.State{SetupRequired: true, HTTPSRequired: []account.HTTPSFeature{account.HTTPSSetup}, HTTPSOrigin: stateOrigin, TemporaryPasswordHTTPSOnly: true},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

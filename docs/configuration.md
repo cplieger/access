@@ -23,7 +23,7 @@ Every setting is a field of a configuration struct or a function argument. The l
 
 `New` returns an error for a configuration that cannot work. That is a timeout or throttle below zero, an activity throttle at or above the idle timeout, a realm holding `"`, `\` or a control character, or a cookie configuration that `CookieConfig.Validate` refuses. `New` also refuses a nil store, and a `Verifier` that holds a nil pointer, map, slice, func or chan; a nil `Verifier` means none.
 
-The activity throttle exists to cut store writes. An API key's last use is written once the stored time is `d` old. A session's activity is written once the stored time is one window old. That window is the lesser of `d` and half the session's idle limit, which the session's own `IdleCap` and the 15-minute limit of a recovery session can lower, so a session in use never expires between two writes. The window runs from the time the store holds, so it holds across restarts, and requests that arrive together as a window ends may each write once. A failed write leaves the stored time old, so the next request tries it again. A failed write logs a warning at most once a minute for sessions and once a minute for keys. The next warning after that minute carries `suppressed`, the count of failures held back, when there were any. The stored last-activity time lags real activity by up to that window, which is why the throttle must stay below the idle timeout.
+The activity throttle exists to cut store writes. An API key's last use is written once the stored time is `d` old. A session's activity is written once the stored time is one window old. That window is the lesser of `d` and half the session's idle limit, which the session's own `IdleCap` can lower, so a session in use never expires between two writes. The window runs from the time the store holds, so it holds across restarts, and requests that arrive together as a window ends may each write once. A failed write leaves the stored time old, so the next request tries it again. A failed write logs a warning at most once a minute for sessions and once a minute for keys. The next warning after that minute carries `suppressed`, the count of failures held back, when there were any. The stored last-activity time lags real activity by up to that window, which is why the throttle must stay below the idle timeout.
 
 With `TimeoutSource`, a value at or below zero from the callback falls back to the matching static field. The same cap on the throttle window applies to the idle timeout the callback returns.
 
@@ -169,7 +169,7 @@ A stored hash outside the same bounds, or not in canonical PHC form, never match
 | `IP` | 10 per 15m | failed attempts per IP key |
 | `Account` | 100 per 1h | failures from untrusted clients per account |
 | `Device` | 10 per 1h | failures per account and device cookie |
-| `Request` | 60 per 1m | requests on an anonymous passkey begin route or OIDC route per IP key |
+| `Request` | 60 per 1m | requests on an anonymous passkey begin route, `authRegisterPassword`, a pending sign-in's step that charges it (`authLoginSecondPasskeyBegin`, `authLoginSetPasskeyBegin`, `authPendingPasskeyBegin`, `authPendingTOTPBegin`, `authPendingTOTPFinish`) or an OIDC route that `Service.AdmitOIDC` admits (`authOIDCStartSignIn`, `authInviteAcceptOIDC`, `authOIDCCallback`, `authOIDCPending`, `authOIDCCreatePending`, `authOIDCLinkByAdmin`) per IP key |
 | `IPv6Prefix` | 64 | the IPv6 prefix one IP key covers, 48 to 128 |
 | `MaxEntries` | 10000 | the keys, and so the memory, each dimension tracks |
 | `Prune` | 5m | how often windows with no live entry are dropped, and the eviction warning's interval |
@@ -184,22 +184,23 @@ A stored hash outside the same bounds, or not in canonical PHC form, never match
 
 The reservation counts as a failure until it is settled, so an abandoned one still counts:
 
-- `Succeed` removes its own entries, clears the account's device bucket for a trusted browser, else its untrusted bucket, and returns a fresh device cookie. It leaves other accounts' failures in the IP window.
+- `Succeed` is for the step that completes a sign-in. It removes its own entries and clears the account's device bucket for a trusted browser, else its untrusted bucket. It leaves other accounts' failures in the IP window.
 - `Fail` settles it as the failure it already counts.
-- `Cancel` removes it without crediting a success, for a refusal before the password was checked.
+- `Cancel` removes it without crediting a success, so the attempt neither counts nor forgives and earlier failures stay. It is for a refusal before the password was checked, and for a correct password that signed nobody in: a pending sign-in, or a refusal after it. A sign-in the SSO mode refuses settles with `Fail`, as a wrong password.
 
-Only the first of the three acts. `Request` counts one request on an anonymous passkey begin route or OIDC route against the IP key's request window.
+Only the first of the three acts. `Request` counts one request on an anonymous passkey begin route, `authRegisterPassword`, a pending sign-in's step that charges it (`authLoginSecondPasskeyBegin`, `authLoginSetPasskeyBegin`, `authPendingPasskeyBegin`, `authPendingTOTPBegin`, `authPendingTOTPFinish`) or an OIDC route that `Service.AdmitOIDC` admits (`authOIDCStartSignIn`, `authInviteAcceptOIDC`, `authOIDCCallback`, `authOIDCPending`, `authOIDCCreatePending`, `authOIDCLinkByAdmin`) against the IP key's request window. On `RegisterPassword` and `RegisterPasskeyBegin` it counts every call after the transport check and before any other check, a refused one included, so one address makes at most that many registrations a window whether each succeeds or fails, and so at most that many breach lookups, store reads and hashes; `RegisterPassword`'s IP attempt still counts its failures. `RegisterPasskeyFinish` charges nothing, since it completes only the one ceremony a charged begin stored.
 
-Set the device cookie `Succeed` returns for 180 days, and pass the browser's cookie back in `Attempt.Device`. The device protocol follows OWASP's [device cookies](https://owasp.org/www-community/Slow_Down_Online_Guessing_Attacks_with_Device_Cookies): locking an account for untrusted clients leaves the owner's trusted browsers working. With a `Devices` sealer over persisted keys, that trust survives a restart. With `access.NewEphemeralSealer()`, a restart makes every browser untrusted until it signs in again. After a sign-in that ran no `Attempt`, such as a passkey or OIDC sign-in, `DeviceCookie` returns the cookie to set, and it keeps the device of a valid cookie the browser presented.
+`DeviceCookie(acct, presented, secure)` is the only place a device cookie is sealed: call it after every completed sign-in, set the cookie it returns for 180 days, and pass the browser's cookie back in `Attempt.Device`. It keeps the device of a valid cookie the browser presented, and seals `secure`, the transport of the request that completed the sign-in. `Reservation.KnownDevice` reports a valid cookie that a sign-in on a secure request sealed; a cookie a plain response carried still serves the limiter and is never a known device. A cookie sealed before this field existed no longer opens, so each browser is new to the limiter at its next sign-in. The device protocol follows OWASP's [device cookies](https://owasp.org/www-community/Slow_Down_Online_Guessing_Attacks_with_Device_Cookies): locking an account for untrusted clients leaves its holder's trusted browsers working. With a `Devices` sealer over persisted keys, that trust survives a restart. With `access.NewEphemeralSealer()`, a restart makes every browser untrusted until it signs in again.
 
 Each dimension keeps at most `MaxEntries` keys, which bounds the limiter's memory. Keys are ordered by when each was last used. An admitted attempt or request counts one entry under every key it checks, and marks each as used. A refused one counts nothing, starts tracking no new key and evicts none. It only marks as used the keys it checks that the limiter already tracks. A key's limit is exact while it is among its dimension's `MaxEntries` most recently used keys. A new key past that is never refused for capacity. It evicts the least recently used key whatever its count, and that key starts over. A key that keeps trying is evicted last: it is forgotten only when a new key arrives after `MaxEntries - 1` other keys have been used since its last attempt.
 
 Past those keys, the limiter bounds no spray of new keys. What bounds one depends on the route:
 
-- Password attempts on an account (`PasswordLogin`, `StepUpPassword`, and the current-password check of `SetPassword` and `RemovePassword`). The durable failure cap, `account.FailureCap`, locks the password for a name and trust context after 100 consecutive failures, so a spray gets at most 100 consecutive guesses at each account in each context. Every password hash draws on the `access.HashBudget`, which bounds how many hashes run at once.
-- Attempts with no account (`SetupWithPassword`, `AcceptInvitePassword` and `StartRecovery`). Nothing beyond the IP limit bounds their rate. Those that hash a password draw on the `access.HashBudget`.
-- Begin routes that hold a passkey ceremony (`SetupPasskeyBegin` and `PasskeyLoginBegin`). The pending-ceremony cache holds at most `account.Config.MaxPending` entries and evicts the oldest first. That bounds memory, not the request rate.
-- The OIDC sign-in start, the callback and the pending-link read. `account.Service.AdmitOIDC` charges the IP request limit on each, before `oidc.Provider.Begin` or `Finish` runs and before the pending-link cookie is read, and nothing beyond that limit bounds their rate. A callback without a flow cookie that `Begin` sealed fails when the cookie is opened, before any call to the identity provider.
+- Password attempts on an account (`PasswordLogin`, `StepUpPassword`, and the current-password check of `SetPassword` and `RemovePassword`). The durable failure cap, `account.FailureCap`, locks the password for a name and trust context after 100 consecutive failures, so a spray gets at most 100 consecutive guesses at each account in each context. A correct password clears only its own context's count, so a sign-in with a device cookie does not give back the guesses spent without one. Every password hash draws on the `access.HashBudget`, which bounds how many hashes run at once.
+- Attempts with no account (`SetupWithPassword` and `AcceptInvitePassword`). Nothing beyond the IP limit bounds their rate. Those that hash a password draw on the `access.HashBudget`.
+- Registration (`RegisterPassword` and `RegisterPasskeyBegin`). Nothing beyond the `Request` limit bounds their rate, so a bound across many addresses (a CAPTCHA, a proof of work) is the app's, in front of the routes. `RegisterPassword` draws on the `access.HashBudget`.
+- Begin routes that hold a passkey ceremony (`SetupPasskeyBegin`, `PasskeyLoginBegin` and `RegisterPasskeyBegin`). Their ceremonies are in-memory entries ([In-flight entries](#in-flight-entries)), whose bounds limit memory, not the request rate.
+- The OIDC sign-in and invite starts, the callback, and the pending-link read and create (`authOIDCPending`, `authOIDCCreatePending`). `account.Service.AdmitOIDC` charges the IP request limit on each, before `oidc.Provider.Begin` or `Finish` runs and before the pending-link cookie is read, and nothing beyond that limit bounds their rate. A callback without a flow cookie that `Begin` sealed fails when the cookie is opened, before any call to the identity provider. The admin link (`authOIDCLinkByAdmin`) is charged the same way, then counts an attempt under the IP and the pending identity, never the account, and its one hash draws on the `access.HashBudget`.
 
 Once per `Prune` interval, each dimension that evicted keys at their limit logs one warning with their count, after the limiter's locks are released. The prune goroutine stops when the context given to `New` ends, after logging the warnings its last interval had not yet logged. `Shutdown` stops it and blocks until it has exited, or until the context given to `Shutdown` ends.
 
@@ -218,11 +219,11 @@ Once per `Prune` interval, each dimension that evicted keys at their limit logs 
 | `Now` | The clock for the flow cookie, the ID token's time claims and the key set's refresh timing | `time.Now` |
 | `Logger` | The `*slog.Logger` for the key set's warnings | `slog.Default()` at each call |
 
-An ephemeral `FlowSealer` means a flow begun under one provider cannot finish under a rebuilt one. An app that rebuilds its provider when its settings change passes one sealer that outlives them. The flow cookie lives 10 minutes, the return path is at most 512 bytes, and a step-up accepts 60 s of `auth_time` skew. [OIDC sign-in](oidc.md) explains the flow.
+An ephemeral `FlowSealer` means a flow begun under one provider cannot finish under a rebuilt one. An app that rebuilds its provider when its settings change passes one sealer that outlives them. The flow cookie lives 10 minutes, the return path is at most 512 bytes, and a link, step-up or invite accepts 60 s of `auth_time` skew. [OIDC sign-in](oidc.md) explains the flow.
 
 ## Account service
 
-`account.New(ctx, cfg)` takes an `account.Config`. It refuses a nil `Store`, `Policy`, `Authenticator`, `Hasher`, `Limiter` or `Rules`, a `FailureKey` that is not 32 bytes, a non-empty `AdminScope`, `ManageUsersScope` or `CreateKeysScope` that is not one [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3) scope-token (printable ASCII other than space, `"` and `\`), two equal non-empty scopes, a negative `CleanupInterval`, `MaxPending`, `LogMaxAge`, `LogMaxChanges` or `LogMaxSessions`, and a `Rules()` value that `Rules.Validate` refuses or whose breach mode has no `Breach` client. Before it returns, it trims the [security log](security-log.md) to its caps and `LogMaxAge` and sweeps the failure records, and it returns a store error from either. It then registers the Service as its `Authenticator`'s session revoker, which ends a session presented on the other transport ([Sessions](primitives.md#sessions)). An Authenticator takes one revoker, so `New` fails for a second Service over the same Authenticator: give each Service its own.
+`account.New(ctx, cfg)` takes an `account.Config`. It refuses a nil `Store`, `Policy`, `Authenticator`, `Hasher`, `Limiter` or `Rules`, a `FailureKey` that is not 32 bytes, a half-set `TOTP`, a non-empty `AdminScope`, `ManageUsersScope` or `CreateKeysScope` that is not one [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3) scope-token (printable ASCII other than space, `"` and `\`), two equal non-empty scopes, a negative `CleanupInterval`, `MaxPending`, `LogMaxAge`, `LogMaxChanges` or `LogMaxSessions`, and a `Rules()` value that `Rules.Validate` refuses or whose breach mode has no `Breach` client. Before it returns, it trims the [security log](security-log.md) to its caps and `LogMaxAge` and sweeps the failure records, and it returns a store error from either. It then registers the Service as its `Authenticator`'s session revoker, which ends a session presented on the other transport ([Sessions](primitives.md#sessions)). An Authenticator takes one revoker, so `New` fails for a second Service over the same Authenticator: give each Service its own.
 
 | Field | What it sets | Default |
 | --- | --- | --- |
@@ -234,25 +235,93 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 | `Rules` | A function returning the app's `Rules`, read once per operation | required |
 | `FailureKey` | The 32-byte HMAC key that names failure records. Persist it beside the device-cookie key ring: a new key resets every count and clears every lock, with no event | required |
 | `RP` | A function returning the passkey relying party | nil: passkeys off |
+| `TOTP` | `TOTPConfig{Sealer, Issuer}`: the sealer that keeps each TOTP secret at rest, and the app's name in an authenticator. `New` refuses a half-set value, a sealer with no key, and an issuer holding a colon | zero: TOTP off |
 | `OIDC` | A function returning the OIDC provider | nil: OIDC off |
 | `OnEvent` | Receives every event after its commit, in the committing goroutine, with the `Seq` of its security-log entry, or 0 for `EventSessionsExpired`, which the log does not hold. It must not block. It is called at most once per event: a crash after the commit loses the call, never the log entry | nil: none |
 | `Breach` | The HTTP client for the breached-password check | nil: required only when `Rules.Breach` is not `BreachOff` |
-| `AdminScope` | The key scope that lets an admin's key list users, every user's keys and the live invite and recovery tokens, read the security log, and revoke any key | empty: session only |
+| `AdminScope` | The key scope that lets an admin's key list users, every user's keys and the live invite tokens, read the security log and the SSO readiness, and revoke any key | empty: session only |
 | `ManageUsersScope` | The key scope that lets a key manage `RoleUser` accounts, described below | empty: session only, under recent sign-in |
-| `CreateKeysScope` | The key scope that lets a key mint keys for its own user, described below | empty: session only, under recent sign-in |
+| `CreateKeysScope` | The key scope that lets a key mint, list, rename and revoke its own user's keys, described below | empty: session only, minting under recent sign-in |
 | `CleanupInterval` | How often expired sessions, tokens, pending ceremonies, stale failure records and security-log entries past `LogMaxAge` are swept, and locks reported | 5m |
-| `MaxPending` | The most pending WebAuthn ceremonies held, oldest evicted first | 10000 |
+| `MaxPending` | The most pending WebAuthn ceremonies in each of two lists, anonymous begins and a user's or setup's own ([In-flight entries](#in-flight-entries)) | 10000 |
 | `LogMaxAge` | How long a security-log entry is kept; the sweep removes older ones | `account.DefaultLogMaxAge`, 365 days |
 | `LogMaxChanges` | The most entries of the security log's change class; each append removes the oldest beyond it | `account.DefaultLogMaxChanges`, 10000 |
 | `LogMaxSessions` | The most entries of the security log's session class, with the same rule | `account.DefaultLogMaxSessions`, 10000 |
 | `Logger` | The `*slog.Logger` | `slog.Default()` at each call |
 | `Now` | The clock | `time.Now` |
 
+Each sign-in method beside the password is optional: wire TOTP with `Config.TOTP`, passkeys with `Config.RP` and OIDC with `Config.OIDC`, or leave the field unset. `New` refuses two settings an unwired method cannot meet: `Rules.RequireSecondFactor` with neither TOTP nor passkeys wired, and a stored SSO mode other than `SSOAlongside` with `Config.OIDC` unset. [Second factors and temporary passwords](totp.md) and [Identity and single sign-on](identity.md) explain the methods and the recovery paths.
+
+### Pending sign-ins
+
+A usable TOTP is one `Config.TOTP` wires while `Rules.DisableTOTP` is off; a usable passkey is one registered under the published relying party's ID while `Rules.MethodUsable` allows passkeys.
+
+After a correct password, `PasswordLogin` answers either a session or an `account.Pending`: a ticket, the next step and the methods that step accepts. It answers `Pending` when the user holds a usable TOTP, or, under `RequireSecondFactor`, when the user holds a usable passkey (`NextSecondFactor`) or neither (`NextEnrol`). Passkey and OIDC sign-ins never pend. The ticket lives ten minutes in memory, rides the response body only, and finishes only on the transport that minted it, so a restart drops it and the person signs in again. A new password sign-in of the same user replaces its earlier ticket, and `SetPassword`, `RemovePassword`, `ResetSecondFactor`, `SetTemporaryPassword`, disabling, deleting, `AdminUnlinkOIDC` and `AdminRelinkOIDC` drop it, as do an OIDC link, `ApplySSO`, `MigrateSSO` and `SetOwner` removing an owner whenever they leave the user's local methods dormant.
+
+A correct password resets the password's failure count, whatever step 1 answers next, and `Cancel`s the limiter's reservation until the step that completes the sign-in. Under `RequireSecondFactor`, a user with no second factor reaches `NextEnrol` only from a known device (`Reservation.KnownDevice`); from any other device step 1 answers `ErrEnrolNeedsKnownDevice`, which matches `ErrSecondFactorRequired`. A step the app's rules leave no method for answers `ErrNoUsableMethod`, and a plain request whose next step needs HTTPS answers `access.ErrHTTPSRequired`, logging a WARN that names `RequireSecondFactor` when the rule caused it.
+
+A live temporary password at step 1 is spent and answers `Pending` `NextSetCredential`: its methods are `password`, unless `DisablePasswordLogin` is on or `RequireSecondFactor` leaves nothing to enrol, and `passkey` while passkeys are allowed, and over plain HTTP only `password`. `SetCredentialPassword` (`authLoginSetPassword`) checks the chosen password as every password write does, refuses the temporary password itself with `is_temporary_password`, and writes it and signs in; under `RequireSecondFactor` it writes nothing and answers a `NextEnrol` ticket holding it, which the enrolment finish writes with the factor and a recovery code. `SetCredentialPasskeyBegin` and `SetCredentialPasskeyFinish` (`authLoginSetPasskeyBegin` and `authLoginSetPasskeyFinish`) register a passkey and sign in under either setting.
+
+Under `RequireSecondFactor`, `SetupWithPassword`, `AcceptInvitePassword` and `RegisterPassword` create nothing at first: they answer `Pending` `NextEnrol` with the new account held in the ticket (a draft, ten minutes, bounded as [In-flight entries](#in-flight-entries) says), and `PendingTOTPFinish` or `PendingPasskeyFinish` creates it, with its password, the factor and a recovery code, in one Update. Only that Update spends the setup token or the invite, so an abandoned draft leaves either usable, and it re-checks the draft's admission: a setup completed since answers `ErrSetupComplete`, a spent invite `access.ErrTokenInvalid`, a registration turned off or full `ErrRegistrationClosed` or `ErrRegistrationFull`, a taken name `ErrUsernameTaken`. Setup's account is an owner on this path too. Over plain HTTP a draft is refused before anything is created. Passkey setup, passkey invite acceptance and passkey registration meet the rule by their passkey and never pend.
+
+### In-flight entries
+
+Begun ceremonies, pending sign-ins, enrolments and drafts live in memory, never in the store, so a restart drops them. Each table has one lifetime and a bound:
+
+| Entries | Begun by | Lifetime | Bound | When full |
+| --- | --- | --- | --- | --- |
+| Passkey sign-in and registration ceremonies (`PasskeyLoginBegin`, `RegisterPasskeyBegin`) | anyone | 5 minutes | `MaxPending` | evicts the oldest |
+| Registration drafts | anyone | 10 minutes | 1,000 | evicts the oldest |
+| Passkey add and step-up ceremonies (`PasskeyRegisterBegin`, `StepUpPasskeyBegin`), and setup's passkey ceremony (`SetupPasskeyBegin`) | a user, one of each kind per user; setup, one per setup token, or one when setup asks for none | 5 minutes | `MaxPending` | refuses a newcomer |
+| Pending sign-ins of existing users | a user, one per user | 10 minutes | 10,000 | refuses a newcomer |
+| TOTP enrolments from a session (`BeginTOTP`) | a user, one per user | 10 minutes | 10,000 | refuses a newcomer |
+| Setup and invite drafts | one per setup or invite token, or one for a setup that asks for none | 10 minutes | 1,000 | refuses a newcomer |
+| A pending sign-in's passkey ceremony (`SecondFactorPasskeyBegin`, `PendingPasskeyBegin`, `SetCredentialPasskeyBegin`) | the ticket, one per ticket | 5 minutes, ending with its ticket | the ticket tables | never full |
+
+An anonymous table evicts its oldest entry, and the IP `Request` limit bounds how fast one address fills it. A table whose entries belong to a user or a token holds one entry per owner: a new begin replaces the owner's earlier entry, whose ticket or ceremony then answers as unknown (`access.ErrTokenInvalid`, `ErrCeremonyInvalid`). While such a table is full it refuses a newcomer with a `*ratelimit.RefusedError` (`auth_rate_limited`, 429), whose `RetryAfter` is the time until the table's earliest entry expires, and it never evicts anyone's entry, so one user's begins never void another's work.
+
+A step that spends something single-use and then needs a place holds that place first: step 1 with a temporary password holds its ticket's place, and `PasskeyRegisterBegin` holds its ceremony's place and checks the origin before it reads the proof. So a refusal spends nothing: the temporary password stays live, and the same code or step-up ceremony proves again once a place frees. A step that replaces its own ticket (the recovery code's step, and `SetCredentialPassword` under `RequireSecondFactor`) takes that ticket's place, so a full table never refuses it, and a ticket that ended meanwhile answers `access.ErrTokenInvalid`.
+
+Before an app saves `RequireSecondFactor` on, it calls `Service.CheckSecondFactorReady(ctx, c, p)`, which answers `ErrEnableWithoutSecondFactor` (matching `ErrSecondFactorRequired`) unless `p` is a full session on a secure request whose user holds a usable TOTP or a usable passkey; a dormant record counts for nothing.
+
 `Service.SecurityLog` returns `account.DefaultLogPage` (50) entries when `LogFilter.Limit` is zero, and at most `account.MaxLogPage` (500). [The security log](security-log.md) explains the classes, the caps and reading the log.
 
 `RP` and `OIDC` are read on every operation, so an app that swaps its provider at run time does so by returning the new value. A provider swapped in mid-flow fails that flow closed.
 
-`RolePolicy` has two fields. `KeepLocalAdmin` refuses removing, demoting, disabling or migrating to single sign-on the last enabled admin who holds a password. `KeysAdminOnly` lets only admins mint keys for themselves, and rotate their own keys; by default any enabled user may. An out-of-band actor may rotate the key of any enabled user. `SingleOwnerPolicy` keeps one user, the one setup creates, and refuses every change to the user set; the owner and an out-of-band actor may rotate the owner's keys.
+`RolePolicy` has one field. `KeysAdminOnly` lets only admins mint keys for themselves, and rotate their own keys; by default any enabled user may. An out-of-band actor may rotate the key of any enabled user. `SingleOwnerPolicy` keeps one user, the owner, and refuses every change to the user set; the owner and an out-of-band actor may rotate the owner's keys.
+
+A Policy declares through `SingleUser()` whether it admits one account. `account.New` reads the answer once and keeps it, so a Policy must give the same answer for its whole life. Under a single-user Policy, account itself refuses every user creation but first setup, every invite, every invite acceptance and every enable of a disabled account (`single_owner`), whatever `Authorize` would answer, and `Service.Owner` returns the one account.
+
+### Owners
+
+An owner is an enabled admin that carries `access.User.Owner`, the break-glass account ([Identity and single sign-on](identity.md#owners) gives the practice). Setup creates its account as an owner. `account.New` makes sure one exists: in a store with users and no owner it marks the enabled admin created first, preferring one that holds a password or passkey, and journals `owner_set` with the actor `migration`. When that admin holds neither, it also logs a WARN naming the repair. A store with users and no enabled admin makes `New` return `account.ErrNoOwner`; stop the app and enable an admin or make an enabled account an admin in the store, or restore a backup.
+
+Under a single-user Policy the store must hold exactly one enabled account, an admin, and `New` refuses any other store with one error naming what it found and the repair. `New` leaves the owner flag on that one account and clears it everywhere else.
+
+`Service.SetOwner(ctx, actor, id, owner)` adds or removes an owner, for an owner's session within `Rules.RecentAuth` or an out-of-band actor, under `OpSetOwner`. An owner needs an enabled admin holding a password or passkey it signs in with (`owner_needs_local_method`). For every Policy, account refuses a principal that is no owner acting on an owner (`owner_target`), a role change of an owner (`owner_role`), and a change that leaves no enabled owner (`last_owner`).
+
+`Service.Owner(ctx)` returns a single-user app's owner for its admin socket: `ErrNotFound` before setup, and an error naming the repair when the store was changed under the running app. Under a multi-user Policy it answers `ErrNotSingleUser`.
+
+### The SSO mode
+
+The store holds one `account.SSOMode` that sets how single sign-on sits beside local sign-in for every account but the owners, who keep their password and passkeys under every mode. No `Rules` or `Config` field carries it, so a reload never changes it.
+
+| Mode | A linked account | An account with no link |
+| --- | --- | --- |
+| `SSOAlongside`, the default | signs in by single sign-on or with its own password or passkey | signs in locally |
+| `SSOForLinked` | signs in only by single sign-on; its password and passkeys are dormant | signs in locally |
+| `SSOOnly` | signs in only by single sign-on; its password and passkeys are dormant | cannot sign in until an admin links it; its password and passkeys are dormant |
+
+A dormant method is kept, never deleted, and a looser mode brings it back. A local sign-in with a dormant method answers `ErrInvalidCredentials` after the same work and the same failure count as a wrong password. From a session, adding a password or a passkey and stepping up by either answer `ErrSSOOnly` (`auth_sso_only`), and `Me.SSOOnly` tells the screen to hide those forms. Under `SSOOnly` a password invite acceptance answers `ErrSSOOnly` too, and the invite is accepted by single sign-on instead (`AcceptInviteOIDCBegin`, then the callback). The last-method guard counts no dormant method, and never an owner's single sign-on link.
+
+- `Service.SSO(ctx)` returns the stored mode, and whether any write ever set it.
+- `Service.ApplySSO(ctx, actor, mode)` changes it, for an owner's secure session within `Rules.RecentAuth` or an out-of-band actor. It reads `Config.OIDC()` before its transaction opens, then in one transaction writes the mode, ends each non-owner session the mode now forbids, deletes the dormant temporary password of each account it brings back, and journals `sso_mode_changed`. A refusal writes nothing.
+- `Service.MigrateSSO(ctx, mode)` is the same write by the out-of-band actor `migration`, which writes nothing once any write has set the mode. An app moving from an older release's setting calls it wherever it configures its provider, and never reads first.
+- `Service.CheckSSOReady(ctx, actor, mode)` answers every refusal `ApplySSO` would, with `ApplySSO`'s admission: a principal that is no owner gets `not_owner`.
+- `Service.SSOReadiness(ctx, actor, mode)` is an admin read of the counts the settings screen shows: the accounts left unable to sign in, the accounts whose local methods turn dormant or come back, and the temporary passwords withdrawn. It admits what `Service.Users` admits, a session or an API key with `AdminScope` whose authority it re-reads, of a user whose `Policy` allows `OpListUsers`, with no owner check and no recent sign-in, and it needs HTTPS. A refusal for a state the owner fixes elsewhere is `Readiness.Refusal`: `ErrOIDCUnavailable` while the provider is off, `single_owner` for any mode but `SSOAlongside` under a single-user Policy, `registration_enabled` for `SSOOnly` while `Rules.Registration` is on, and `owner_needs_local_method` for `SSOOnly` while no owner holds a password or passkey it signs in with. For an owner's session the refusal is that owner's own `ApplySSO` answer, so `owner_needs_local_method` names its own account; every other reader sees the out-of-band answer.
+- `Service.CheckRules(ctx, rules)` answers the `Rules` check every operation makes, for an app to call before it publishes a settings write or a reload.
+
+`account.New` refuses to start on a stored mode other than `SSOAlongside` under a single-user Policy, or with `Config.OIDC` unset, naming the repair: wire the provider and apply `SSOAlongside`, or set the stored mode to `SSOAlongside` with the app stopped. An app that removes its provider calls `ApplySSO(ctx, actor, account.SSOAlongside)` first. A `Config.OIDC` that is set but returns nil, such as a provider whose issuer is down at start, starts, and the stored mode stays in force; the mode operations then answer `ErrOIDCUnavailable`.
 
 ### Rules
 
@@ -262,18 +331,22 @@ An ephemeral `FlowSealer` means a flow begun under one provider cannot finish un
 | --- | --- | --- |
 | `SetupTokenRequired` | Whether a first-user setup from a client needs a setup token; `account.Locality`'s `TokenRequired` asks none of a local client ([Local clients](#local-clients)) | nil: always |
 | `MethodUsable` | Whether a held method can sign the user in now under your own rules, ANDed into the last-method guard and `Service.UsableMethods` ([Your own rules inside the transaction](storage.md#your-own-rules-inside-the-transaction)) | nil: every held method is usable |
-| `SessionCaps` | Per-session idle and absolute limits for a new session; a positive value lowers that limit for the session's life | nil: no cap |
+| `SessionCaps` | Per-session idle and absolute limits for a new session, given the sign-in method it is created with and read once, never again at a step-up; a positive value lowers that limit for the session's life | nil: no cap |
 | `KeyPrefix` | The prefix of every minted key's plaintext | empty |
 | `ForbiddenWords` | Words refused in a password, beside the username | none |
 | `Scopes` | The key-scope vocabulary; `CreateAPIKey` refuses any other scope. `Validate` refuses a scope that is not one scope-token | none |
-| `Provisioning` | Just-in-time account creation on an OIDC sign-in with no linked account | off |
+| `OIDCAdmission` | A claim (`Claim`, `AllowedValues`) every OIDC sign-in, link, invite acceptance and step-up must hold, owners' included; a string or an array of strings, anything else not admitted. `Validate` refuses a `Claim` without `AllowedValues`, and `AllowedValues` without a `Claim` | zero: every identity |
+| `Provisioning` | Account creation at an admitted identity's first OIDC sign-in (`Enabled`, `Role`), the role mapping (`RoleClaim`, `AdminValues`) and `SyncRole`, which re-applies the mapping at each sign-in of a linked non-owner; `Validate` refuses a `Role` other than empty, `access.RoleUser` or `access.RoleAdmin`, and `AdminValues` or `SyncRole` without `RoleClaim`, and a single-user Policy refuses `Enabled` | off |
 | `RecentAuth` | How recent a sign-in or step-up must be for a sensitive operation; below 1m is invalid | 10m |
 | `KeyRotationOverlap` | How long `RotateAPIKey` lets a key's superseded secret keep working while the new one is unused; below 1m or above 24h is invalid | 1h |
 | `Breach` | The breached-password check: `BreachOff`, `BreachFailOpen` or `BreachFailClosed` | `BreachOff` |
+| `Registration` | Who may create their own account: `RegistrationOff`, `RegistrationOpen` (an enabled regular account) or `RegistrationApproval` (a regular account that waits, disabled, until an admin enables it), through `RegisterPassword` and `RegisterPasskeyBegin`/`Finish`, over HTTPS only. Under `RequireSecondFactor` a password registration creates nothing until the second factor is bound. A single-user Policy refuses either mode at every operation as a `*RulesError` for `Registration`, `CheckRules` refuses either mode while the stored SSO mode is `SSOOnly`, and the registration operations refuse it there at use with `ErrSSOOnly` | `RegistrationOff` |
+| `MaxWaitingRegistrations` | The most accounts waiting for approval; at it, a registration under `RegistrationApproval` answers `ErrRegistrationFull`. The sweep deletes an account that has waited 30 days, freeing its name; negative is invalid | 50 |
 | `MaxSessionsPerUser` | The most sessions per user; a new one past it ends the user's least recently active | 0: unlimited |
-| `DisablePasswordLogin` | Refuses password sign-in and step-up | false: allowed |
-| `SSOGoverned` | Makes linking an OIDC identity remove the password and passkeys; only recovery restores a local method | false |
-| `RevokeKeysOnCredentialChange` | Deletes the user's API keys, and the tokens they issued, when `SetPassword` sets or changes the password, and when an OIDC link under `SSOGoverned` migrates the account. Disabling and deleting a user always delete the keys, and a recovery does unless `RecoverOptions.KeepKeys` is set | false |
+| `DisablePasswordLogin` | Refuses password step-up; password sign-in then accepts only a live temporary password, and any other value fails as a wrong password | false: allowed |
+| `DisableTOTP` | Turns TOTP enrolment and the code step off. A stored TOTP record is kept, counts as absent, and works again once this is off | false: TOTP offered where `Config.TOTP` wires it |
+| `RequireSecondFactor` | Every password sign-in proves a second factor, or binds one first ([Pending sign-ins](#pending-sign-ins)); passkey and OIDC sign-ins meet it already. It needs `Config.TOTP` or `Config.RP` set: `New`, every operation and `CheckRules` refuse it otherwise, as a `*RulesError` for `RequireSecondFactor` | false |
+| `RevokeKeysOnCredentialChange` | Deletes the user's API keys, and the tokens they issued, when `SetPassword` sets or changes the password. Disabling and deleting a user always delete the keys | false |
 | `HTTPSOrigin` | The app's HTTPS origin, `https://host` or `https://host:port`, which `Service.State` answers a plain request as `https_origin` so the sign-in screen can link there ([Plain HTTP](plain-http.md#what-the-screens-learn)). A link only; nothing trusts it. `Validate` refuses any other scheme, user info, a host that is not a hostname or an IP address in its browser form, an invalid port, the default port `:443`, an uppercase host, a path (`/` included), a query and a fragment | empty: none |
 
 An app may refuse a sign-in method in its own gate before `account` sees the attempt. `Rules` has no sign-in hook for that, and `MethodUsable` keeps the last-method guard from counting a method the app refuses.
@@ -282,15 +355,15 @@ An app may refuse a sign-in method in its own gate before `account` sees the att
 
 `ManageUsersScope` and `CreateKeysScope` are empty by default, and a key holds either only when the admin grants that scope when creating it. No other scope implies them, full access included.
 
-- A `ManageUsersScope` key creates, updates and deletes `RoleUser` accounts, invites `RoleUser` accounts and issues recovery for `RoleUser` accounts. It never reaches an admin account: it cannot create, promote, invite, recover, disable or delete one.
-- A `CreateKeysScope` key mints keys for its own user only. Each key it mints carries a subset of its scopes and expires no later than it does, so a key can pass on a permission only when it holds it.
-- The invite and recovery links a key issues expire no later than the key and are re-checked against it when used.
+- A `ManageUsersScope` key creates, updates and deletes `RoleUser` accounts and invites `RoleUser` accounts. It never reaches an admin account: it cannot create, promote, invite, disable or delete one.
+- A `CreateKeysScope` key mints, lists, renames and revokes keys of its own user only, itself included, each under the `Policy`'s `OpCreateOwnKey` and so `KeysAdminOnly`. Each key it mints carries a subset of its scopes and expires no later than it does, so a key can pass on a permission only when it holds it. No key rotates a key: rotation needs a session under recent sign-in, since a stolen key that could rotate itself would keep the attacker in and lock the key's user out.
+- The invite links a key issues expire no later than the key and are re-checked against it when used.
 - A key's expiry needs no cleanup: its descendant keys and every link they issued expire no later than it does, and every use refuses an expired key or link.
-- Revoking a key revokes every key minted below it and deletes their unused invite and recovery links, in one transaction.
-- The accounts the key or any key below it created, invited or took over through recovery stay, with their credentials. Each is attributed by an append-only record that carries the acting key's whole lineage, which `Service.Users` with `UserFilter.AttributedToKey` (`GET /users?key=`) filters by any key in that lineage, a revoked one included. Review and disable those accounts after revoking a leaked key.
+- Revoking a key revokes every key minted below it and deletes their unused invite links, in one transaction.
+- The accounts the key or any key below it created or invited stay, with their credentials. Each is attributed by an append-only record that carries the acting key's whole lineage, which `Service.Users` with `UserFilter.AttributedToKey` (`GET /users?key=`) filters by any key in that lineage, a revoked one included. Review and disable those accounts after revoking a leaked key.
 - A key's lineage holds at most `account.MaxKeyLineage` IDs, 8: a root key and seven generations of keys minted by keys. Minting below a full lineage is refused with the reason `lineage_too_deep`.
 
-Every key-authorized write re-reads the key and its owner inside its own transaction, so a key revoked or expired, or an owner disabled, deleted or demoted, authorises nothing that commits after the change. Leaving both scopes empty keeps all of these operations session-only under a recent sign-in.
+Every key-authorized write re-reads the key and its user inside its own transaction, so a key revoked or expired, or its user disabled, deleted or demoted, authorises nothing that commits after the change. Leaving both scopes empty keeps all of these operations session-only under a recent sign-in.
 
 ### Local clients
 

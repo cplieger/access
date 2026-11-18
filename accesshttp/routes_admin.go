@@ -1,7 +1,6 @@
 package accesshttp
 
 import (
-	"net/http"
 	"strings"
 	"time"
 
@@ -10,7 +9,7 @@ import (
 )
 
 // serveAdminUserCreate creates a user; an empty password creates one with
-// no sign-in method until a recovery link.
+// no sign-in method.
 func serveAdminUserCreate(h *Handler, c *call) error {
 	req, err := decodeJSON[NewUserRequest](c.w, c.r)
 	if err != nil {
@@ -21,7 +20,7 @@ func serveAdminUserCreate(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusCreated, userView(u))
+	c.answer(userView(u))
 	return nil
 }
 
@@ -37,7 +36,7 @@ func serveAdminUsers(h *Handler, c *call) error {
 	for i := range users {
 		views[i] = listedUserView(&users[i])
 	}
-	writeJSON(c.w, http.StatusOK, views)
+	c.answer(views)
 	return nil
 }
 
@@ -50,7 +49,64 @@ func serveAdminUserUpdate(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, userView(u))
+	c.answer(userView(u))
+	return nil
+}
+
+// serveAdminOwner sets a user's owner flag.
+func serveAdminOwner(h *Handler, c *call) error {
+	req, err := decodeJSON[OwnerRequest](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	u, err := h.acct.SetOwner(c.r.Context(), account.As(c.p), c.id, req.Owner)
+	if err != nil {
+		return err
+	}
+	c.answer(userView(u))
+	return nil
+}
+
+// serveAdminSSOReadiness reads what a change of the SSO mode would do; a
+// state refusal is the body's, as authAdminSSOApply would answer it.
+func serveAdminSSOReadiness(h *Handler, c *call) error {
+	mode, ok := account.ParseSSOMode(queryOf[SSOReadinessQuery](c).Mode)
+	if !ok {
+		return account.ErrUnknownSSOMode
+	}
+	rd, err := h.acct.SSOReadiness(c.r.Context(), account.As(c.p), mode)
+	if err != nil {
+		return err
+	}
+	v := Readiness{
+		LockedOut: rd.LockedOut, MethodsMadeDormant: rd.MethodsMadeDormant, MethodsRestored: rd.MethodsRestored,
+		TemporaryPasswordsWithdrawn: rd.TemporaryPasswordsWithdrawn,
+	}
+	if rd.Refusal != nil {
+		e, broken := routeError(rd.Refusal, ceremonyNone, c.desc.Codes)
+		if broken {
+			return rd.Refusal
+		}
+		v.Refusal = &ReadinessRefusal{Code: e.Code, Reason: e.Reason}
+	}
+	c.answer(v)
+	return nil
+}
+
+// serveAdminSSOApply changes the stored SSO mode.
+func serveAdminSSOApply(h *Handler, c *call) error {
+	req, err := decodeJSON[SSORequest](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	mode, ok := account.ParseSSOMode(req.Mode)
+	if !ok {
+		return account.ErrUnknownSSOMode
+	}
+	if err := h.acct.ApplySSO(c.r.Context(), account.As(c.p), mode); err != nil {
+		return err
+	}
+	c.done()
 	return nil
 }
 
@@ -58,20 +114,69 @@ func serveAdminUserDelete(h *Handler, c *call) error {
 	if err := h.acct.DeleteUser(c.r.Context(), c.p, c.id); err != nil {
 		return err
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
-func serveAdminRecovery(h *Handler, c *call) error {
-	req, err := decodeJSON[TTLRequest](c.w, c.r)
+// serveAdminOIDCUnlink removes a user's identity-provider link.
+func serveAdminOIDCUnlink(h *Handler, c *call) error {
+	if err := h.acct.AdminUnlinkOIDC(c.r.Context(), account.As(c.p), c.id); err != nil {
+		return err
+	}
+	c.done()
+	return nil
+}
+
+// serveAdminSecondFactorReset deletes a user's TOTP and recovery code.
+func serveAdminSecondFactorReset(h *Handler, c *call) error {
+	if err := h.acct.ResetSecondFactor(c.r.Context(), account.As(c.p), c.id); err != nil {
+		return err
+	}
+	c.done()
+	return nil
+}
+
+// serveAdminTemporaryPassword issues a temporary password and answers it
+// once.
+func serveAdminTemporaryPassword(h *Handler, c *call) error {
+	req, err := decodeJSON[TemporaryPasswordOptions](c.w, c.r)
 	if err != nil {
 		return err
 	}
-	it, err := h.acct.IssueRecovery(c.r.Context(), account.As(c.p), c.id, units(req.Hours, time.Hour))
+	issued, err := h.acct.SetTemporaryPassword(c.r.Context(), account.As(c.p), c.id, temporaryPasswordOptions(req))
 	if err != nil {
 		return err
 	}
-	writeToken(c, it)
+	writeTemporaryPassword(h, c, issued)
+	return nil
+}
+
+func temporaryPasswordOptions(req TemporaryPasswordOptions) account.TemporaryPasswordOptions {
+	return account.TemporaryPasswordOptions{TTL: units(req.TTLHours, time.Hour), RevokePasskeys: req.RevokePasskeys, KeepKeys: req.KeepKeys}
+}
+
+// writeTemporaryPassword answers issued once, https_only read after the
+// issue commits (account owns why).
+func writeTemporaryPassword(h *Handler, c *call, issued account.IssuedTemporaryPassword) {
+	c.answer(TemporaryPasswordResponse{
+		ExpiresAt: issued.ExpiresAt, Password: issued.Password.Reveal(),
+		HTTPSOrigin: issued.HTTPSOrigin, HTTPSOnly: h.acct.TemporaryPasswordHTTPSOnly(issued),
+		Dormant: issued.Dormant, PasswordKept: issued.PasswordKept,
+	})
+}
+
+// serveAdminOIDCRelink unlinks a user and issues the temporary password the
+// admin link takes, answered as serveAdminTemporaryPassword answers.
+func serveAdminOIDCRelink(h *Handler, c *call) error {
+	req, err := decodeJSON[TemporaryPasswordOptions](c.w, c.r)
+	if err != nil {
+		return err
+	}
+	issued, err := h.acct.AdminRelinkOIDC(c.r.Context(), account.As(c.p), c.id, temporaryPasswordOptions(req))
+	if err != nil {
+		return err
+	}
+	writeTemporaryPassword(h, c, issued)
 	return nil
 }
 
@@ -95,9 +200,9 @@ func serveAdminKeys(h *Handler, c *call) error {
 	}
 	views, now := make([]KeyView, len(keys)), time.Now()
 	for i := range keys {
-		views[i] = keyView(&keys[i].Key, keys[i].Owner, now)
+		views[i] = keyView(&keys[i].Key, keys[i].Username, now)
 	}
-	writeJSON(c.w, http.StatusOK, views)
+	c.answer(views)
 	return nil
 }
 
@@ -105,7 +210,7 @@ func serveAdminKeyRevoke(h *Handler, c *call) error {
 	if err := h.acct.RevokeAnyAPIKey(c.r.Context(), account.As(c.p), c.id); err != nil {
 		return err
 	}
-	noContent(c.w)
+	c.done()
 	return nil
 }
 
@@ -118,7 +223,7 @@ func serveAdminTokens(h *Handler, c *call) error {
 	for i := range tokens {
 		views[i] = tokenView(&tokens[i])
 	}
-	writeJSON(c.w, http.StatusOK, views)
+	c.answer(views)
 	return nil
 }
 
@@ -144,12 +249,12 @@ func serveAdminSecurityLog(h *Handler, c *call) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(c.w, http.StatusOK, securityLogView(&page))
+	c.answer(securityLogView(&page))
 	return nil
 }
 
-// writeToken answers a minted invite or recovery token, its expiry the one
+// writeToken answers a minted invite token, its expiry the one
 // account stored.
 func writeToken(c *call, it account.IssuedToken) {
-	writeShownOnce(c.w, http.StatusCreated, TokenResponse{ExpiresAt: it.ExpiresAt}, it.Plaintext)
+	c.answer(TokenResponse{ExpiresAt: it.ExpiresAt, Token: it.Plaintext.Reveal()})
 }

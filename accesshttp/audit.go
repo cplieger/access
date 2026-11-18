@@ -48,6 +48,12 @@ func (h *Handler) auditSuccess(c *call, u *access.User, s access.Session) { //no
 	h.emit(c, e)
 }
 
+// auditWaiting reports an account a registration created that waits for
+// approval, signed in nowhere.
+func (h *Handler) auditWaiting(c *call, u *access.User) {
+	h.emit(c, access.AuditEvent{Kind: "waiting", Username: u.Username, UserID: u.ID})
+}
+
 func principalUser(p access.Principal) int64 { //nolint:gocritic // hugeParam: the Principal Authenticate returned
 	if p.User == nil {
 		return 0

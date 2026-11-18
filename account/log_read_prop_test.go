@@ -45,7 +45,7 @@ func TestSecurityLogPagesEqualFilter(t *testing.T) {
 
 		f := newFixture(t, options{})
 		admin := mustUser(t, f.mem, "root", access.RoleAdmin)
-		p := f.sessionPrincipal(t, admin, access.SessionFull, time.Now())
+		p := f.sessionPrincipal(t, admin, time.Now())
 		seqs := appendEvents(t, f.mem, evs...)
 		// The bound is where the walk starts: after it oldest first, before
 		// it newest first, so walkLog moves that same bound page by page.

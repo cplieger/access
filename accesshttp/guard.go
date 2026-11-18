@@ -5,7 +5,6 @@ import (
 
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/account"
-	"github.com/cplieger/access/internal/failreason"
 )
 
 // guard authenticates r for a class that authenticates and checks the
@@ -18,9 +17,6 @@ func (h *Handler) guard(r *http.Request, d *Descriptor) (*http.Request, access.P
 	ctx := r.Context()
 	if d.Passive {
 		ctx = access.Passive(ctx)
-	}
-	if d.Class == ClassRecovery {
-		ctx = access.AllowRecoverySession(ctx)
 	}
 	r = r.WithContext(ctx)
 	p, err := h.acct.Authenticator().Authenticate(r)
@@ -42,13 +38,9 @@ func (h *Handler) admit(d *Descriptor, p access.Principal) error { //nolint:gocr
 		}
 		return h.acct.RequireRecentAuth(p)
 	case ClassKeyScope:
-		return h.acct.RequireAdminScope(p)
+		return h.acct.RequireKeyScope(p, d.Scope)
 	case ClassKeyPermission:
 		return h.acct.RequireKeyPermission(p, d.Scope)
-	case ClassRecovery:
-		if !p.IsRecoverySession() {
-			return failreason.Wrap(account.ErrSessionRequired, ReasonRecovery)
-		}
 	default:
 	}
 	return nil

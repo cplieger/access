@@ -49,7 +49,7 @@ func (e *env) requireNoSession(t testing.TB, cookie *http.Cookie) {
 	}
 }
 
-// TestDirectSessionDeleteHTTP is §9.5 "Direct session delete" through
+// TestDirectSessionDeleteHTTP checks a direct session delete through
 // accesshttp: a session deleted through the store outside account answers
 // auth_session_expired on its next request, a request whose verification
 // read the session before the delete writes no row back, and a passkey

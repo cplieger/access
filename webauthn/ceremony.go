@@ -41,7 +41,7 @@ type ceremonyState struct {
 }
 
 // check refuses st unless it came from a Begin function of kind and its
-// challenge has not outlived the ceremony timeout (§13.4.3).
+// challenge has not outlived the ceremony timeout (WebAuthn §13.4.3).
 func (st *ceremonyState) check(kind ceremonyKind) error {
 	switch {
 	case st == nil:

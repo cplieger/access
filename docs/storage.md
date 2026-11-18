@@ -1,12 +1,12 @@
 # Implementing the store
 
-access stores nothing itself. This page is for the developer writing the storage layer: the interfaces it implements, the transaction boundary, the 22 contract rules and what each costs. The [`account` package documentation](https://pkg.go.dev/github.com/cplieger/access/account) owns the rules' exact wording, and `accesstest.StoreContract` tests every one of them. Where this page and the package documentation differ, the package documentation is right. Method signatures are on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access).
+access stores nothing itself. This page is for the developer writing the storage layer: the interfaces it implements, the transaction boundary, the 26 contract rules, how the store changes between versions and what each write costs. The [`account` package documentation](https://pkg.go.dev/github.com/cplieger/access/account) owns the rules' exact wording, and `accesstest.StoreContract` tests every one of them. Where this page and the package documentation differ, the package documentation is right. Method signatures are on [pkg.go.dev](https://pkg.go.dev/github.com/cplieger/access).
 
 ## The interfaces
 
-A store implements `account.Store`: the roles `UserStore`, `SessionStore`, `PasskeyStore`, `KeyStore`, `TokenStore`, `AttributionStore`, `FailureStore` and `LogStore`, grouped as `account.Tx` inside `Store.Update`, plus the `Sweeper` cleanups the background sweep calls.
+A store implements `account.Store`: the roles `UserStore`, `SessionStore`, `PasskeyStore`, `KeyStore`, `TokenStore`, `SecondFactorStore`, `TemporaryPasswordStore`, `SSOModeStore`, `AttributionStore`, `FailureStore` and `LogStore`, grouped as `account.Tx` inside `Store.Update`, plus the `Sweeper` cleanups the background sweep calls.
 
-`access.New` takes an `AuthenticatorStore`, the read side it needs: session lookup and activity updates, user lookup by ID, API-key lookup by hash, and `TouchAPIKey`, which records the last use of a key's current secret. An `account.Store` satisfies it. `webauthn.CompleteLogin` takes a `webauthn.Store`, whose `RecordAssertion` merges a sign-in's custody atomically; `account` implements it over your `account.Store`, so a store written for `account` needs nothing more.
+`access.New` takes an `AuthenticatorStore`, the read side it needs: session lookup and activity updates, user lookup by ID, API-key lookup by hash, and `TouchAPIKey`, which records the last use of a key's current secret. An `account.Store` satisfies it. `webauthn.CompleteLogin` takes a `webauthn.Store`, whose `RecordAssertion` merges a sign-in's custody atomically. `account` implements it over your `account.Store`, so a store written for `account` needs nothing more.
 
 ## The transaction boundary
 
@@ -27,14 +27,14 @@ What your store must give that callback:
 
 ## The contract rules
 
-Each rule below is one line of the package documentation's numbered list. `accesstest.StoreContract` runs a case per rule against your store.
+Each rule below is one line of the package documentation's numbered list. `accesstest.StoreContract` runs a case per rule against your store, then runs the rules again with every `Tx` method called inside its own `Update`, because `account` calls most of them inside an `Update`. The second run, the `via_tx` subtests, leaves out the cases whose subject is `Update` itself or a `Sweeper` method: rule 5's `Update` cases, rule 13, rule 14, rule 16, rule 22's never-waits case and rule 23's clear cases.
 
 1. **Absence.** A lookup by key returns `(value, found, err)`. Absence is `found == false` with a nil error, never a nil value with a nil error and never an error. A list is a search, and an empty slice with a nil error is its correct empty answer.
 2. **Ownership.** A lookup returns values the caller owns, deep copies of every slice and pointer field included, and a write never keeps a pointer or slice it was given. The library reads a returned session while another request may update the same one, and a shared pointer there is a data race no lock inside the store can fix. A store that scans each query into a fresh value meets this already. An in-memory or caching store must copy.
 3. **Canonical usernames.** `account` passes `access.NormalizeUsername` output to `CreateUser`, `UpdateUser` and `UserByUsername`. The store indexes and compares those bytes exactly and never normalises again.
 4. **Uniqueness.** Usernames, OIDC identities, WebAuthn handles, credential IDs across all users, key hashes, session hashes and IDs, and token hashes are each unique, refused with the sentinel the package documentation names. A key's `KeyHash` and its non-zero `PreviousHash` share one index (rule 23).
-5. **Atomicity.** `RotateSession`, `ConsumeOneTimeToken` and `CreateInitialUser` are linearisable, `CreatePasskey`'s uniqueness holds under concurrent inserts, and `DeleteUser`'s cascade is one transaction. Inside `Update`, an error or a panic leaves no write visible and a nil return makes every write visible at once and durably.
-6. **Scoping.** A user-scoped operation whose owner does not match affects nothing and reports `ErrNotFound`, as for an absent row, so there is no ownership oracle. A zero or partial ref matches nothing. `UpdateAPIKeySecret` and `UpdateAPIKeyLabel` are scoped by their `access.KeyRef`, inside an `Update` too.
+5. **Atomicity.** `RotateSession`, `ConsumeOneTimeToken` and `CreateInitialUser` are linearisable, `CreatePasskey`'s uniqueness holds under concurrent inserts, and `DeleteUser`'s cascade, which includes the user's TOTP record, recovery code and temporary password, is one transaction. Inside `Update`, an error or a panic leaves no write visible and a nil return makes every write visible at once and durably.
+6. **Scoping.** A user-scoped operation whose user does not match affects nothing and reports `ErrNotFound`, as for an absent row, so there is no ownership oracle. A zero or partial ref matches nothing. `UpdateAPIKeySecret` and `UpdateAPIKeyLabel` are scoped by their `access.KeyRef`, inside an `Update` too.
 7. **Expiry at consume.** `ConsumeOneTimeToken` refuses an expired token at the call, not only in a sweep, and `LiveOneTimeTokens` never lists one.
 8. **Flags.** `UpdatePasskeyAfterLogin` writes the flags octet, the derived booleans, the sign count, the clone warning and `LastUsedAt` together. A stored credential always carries `RawFlags` (see [passkey flags](#webauthn-handles-and-passkey-flags)).
 9. **Handle probing.** `UserByWebAuthnHandle` answers an unknown handle and a malformed one the same way.
@@ -43,7 +43,7 @@ Each rule below is one line of the package documentation's numbered list. `acces
 12. **Errors.** Caller faults use only the `account` sentinels. Everything else is a backend error, and `context.Canceled` and `context.DeadlineExceeded` pass through wrapped.
 13. **Concurrency.** The store is safe for concurrent use, and no goroutine outlives a call.
 14. **Cleanup.** See [Sessions](#sessions), whose sweep includes the plain-session limits that `Session.Secure` selects, and [Key secrets](#key-secrets).
-15. **Failure records.** `PutAuthFailure` upserts, `DeleteAuthFailures` and `PruneAuthFailures` remove exactly what they name, `UnreportedLocks` returns exactly the records whose `Unreported` is set, and a record's `Name` is opaque. The store's prune and `account`'s admission together bound the records held. The bound starts at 2 × users records of user names plus 2 × `account.MaxUntrustedCounts` (20,000) records of other names. It adds the records of users deleted since the last sweep. It also adds at most one trusted record per counted method for each user deleted within the 180-day device-cookie lifetime.
+15. **Failure records.** `PutAuthFailure` upserts, `DeleteAuthFailure` (one record, in one trust context), `DeleteAuthFailures` (the listed methods' records of a name, in both trust contexts) and `PruneAuthFailures` remove exactly what they name, skipping an absent record, `UnreportedLocks` returns exactly the records whose `Unreported` is set, and a record's `Name` is opaque. The store's prune and `account`'s admission together bound the records held. The bound starts at 6 × users records of user names (three counted methods, two trust contexts) plus 2 × `account.MaxUntrustedCounts` (20,000) records of other names. It adds the records of users deleted since the last sweep. It also adds at most one trusted record per counted method for each user deleted within the 180-day device-cookie lifetime.
 16. **Reads never wait on a write's fsync or rename.** A read sees the last committed state. A file store publishes snapshots through an atomic pointer and holds its writer mutex only among writers. bbolt meets this, except while a commit grows the file past its memory mapping.
 17. **IDs and lineage.** See [IDs and key lineage](#ids-and-key-lineage).
 18. **Context.** Every store call receives the context of the caller it serves, unchanged except for added values, so a store may read a value the app put on a request's context. The background sweep serves no caller and runs on the service context.
@@ -52,6 +52,9 @@ Each rule below is one line of the package documentation's numbered list. `acces
 21. **Activity never moves backwards.** `UpdateSessionActivity` stores `LastActivity` and `LastIP` only when the new time is after the stored one, and `TouchAPIKey` does the same for `LastUsedAt`, writing only when the stored `KeyHash` equals the hash it carries. `RotateSession` keeps the stored `LastActivity` and `LastIP` when the stored `LastActivity` is after `Next`'s, in the same conditional write, so no activity write lowers either. `UpdateAPIKeySecret` alone sets `LastUsedAt` to zero, in the same atomic write as the new `KeyHash`, because after a rotation `LastUsedAt` records only the new secret's use. Two requests can reach the store in the reverse order of their clocks, and a late, older write would otherwise move a session's idle deadline back. Implement it as one conditional update (`UPDATE … WHERE last_activity < ?`, or a compare inside the write transaction or writer mutex), never as a read followed by a separate write.
 22. **The security log.** See [The security log](#the-security-log).
 23. **Key secrets.** See [Key secrets](#key-secrets).
+24. **Per-user records.** A user holds at most one TOTP record, one recovery code and one temporary password, each keyed by user ID. A set writes the whole record over the last, a delete is idempotent, and neither touches another user's. `ListTOTP(ctx, afterUserID, limit)` pages in ascending user ID strictly above `afterUserID`, so a walk that passes each page's last user ID meets every record once.
+25. **Waiting users.** `UsersWaiting(ctx, limit)` returns at most `limit` users whose `WaitingApproval` is set, oldest `CreatedAt` first and equal times by ascending ID.
+26. **The SSO mode.** `SSOMode` returns the stored mode and whether `SetSSOMode` ever committed, which a new store answers as `SSOAlongside`, unset. Store the bit beside the mode, a separate field or a nullable column, never derived from it: an owner who chose `SSOAlongside` reads set. Both survive a close and a reopen.
 
 ## The security log
 
@@ -66,9 +69,32 @@ Each rule below is one line of the package documentation's numbered list. `acces
 - **Nothing else removes an entry.** No other method changes or removes one, and `DeleteUser`'s cascade keeps the user's entries.
 - **Durable.** Keep the log with the durability of your users and keys. A store that resets derived data on a format change classifies its log records as durable, never derived. The library names no table, bucket or file of yours, so your reset policy names your own log table.
 
+## Second factors, temporary passwords and the SSO mode
+
+Three records belong to one user each, under rule 24, and `DeleteUser` removes all three with the user (rule 5):
+
+| Record | Fields | Methods |
+| --- | --- | --- |
+| `access.TOTP` | `UserID`, `Sealed`, `CreatedAt`, `LastStep` | `TOTPByUserID`, `SetTOTP`, `DeleteTOTP`, `ListTOTP` |
+| `access.RecoveryCode` | `UserID`, `Hash`, `CreatedAt` | `RecoveryCodeByUserID`, `SetRecoveryCode`, `DeleteRecoveryCode` |
+| `access.TemporaryPassword` | `UserID`, `Hash`, `CreatedAt`, `ExpiresAt`, `IssuedByUser`, `IssuedByKey`, `Dormant` | `TemporaryPasswordByUserID`, `SetTemporaryPassword`, `DeleteTemporaryPassword` |
+
+- `TOTP.Sealed` is the secret sealed with `Config.TOTP.Sealer`, bound to its user ID. Store it as the text you were given and never decode it. `ListTOTP` serves `Service.ResealTOTP`, which re-seals every record after a key rotation ([Second factors and temporary passwords](totp.md#rotating-the-totp-sealer-key)).
+- Keep the temporary password apart from `User.PasswordHash`. A store that drops the record fails closed: the person gets no sign-in, never a permanent password.
+- `User` carries two flags the store keeps like any other field (rule 20). `Owner` marks a break-glass account ([Identity and single sign-on](identity.md#owners)), and `WaitingApproval` marks a registration an admin has not approved. `UsersWaiting` lists the waiting accounts, oldest first (rule 25), for the cap on waiting registrations and for the sweep that deletes them after 30 days.
+- `SSOMode` and `SetSSOMode` hold the one stored SSO mode and whether it was ever set (rule 26). No setting of your app carries it.
+
+## How the store changes between versions
+
+Before `v1.0.0`, a development tag may add, change or remove store methods, records and fields. Each such change is a line starting `Store:` in that tag's release notes, under its breaking changes, so a developer with their own store finds every one.
+
+From `v1.0.0`, the store contract follows the [Go module compatibility promise](https://go.dev/blog/module-compatibility). A change your store must make, a new `Tx` method included, comes only with a new major version.
+
+`accesstest.StoreContract` checks one build's store, a close and a reopen included. It does not read rows an earlier tag wrote. An app that persists access's records keeps its own fixture from each tag it ships on, and tests that the current build reads it.
+
 ## Hashes
 
-Every hash the store keeps or looks up by is an `access.Hash`: password hashes, session, key and token hashes, and the expected hash of a session rotation. Persist and index `h.Reveal()` on disk, rebuild the value with `access.NewHash(stored)` when you read it, and treat two hashes as the same key exactly when their texts are equal. An index held in memory keys on `h.Key()`, the comparable `access.HashKey`, so no map key holds a hash text. `Hash` has no decoder, its JSON encoding is only the redacted rendering, and the record fields carry `json:"-"`, so map each field by hand rather than encoding a record with `encoding/json`.
+Every hash the store keeps or looks up by is an `access.Hash`: password, recovery-code and temporary-password hashes, session, key and token hashes, and the expected hash of a session rotation. Persist and index `h.Reveal()` on disk, rebuild the value with `access.NewHash(stored)` when you read it, and treat two hashes as the same key exactly when their texts are equal. An index held in memory keys on `h.Key()`, the comparable `access.HashKey`, so no map key holds a hash text. `Hash` has no decoder, its JSON encoding is only the redacted rendering, and the record fields carry `json:"-"`, so map each field by hand rather than encoding a record with `encoding/json`.
 
 ## Usernames
 
@@ -88,20 +114,20 @@ A store persists `Session.Secure`, the transport of the request that created the
 
 ## Key secrets
 
-A key rotation replaces a key's secret and keeps its ID, label, scopes, expiry, lineage and owner. The superseded secret keeps working for a bounded overlap, until the new secret's first use or until `Key.PreviousUntil`, whichever comes first. The store holds both secrets, and rule 23 in the [`account` package documentation](https://pkg.go.dev/github.com/cplieger/access/account) owns the exact wording:
+A key rotation replaces a key's secret and keeps its ID, label, scopes, expiry, lineage and user. The superseded secret keeps working for a bounded overlap, until the new secret's first use or until `Key.PreviousUntil`, whichever comes first. The store holds both secrets, and rule 23 in the [`account` package documentation](https://pkg.go.dev/github.com/cplieger/access/account) owns the exact wording:
 
 - **Two hashes, one index.** `Key.PreviousHash` is the secret the last rotation superseded, zero when none, and `Key.PreviousUntil` is the overlap's bound. `APIKeyByHash` finds a key by its `KeyHash` or by its non-zero `PreviousHash`, so index both. Either hash reads the one current record. A store that keeps a copy of the record under each hash rewrites both on every write. Otherwise a touch of the new secret leaves `LastUsedAt` zero behind the previous hash, and the superseded secret keeps working. A zero hash finds nothing.
 - **The rotation write.** `Tx.UpdateAPIKeySecret(ctx, ref, s)` writes the five fields of `access.KeySecret` (`KeyHash`, `KeyPrefix`, `KeySuffix`, `PreviousHash` and `PreviousUntil`) and zeroes `LastUsedAt`, in one atomic write. The hash it supersedes as `PreviousHash` leaves the index in that write, so after rotations A to B to C only B and C find the key. A ref no key of `ref.UserID` has is `ErrNotFound` (rule 6). Only `account`'s rotation calls it, inside the `Update` that read the key.
 - **The conditional touch.** `TouchAPIKey(ctx, keyID, hash, at)` writes `LastUsedAt` only when the stored `KeyHash` equals `hash` and `at` is after the stored value. A touch sampled before a rotation carries the old hash and writes nothing, so it can never end the new secret's overlap.
 - **The sweep.** `Sweeper.ClearRetiredAPIKeySecrets(ctx, now, limit)` zeroes `PreviousHash` and `PreviousUntil`, in one atomic step, on at most `limit` keys whose previous secret no longer verifies: `PreviousHash` set, and `PreviousUntil` not after `now` or `LastUsedAt` non-zero. It returns how many it cleared and never writes `KeyHash`. Evaluate the predicate in the write itself (`UPDATE … WHERE …`, or a compare under the writer mutex), never from a list read before it: a key rotated again between the read and the write would lose its new previous secret. The sweep calls it in batches of `account.MaxSweepBatch` and stops at a count below `limit`.
 - **Deletes.** `DeleteAPIKey`, `DeleteUserAPIKeys` and `DeleteUser`'s cascade remove both hashes with the key.
-- **Labels.** `Tx.UpdateAPIKeyLabel(ctx, ref, label)` writes the label and nothing else, scoped by `ref` like the rotation write. `account` checks that a label is unique among its owner's unexpired keys when it creates or renames the key, inside the same `Update`. Do not add a unique index on the label: a store from before that rule may hold two keys with one label, or a key with an empty label, and each stays listed, readable and revocable by its ID.
+- **Labels.** `Tx.UpdateAPIKeyLabel(ctx, ref, label)` writes the label and nothing else, scoped by `ref` like the rotation write. `account` checks that a label is unique among its user's unexpired keys when it creates or renames the key, inside the same `Update`. Do not add a unique index on the label: a store from before that rule may hold two keys with one label, or a key with an empty label, and each stays listed, readable and revocable by its ID.
 
 ## IDs and key lineage
 
 A store assigns `User.ID`, `Key.ID`, `PasskeyCredential.ID` and `KeyAttribution.ID` as positive integers no larger than 2^53 − 1, so every ID survives a JSON number in a browser.
 
-A user or key ID, once assigned, is never assigned again for the life of the store, after its row's deletion and across restarts included. Key lineage paths, attribution records and the issuer fields of sessions and tokens outlive the keys they name, so a reused ID would let a later key stand in for a revoked one. Keep a counter that a delete never lowers and that commits with the row. bbolt's per-bucket `NextSequence` does this, because the sequence commits with the row and only `SetSequence` lowers it. An allocator that takes the highest live ID plus one, or the lowest free ID, fails the contract: delete the newest key, and its ID goes to the next one.
+A user or key ID, once assigned, is never assigned again for the life of the store, after its row's deletion and across restarts included. Key lineage paths, attribution records and the issuer fields of tokens and temporary passwords outlive the keys and users they name, so a reused ID would let a later key or user stand in for a revoked one. Keep a counter that a delete never lowers and that commits with the row. bbolt's per-bucket `NextSequence` does this, because the sequence commits with the row and only `SetSequence` lowers it. An allocator that takes the highest live ID plus one, or the lowest free ID, fails the contract: delete the newest key, and its ID goes to the next one.
 
 `CreateAPIKey` appends the ID it assigns to the `Key.LineageIDs` it was given, so a stored key's path ends with its own ID. Key attributions are append-only: each new `KeyAttribution.ID` is larger than every one before it, so ascending ID is append order whatever the clock says. A store never updates an attribution and deletes one only in `DeleteUser`'s cascade. An attribution path names a key that may since have been deleted, for the life of the store, which is what lets `Service.Users` with `UserFilter.AttributedToKey` (accesshttp's `GET /users?key=`) find the accounts a revoked key created.
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/oidc/internal/bodycap"
 	"github.com/cplieger/access/oidc/internal/discovery"
 	"github.com/cplieger/access/oidc/internal/jwk"
 	"golang.org/x/oauth2"
@@ -63,8 +63,10 @@ var defaultScopes = []string{scopeOpenID, "profile", "email"}
 // Validate requires an https issuer and redirect URL, except http on a
 // loopback host, each absolute with a host and no userinfo or fragment,
 // and the issuer with no query (OpenID Connect Discovery 1.0 section 3); a
-// client ID; a Scopes list that includes "openid" when one is given; and a
-// non-negative HTTPClient.Timeout. Every refusal matches ErrConfigInvalid.
+// client ID; a Scopes list that includes "openid" when one is given; a
+// non-negative HTTPClient.Timeout; and a largest flow that seals and fits
+// its cookie. It makes no request. Every refusal matches ErrConfigInvalid,
+// and NewProvider refuses no other config with it.
 func (c Config) Validate() error { //nolint:gocritic // hugeParam: a value receiver keeps it callable on a non-addressable config
 	if err := checkSettingURL("IssuerURL", c.IssuerURL, true); err != nil {
 		return err
@@ -81,7 +83,26 @@ func (c Config) Validate() error { //nolint:gocritic // hugeParam: a value recei
 	if c.HTTPClient != nil && c.HTTPClient.Timeout < 0 {
 		return fmt.Errorf("%w: HTTPClient.Timeout must not be negative", ErrConfigInvalid)
 	}
-	return nil
+	filled := c.withDefaults()
+	return checkFlowFits(&filled)
+}
+
+// withDefaults is c with the Scopes, FlowSealer and Now NewProvider uses
+// when they are unset. A sealed value's length depends only on its
+// payload's, so Validate's fit check under a new ephemeral sealer holds for
+// the one NewProvider keeps.
+func (c Config) withDefaults() Config { //nolint:gocritic // hugeParam: returns a filled copy, leaving c the caller's
+	c.Scopes = slices.Clone(c.Scopes)
+	if c.Scopes == nil {
+		c.Scopes = slices.Clone(defaultScopes)
+	}
+	if c.FlowSealer == nil {
+		c.FlowSealer = access.NewEphemeralSealer()
+	}
+	if c.Now == nil {
+		c.Now = time.Now
+	}
+	return c
 }
 
 func checkSettingURL(field, raw string, issuer bool) error {
@@ -111,38 +132,27 @@ type Provider struct {
 	cfg      Config
 }
 
-// NewProvider validates cfg, refuses with ErrConfigInvalid one whose
-// largest flow would not seal or fit its cookie, and fetches discovery and
-// the JWK Set through cfg's client, following no redirect. It refuses with
-// ErrDiscovery, never naming a URL, a failed fetch or non-200 answer,
-// another issuer, no accepted algorithm, no usable key, or, naming the
-// field, an endpoint outside the https rule (http only under a loopback
-// http issuer).
+// NewProvider refuses a cfg that fails Validate, then fetches discovery
+// and the JWK Set through cfg's client, following no redirect; no error
+// names a URL. It fails with ErrDiscovery when either could not be fetched
+// or answered other than 200, and with ErrProviderInvalid when the provider
+// answered with a body past 1 MiB, a document that is not one JSON object,
+// names another issuer, has no accepted algorithm or, naming the field, an
+// endpoint outside the https rule (http only under a loopback http
+// issuer), or a JWK Set that is malformed or holds no usable key.
 func NewProvider(ctx context.Context, cfg Config) (*Provider, error) { //nolint:gocritic // hugeParam: by value, so the caller's config stays its own while NewProvider fills defaults
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	cfg = cfg.withDefaults()
 	cfg.HTTPClient = providerClient(cfg.HTTPClient)
-	cfg.Scopes = slices.Clone(cfg.Scopes)
-	if cfg.Scopes == nil {
-		cfg.Scopes = slices.Clone(defaultScopes)
-	}
-	if cfg.FlowSealer == nil {
-		cfg.FlowSealer = access.NewEphemeralSealer()
-	}
-	if cfg.Now == nil {
-		cfg.Now = time.Now
-	}
-	if err := checkFlowFits(&cfg); err != nil {
-		return nil, err
-	}
 	doc, err := discovery.Fetch(ctx, cfg.HTTPClient, cfg.IssuerURL)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrDiscovery, err)
+		return nil, providerFailure(err)
 	}
 	keys, err := discovery.NewKeySet(ctx, cfg.HTTPClient, doc, cfg.Now, cfg.Logger)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrDiscovery, err)
+		return nil, providerFailure(err)
 	}
 	return &Provider{
 		keys:     keys,
@@ -150,6 +160,15 @@ func NewProvider(ctx context.Context, cfg Config) (*Provider, error) { //nolint:
 		endpoint: oauth2.Endpoint{AuthURL: doc.AuthorizationEndpoint, TokenURL: doc.TokenEndpoint},
 		cfg:      cfg,
 	}, nil
+}
+
+// providerFailure is err from discovery under ErrProviderInvalid when the
+// provider answered with what discovery refuses, else under ErrDiscovery.
+func providerFailure(err error) error {
+	if errors.Is(err, discovery.ErrDocument) || errors.Is(err, discovery.ErrKeys) {
+		return fmt.Errorf("%w: %w", ErrProviderInvalid, err)
+	}
+	return fmt.Errorf("%w: %w", ErrDiscovery, err)
 }
 
 // Issuer returns cfg.IssuerURL, the issuer every ID token this provider
@@ -178,13 +197,8 @@ func (p *Provider) oauth2Config() oauth2.Config {
 // it through export_test.go.
 var defaultHTTPTimeout = 10 * time.Second
 
-// maxResponseBytes caps every response body the provider's client reads.
-const maxResponseBytes = 1 << 20
-
-var errResponseTooLarge = errors.New("oidc: response body larger than 1 MiB")
-
 // providerClient copies given, so the caller's client is never mutated, and
-// wraps its transport in cappedTransport.
+// caps every response body it reads (bodycap.Transport).
 func providerClient(given *http.Client) *http.Client {
 	c := &http.Client{}
 	if given != nil {
@@ -197,73 +211,6 @@ func providerClient(given *http.Client) *http.Client {
 	if next == nil {
 		next = http.DefaultTransport
 	}
-	c.Transport = cappedTransport{next: next}
+	c.Transport = bodycap.Transport{Next: next}
 	return c
 }
-
-// cappedTransport caps the response body, not the dial, so it sits outside
-// an SSRF-guarding transport without weakening it.
-type cappedTransport struct{ next http.RoundTripper }
-
-func (t cappedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	resp, err := t.next.RoundTrip(req)
-	if err != nil {
-		return nil, err
-	}
-	resp.Body = &cappedBody{rc: resp.Body}
-	return resp, nil
-}
-
-// cappedBody hands out at most maxResponseBytes and fails with
-// errResponseTooLarge once the body holds a byte beyond them, reading at
-// most that one byte past the cap. The error that ends the body at the cap
-// is returned by every later Read.
-type cappedBody struct {
-	rc  io.ReadCloser
-	err error
-	n   int64
-}
-
-func (b *cappedBody) Read(p []byte) (int, error) {
-	if b.err != nil {
-		return 0, b.err
-	}
-	if room := maxResponseBytes - b.n; int64(len(p)) > room {
-		p = p[:room]
-	}
-	n, err := b.rc.Read(p)
-	b.n += int64(n)
-	if b.n == maxResponseBytes {
-		if err == nil {
-			// x/oauth2 reads the token body through its own 1 MiB limit and
-			// never asks for the byte past the cap, so it is looked for now:
-			// https://github.com/golang/oauth2/blob/v0.37.0/internal/token.go#L263
-			err = b.pastCap()
-		}
-		b.err = err
-	}
-	return n, err
-}
-
-// pastCap reads one byte past the cap: errResponseTooLarge when there is
-// one, else the body's own end or error, or io.ErrNoProgress after
-// maxEmptyReads reads of no byte and no error.
-func (b *cappedBody) pastCap() error {
-	var one [1]byte
-	for range maxEmptyReads {
-		n, err := b.rc.Read(one[:])
-		if n > 0 {
-			return errResponseTooLarge
-		}
-		if err != nil {
-			return err
-		}
-	}
-	return io.ErrNoProgress
-}
-
-// maxEmptyReads bounds pastCap's consecutive empty reads, so a body that
-// answers no byte and no error forever cannot hang the read.
-const maxEmptyReads = 100
-
-func (b *cappedBody) Close() error { return b.rc.Close() }

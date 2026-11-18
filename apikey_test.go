@@ -132,7 +132,7 @@ func TestGuardVerifyAPIKeyMinimalReader(t *testing.T) {
 	}
 }
 
-// TestVerifyAPIKeyPreviousSecret pins design 2.4's previous-secret rule
+// TestVerifyAPIKeyPreviousSecret checks the previous-secret rule
 // over an app's own reader: the previous secret verifies while PreviousUntil
 // is ahead and LastUsedAt is zero.
 func TestVerifyAPIKeyPreviousSecret(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 
 // policyUsers are the stored users the policy tables decide over.
 var (
-	adminA = access.User{ID: 1, Username: "a", Role: access.RoleAdmin, Enabled: true, PasswordHash: access.NewHash("$argon2id$a")}
+	adminA = access.User{ID: 1, Username: "a", Role: access.RoleAdmin, Enabled: true, Owner: true, PasswordHash: access.NewHash("$argon2id$a")}
 	adminB = access.User{ID: 2, Username: "b", Role: access.RoleAdmin, Enabled: true}
 	userU  = access.User{ID: 3, Username: "u", Role: access.RoleUser, Enabled: true}
 	userV  = access.User{ID: 4, Username: "v", Role: access.RoleUser, Enabled: false}
@@ -87,10 +87,8 @@ func TestRolePolicyTable(t *testing.T) {
 		{op: account.OpSetEnabled, target: new(userU), enabled: false, allowed: adminOnly},
 		{op: account.OpSetEnabled, target: new(userV), enabled: true, allowed: adminOnly},
 		{op: account.OpInvite, role: access.RoleUser, allowed: adminOnly},
-		{op: account.OpIssueRecovery, target: new(userU), allowed: adminOrOOB},
 		{op: account.OpListUsers, allowed: adminOnly},
 		{op: account.OpManageAllKeys, allowed: adminOrOOB},
-		{op: account.OpMigrateToSSO, target: new(userU), allowed: map[string]bool{"admin": true, "user": true}},
 		{op: account.OpCreateKeyFor, target: new(userU), allowed: map[string]bool{"out_of_band": true}},
 		{op: account.OpCreateKeyFor, target: new(userV)},
 		{op: account.OpCreateOwnKey, allowed: map[string]bool{"admin": true, "user": true}},
@@ -112,7 +110,7 @@ func TestRolePolicyTable(t *testing.T) {
 			{op: account.OpRotateKey, target: new(adminA), allowed: adminOrOOB},
 		})
 	})
-	t.Run("rotate_key_disabled_owner", func(t *testing.T) {
+	t.Run("rotate_key_disabled_user", func(t *testing.T) {
 		t.Parallel()
 		v := userV
 		d := account.Decision{Op: account.OpRotateKey, Actor: account.As(access.Principal{User: &v, Method: access.MethodPassword}), Target: new(userV)}
@@ -129,15 +127,13 @@ func TestRolePolicyTable(t *testing.T) {
 			t.Errorf("a disabled admin's list_users = %v, want refused", err)
 		}
 	})
-	t.Run("last_admin", func(t *testing.T) {
+	t.Run("change_user", func(t *testing.T) {
 		t.Parallel()
 		a, b, u := adminA, adminB, userU
 		bDisabled := adminB
 		bDisabled.Enabled = false
-		aDemoted := adminA
-		aDemoted.Role = access.RoleUser
 		actorA := account.As(access.Principal{User: &a, Method: access.MethodPassword})
-		actorB := account.As(access.Principal{User: &b, Method: access.MethodPassword})
+		actorU := account.As(access.Principal{User: &u, Method: access.MethodPassword})
 		for _, tc := range []struct {
 			d      account.Decision
 			name   string
@@ -145,16 +141,13 @@ func TestRolePolicyTable(t *testing.T) {
 		}{
 			{name: "delete_other_admin", d: account.Decision{Op: account.OpDeleteUser, Actor: actorA, Target: &b, Users: []access.User{a, b, u}}},
 			{name: "delete_self", reason: "self_delete", d: account.Decision{Op: account.OpDeleteUser, Actor: actorA, Target: &a, Users: []access.User{a, b, u}}},
-			{name: "delete_last_enabled_admin", reason: "last_admin", d: account.Decision{Op: account.OpDeleteUser, Actor: actorA, Target: &b, Users: []access.User{aDemoted, b, u}}},
 			{name: "demote_other_admin", d: account.Decision{Op: account.OpSetRole, Role: access.RoleUser, Actor: actorA, Target: &b, Users: []access.User{a, b}}},
-			{name: "demote_last_admin", reason: "last_admin", d: account.Decision{Op: account.OpSetRole, Role: access.RoleUser, Actor: actorA, Target: &a, Users: []access.User{a, bDisabled, u}}},
 			{name: "promote_keeps_admin", d: account.Decision{Op: account.OpSetRole, Role: access.RoleAdmin, Actor: actorA, Target: &a, Users: []access.User{a, u}}},
-			{name: "disable_last_admin", reason: "last_admin", d: account.Decision{Op: account.OpSetEnabled, Enabled: false, Actor: actorA, Target: &a, Users: []access.User{a, bDisabled, u}}},
 			{name: "disable_admin_two_left", d: account.Decision{Op: account.OpSetEnabled, Enabled: false, Actor: actorA, Target: &b, Users: []access.User{a, b}}},
-			// The second question of one UpdateUser call sees the first
-			// change applied in Users: A's demotion leaves B the last admin.
-			{name: "disable_after_demote_in_same_call", reason: "last_admin", d: account.Decision{Op: account.OpSetEnabled, Enabled: false, Actor: actorB, Target: &b, Users: []access.User{aDemoted, b}}},
-			{name: "disable_reads_target_from_users", reason: "last_admin", d: account.Decision{Op: account.OpSetEnabled, Enabled: false, Actor: actorB, Target: &aDemoted, Users: []access.User{a, bDisabled}}},
+			// Owners replace the last-admin rule, so the Policy
+			// alone no longer keeps an enabled admin.
+			{name: "demote_last_admin", d: account.Decision{Op: account.OpSetRole, Role: access.RoleUser, Actor: actorA, Target: &a, Users: []access.User{a, bDisabled, u}}},
+			{name: "user_actor", reason: "not_admin", d: account.Decision{Op: account.OpSetEnabled, Enabled: false, Actor: actorU, Target: &b, Users: []access.User{a, b, u}}},
 		} {
 			err := (account.RolePolicy{}).Authorize(t.Context(), tc.d)
 			var pe *account.PolicyError
@@ -163,41 +156,6 @@ func TestRolePolicyTable(t *testing.T) {
 				t.Errorf("%s = %v, want allowed", tc.name, err)
 			case tc.reason != "" && (!errors.As(err, &pe) || pe.Reason != tc.reason):
 				t.Errorf("%s = %v, want reason %s", tc.name, err, tc.reason)
-			}
-		}
-	})
-	t.Run("last_local_admin", func(t *testing.T) {
-		t.Parallel()
-		a, b := adminA, adminB
-		c := adminB
-		c.ID, c.PasswordHash = 5, access.NewHash("$argon2id$c")
-		aDisabled, u := adminA, userU
-		aDisabled.Enabled = false
-		actorA := account.As(access.Principal{User: &a, Method: access.MethodOIDC})
-		actorB := account.As(access.Principal{User: &b, Method: access.MethodOIDC})
-		for _, tc := range []struct {
-			d    account.Decision
-			name string
-			keep bool
-		}{
-			{name: "delete", d: account.Decision{Op: account.OpDeleteUser, Actor: actorB, Target: &a, Users: []access.User{a, b}}},
-			{name: "demote", d: account.Decision{Op: account.OpSetRole, Role: access.RoleUser, Actor: actorB, Target: &a, Users: []access.User{a, b}}},
-			{name: "disable", d: account.Decision{Op: account.OpSetEnabled, Actor: actorB, Target: &a, Users: []access.User{a, b}}},
-			{name: "migrate", d: account.Decision{Op: account.OpMigrateToSSO, Actor: actorA, Target: &a, Users: []access.User{a, b}}},
-			{name: "migrate_another_local_left", keep: true, d: account.Decision{Op: account.OpMigrateToSSO, Actor: actorA, Target: &a, Users: []access.User{a, b, c}}},
-			{name: "delete_disabled_local_admin", keep: true, d: account.Decision{Op: account.OpDeleteUser, Actor: actorB, Target: &aDisabled, Users: []access.User{aDisabled, b}}},
-			{name: "delete_user_with_no_local_admin", keep: true, d: account.Decision{Op: account.OpDeleteUser, Actor: actorB, Target: &u, Users: []access.User{b, u}}},
-		} {
-			if err := (account.RolePolicy{}).Authorize(t.Context(), tc.d); err != nil {
-				t.Errorf("%s without KeepLocalAdmin = %v, want allowed", tc.name, err)
-			}
-			err := (account.RolePolicy{KeepLocalAdmin: true}).Authorize(t.Context(), tc.d)
-			var pe *account.PolicyError
-			switch {
-			case tc.keep && err != nil:
-				t.Errorf("%s with KeepLocalAdmin = %v, want allowed", tc.name, err)
-			case !tc.keep && (!errors.As(err, &pe) || pe.Reason != "last_local_admin"):
-				t.Errorf("%s with KeepLocalAdmin = %v, want last_local_admin", tc.name, err)
 			}
 		}
 	})
@@ -215,8 +173,6 @@ func TestSingleOwnerPolicyTable(t *testing.T) {
 		{op: account.OpSetRole, target: new(userU), role: access.RoleAdmin},
 		{op: account.OpDeleteUser, target: new(userU)},
 		{op: account.OpSetEnabled, target: new(userU)},
-		{op: account.OpMigrateToSSO, target: new(adminA)},
-		{op: account.OpIssueRecovery, target: new(adminA), allowed: map[string]bool{"out_of_band": true}},
 		{op: account.OpCreateOwnKey, allowed: ownerOnly},
 		{op: account.OpCreateKeyFor, target: new(adminA), allowed: map[string]bool{"out_of_band": true}},
 		{op: account.OpCreateKeyFor, target: new(userU)},

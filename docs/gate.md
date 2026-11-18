@@ -35,7 +35,7 @@ Every class but `Public` runs `Authenticator.Authenticate`, under `access.Passiv
 
 `Config.Allow` decides a `Scoped` row and a `Key` row with a `Scope`, for sessions and keys alike, so a scope lattice or a role cap is yours to write. Left nil, it admits a full session, and an API key holding the row's scope. The gate never compares scopes itself.
 
-Every authenticating row also answers a credential `Authenticate` refuses, mapped by `access.ErrorFor`: 401 `auth_required` with no credential, `auth_session_expired` for a session cookie whose session is gone, `auth_key_invalid` for a refused API key, `auth_invalid_credentials` for any other refused credential, 403 `auth_session_required` for a recovery-session cookie, and 403 `auth_https_required` for any plain request under `PostureSecure`, before a credential is read. A store failure is 503 `auth_unavailable` with `Retry-After: 5`, logged at WARN. An error `ErrorFor` does not map to one of these codes, which only a custom verifier returns, is 503 `auth_unavailable` too, logged at ERROR, and when it carries the request's own ended context it is the client walking away, logged at DEBUG. The gate writes these lines to `Config.Logger`, which is `slog.Default()` when nil. It does not use the `Authenticator`'s `Logger`, so pass the same logger to both. The handler never runs for a refused request.
+Every authenticating row also answers a credential `Authenticate` refuses, mapped by `access.ErrorFor`: 401 `auth_required` with no credential, `auth_session_expired` for a session cookie whose session is gone, `auth_key_invalid` for a refused API key, `auth_invalid_credentials` for any other refused credential, and 403 `auth_https_required` for any plain request under `PostureSecure`, before a credential is read. A store failure is 503 `auth_unavailable` with `Retry-After: 5`, logged at WARN. An error `ErrorFor` does not map to one of these codes, which only a custom verifier returns, is 503 `auth_unavailable` too, logged at ERROR, and when it carries the request's own ended context it is the client walking away, logged at DEBUG. The gate writes these lines to `Config.Logger`, which is `slog.Default()` when nil. It does not use the `Authenticator`'s `Logger`, so pass the same logger to both. The handler never runs for a refused request.
 
 API keys are read from the `Authorization: Bearer` header only.
 
@@ -106,7 +106,7 @@ Set `Config.Audit` to receive one `access.AuditEvent` for each refusal of a pres
 | `key_unknown` | a Bearer value no stored key has as either secret |
 | `key_expired` | an API key at or past its `ExpiresAt` |
 | `key_retired` | a rotated key's previous secret, once its overlap has ended or the new secret has been used |
-| `account_disabled` | a key or session whose owner is missing or disabled |
+| `account_disabled` | a key or session whose user is missing or disabled |
 | `session_expired` | a session cookie past its idle or absolute limit |
 | `session_unknown` | a session cookie no stored session has |
 | `transport_changed` | a session cookie whose session was created on the other transport, plain HTTP or HTTPS; the session is revoked |
@@ -114,7 +114,7 @@ Set `Config.Audit` to receive one `access.AuditEvent` for each refusal of a pres
 
 `key_retired` lasts until the store clears the previous secret, which the account sweep does once it can no longer verify, or until the key is rotated again. After that the old secret is `key_unknown`. `key_expired` is also the reason `account` refuses to rotate an expired key with, since both name the same fact.
 
-`gate.forbidden` is a 403. Its `Reason` is `session_required`, `key_required`, `scope_required` or `forbidden` for a principal the row's class refuses, `recovery_session` for a recovery-session cookie, and `cross_origin` for a cross-site request.
+`gate.forbidden` is a 403. Its `Reason` is `session_required`, `key_required`, `scope_required` or `forbidden` for a principal the row's class refuses, and `cross_origin` for a cross-site request.
 
 On both kinds, `Method` is `access.MethodAPIKey` for a Bearer key, your custom verifier's own method for its principal, the bypass method for the bypass principal, and empty for a session cookie, except on `transport_changed`, which names the method the session signed in with. `KeyID` and `UserID` are set when the gate knows them, and `IP` is the client address `Authenticator.ClientAddr` resolves.
 

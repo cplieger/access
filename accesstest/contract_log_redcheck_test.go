@@ -23,7 +23,7 @@ var logVariants = map[string]variant{
 	},
 	"log-seq-recomputed-on-reopen": {
 		make:  mediumVariant(func(m *medium) { m.reload = recomputeLogSeq }),
-		fails: []string{"rule_22_log/seq_never_reused_reopen"}, only: true,
+		fails: []string{"rule_22_log/seq_never_reused_reopen", "via_tx/rule_22_log/seq_never_reused_reopen"}, only: true,
 	},
 	"log-append-survives-rollback": {
 		make:  memVariant(func(m *MemStore) account.Store { return &rollbackKeepsLogStore{m} }),
@@ -99,7 +99,7 @@ var logVariants = map[string]variant{
 	},
 	"log-evicted-lost-on-reopen": {
 		make:  mediumVariant(func(m *medium) { m.reload = dropEvicted }),
-		fails: []string{"rule_22_log/stats_reopen"}, only: true,
+		fails: []string{"rule_22_log/stats_reopen", "via_tx/rule_22_log/stats_reopen"}, only: true,
 	},
 	"log-delete-user-deletes-entries": {
 		make:  memVariant(func(m *MemStore) account.Store { return &userDropsLogStore{m} }),
@@ -115,7 +115,7 @@ var logVariants = map[string]variant{
 	},
 	"log-user-agent-lost-on-reopen": {
 		make:  mediumVariant(func(m *medium) { m.reload = dropActorUserAgents }),
-		fails: []string{"rule_20_fidelity/reopen"}, mention: []string{"LogEntry.ActorUserAgent"}, only: true,
+		fails: []string{"rule_20_fidelity/reopen", "via_tx/rule_20_fidelity/reopen"}, mention: []string{"LogEntry.ActorUserAgent"}, only: true,
 	},
 	"log-append-replaces-context": {
 		make:  memVariant(func(m *MemStore) account.Store { return &ownContextLogStore{m} }),
@@ -176,8 +176,9 @@ func TestLogClausesRedChecked(t *testing.T) {
 func redCheckVariants() map[string]variant {
 	all := maps.Clone(variants)
 	maps.Copy(all, logVariants)
-	if len(all) != len(variants)+len(logVariants) {
-		panic("accesstest: a log variant reuses another variant's name")
+	maps.Copy(all, recordVariants)
+	if len(all) != len(variants)+len(logVariants)+len(recordVariants) {
+		panic("accesstest: a log or record variant reuses another variant's name")
 	}
 	return all
 }

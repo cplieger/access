@@ -20,7 +20,7 @@ func (s *Service) rotate(ctx context.Context, tx Tx, p access.Principal, userID 
 	if err != nil {
 		return rotated{}, err
 	}
-	return s.rotateSession(ctx, tx, sess, p.SessionTokenHash(), stepUp)
+	return s.rotateSession(ctx, tx, sess, p.SessionTokenHash(), stepUp, stepUp != "")
 }
 
 // principalSession reads p's session inside tx; one rotated or ended since
@@ -38,16 +38,20 @@ func principalSession(ctx context.Context, tx Tx, p access.Principal, userID int
 }
 
 // rotateSession gives sess, as tx read it, a new token. Rotation.Next is
-// sess with only TokenHash changed, plus AuthTime (now) and AuthMethod when
-// stepUp is non-empty, so the session's ID, times, caps and labels carry
-// over and its absolute deadline never moves. expect is the
-// RotateSession compare-and-swap; zero rotates by (UserID, ID) alone.
-func (s *Service) rotateSession(ctx context.Context, tx Tx, sess *access.Session, expect access.Hash, stepUp access.Method) (rotated, error) {
+// sess with only TokenHash changed, plus AuthMethod when method is
+// non-empty and AuthTime (now) when stamp is set, so the session's ID,
+// times, caps and labels carry over and its absolute deadline never moves.
+// expect is the RotateSession compare-and-swap; zero rotates by (UserID,
+// ID) alone.
+func (s *Service) rotateSession(ctx context.Context, tx Tx, sess *access.Session, expect access.Hash, method access.Method, stamp bool) (rotated, error) {
 	token, hash := access.GenerateSessionToken()
 	next := *sess
 	next.TokenHash = hash
-	if stepUp != "" {
-		next.AuthTime, next.AuthMethod = s.now(), stepUp
+	if method != "" {
+		next.AuthMethod = method
+	}
+	if stamp {
+		next.AuthTime = s.now()
 	}
 	if err := tx.RotateSession(ctx, Rotation{ID: next.ID, UserID: next.UserID, ExpectHash: expect, Next: next}); err != nil {
 		return rotated{}, err

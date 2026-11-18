@@ -26,8 +26,8 @@ func challengeOf(a *access.Authenticator, code access.Code, scope string) []stri
 
 // TestChallenge holds Challenge to RFC 6750: §3.1's error codes go only on a
 // refused Bearer token (invalid_token) and a token lacking scope
-// (insufficient_scope), and every other 401 carries the bare §3 challenge,
-// since RFC 9110 §15.5.2 requires one on every 401.
+// (insufficient_scope), and every other 401 carries the bare RFC 6750 §3
+// challenge, since RFC 9110 §15.5.2 requires one on every 401.
 func TestChallenge(t *testing.T) {
 	t.Parallel()
 	a := newChallenger(t, "")
@@ -51,6 +51,7 @@ func TestChallenge(t *testing.T) {
 		{"rfc6750_3_unknown_passkey", "auth_unknown_credential", "", bare},
 		{"rfc6750_3_assertion", "auth_assertion_failed", "", bare},
 		{"rfc6750_3_sso", "auth_oidc_failed", "", bare},
+		{"rfc6750_3_second_factor_code", "auth_code_invalid", "", bare},
 	}
 	challenged := map[access.Code]bool{}
 	for _, tc := range rows {

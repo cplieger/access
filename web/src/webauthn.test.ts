@@ -2,13 +2,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fakeServer, refusal } from "./test-helpers/server.js";
 import type { Answer } from "./test-helpers/server.js";
 import { fixture } from "./test-helpers/wire.js";
+import { authCode } from "./wire.js";
 import {
   passkeySupport,
-  recoverWithPasskey,
   registerPasskey,
   sendSignals,
   setupWithPasskey,
   signInWithPasskey,
+  loginSecondPasskey,
+  loginSetPasskey,
+  pendingPasskey,
+  signUpWithPasskey,
+  passkeyProof,
   stepUpWithPasskey,
   toCreationOptions,
   toRequestOptions,
@@ -114,12 +119,6 @@ describe("the DOMException outcome mapping", () => {
       const s = fakeServer({ "POST /api/auth/passkeys/begin": creation });
       expect(await registerPasskey(s.client)).toEqual(register[name]);
       expect(s.sent.map((x) => x.route)).toEqual(["POST /api/auth/passkeys/begin"]);
-
-      const r = fakeServer({ "POST /api/auth/recovery/passkey/begin": creation });
-      expect(await recoverWithPasskey(r.client, { keepSessions: false, keepKeys: false })).toEqual(
-        register[name],
-      );
-      expect(r.sent).toHaveLength(1);
 
       // Setup has no exclusion list to collide with, so the name is a plain failure there.
       const t = fakeServer({ "POST /api/auth/setup/passkey/begin": creation });
@@ -325,6 +324,159 @@ describe("stepUpWithPasskey", () => {
   });
 });
 
+// A passkey as a pending sign-in's second step.
+describe("loginSecondPasskey", () => {
+  it("sends the ticket, then the assertion, and answers the sign-in step's outcome", async () => {
+    bareplatform();
+    credentialsGet(resolves);
+    const s = fakeServer({
+      "POST /api/auth/login/second-passkey/begin": request,
+      "POST /api/auth/login/second-passkey/finish": ok("SignInOutcome"),
+    });
+    expect(await loginSecondPasskey(s.client, "t-1")).toEqual({
+      kind: "answered",
+      result: fixture("SignInOutcome"),
+    });
+    expect(s.sent[0]?.body).toEqual({ ticket: "t-1" });
+    expect(s.sent[1]?.body).toEqual(assertionJSON);
+    expect(s.sent[1]?.headers.get("X-Auth-Ceremony")).toBe("c-get");
+  });
+
+  it("maps a refused assertion as signInWithPasskey does", async () => {
+    bareplatform();
+    credentialsGet(resolves);
+    const s = fakeServer({
+      "POST /api/auth/login/second-passkey/begin": request,
+      "POST /api/auth/login/second-passkey/finish": refusal(401, "auth_assertion_failed"),
+    });
+    expect(await loginSecondPasskey(s.client, "t-1")).toEqual({ kind: "verification-failed" });
+  });
+});
+
+// An account created with a passkey where registration is open,
+// signed in, or waiting for approval with no session.
+describe("signUpWithPasskey", () => {
+  it.each(["EnrolmentOutcome", "EnrolmentOutcome.waiting"])(
+    "sends the username, then the registration, and answers %s",
+    async (answer) => {
+      bareplatform();
+      credentialsCreate(attests);
+      const s = fakeServer({
+        "POST /api/auth/register/passkey/begin": creation,
+        "POST /api/auth/register/passkey/finish": ok(answer),
+      });
+      expect(await signUpWithPasskey(s.client, { username: "carol" })).toEqual({
+        kind: "answered",
+        result: fixture(answer),
+      });
+      expect(s.sent[0]?.body).toEqual({ username: "carol" });
+      expect(s.sent[1]?.body).toEqual(attestationJSON);
+      expect(s.sent[1]?.headers.get("X-Auth-Ceremony")).toBe("c-create");
+    },
+  );
+
+  it("maps a refused registration as registerPasskey does", async () => {
+    bareplatform();
+    credentialsCreate(attests);
+    const s = fakeServer({
+      "POST /api/auth/register/passkey/begin": creation,
+      "POST /api/auth/register/passkey/finish": refusal(403, "auth_registration_closed"),
+    });
+    const out = await signUpWithPasskey(s.client, { username: "carol" });
+    expect(out.kind).toBe("failed");
+    expect(out.kind === "failed" && typeof out.error !== "string" && authCode(out.error)).toBe(
+      "auth_registration_closed",
+    );
+  });
+});
+
+// A passkey as a pending sign-in's enrolment.
+describe("pendingPasskey", () => {
+  it("sends the ticket, then the registration, and answers the completed sign-in", async () => {
+    bareplatform();
+    credentialsCreate(attests);
+    const s = fakeServer({
+      "POST /api/auth/pending/passkey/begin": creation,
+      "POST /api/auth/pending/passkey/finish": ok("EnrolmentOutcome"),
+    });
+    expect(await pendingPasskey(s.client, "t-1")).toEqual({
+      kind: "answered",
+      result: fixture("EnrolmentOutcome"),
+    });
+    expect(s.sent[0]?.body).toEqual({ ticket: "t-1" });
+    expect(s.sent[1]?.body).toEqual(attestationJSON);
+    expect(s.sent[1]?.headers.get("X-Auth-Ceremony")).toBe("c-create");
+  });
+
+  it("maps a refused registration as registerPasskey does", async () => {
+    bareplatform();
+    credentialsCreate(attests);
+    const s = fakeServer({
+      "POST /api/auth/pending/passkey/begin": creation,
+      "POST /api/auth/pending/passkey/finish": refusal(409, "auth_duplicate_credential"),
+    });
+    expect(await pendingPasskey(s.client, "t-1")).toEqual({ kind: "duplicate" });
+  });
+});
+
+// A passkey registered in place of a temporary password signs in.
+describe("loginSetPasskey", () => {
+  it("sends the ticket, then the registration, and answers the sign-in step's outcome", async () => {
+    bareplatform();
+    credentialsCreate(attests);
+    const s = fakeServer({
+      "POST /api/auth/login/set-passkey/begin": creation,
+      "POST /api/auth/login/set-passkey/finish": ok("SignInOutcome"),
+    });
+    expect(await loginSetPasskey(s.client, "t-1")).toEqual({
+      kind: "answered",
+      result: fixture("SignInOutcome"),
+    });
+    expect(s.sent[0]?.body).toEqual({ ticket: "t-1" });
+    expect(s.sent[1]?.body).toEqual(attestationJSON);
+    expect(s.sent[1]?.headers.get("X-Auth-Ceremony")).toBe("c-create");
+  });
+
+  it("maps a refused registration as registerPasskey does", async () => {
+    bareplatform();
+    credentialsCreate(attests);
+    const s = fakeServer({
+      "POST /api/auth/login/set-passkey/begin": creation,
+      "POST /api/auth/login/set-passkey/finish": refusal(409, "auth_duplicate_credential"),
+    });
+    expect(await loginSetPasskey(s.client, "t-1")).toEqual({ kind: "duplicate" });
+  });
+});
+
+// A passkey proof is a step-up ceremony's assertion, sent with the change.
+describe("passkeyProof", () => {
+  it("answers the ceremony with its assertion and finishes no step-up", async () => {
+    bareplatform();
+    credentialsGet(resolves);
+    const s = fakeServer({ "POST /api/auth/stepup/passkey/begin": request });
+    expect(await passkeyProof(s.client)).toEqual({
+      kind: "proof",
+      proof: { ceremony: "c-get", assertion: assertionJSON },
+    });
+    expect(s.sent.map((x) => x.route)).toEqual(["POST /api/auth/stepup/passkey/begin"]);
+  });
+
+  it("is cancelled when the user dismisses the authenticator", async () => {
+    bareplatform();
+    credentialsGet(throws("NotAllowedError"));
+    const s = fakeServer({ "POST /api/auth/stepup/passkey/begin": request });
+    expect(await passkeyProof(s.client)).toEqual({ kind: "cancelled" });
+  });
+
+  it("sends a proof with the registration begin when one is given", async () => {
+    bareplatform();
+    credentialsCreate(() => Promise.resolve(null));
+    const s = fakeServer({ "POST /api/auth/passkeys/begin": creation });
+    await registerPasskey(s.client, { code: "123456" });
+    expect(s.sent[0]?.body).toEqual({ code: "123456" });
+  });
+});
+
 describe("registerPasskey", () => {
   it("registers, then sends the provider the server's signals", async () => {
     const signalAllAcceptedCredentials = vi.fn(() => Promise.resolve());
@@ -332,12 +484,17 @@ describe("registerPasskey", () => {
     const create = credentialsCreate(attests);
     const s = fakeServer({
       "POST /api/auth/passkeys/begin": creation,
-      "POST /api/auth/passkeys/finish": ok("PasskeyView"),
+      "POST /api/auth/passkeys/finish": ok("PasskeyRegisteredResponse"),
       "GET /api/auth/webauthn/signals": ok("Signals"),
     });
+    const answer = fixture("PasskeyRegisteredResponse") as {
+      passkey: unknown;
+      recovery_code: string;
+    };
     expect(await registerPasskey(s.client)).toEqual({
       kind: "registered",
-      passkey: fixture("PasskeyView"),
+      passkey: answer.passkey,
+      recovery_code: answer.recovery_code,
     });
     expect(s.sent.map((x) => x.route)).toEqual([
       "POST /api/auth/passkeys/begin",
@@ -349,6 +506,23 @@ describe("registerPasskey", () => {
     const arg = create.mock.calls[0]?.[0] as CredentialCreationOptions;
     expect(arg.publicKey?.rp).toEqual({ name: "App" });
     expect(signalAllAcceptedCredentials).toHaveBeenCalledOnce();
+  });
+
+  // The code rides only the answer whose registration issued it.
+  it("answers no recovery_code when the registration issued none", async () => {
+    bareplatform();
+    credentialsCreate(attests);
+    const s = fakeServer({
+      "POST /api/auth/passkeys/begin": creation,
+      "POST /api/auth/passkeys/finish": ok("PasskeyRegisteredResponse.none"),
+      "GET /api/auth/webauthn/signals": ok("Signals"),
+    });
+    const got = await registerPasskey(s.client);
+    expect(got).toEqual({
+      kind: "registered",
+      passkey: (fixture("PasskeyRegisteredResponse.none") as { passkey: unknown }).passkey,
+    });
+    expect(got).not.toHaveProperty("recovery_code");
   });
 
   it("refuses request options from a create route as a decode failure", async () => {
@@ -367,19 +541,14 @@ describe("registerPasskey", () => {
     ["auth_duplicate_credential", { kind: "duplicate" }],
   ];
   for (const [code, want] of refused) {
-    it(`maps a finish ${code} for registration and recovery`, async () => {
+    it(`maps a finish ${code} for registration`, async () => {
       bareplatform();
       credentialsCreate(attests);
       const s = fakeServer({
         "POST /api/auth/passkeys/begin": creation,
         "POST /api/auth/passkeys/finish": refusal(400, code),
-        "POST /api/auth/recovery/passkey/begin": creation,
-        "POST /api/auth/recovery/passkey/finish": refusal(400, code),
       });
       expect(await registerPasskey(s.client)).toEqual(want);
-      expect(await recoverWithPasskey(s.client, { keepSessions: false, keepKeys: false })).toEqual(
-        want,
-      );
       expect(s.sent.some((x) => x.route.includes("signals"))).toBe(false);
     });
   }
@@ -411,7 +580,7 @@ describe("the finish body", () => {
         status: 200,
         body: { ceremony: "c-create", public_key: { publicKey } },
       },
-      "POST /api/auth/passkeys/finish": ok("PasskeyView"),
+      "POST /api/auth/passkeys/finish": ok("PasskeyRegisteredResponse"),
     });
     expect((await registerPasskey(s.client)).kind).toBe("registered");
     expect(s.sent[1]?.body).toEqual({
@@ -470,24 +639,6 @@ describe("setupWithPasskey", () => {
       kind: "failed",
       error: { status: 409, code: "auth_setup_complete" },
     });
-  });
-});
-
-describe("recoverWithPasskey", () => {
-  it("sends the keep flags as the finish route's query and reads its 204", async () => {
-    bareplatform();
-    credentialsCreate(attests);
-    const s = fakeServer({
-      "POST /api/auth/recovery/passkey/begin": creation,
-      "POST /api/auth/recovery/passkey/finish": noContent,
-    });
-    expect(await recoverWithPasskey(s.client, { keepSessions: true, keepKeys: true })).toEqual({
-      kind: "recovered",
-    });
-    expect(s.sent[1]?.route).toBe(
-      "POST /api/auth/recovery/passkey/finish?keep_sessions=true&keep_keys=true",
-    );
-    expect(s.sent[1]?.headers.get("X-Auth-Ceremony")).toBe("c-create");
   });
 });
 

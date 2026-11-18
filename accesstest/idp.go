@@ -127,12 +127,13 @@ type IdPOptions struct {
 	// it does not encode as JSON.
 	Groups any
 	// URL, when non-empty, is the issuer in place of the listener's URL and,
-	// less any final "/", the base of every endpoint (OpenID Connect
-	// Discovery 1.0 section 4.1). It is https with a DNS host name (RFC 1123
-	// section 2.1), an optional port and path, and no query, fragment or
-	// userinfo; NewIdP fails the test on any other. The IdP then serves HTTPS
-	// for that host, reached only by a client that dials IdP.Addr for URL's
-	// host and port and trusts IdP.RootCAs, as IdP.Client does.
+	// less any final "/", the base of every endpoint
+	// (OpenID Connect Discovery 1.0 section 4.1). It is https with a DNS host
+	// name (RFC 1123 section 2.1), an optional port and path, and no query,
+	// fragment or userinfo; NewIdP fails the test on any other. The IdP then
+	// serves HTTPS for that host, reached only by a client that dials
+	// IdP.Addr for URL's host and port and trusts IdP.RootCAs, as IdP.Client
+	// does.
 	URL string
 	// IssuerClaim, when non-empty, is the ID token's iss claim in place of
 	// the issuer; discovery's issuer and the authorization response's iss
@@ -458,8 +459,8 @@ func parseIssuerURL(raw string) (*url.URL, error) {
 
 // isDNSName applies RFC 1123 section 2.1's host name syntax: labels of 1 to
 // 63 letters, digits and inner hyphens (RFC 1035 section 2.3.1), at most 253
-// characters (RFC 1035 section 2.3.4), and a top label not all digits (RFC
-// 3696 section 2), which also refuses every IP address.
+// characters (RFC 1035 section 2.3.4), and a top label not all digits
+// (RFC 3696 section 2), which also refuses every IP address.
 func isDNSName(name string) bool {
 	if len(name) > 253 {
 		return false
@@ -636,8 +637,8 @@ func omitEmpty(q url.Values) url.Values {
 	return out
 }
 
-// repeated reports whether a parameter appears more than once, which RFC
-// 6749 section 3.1 forbids in a request.
+// repeated reports whether a parameter appears more than once, which
+// RFC 6749 section 3.1 forbids in a request.
 func repeated(q url.Values) bool {
 	for _, v := range q {
 		if len(v) > 1 {
@@ -790,9 +791,10 @@ func (p *IdP) parseAuthorize(q url.Values) (authRequest, bool) {
 }
 
 // parseParams returns the error code of the first fault in q, or "". Of
-// prompt's set, none beside another value is a fault; consent,
-// select_account and unknown values are approved as given (OpenID Connect
-// Core 1.0 section 3.1.2.1 lets an OP ignore an unknown value).
+// prompt's set, none beside another value is a fault; consent, select_account
+// and unknown values are approved as given
+// (OpenID Connect Core 1.0 section 3.1.2.1 lets an OP ignore an unknown
+// value).
 func (req *authRequest) parseParams(q url.Values) string {
 	switch {
 	case repeated(q), !q.Has("response_type"):
@@ -907,10 +909,10 @@ func oauthError(code string) map[string]string {
 }
 
 // authenticateClient accepts exactly one of client_secret_basic, whose
-// credentials are form-encoded before the base64 step (RFC 6749 section
-// 2.3.1), and client_secret_post; two methods at once are invalid_request
-// (section 2.3). It returns the status and error code of a refusal, or an
-// empty code.
+// credentials are form-encoded before the base64 step
+// (RFC 6749 section 2.3.1), and client_secret_post; two methods at once are
+// invalid_request (RFC 6749 section 2.3). It returns the status and error
+// code of a refusal, or an empty code.
 func (p *IdP) authenticateClient(r *http.Request) (status int, code string) {
 	id, secret := r.PostForm.Get("client_id"), r.PostForm.Get("client_secret")
 	if user, pass, ok := r.BasicAuth(); ok {

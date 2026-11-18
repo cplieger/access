@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/ratelimit"
 	"github.com/cplieger/access/webauthn"
+	"github.com/cplieger/go/keylock"
 )
 
 // Service runs the account operations over one Store. Build it with New and
@@ -33,6 +35,10 @@ type Service struct {
 	log     *slog.Logger
 	clock   func() time.Time
 	pending *pendingCache
+	// names orders the verifiers of one account's temporary password: at
+	// most one holds a canonical username's lock, from admission through
+	// its success Update.
+	names *keylock.Set[string]
 	// allowance bounds the untrusted counted password attempts between two
 	// failure-record prunes.
 	allowance *allowance
@@ -45,11 +51,15 @@ type Service struct {
 	adminScope  string
 	usersScope  string
 	keysScope   string
+	totp        TOTPConfig
 	interval    time.Duration
 	logMaxAge   time.Duration
 	logChanges  int
 	logSessions int
 	closed      atomic.Bool
+	// singleUser is Config.Policy.SingleUser() as New read it; no later
+	// answer of the Policy changes a rule.
+	singleUser bool
 }
 
 // testHooks are set only from export_test.go; every nil hook is skipped.
@@ -68,16 +78,21 @@ type testHooks struct {
 	beforeVerify func(ctx context.Context)
 	// afterVerify runs once Verify returned true, before the rehash.
 	afterVerify func(ctx context.Context)
+	// nameLockWait runs before a verifier waits on canonical's name lock.
+	nameLockWait func(ctx context.Context, canonical string)
+	// codeCounted runs after a code's count Update committed, before its
+	// success Update.
+	codeCounted func(ctx context.Context)
 }
 
 // New refuses a nil Store, Policy, Authenticator, Hasher, Limiter or Rules, a
 // FailureKey that is not 32 bytes (naming the field, never the bytes), a
-// non-empty key scope that is not one RFC 6750 scope-token or equals another,
-// a negative CleanupInterval, MaxPending or Log* field, and a Rules() value
-// Rules.Validate refuses or whose breach mode lacks Config.Breach. It drains
-// the security log and sweeps the failure records, returning either's store
-// error, then registers the Service as the Authenticator's one session revoker
-// (an error if one is). It sweeps on ctx's values, not its cancellation, until Shutdown.
+// half-set TOTP, a set key scope that is not one RFC 6750 scope-token or
+// equals another, a negative CleanupInterval, MaxPending or Log* field, and
+// a Rules() value checkRules refuses. It drains the security log and sweeps
+// the failure records, returning either's store error, then registers the
+// Service as the Authenticator's one session revoker (an error if one is).
+// It sweeps on ctx's values, not its cancellation, until Shutdown.
 func New(ctx context.Context, cfg Config) (*Service, error) { //nolint:gocritic // hugeParam: a construction input, read once
 	return newService(ctx, cfg, testHooks{})
 }
@@ -110,6 +125,9 @@ func newService(ctx context.Context, cfg Config, hooks testHooks) (*Service, err
 		logSessions: cmp.Or(cfg.LogMaxSessions, DefaultLogMaxSessions),
 		done:        make(chan struct{}),
 		allowance:   newAllowance(),
+		names:       keylock.New(strings.Compare),
+		singleUser:  cfg.Policy.SingleUser(),
+		totp:        cfg.TOTP,
 	}
 	if hooks.wrapHasher != nil {
 		s.hasher = hooks.wrapHasher(s.hasher)
@@ -129,6 +147,12 @@ func newService(ctx context.Context, cfg Config, hooks testHooks) (*Service, err
 		return nil, err
 	}
 	if err := s.sweepFailures(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.checkStoredMode(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.markOwners(ctx, cfg.Rules().withDefaults()); err != nil {
 		return nil, err
 	}
 	if err := cfg.Authenticator.UseSessionRevoker(s); err != nil {
@@ -183,6 +207,9 @@ func validateConfig(cfg Config) error { //nolint:gocritic // hugeParam: as New
 		return fmt.Errorf("account: Config.FailureKey is %d bytes, want %d", len(cfg.FailureKey), failureKeySize)
 	}
 	if err := validateScopes(cfg.AdminScope, cfg.ManageUsersScope, cfg.CreateKeysScope); err != nil {
+		return err
+	}
+	if err := cfg.TOTP.validate(); err != nil {
 		return err
 	}
 	if cfg.CleanupInterval < 0 {
@@ -273,16 +300,17 @@ func (s *Service) recentAuth(r Rules, p access.Principal) error { //nolint:gocri
 	return access.RequireRecentAuth(p, r.RecentAuth, s.now())
 }
 
-// RequireAdminScope admits p to the admin-scope operations: nil for a full
-// session, or for a principal the built-in API-key verifier produced
-// (access.Principal.IsAPIKey) carrying Config.AdminScope when that is set.
-// Otherwise ErrSessionRequired for a recovery session or when AdminScope is
-// empty, and ErrScopeRequired.
-func (s *Service) RequireAdminScope(p access.Principal) error { //nolint:gocritic // hugeParam: as RequireRecentAuth
+// RequireKeyScope admits p to an operation that scope opens to keys beside
+// every session: nil for a session, or for a principal the built-in API-key
+// verifier produced (access.Principal.IsAPIKey) carrying scope when scope is
+// non-empty. Otherwise ErrSessionRequired when scope is empty, and
+// ErrScopeRequired. It reads the request's principal only: the operation it
+// guards re-reads a key's authority inside its transaction.
+func (s *Service) RequireKeyScope(p access.Principal, scope string) error { //nolint:gocritic // hugeParam: as RequireRecentAuth
 	if s.closed.Load() {
 		return ErrServiceClosed
 	}
-	return s.admitKey(p, s.adminScope, func() error { return nil })
+	return s.admitKey(p, scope, func() error { return nil })
 }
 
 // RequireKeyPermission admits p to an operation that scope opens to keys:
@@ -301,14 +329,14 @@ func (s *Service) RequireKeyPermission(p access.Principal, scope string) error {
 	return s.admitKey(p, scope, func() error { return s.recentAuth(r, p) })
 }
 
-// admitKey is the one shape of both guards: a full session gets session's
-// answer, a recovery session and an empty scope ErrSessionRequired, a key
-// carrying scope nil, and anything else ErrScopeRequired.
+// admitKey is the one shape of both guards: a session gets session's
+// answer, an empty scope ErrSessionRequired, a key carrying scope nil, and
+// anything else ErrScopeRequired.
 func (*Service) admitKey(p access.Principal, scope string, session func() error) error { //nolint:gocritic // hugeParam: as RequireRecentAuth
 	switch {
 	case p.IsSession():
 		return session()
-	case p.IsRecoverySession(), scope == "":
+	case scope == "":
 		return ErrSessionRequired
 	case p.IsAPIKey() && p.HasScope(scope):
 		return nil
@@ -350,17 +378,31 @@ func (s *Service) begin() (Rules, error) {
 	return r.withDefaults(), nil
 }
 
-// checkRules is Rules.Validate plus the one rule Validate cannot see: a
-// breach mode needs Config.Breach.
+// checkRules is Rules.Validate plus the rules Validate cannot see: a
+// breach mode needs Config.Breach, RequireSecondFactor a wired second
+// factor (Config.TOTP or Config.RP set), and the kept single-user
+// declaration refuses provisioning and registration.
 func (s *Service) checkRules(r Rules) error { //nolint:gocritic // hugeParam: as Rules.Validate
 	if err := r.Validate(); err != nil {
 		return err
 	}
-	if r.Breach != BreachOff && s.breach == nil {
+	switch {
+	case r.Breach != BreachOff && s.breach == nil:
 		return &RulesError{Field: "Breach", Reason: "a breach mode needs Config.Breach"}
+	case r.RequireSecondFactor && s.totp.Sealer == nil && s.rp == nil:
+		return &RulesError{Field: "RequireSecondFactor", Reason: "no second factor is wired: set Config.TOTP or Config.RP"}
+	case r.Provisioning.Enabled && s.singleUser:
+		return &RulesError{Field: "Provisioning", Reason: "a single-user Policy admits no provisioned account"}
+	case r.Registration != RegistrationOff && s.singleUser:
+		return &RulesError{Field: fieldRegistration, Reason: "a single-user Policy admits no registration"}
 	}
 	return nil
 }
+
+// totpOn reports whether TOTP is usable under r: wired by Config.TOTP and
+// not turned off by Rules.DisableTOTP. Every reader of a TOTP record asks
+// it, so a record reads as absent while it is false.
+func (s *Service) totpOn(r Rules) bool { return s.totp.Sealer != nil && !r.DisableTOTP } //nolint:gocritic // hugeParam: the operation's one Rules value
 
 func (s *Service) now() time.Time {
 	if s.clock != nil {

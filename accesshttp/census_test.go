@@ -33,20 +33,19 @@ const (
 	credNone credential = iota
 	credStale
 	credSession
-	credRecovery
 	credKey
 	credAgent
 	credBypass
 )
 
-// censusPrincipal is one row of §9.5's census matrix.
+// censusPrincipal is one row of the census matrix.
 type censusPrincipal struct {
 	send   func(r *http.Request)
 	name   string
 	scopes []string // a key's scopes
 	kind   credential
 	fault  access.Code // what the Authenticator refuses a fault principal with
-	recent bool        // a full session inside RecentAuth
+	recent bool        // a session inside RecentAuth
 	admin  bool        // the principal's user is an admin
 }
 
@@ -65,10 +64,6 @@ func (p *censusPrincipal) guardAnswer(d *Descriptor) access.Code {
 		return access.CodeAuthRequired
 	case credStale:
 		return access.CodeSessionExpired
-	case credRecovery:
-		if d.Class == ClassRecovery {
-			return ""
-		}
 	case credSession:
 		switch d.Class {
 		case ClassSession, ClassKeyScope:
@@ -98,7 +93,7 @@ func (p *censusPrincipal) guardAnswer(d *Descriptor) access.Code {
 // census is a handler whose operations it counts and, while stub is set,
 // stubs with fault (errStubbed when nil), over a store that counts each
 // census request's account calls. faults are principals the Authenticator
-// refuses, outside §9.5's matrix.
+// refuses, outside the matrix.
 type census struct {
 	*env
 	store      *countingStore
@@ -196,9 +191,9 @@ func newCensus(t *testing.T, set, bypass bool) *census {
 	c.createUser(t, "kim", access.RoleAdmin)
 	cookie := func(ck *http.Cookie) func(*http.Request) { return func(r *http.Request) { r.AddCookie(ck) } }
 	minted := 0
-	key := func(owner string, scopes ...string) func(*http.Request) {
+	key := func(username string, scopes ...string) func(*http.Request) {
 		minted++
-		k := c.mintKey(t, owner, account.NewKey{Label: owner + " " + strconv.Itoa(minted), Scopes: scopes})
+		k := c.mintKey(t, username, account.NewKey{Label: username + " " + strconv.Itoa(minted), Scopes: scopes})
 		return func(r *http.Request) { bearer(r, k.Plaintext) }
 	}
 	agent := func(scopes string) func(*http.Request) {
@@ -216,7 +211,6 @@ func newCensus(t *testing.T, set, bypass bool) *census {
 		{name: "full_session", kind: credSession, admin: true, send: cookie(c.storedSession(t, "root", time.Hour, 0))},
 		{name: "recent_session", kind: credSession, admin: true, recent: true, send: cookie(c.storedSession(t, "root", 0, 0))},
 		{name: "user_recent_session", kind: credSession, recent: true, send: cookie(c.storedSession(t, "alice", 0, 0))},
-		{name: "recovery_session", kind: credRecovery, send: cookie(c.recoveryCookie(t, "alice"))},
 		{name: "admin_key_admin_scope", kind: credKey, admin: true, scopes: []string{scopeAdminName}, send: key("root", scopeAdminName)},
 		{name: "admin_key_no_admin_scope", kind: credKey, admin: true, scopes: []string{"read"}, send: key("root", "read")},
 		{name: "user_key_admin_scope", kind: credKey, scopes: []string{scopeAdminName}, send: kimKey},
@@ -245,7 +239,7 @@ func (e *env) storedSession(t testing.TB, name string, authAge, activeAge time.D
 	token, hash := access.GenerateSessionToken()
 	now := time.Now()
 	s := &access.Session{
-		ID: hex.EncodeToString(randomBytes(16)), UserID: e.user(t, name).ID, TokenHash: hash, AuthMethod: access.MethodPassword, Kind: access.SessionFull,
+		ID: hex.EncodeToString(randomBytes(16)), UserID: e.user(t, name).ID, TokenHash: hash, AuthMethod: access.MethodPassword,
 		CreatedAt: now.Add(-activeAge), LastActivity: now.Add(-activeAge), AuthTime: now.Add(-authAge), Secure: true,
 	}
 	if err := e.mem.CreateSession(t.Context(), s); err != nil {
@@ -304,14 +298,14 @@ func (c *census) serve(t *testing.T, rt Route, p *censusPrincipal, body string) 
 	return w, c.errs.all()[errsBefore:], c.store.calls.Load() - callsBefore
 }
 
-// TestCensusMatrix is §9.5 "Census": every principal against every route,
+// TestCensusMatrix is the census: every principal against every route,
 // under the key scopes all empty and all set. A refused cell runs over the
 // real Service and answers its guard code with no account store call and no
 // operation called, so a guard that lets it through to account, which
 // refuses most of them with the same code and some before any store read,
 // fails. A passing cell reaches its operation, stubbed so no cell writes,
-// except on the key_scope routes, whose real policy answers admin and
-// non-admin apart.
+// except on the admin reads under AdminScope, whose real policy answers
+// admin and non-admin apart.
 func TestCensusMatrix(t *testing.T) {
 	descriptors := func(t *testing.T) {
 		e := newEnv(t, envOptions{})
@@ -324,7 +318,7 @@ func TestCensusMatrix(t *testing.T) {
 			t.Errorf("%d routes, %d specs", len(routes), len(specs))
 		}
 		for _, rt := range routes {
-			if rt.Handler == nil || !slices.Contains([]Class{ClassPublic, ClassSession, ClassRecentAuth, ClassKeyScope, ClassKeyPermission, ClassRecovery}, rt.Class) {
+			if rt.Handler == nil || !slices.Contains([]Class{ClassPublic, ClassSession, ClassRecentAuth, ClassKeyScope, ClassKeyPermission}, rt.Class) {
 				t.Errorf("%s: handler %v, class %q", rt.Name, rt.Handler != nil, rt.Class)
 			}
 			for _, typ := range []string{typeName(rt.Request), typeName(rt.Response)} {
@@ -362,7 +356,7 @@ func typeName(t reflect.Type) string {
 // cell runs one census cell.
 func (c *census) cell(t *testing.T, rt Route, p *censusPrincipal) {
 	want := p.guardAnswer(&rt.Descriptor)
-	viaPolicy := want == "" && rt.Class == ClassKeyScope
+	viaPolicy := want == "" && rt.Class == ClassKeyScope && specNamed(t, rt.Name).scope == scopeAdmin
 	c.stub.Store(want == "" && !viaPolicy)
 	defer c.stub.Store(false)
 	reachedBefore := c.reached.Load()
@@ -394,7 +388,7 @@ func (c *census) cell(t *testing.T, rt Route, p *censusPrincipal) {
 	}
 }
 
-// TestCensusUserNamingAdminRoutes is §9.5 "Census"'s policy-before-existence
+// TestCensusUserNamingAdminRoutes is the census's policy-before-existence
 // cells: a non-admin's recent session on each user-naming admin route, for
 // an existing and a missing ID with the same body, and, with the scopes
 // set, a manage_users key naming an admin, all answer auth_forbidden alike
@@ -407,7 +401,7 @@ func TestCensusUserNamingAdminRoutes(t *testing.T) {
 			root := c.user(t, "root")
 			rootID := c.userID(t, "root")
 			unchanged := jsonBody(t, UserUpdateRequest{Role: &root.Role, Enabled: &root.Enabled})
-			bodies := map[string]string{"authAdminUserUpdate": unchanged, "authAdminUserDelete": "", "authAdminRecovery": `{}`}
+			bodies := map[string]string{"authAdminUserUpdate": unchanged, "authAdminUserDelete": ""}
 			userSession := &c.principals[slices.IndexFunc(c.principals, func(p censusPrincipal) bool { return p.name == "user_recent_session" })]
 			usersKey := &c.principals[slices.IndexFunc(c.principals, func(p censusPrincipal) bool { return p.name == "admin_key_manage_users" })]
 			for name, body := range bodies {

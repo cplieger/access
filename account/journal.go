@@ -12,10 +12,12 @@ import (
 	"github.com/cplieger/access"
 )
 
-// origin is who makes a logged change and from which address.
+// origin is who makes a logged change and from which address. userAgent
+// is the anonymous client's, which an entry with no actor session shows.
 type origin struct {
-	ip    netip.Addr
-	actor Actor
+	ip        netip.Addr
+	userAgent string
+	actor     Actor
 }
 
 // by is a change a makes, from its principal's request address.
@@ -29,7 +31,7 @@ func by(a Actor) origin { //nolint:gocritic // hugeParam: as Principal
 
 // byClient is a change a makes from c's address.
 func byClient(a Actor, c Client) origin { //nolint:gocritic // hugeParam: as Principal and the request's Client
-	return origin{actor: a, ip: c.IP()}
+	return origin{actor: a, ip: c.IP(), userAgent: sanitizeUserAgent(c.UserAgent)}
 }
 
 // shown is an actor's display data, as an entry snapshots it.
@@ -43,6 +45,7 @@ type journal struct {
 	sessions map[string]shown
 	keys     map[int64]shown
 	made     *shown // the session the run created; nil for none
+	ua       string // the origin's userAgent
 	entries  []LogEntry
 }
 
@@ -58,6 +61,7 @@ func (s *Service) change(ctx context.Context, o origin, fn func(tx Tx, j *journa
 	j := &journal{s: s}
 	err := s.update(ctx, func(tx Tx) error {
 		j.reset(o.ip)
+		j.ua = o.userAgent
 		if err := j.cacheActor(ctx, tx, o.actor); err != nil {
 			return err
 		}
@@ -171,8 +175,8 @@ func (s *Service) trimLog(ctx context.Context, tx Tx, entries []LogEntry) error 
 }
 
 // snapshot is a's cached data: a named session or key by ID, not ok when
-// the run never read it, and for the zero actor the run's created session.
-// Any other actor has none.
+// the run never read it, and for the zero actor the run's created session,
+// else the anonymous client's user agent. Any other actor has none.
 func (j *journal) snapshot(a EventActor) (shown, bool) {
 	switch {
 	case a.SessionID != "":
@@ -183,6 +187,8 @@ func (j *journal) snapshot(a EventActor) (shown, bool) {
 		return sh, ok
 	case a == EventActor{} && j.made != nil:
 		return *j.made, true
+	case a == EventActor{}:
+		return shown{userAgent: j.ua}, true
 	default:
 		return shown{}, true
 	}

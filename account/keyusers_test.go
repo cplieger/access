@@ -27,7 +27,7 @@ func attributionsOf(t testing.TB, f *fixture, userID int64) []access.KeyAttribut
 func (w *adminWorld) key(t *testing.T, in account.NewKey) minted {
 	t.Helper()
 	m := w.f.mint(t, account.As(w.pr), w.root.ID, in)
-	w.pr = w.f.sessionPrincipal(t, w.root, access.SessionFull, time.Now())
+	w.pr = w.f.sessionPrincipal(t, w.root, time.Now())
 	return m
 }
 
@@ -71,9 +71,6 @@ func TestKeyManagesUsers(t *testing.T) {
 	if _, err := w.f.svc.CreateInvite(ctx, k.p, access.RoleUser, 0); err != nil {
 		t.Errorf("CreateInvite from the key = %v", err)
 	}
-	if _, err := w.f.svc.IssueRecovery(ctx, account.As(k.p), w.alice.ID, 0); err != nil {
-		t.Errorf("IssueRecovery from the key = %v", err)
-	}
 	if err := w.f.svc.RevokeAPIKey(ctx, w.pr, k.key.ID); err != nil {
 		t.Fatalf("RevokeAPIKey = %v", err)
 	}
@@ -104,10 +101,6 @@ func TestKeyManagesUsers(t *testing.T) {
 				_, err := f.svc.CreateInvite(t.Context(), kp, access.RoleUser, 0)
 				return err
 			},
-			"IssueRecovery": func() error {
-				_, err := f.svc.IssueRecovery(t.Context(), account.As(kp), target.ID, 0)
-				return err
-			},
 		} {
 			if err := op(); !errors.Is(err, account.ErrSessionRequired) {
 				t.Errorf("%s from a key with ManageUsersScope empty = %v, want ErrSessionRequired", name, err)
@@ -126,10 +119,14 @@ func TestKeyManagesUsers(t *testing.T) {
 // allowAll is a Policy that allows every decision.
 type allowAll struct{}
 
+func (allowAll) SingleUser() bool { return false }
+
 func (allowAll) Authorize(context.Context, account.Decision) error { return nil }
 
 // refuseAll is a Policy that refuses every decision.
 type refuseAll struct{}
+
+func (refuseAll) SingleUser() bool { return false }
 
 func (refuseAll) Authorize(_ context.Context, d account.Decision) error {
 	return &account.PolicyError{Op: d.Op, Reason: "refuse_all"}
@@ -183,15 +180,11 @@ func TestKeyNoAdminTarget(t *testing.T) {
 					_, err := w.f.svc.CreateInvite(ctx, k.p, tc.role, 0)
 					return err
 				},
-				"IssueRecovery": func() error {
-					_, err := w.f.svc.IssueRecovery(ctx, account.As(k.p), high.ID, 0)
-					return err
-				},
 			}
 			wantOp := map[string]account.Operation{
 				"CreateUser": account.OpCreateUser, "UpdateUser_promote": account.OpSetRole, "UpdateUser_demote": account.OpSetRole,
 				"UpdateUser_disable": account.OpSetEnabled, "UpdateUser_enable": account.OpSetEnabled,
-				"DeleteUser": account.OpDeleteUser, "CreateInvite": account.OpInvite, "IssueRecovery": account.OpIssueRecovery,
+				"DeleteUser": account.OpDeleteUser, "CreateInvite": account.OpInvite,
 			}
 			for name, op := range ops {
 				w.fs.resetRecord()
@@ -226,13 +219,9 @@ func TestKeyNoAdminTarget(t *testing.T) {
 					_, err := w.f.svc.CreateInvite(ctx, k.p, access.RoleUser, 0)
 					return err
 				},
-				"IssueRecovery": func() error {
-					_, err := w.f.svc.IssueRecovery(ctx, account.As(k.p), w.alice.ID, 0)
-					return err
-				},
 				"DeleteUser": func() error { return w.f.svc.DeleteUser(ctx, k.p, w.alice.ID) },
 			}
-			for _, name := range []string{"CreateUser", "UpdateUser", "CreateInvite", "IssueRecovery", "DeleteUser"} {
+			for _, name := range []string{"CreateUser", "UpdateUser", "CreateInvite", "DeleteUser"} {
 				if err := ok[name](); err != nil {
 					t.Errorf("%s on a RoleUser = %v, want nil", name, err)
 				}
@@ -265,10 +254,6 @@ func TestKeyNoAdminTarget(t *testing.T) {
 					return err
 				},
 				"DeleteUser": func(id int64) error { return svc.DeleteUser(t.Context(), k.p, id) },
-				"IssueRecovery": func(id int64) error {
-					_, err := svc.IssueRecovery(t.Context(), account.As(k.p), id, 0)
-					return err
-				},
 			} {
 				existing, gone := op(high.ID), op(9999)
 				if reason(existing) != tc.existing || reason(gone) != tc.gone {
@@ -291,7 +276,7 @@ func TestKeyChainStaysUser(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateUser from the key = %v", err)
 		}
-		in, err := w.f.svc.PasswordLogin(t.Context(), localClient, account.Credentials{Username: "uma", Password: access.NewSecret(goodPassword)})
+		in, err := completed(w.f.svc.PasswordLogin(t.Context(), localClient, account.Credentials{Username: "uma", Password: access.NewSecret(goodPassword)}))
 		if err != nil {
 			t.Fatalf("PasswordLogin(uma) = %v", err)
 		}
@@ -330,7 +315,7 @@ func TestKeyChainStaysUser(t *testing.T) {
 		_, refusals["CreateUser"] = w.f.svc.CreateUser(t.Context(), account.As(k2), account.NewUser{Username: "more"})
 		_, refusals["UpdateUser"] = w.f.svc.UpdateUser(t.Context(), k2, w.alice.ID, account.UserChange{Enabled: new(false)})
 		refusals["RevokeAnyAPIKey"] = w.f.svc.RevokeAnyAPIKey(t.Context(), account.As(k2), k.key.ID)
-		refusals["RequireAdminScope"] = w.f.svc.RequireAdminScope(k2)
+		refusals["RequireKeyScope"] = w.f.svc.RequireKeyScope(k2, scopeAdmin)
 		for name, err := range refusals {
 			if !errors.Is(err, account.ErrScopeRequired) {
 				t.Errorf("%s from uma's key = %v, want ErrScopeRequired: a RoleUser's key carries no permission", name, err)
@@ -432,10 +417,6 @@ func TestKeyAttributionWrites(t *testing.T) {
 			_, err := w.f.svc.CreateInvite(ctx, k.p, access.RoleUser, 0)
 			return err
 		},
-		"IssueRecovery_from_K": func() error {
-			_, err := w.f.svc.IssueRecovery(ctx, account.As(k.p), u.ID, 0)
-			return err
-		},
 		"CreateAPIKey_from_root": func() error {
 			_, err := w.f.svc.CreateAPIKey(ctx, account.As(root.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 			return err
@@ -518,8 +499,8 @@ func TestKeyAttributionWrites(t *testing.T) {
 func TestUsersAttributedToKey(t *testing.T) {
 	t.Parallel()
 	w := newAdminWorld(t, options{}, nil)
-	boss := mustUser(t, w.f.mem, "boss", access.RoleAdmin)
-	bp := w.f.sessionPrincipal(t, boss, access.SessionFull, time.Now())
+	boss := mustOwner(t, w.f.mem, "boss")
+	bp := w.f.sessionPrincipal(t, boss, time.Now())
 	k := w.key(t, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
 	k2 := w.f.mint(t, account.As(k.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
 	k3 := w.f.mint(t, account.As(k2.p), w.root.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
@@ -577,12 +558,12 @@ func TestUsersAttributedToKey(t *testing.T) {
 		t.Errorf("unfiltered Users = %d rows, want every user", len(all))
 	}
 	if err := w.f.svc.DeleteUser(ctx, bp, w.root.ID); err != nil {
-		t.Fatalf("DeleteUser(K's owner) = %v", err)
+		t.Fatalf("DeleteUser(K's user) = %v", err)
 	}
 	if _, err := w.f.svc.UpdateUser(ctx, bp, u1.ID, account.UserChange{Enabled: new(false)}); err != nil {
 		t.Fatalf("disable u1 = %v", err)
 	}
-	filters("after the owner's deletion and u1's disable")
+	filters("after K's user's deletion and u1's disable")
 	before := len(attributionsOf(t, w.f, u1.ID))
 	if err := w.f.svc.DeleteUser(ctx, bp, u2.ID); err != nil {
 		t.Fatalf("DeleteUser(u2) = %v", err)

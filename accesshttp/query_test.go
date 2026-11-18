@@ -40,8 +40,6 @@ func TestQueryDecode(t *testing.T) {
 		{"mediation_conditional", "authLoginPasskeyBegin", "mediation=conditional", PasskeyBeginQuery{Mediation: "conditional"}},
 		{"mediation_absent", "authLoginPasskeyBegin", "", PasskeyBeginQuery{}},
 		{"unknown_key_ignored", "authLoginPasskeyBegin", "iss=x&mediation=conditional", PasskeyBeginQuery{Mediation: "conditional"}},
-		{"keep_both", "authRecoveryPasskeyFinish", "keep_sessions=true&keep_keys=true", RecoveryPasskeyFinishQuery{KeepSessions: true, KeepKeys: true}},
-		{"keep_absent", "authRecoveryPasskeyFinish", "", RecoveryPasskeyFinishQuery{}},
 		{"key", "authAdminUsers", "key=42", AdminUsersQuery{Key: 42}},
 		{"key_absent", "authAdminUsers", "other=1", AdminUsersQuery{}},
 		{"signin_redirect", "authOIDCStartSignIn", "redirect=%2Fsettings%3Ftab%3D1", OIDCSignInQuery{Redirect: "/settings?tab=1"}},
@@ -70,8 +68,6 @@ func TestQueryDecode(t *testing.T) {
 	}{
 		{"mediation_other", "authLoginPasskeyBegin", "mediation=x", "mediation"},
 		{"mediation_repeated", "authLoginPasskeyBegin", "mediation=conditional&mediation=conditional", "mediation"},
-		{"keep_keys_one", "authRecoveryPasskeyFinish", "keep_keys=1", "keep_keys"},
-		{"keep_sessions_false", "authRecoveryPasskeyFinish", "keep_sessions=false", "keep_sessions"},
 		{"key_zero", "authAdminUsers", "key=0", "key"},
 		{"key_negative", "authAdminUsers", "key=-1", "key"},
 		{"key_text", "authAdminUsers", "key=x", "key"},
@@ -85,7 +81,6 @@ func TestQueryDecode(t *testing.T) {
 		{"key_escaped_and_plain", "authAdminUsers", "%6Bey=1&key=2", "key"},
 		{"key_escaped_malformed", "authAdminUsers", "%6Bey=%ZZ", "key"},
 		{"mediation_malformed_escape", "authLoginPasskeyBegin", "mediation=%ZZ", "mediation"},
-		{"keep_keys_malformed_escape", "authRecoveryPasskeyFinish", "keep_keys=%ZZ", "keep_keys"},
 	}
 	for _, tc := range refused {
 		t.Run(tc.name, func(t *testing.T) {
@@ -98,7 +93,7 @@ func TestQueryDecode(t *testing.T) {
 }
 
 func TestTokenOnlyInQueryRefused(t *testing.T) {
-	for _, name := range []string{"authSetupPassword", "authSetupPasskeyBegin", "authRecoveryStart", "authInviteAcceptPassword"} {
+	for _, name := range []string{"authSetupPassword", "authSetupPasskeyBegin", "authInviteAcceptPassword", "authInviteAcceptOIDC"} {
 		for _, query := range []string{"token=abc", "token=%ZZ", "%74oken=abc", "x=1;token=abc", "token"} {
 			t.Run(name+"_"+query, func(t *testing.T) {
 				if _, err := decodeOn(t, name, query); refusedKey(err) != "token_in_query" {
@@ -109,8 +104,8 @@ func TestTokenOnlyInQueryRefused(t *testing.T) {
 	}
 	t.Run("through_the_route", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
-		rt := e.route(t, "authRecoveryStart")
-		r := request(rt, `{"token":"abc"}`)
+		rt := e.route(t, "authInviteAcceptPassword")
+		r := request(rt, `{"token":"abc","username":"bob","password":"pw"}`)
 		r.URL.RawQuery = "token=abc"
 		w := do(rt, r)
 		errs := e.errs.all()

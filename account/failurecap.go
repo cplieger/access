@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cplieger/access"
+	"github.com/cplieger/access/internal/crockford"
 	"github.com/cplieger/access/internal/failreason"
 	"github.com/cplieger/access/ratelimit"
 )
@@ -44,19 +45,30 @@ const untrustedRetry = time.Second
 // carries the durable count's result into the comparison and the success
 // Update.
 type passwordAttempt struct {
-	res *ratelimit.Reservation
+	// lockedAt is the LockedAt this attempt's own count set; zero when its
+	// count set no lock.
+	lockedAt time.Time
 	// user is the name's user as the count Update read it; nil when no user
 	// has the name.
 	user     *access.User
 	verified access.Hash // the stored hash the comparison verified
 	rehash   access.Hash // the new hash at the hasher's parameters; zero for none
-	// lockedAt is the LockedAt this attempt's own count set; zero when its
-	// count set no lock.
-	lockedAt time.Time
+	res      *ratelimit.Reservation
 	ref      FailureRef
+	// temporary is user's live temporary password as the count read it, and
+	// viaTemporary whether the compare verified it rather than PasswordHash.
+	temporary access.TemporaryPassword
 	// replaces is set when the success Update replaces or removes the hash,
 	// so a rehash of the verified password would be derived for nothing.
 	replaces bool
+	// dormant is the stored SSO mode keeping user's local methods dormant
+	// at the count, which refuses the success Update and so its rehash.
+	dormant bool
+	// signIn marks a password sign-in's step 1, which compares a live
+	// temporary password before PasswordHash, and under passwordOff only
+	// it; no other check reads the record.
+	signIn, passwordOff    bool
+	liveTemp, viaTemporary bool
 }
 
 // newAttempt names res's record for canonical: the password's record in
@@ -83,14 +95,10 @@ func (s *Service) verifyCounted(ctx context.Context, a *passwordAttempt, canonic
 		a.res.Fail()
 		return err
 	}
-	var hash access.Hash // the zero hash fails at full cost: every arm derives once
-	if u := a.user; u != nil && u.Enabled && !lockedBefore {
-		hash = u.PasswordHash
-	}
+	hash, text, viaTemporary := a.compared(lockedBefore, password)
 	if s.hooks.beforeVerify != nil {
 		s.hooks.beforeVerify(ctx)
 	}
-	text := password.Reveal()
 	ok, needsRehash, err := permit.Verify(text, hash)
 	switch {
 	case errors.Is(err, access.ErrHashBusy):
@@ -107,14 +115,32 @@ func (s *Service) verifyCounted(ctx context.Context, a *passwordAttempt, canonic
 		a.res.Fail()
 		return ErrInvalidCredentials
 	}
-	a.verified = hash
+	a.verified, a.viaTemporary = hash, viaTemporary
 	if s.hooks.afterVerify != nil {
 		s.hooks.afterVerify(ctx)
 	}
-	if needsRehash {
+	if needsRehash && !a.dormant && !viaTemporary {
 		s.rehash(ctx, a, text)
 	}
 	return nil
+}
+
+// compared is the one hash a's compare verifies, with the text it
+// verifies: a live temporary password's, against password in its normalised
+// form; else PasswordHash unless passwordOff, password as typed; else the
+// zero hash, which fails at full cost so every arm derives once.
+func (a *passwordAttempt) compared(lockedBefore bool, password access.Secret) (hash access.Hash, text string, viaTemporary bool) {
+	text = password.Reveal()
+	u := a.user
+	switch {
+	case u == nil || !u.Enabled || lockedBefore:
+		return access.Hash{}, text, false
+	case a.liveTemp:
+		return a.temporary.Hash, crockford.Normalize(text), true
+	case a.passwordOff:
+		return access.Hash{}, text, false
+	}
+	return u.PasswordHash, text, false
 }
 
 // rehash derives a's verified password at the hasher's parameters for the
@@ -157,19 +183,31 @@ func (s *Service) admitCount(ctx context.Context, res *ratelimit.Reservation, sl
 		}
 		permit.Release()
 		res.Cancel()
-		return nil, fmt.Errorf("%w: %w", access.ErrHashBusy, ctxErr)
+		return nil, busy(ctxErr)
 	}
 	return permit, nil
 }
 
-// count is one Update reading the name's user and a's record,
-// adding one, locking at FailureCap, and writing the record, the same
-// calls whether or not a user has the name. It reports whether the record
-// was already locked.
+// busy is a counted attempt ctx ended before its compare: access.ErrHashBusy
+// carrying ctx's error, as a wait for the hash budget answers.
+func busy(ctxErr error) error { return fmt.Errorf("%w: %w", access.ErrHashBusy, ctxErr) }
+
+// count is one Update reading the name's user, the stored SSO mode, at a
+// sign-in the user's temporary password, and a's record, adding one,
+// locking at FailureCap, and writing the record, the same calls whether or
+// not a user has the name. It reports whether the record was already locked.
 func (s *Service) count(ctx context.Context, a *passwordAttempt, canonical string) (lockedBefore bool, err error) {
 	err = s.update(ctx, func(tx Tx) error {
-		a.user, a.lockedAt, lockedBefore = nil, time.Time{}, false
+		a.user, a.lockedAt, a.dormant, lockedBefore = nil, time.Time{}, false, false
+		a.temporary, a.liveTemp = access.TemporaryPassword{}, false
 		u, found, readErr := tx.UserByUsername(ctx, canonical)
+		if readErr != nil {
+			return readErr
+		}
+		if tempErr := s.readTemporary(ctx, tx, a, u, found); tempErr != nil {
+			return tempErr
+		}
+		mode, readErr := storedMode(ctx, tx)
 		if readErr != nil {
 			return readErr
 		}
@@ -185,59 +223,73 @@ func (s *Service) count(ctx context.Context, a *passwordAttempt, canonical strin
 			a.lockedAt = rec.LockedAt
 		}
 		if found {
-			a.user = u
+			a.user, a.dormant = u, mode.dormantFor(u)
 		}
 		return tx.PutAuthFailure(ctx, rec)
 	})
 	return lockedBefore, err
 }
 
-// resetFailures runs inside the success Update: of the password's two
-// records of a's name, one that is not locked goes, a locked one keeps its
-// lock at Count 0, and the lock a's own count set goes too, since a's
-// attempt was no failure. LockedAt, stamped at the millisecond, is that
-// lock's identity. It reports whether the lock had been reported, which the
-// caller follows with EventMethodReenabled.
-func resetFailures(ctx context.Context, tx Tx, a *passwordAttempt) (bool, error) {
-	var keep []FailureCount
-	found, reenabled := false, false
-	for _, trusted := range []bool{false, true} {
-		rec, ok, readErr := tx.AuthFailure(ctx, FailureRef{Name: a.ref.Name, Method: access.MethodPassword, Trusted: trusted})
-		if readErr != nil {
-			return false, readErr
-		}
-		if !ok {
-			continue
-		}
-		found = true
-		own := trusted == a.ref.Trusted && rec.Locked && !a.lockedAt.IsZero() && rec.LockedAt.Equal(a.lockedAt)
-		switch {
-		case own:
-			reenabled = !rec.Unreported
-		case rec.Locked:
-			rec.Count = 0
-			keep = append(keep, rec)
-		}
+// readTemporary reads, at a sign-in, the live temporary password of the
+// name's user u, user ID 0 when found is false, so an unknown name costs the
+// same read.
+func (s *Service) readTemporary(ctx context.Context, tx Tx, a *passwordAttempt, u *access.User, found bool) error {
+	if !a.signIn {
+		return nil
 	}
-	if !found {
-		return false, nil
+	var id int64
+	if found {
+		id = u.ID
 	}
-	if err := tx.DeleteAuthFailures(ctx, a.ref.Name, []access.Method{access.MethodPassword}); err != nil {
+	rec, held, err := tx.TemporaryPasswordByUserID(ctx, id)
+	if err != nil {
+		return err
+	}
+	a.temporary, a.liveTemp = rec, held && rec.ExpiresAt.After(s.now())
+	return nil
+}
+
+// resetFailures is every counted method's reset, inside a correct secret's
+// success Update. It touches ref's record alone, so a success never resets
+// the other trust context's count (OWASP, "Slow Down Online Guessing
+// Attacks with Device Cookies"). The record goes when unlocked or locked at
+// lockedAt, the LockedAt the step's own count stamped; another attempt's
+// lock stays, at Count 0. It reports an own lock the sweep had reported,
+// which the caller journals through addReenabled.
+func resetFailures(ctx context.Context, tx Tx, ref FailureRef, lockedAt time.Time) (reenabled bool, err error) {
+	rec, found, err := tx.AuthFailure(ctx, ref)
+	switch {
+	case err != nil || !found:
 		return false, err
+	case rec.Locked && (lockedAt.IsZero() || !rec.LockedAt.Equal(lockedAt)):
+		rec.FailureRef, rec.Count = ref, 0
+		return false, tx.PutAuthFailure(ctx, rec)
 	}
-	for i := range keep {
-		if err := tx.PutAuthFailure(ctx, keep[i]); err != nil {
-			return false, err
-		}
+	return rec.Locked && !rec.Unreported, tx.DeleteAuthFailure(ctx, ref)
+}
+
+// addReenabled journals, when reenabled, the EventMethodReenabled of the
+// reported lock resetFailures cleared from ref, by actor at at.
+func (j *journal) addReenabled(reenabled bool, ref FailureRef, at time.Time, actor EventActor) {
+	if reenabled {
+		j.add(Event{Kind: EventMethodReenabled, At: at, UserID: actor.UserID, Method: ref.Method, Trusted: ref.Trusted, Actor: actor})
 	}
-	return reenabled, nil
+}
+
+// signInActor is the time and actor of an entry a sign-in journals for u:
+// its session sess, or u alone at now when no session was written.
+func (s *Service) signInActor(u *access.User, sess *access.Session) (time.Time, EventActor) {
+	if sess == nil {
+		return s.now(), EventActor{UserID: u.ID}
+	}
+	return sess.CreatedAt, EventActor{UserID: u.ID, SessionID: sess.ID}
 }
 
 // commitVerified is the head of every verified password's success Update:
 // it goes on only while a's user is still stored, enabled and holding the
 // verified hash (else ErrInvalidCredentials, writing nothing), writes the
-// rehash, and resets the records. It returns the user as stored and resetFailures'
-// answer.
+// rehash, and runs resetFailures on a's record. It returns the user as
+// stored and resetFailures' answer.
 func commitVerified(ctx context.Context, tx Tx, a *passwordAttempt) (*access.User, bool, error) {
 	u, found, err := tx.UserByID(ctx, a.user.ID)
 	switch {
@@ -252,7 +304,7 @@ func commitVerified(ctx context.Context, tx Tx, a *passwordAttempt) (*access.Use
 			return nil, false, updateErr
 		}
 	}
-	reenabled, err := resetFailures(ctx, tx, a)
+	reenabled, err := resetFailures(ctx, tx, a.ref, a.lockedAt)
 	if err != nil {
 		return nil, false, err
 	}

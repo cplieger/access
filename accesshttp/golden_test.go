@@ -36,8 +36,6 @@ const wireDir = "../web/testdata/wire"
 // browser sends or receives it.
 type fixture struct {
 	value any
-	// shown is the plaintext writeShownOnce puts in a show-once response.
-	shown access.Secret
 	name  string
 	// absent is the JSON key a variant leaves out; such a variant is not a
 	// type's main fixture and is not walked for zero fields.
@@ -54,8 +52,11 @@ var (
 
 func goldenUser() UserView {
 	return UserView{
-		ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleUser, Enabled: true, OIDCLinked: true,
-		CreatedAt: goldenTime, KeyLineage: []int64{3, 5}, Methods: &UserMethodsView{Password: true, PasskeyCount: 2},
+		ID: 7, Username: "alice", DisplayName: "Alice", Role: access.RoleAdmin, Enabled: true, OIDCLinked: true, Owner: true,
+		CreatedAt: goldenTime, KeyLineage: []int64{3, 5}, Methods: &UserMethodsView{
+			Password: true, PasskeyCount: 2, LocalMethodsDormant: true, RoleFromProvider: true, TOTP: true, WaitingApproval: true,
+			TemporaryPassword: &TemporaryPasswordView{ExpiresAt: goldenLater},
+		},
 	}
 }
 
@@ -63,15 +64,23 @@ func goldenMethods() MethodsView {
 	return MethodsView{
 		Locks:    []MethodLockView{{Method: access.MethodPassword, Untrusted: true, Trusted: true}},
 		Password: true, PasskeyCount: 1, OIDCLinked: true, OIDCAvailable: true, PasskeysAvailable: true, PasswordLogin: true,
+		SecondFactorHeld: true, PasswordStepUp: true, RecoveryCode: true,
+		TOTP: TOTPView{Since: goldenTime, Enrolled: true, Usable: true, Removable: true},
 	}
 }
 
 func goldenKey() KeyView {
 	return KeyView{
-		ID: 5, UserID: 7, Owner: "alice", Label: "ci", Prefix: "ak_7", Suffix: "wxyz", Scopes: []string{"read"},
+		ID: 5, UserID: 7, Username: "alice", Label: "ci", Prefix: "ak_7", Suffix: "wxyz", Scopes: []string{"read"},
 		CreatedAt: goldenTime, ExpiresAt: goldenLater, LastUsedAt: goldenTime, PreviousUntil: goldenLater, ParentKeyID: 3,
 	}
 }
+
+// goldenAssertion is a passkey assertion in the browser's credential JSON
+// (WebAuthn Level 3 §5.1 toJSON), as the client sends one in a proof.
+const goldenAssertion = `{"id":"Y3JlZA","rawId":"Y3JlZA","type":"public-key","authenticatorAttachment":"platform",` +
+	`"response":{"authenticatorData":"YXV0aA","clientDataJSON":"Y2xpZW50","signature":"c2ln","userHandle":"aGFuZGxl"},` +
+	`"clientExtensionResults":{}}`
 
 // fixtures is every wire file the tests write, request fixtures first.
 func fixtures() []fixture {
@@ -86,10 +95,17 @@ func fixtures() []fixture {
 		{name: "SetupPasswordRequest.noToken", absent: "token", request: true, value: SetupPasswordRequest{Username: "owner", Password: "fixture-password"}},
 		{name: "SetupPasskeyBeginRequest", request: true, value: SetupPasskeyBeginRequest{Token: "fixture-setup-token", Username: "owner"}},
 		{name: "SetupPasskeyBeginRequest.noToken", absent: "token", request: true, value: SetupPasskeyBeginRequest{Username: "owner"}},
+		{name: "CodeRequest", request: true, value: CodeRequest{Ticket: "fixture-ticket", Code: "123456"}},
+		{name: "TicketRequest", request: true, value: TicketRequest{Ticket: "fixture-ticket"}},
+		{name: "SetPasswordRequest", request: true, value: SetPasswordRequest{Ticket: "fixture-ticket", Password: "fixture-password"}},
+		{name: "PendingLinkByAdminRequest", request: true, value: PendingLinkByAdminRequest{Username: "alice", TemporaryPassword: "fixture-temporary-password"}},
+		{name: "StepUpCodeRequest", request: true, value: StepUpCodeRequest{Code: "123456"}},
+		{name: "TOTPFinishRequest", request: true, value: TOTPFinishRequest{Ticket: "fixture-ticket", Code: "123456", CurrentCode: "654321"}},
+		{name: "TOTPFinishRequest.noCurrent", absent: "current_code", request: true, value: TOTPFinishRequest{Ticket: "fixture-ticket", Code: "123456"}},
+		{name: "SecondFactorProof", request: true, value: SecondFactorProof{Code: "123456"}},
+		{name: "SecondFactorProof.passkey", request: true, value: SecondFactorProof{Ceremony: "c1", Assertion: json.RawMessage(goldenAssertion)}},
 		{name: "LoginRequest", request: true, value: LoginRequest{Username: "alice", Password: "fixture-password"}},
 		{name: "RedirectRequest", request: true, value: RedirectRequest{Redirect: "/settings"}},
-		{name: "TokenRequest", request: true, value: TokenRequest{Token: "fixture-recovery-token"}},
-		{name: "RecoverPasswordRequest", request: true, value: RecoverPasswordRequest{Password: "fixture-password", KeepSessions: true, KeepKeys: true}},
 		{name: "InviteAcceptRequest", request: true, value: InviteAcceptRequest{Token: "fixture-invite-token", Username: "bob", Password: "fixture-password"}},
 		{name: "ProfileRequest", request: true, value: ProfileRequest{DisplayName: "Alice"}},
 		{name: "PasswordRequest", request: true, value: PasswordRequest{Password: "fixture-password"}},
@@ -101,44 +117,85 @@ func fixtures() []fixture {
 		{name: "NewUserRequest", request: true, value: NewUserRequest{Username: "bob", Password: "fixture-password", Role: access.RoleUser}},
 		{name: "NewUserRequest.noPassword", absent: "password", request: true, value: NewUserRequest{Username: "bob", Role: access.RoleUser}},
 		{name: "UserUpdateRequest", request: true, value: UserUpdateRequest{Role: &goldenRole, Enabled: &goldenTrue}},
-		{name: "TTLRequest", request: true, value: TTLRequest{Hours: 24}},
+		{name: "OwnerRequest", request: true, value: OwnerRequest{Owner: true}},
+		{name: "PendingCreateRequest", request: true, value: PendingCreateRequest{Username: "alice_2"}},
+		{name: "TokenRequest", request: true, value: TokenRequest{Token: "fixture-invite-token"}},
+		{name: "SSORequest", request: true, value: SSORequest{Mode: account.SSONameForLinked}},
 		{name: "InviteRequest", request: true, value: InviteRequest{Role: access.RoleUser, Hours: 72}},
+		{name: "TemporaryPasswordOptions", request: true, value: TemporaryPasswordOptions{TTLHours: 48, RevokePasskeys: true, KeepKeys: true}},
 
 		{name: "StateResponse", value: StateResponse{
 			SetupRequired: true, PasswordLogin: true, Passkeys: true, OIDC: true, Secure: true, PlainSession: &PlainSessionView{IdleSeconds: 1800, AbsoluteSeconds: 43200},
 			HTTPSRequired: []account.HTTPSFeature{account.HTTPSPasskeys, account.HTTPSOIDC}, HTTPSOrigin: "https://app.example.com",
+			SSO: account.SSONameForLinked, TOTP: true, TemporaryPasswordHTTPSOnly: true, Registration: account.RegistrationNameApproval,
+			PasswordLength: PasswordLengthView{Min: 15, Max: 128},
 		}},
-		{name: "SignedInResponse", value: SignedInResponse{SessionID: "s1", User: goldenUser(), CloneWarning: true}},
+		{name: "Readiness", value: Readiness{
+			Refusal:   &ReadinessRefusal{Code: access.CodeForbidden, Reason: account.ReasonOwnerNeedsLocalMethod},
+			LockedOut: 3, MethodsMadeDormant: 5, MethodsRestored: 4, TemporaryPasswordsWithdrawn: 2,
+		}},
+		{name: "SignedInResponse", value: SignedInResponse{SessionID: "s1", User: goldenUser(), RecoveryCode: "ABCD-EFGH-JKMN-PQRS", CloneWarning: true}},
+		{name: "SignedInResponse.noCode", absent: "recovery_code", value: SignedInResponse{SessionID: "s1", User: goldenUser()}},
+		{name: "SignInOutcome", value: SignInOutcome{SignedIn: &SignedInResponse{SessionID: "s1", User: goldenUser(), RecoveryCode: "ABCD-EFGH-JKMN-PQRS", CloneWarning: true}}},
+		{name: "SignInOutcome.pending", value: SignInOutcome{Pending: &Pending{
+			Ticket: "fixture-ticket", Next: account.NextEnrol, Methods: []PendingMethod{PendingTOTP, PendingPasskey, PendingRecoveryCode, PendingPassword}, Recovered: true,
+		}}},
+		{name: "EnrolmentOutcome", value: EnrolmentOutcome{SignedIn: &SignedInResponse{SessionID: "s1", User: goldenUser(), RecoveryCode: "ABCD-EFGH-JKMN-PQRS", CloneWarning: true}}},
+		{name: "EnrolmentOutcome.waiting", value: EnrolmentOutcome{WaitingApproval: true, RecoveryCode: "ABCD-EFGH-JKMN-PQRS"}},
+		{name: "RegistrationOutcome", value: RegistrationOutcome{SignedIn: &SignedInResponse{SessionID: "s1", User: goldenUser(), RecoveryCode: "ABCD-EFGH-JKMN-PQRS", CloneWarning: true}}},
+		{name: "RegistrationOutcome.pending", value: RegistrationOutcome{Pending: &Pending{
+			Ticket: "fixture-ticket", Next: account.NextEnrol, Methods: []PendingMethod{PendingTOTP, PendingPasskey, PendingRecoveryCode, PendingPassword}, Recovered: true,
+		}}},
+		{name: "RegistrationOutcome.waiting", value: RegistrationOutcome{WaitingApproval: true}},
+		{name: "RegisterPasswordRequest", value: RegisterPasswordRequest{Username: "alice", Password: "correct horse battery"}},
+		{name: "RegisterPasskeyBeginRequest", value: RegisterPasskeyBeginRequest{Username: "alice"}},
+		{name: "PendingTOTPBeginResponse", value: PendingTOTPBeginResponse{URI: "otpauth://totp/Example:alice?secret=GEZDGNBVGY3TQOJQ&issuer=Example&algorithm=SHA1&digits=6&period=30", Text: "GEZDGNBVGY3TQOJQ"}},
 		{name: "CeremonyResponse", value: CeremonyResponse{Ceremony: "c1", PublicKey: json.RawMessage(`{"publicKey":{"challenge":"Y2hhbGxlbmdl"},"mediation":"conditional"}`)}},
+		{name: "TOTPBeginResponse", value: TOTPBeginResponse{URI: "otpauth://totp/Example:alice?secret=GEZDGNBVGY3TQOJQ&issuer=Example&algorithm=SHA1&digits=6&period=30", Text: "GEZDGNBVGY3TQOJQ", Ticket: "fixture-ticket"}},
+		{name: "RecoveryCodeIssuedResponse", value: RecoveryCodeIssuedResponse{RecoveryCode: "ABCD-EFGH-JKMN-PQRS"}},
+		{name: "RecoveryCodeIssuedResponse.none", absent: "recovery_code", value: RecoveryCodeIssuedResponse{}},
+		{name: "RecoveryCodeResponse", value: RecoveryCodeResponse{RecoveryCode: "ABCD-EFGH-JKMN-PQRS"}},
 		{name: "OIDCStartResponse", value: OIDCStartResponse{URL: "https://idp.example.com/authorize?state=x"}},
-		{name: "PendingLinkResponse", value: PendingLinkResponse{Issuer: "https://idp.example.com", UsernameHint: "alice", Email: "alice@example.com"}},
+		{name: "PendingLinkResponse", value: PendingLinkResponse{Issuer: "https://idp.example.com", UsernameHint: "alice", Email: "alice@example.com", CanCreate: true, SuggestedUsername: "alice_2"}},
+		{name: "PendingLinkResponse.noCreate", absent: "suggested_username", value: PendingLinkResponse{Issuer: "https://idp.example.com", UsernameHint: "alice"}},
 		{name: "MeResponse", value: MeResponse{
-			User: goldenUser(), Methods: goldenMethods(), CanLinkOIDC: true, SSOGoverned: true,
+			User: goldenUser(), Methods: goldenMethods(), CanLinkOIDC: true, SSOOnly: true, Owner: true, SingleUser: true,
 			Session: CurrentSessionView{ID: "s1", Method: access.MethodPasskey, AuthTime: goldenTime, IdleDeadline: goldenTime, AbsoluteDeadline: goldenLater, Secure: true},
 		}},
-		{name: "RecoveryResponse", value: RecoveryResponse{Username: "alice", Methods: goldenMethods()}},
 		{name: "PasskeyView", value: PasskeyView{
 			ID: 2, Name: "laptop", RPID: testRPID, CreatedAt: goldenTime, LastUsedAt: goldenLater,
-			BackupEligible: true, BackedUp: true, CloneWarning: true,
+			BackupEligible: true, BackedUp: true, CloneWarning: true, Removable: true,
 		}},
+		{name: "PasskeyRegisteredResponse", value: PasskeyRegisteredResponse{RecoveryCode: "ABCD-EFGH-JKMN-PQRS", Passkey: PasskeyView{
+			ID: 2, Name: "laptop", RPID: testRPID, CreatedAt: goldenTime, LastUsedAt: goldenLater,
+			BackupEligible: true, BackedUp: true, CloneWarning: true, Removable: true,
+		}}},
+		{name: "PasskeyRegisteredResponse.none", absent: "recovery_code", value: PasskeyRegisteredResponse{Passkey: PasskeyView{
+			ID: 2, Name: "laptop", RPID: testRPID, CreatedAt: goldenTime,
+		}}},
 		{name: "Signals", value: signals},
 		{name: "SessionView", value: SessionView{
 			ID: "s1", Label: "laptop", UserAgent: "Firefox", LastIP: "192.0.2.1", Method: access.MethodPassword, Current: true, Secure: true,
 			CreatedAt: goldenTime, LastActivity: goldenTime, AuthTime: goldenTime, IdleDeadline: goldenLater, AbsoluteDeadline: goldenLater,
 		}},
 		{name: "KeyView", value: goldenKey()},
-		{name: "KeyCreatedResponse", value: KeyCreatedResponse{Details: goldenKey()}, shown: access.NewSecret("fixture-api-key")},
+		{name: "KeyCreatedResponse", value: KeyCreatedResponse{Key: "fixture-api-key", Details: goldenKey()}},
 		{name: "UserView", value: goldenUser()},
-		{name: "TokenResponse", value: TokenResponse{ExpiresAt: goldenLater}, shown: access.NewSecret("fixture-token")},
+		{name: "TokenResponse", value: TokenResponse{ExpiresAt: goldenLater, Token: "fixture-token"}},
+		{name: "TemporaryPasswordResponse", value: TemporaryPasswordResponse{
+			ExpiresAt: goldenLater, Password: "ABCD-EFGH-JKMN-PQRS", HTTPSOrigin: "https://app.example.com", HTTPSOnly: true, Dormant: true, PasswordKept: true,
+		}},
+		{name: "TemporaryPasswordResponse.noOrigin", absent: "https_origin", value: TemporaryPasswordResponse{ExpiresAt: goldenLater, Password: "ABCD-EFGH-JKMN-PQRS"}},
 		{name: "TokenView", value: TokenView{
-			CreatedAt: goldenTime, ExpiresAt: goldenLater, Purpose: access.PurposeRecovery, Role: access.RoleUser,
-			IssuerLineage: []int64{3, 5}, Subject: 7, IssuedByKey: 5,
+			CreatedAt: goldenTime, ExpiresAt: goldenLater, Purpose: access.PurposeInvite, Role: access.RoleUser,
+			IssuerLineage: []int64{3, 5}, IssuedByKey: 5,
 		}},
 		{name: "SecurityLogView", value: SecurityLogView{
 			Entries: []LogEntryView{{
 				Seq: 42, At: goldenLater, OccurredAt: goldenTime, Class: account.LogClassChange, Kind: string(account.EventPasskeyAdded),
 				UserID: 7, IP: "192.0.2.1", SessionIDs: []string{"s1", "s2"}, KeyID: 5, PasskeyID: 2,
-				Method: access.MethodPasskey, Role: access.RoleUser, Trusted: true, Detail: "fixture-detail",
+				Method: access.MethodPasskey, Role: access.RoleUser, Trusted: true, Plain: true, Detail: "fixture-detail",
+				IssuerUserID: 8, SSOMode: account.SSONameOnly, PreviousSSOMode: account.SSONameAlongside,
 				Actor: LogActorView{
 					UserID: 7, SessionID: "s1", KeyID: 5, OutOfBand: "cli",
 					Label: "laptop", UserAgent: "Firefox", KeySuffix: "wxyz",
@@ -153,7 +210,7 @@ func fixtures() []fixture {
 }
 
 // fixtureBytes is f as it crosses the wire: a request as the client
-// encodes it, a response through the writer its handler uses.
+// encodes it, a response as writeJSON writes every success body.
 func fixtureBytes(t *testing.T, f *fixture) []byte {
 	t.Helper()
 	if f.request {
@@ -164,14 +221,7 @@ func fixtureBytes(t *testing.T, f *fixture) []byte {
 		return append(b, '\n')
 	}
 	w := httptest.NewRecorder()
-	switch v := f.value.(type) {
-	case KeyCreatedResponse:
-		writeShownOnce(w, http.StatusCreated, v, f.shown)
-	case TokenResponse:
-		writeShownOnce(w, http.StatusCreated, v, f.shown)
-	default:
-		writeJSON(w, http.StatusOK, v)
-	}
+	writeJSON(w, http.StatusOK, f.value)
 	return w.Body.Bytes()
 }
 
@@ -202,6 +252,7 @@ type wireRoute struct {
 	Path     string  `json:"path"`
 	Kind     Kind    `json:"kind"`
 	Array    bool    `json:"array"`
+	Doc      string  `json:"doc"`
 }
 
 // wireField is one JSON key of a wire type in types.json; Optional is a
@@ -216,6 +267,9 @@ type wireField struct {
 	Fields   []wireField `json:"fields,omitempty"`
 	Optional bool        `json:"optional,omitempty"`
 	Open     bool        `json:"open,omitempty"`
+	// Arm names the arm of a union type a field belongs to, the union's doc
+	// comment carrying unionDoc: exactly one arm's fields are present.
+	Arm string `json:"arm,omitempty"`
 }
 
 func wireTypeName(typ reflect.Type) *string {
@@ -240,7 +294,7 @@ func wireRoutes(t *testing.T, routes []Route) []wireRoute {
 		}
 		out = append(out, wireRoute{
 			Name: rt.Name, Method: rt.Method, Path: path, Kind: rt.Kind,
-			Request: wireTypeName(rt.Request), Response: wireTypeName(rt.Response), Array: rt.Array,
+			Request: wireTypeName(rt.Request), Response: wireTypeName(rt.Response), Array: rt.Array, Doc: rt.Doc,
 		})
 	}
 	return out
@@ -248,6 +302,7 @@ func wireRoutes(t *testing.T, routes []Route) []wireRoute {
 
 func wireFields(t *testing.T, typ reflect.Type) []wireField {
 	t.Helper()
+	union := isUnion(t, typ)
 	var out []wireField
 	for f := range typ.Fields() {
 		if !f.IsExported() {
@@ -265,6 +320,9 @@ func wireFields(t *testing.T, typ reflect.Type) []wireField {
 		}
 		optional := f.Type.Kind() == reflect.Pointer || slices.Contains(strings.Split(opts, ","), "omitempty") || slices.Contains(strings.Split(opts, ","), "omitzero")
 		row := wireField{Name: name, Optional: optional}
+		if union {
+			row.Arm = armOf(t, typ, &f, name, optional)
+		}
 		elem := f.Type
 		for elem.Kind() == reflect.Pointer || elem.Kind() == reflect.Slice {
 			elem = elem.Elem()
@@ -284,11 +342,41 @@ func wireFields(t *testing.T, typ reflect.Type) []wireField {
 // values outside its constants (types.go's Method, Role, TokenPurpose).
 const openDoc = "are app-defined"
 
-// enumValues is the values of typ's constants, read from the non-test files
-// of the package that declares it, in declaration order, and whether typ's
-// doc comment says values outside them are app-defined; nil for a named
-// string type with no constants (any string, such as webauthn.Base64URL).
-func enumValues(t *testing.T, typ reflect.Type) (values []string, open bool) {
+// unionDoc is the phrase a struct's doc comment carries when it is a union
+// of arms: each pointer field is an arm, its key its name, as in
+// SignInOutcome, and fields sharing an arm tag are one arm, as in
+// SecondFactorProof.
+const unionDoc = "exactly one arm is set"
+
+// armOf is the arm union field f, keyed name, belongs to: its arm tag, or
+// for a pointer its own key. An arm field is optional.
+func armOf(t *testing.T, typ reflect.Type, f *reflect.StructField, name string, optional bool) string {
+	t.Helper()
+	arm := f.Tag.Get("arm")
+	switch {
+	case arm == "" && f.Type.Kind() != reflect.Pointer:
+		t.Fatalf("%s.%s is in a union, neither a pointer nor tagged with its arm", typ.Name(), f.Name)
+	case arm == "":
+		arm = name
+	case !optional:
+		t.Fatalf("%s.%s is an arm field the encoder always sends", typ.Name(), f.Name)
+	}
+	return arm
+}
+
+// isUnion reports whether typ's doc comment carries unionDoc.
+func isUnion(t *testing.T, typ reflect.Type) bool {
+	t.Helper()
+	if typ.Kind() != reflect.Struct || typ.PkgPath() == "" || !strings.HasPrefix(typ.PkgPath(), "github.com/cplieger/access") {
+		return false
+	}
+	_, _, docText := typeDoc(t, typ)
+	return strings.Contains(docText, unionDoc)
+}
+
+// typeDoc parses the non-test files of the package declaring typ and
+// returns its declarations and typ's doc comment, one line.
+func typeDoc(t *testing.T, typ reflect.Type) (*token.FileSet, []*ast.GenDecl, string) {
 	t.Helper()
 	const module = "github.com/cplieger/access"
 	rel, ok := strings.CutPrefix(typ.PkgPath(), module)
@@ -301,6 +389,7 @@ func enumValues(t *testing.T, typ reflect.Type) (values []string, open bool) {
 	}
 	fset := token.NewFileSet()
 	var files []*ast.File
+	var decls []*ast.GenDecl
 	for _, name := range names {
 		if strings.HasSuffix(name, "_test.go") {
 			continue
@@ -311,13 +400,10 @@ func enumValues(t *testing.T, typ reflect.Type) (values []string, open bool) {
 		}
 		files = append(files, f)
 		for _, d := range f.Decls {
-			if g, ok := d.(*ast.GenDecl); ok && g.Tok == token.CONST {
-				values = append(values, typedConsts(t, fset, g, typ.Name())...)
+			if g, ok := d.(*ast.GenDecl); ok {
+				decls = append(decls, g)
 			}
 		}
-	}
-	if len(values) == 0 {
-		return nil, false
 	}
 	pkg, err := doc.NewFromFiles(fset, files, typ.PkgPath(), doc.PreserveAST)
 	if err != nil {
@@ -325,11 +411,29 @@ func enumValues(t *testing.T, typ reflect.Type) (values []string, open bool) {
 	}
 	for _, dt := range pkg.Types {
 		if dt.Name == typ.Name() {
-			return values, strings.Contains(strings.Join(strings.Fields(dt.Doc), " "), openDoc)
+			return fset, decls, strings.Join(strings.Fields(dt.Doc), " ")
 		}
 	}
 	t.Fatalf("%v has no type declaration in %s", typ, rel)
-	return nil, false
+	return nil, nil, ""
+}
+
+// enumValues is the values of typ's constants, read from the non-test files
+// of the package that declares it, in declaration order, and whether typ's
+// doc comment says values outside them are app-defined; nil for a named
+// string type with no constants (any string, such as webauthn.Base64URL).
+func enumValues(t *testing.T, typ reflect.Type) (values []string, open bool) {
+	t.Helper()
+	fset, decls, docText := typeDoc(t, typ)
+	for _, g := range decls {
+		if g.Tok == token.CONST {
+			values = append(values, typedConsts(t, fset, g, typ.Name())...)
+		}
+	}
+	if len(values) == 0 {
+		return nil, false
+	}
+	return values, strings.Contains(docText, openDoc)
 }
 
 // typedConsts is the values of g's constants of type typeName. A spec with
@@ -454,7 +558,7 @@ func TestGoldenWire(t *testing.T) {
 			}
 			row := rows[i]
 			path := strings.NewReplacer("{oidcPrefix}", goldenOIDCPrefix, "{prefix}", goldenPrefix).Replace(row.Path)
-			if row.Name != rt.Name || row.Method != rt.Method || path != rt.Path || row.Kind != rt.Kind || row.Array != rt.Array ||
+			if row.Name != rt.Name || row.Method != rt.Method || path != rt.Path || row.Kind != rt.Kind || row.Array != rt.Array || row.Doc != rt.Doc ||
 				!sameTypeName(row.Request, rt.Request) || !sameTypeName(row.Response, rt.Response) {
 				t.Errorf("routes.json row %d = %+v, want route %s %s %s", i, row, rt.Name, rt.Method, rt.Path)
 			}
@@ -488,8 +592,33 @@ func TestGoldenWire(t *testing.T) {
 					t.Errorf("types.json lacks %s.%s", typ.Name(), key)
 				}
 			}
+			if isUnion(t, typ) {
+				continue
+			}
 			if len(rows) != len(full) {
 				t.Errorf("types.json lists %d keys of %s, its fixture sends %d", len(rows), typ.Name(), len(full))
+			}
+		}
+	})
+	t.Run("a_fixture_per_arm", func(t *testing.T) {
+		arms := map[string]map[string]bool{}
+		for _, f := range fixtures() {
+			typ := reflect.TypeOf(f.value)
+			if !isUnion(t, typ) {
+				continue
+			}
+			if arms[typ.Name()] == nil {
+				arms[typ.Name()] = map[string]bool{}
+			}
+			for key := range jsonKeys(t, fixtureBytes(t, &f)) {
+				arms[typ.Name()][key] = true
+			}
+		}
+		for name, seen := range arms {
+			for _, f := range wireFields(t, fieldsType(t, name)) {
+				if !seen[f.Name] {
+					t.Errorf("no fixture of union %s sets its arm %s", name, f.Name)
+				}
 			}
 		}
 	})
@@ -561,9 +690,9 @@ func writeWireDir(t *testing.T, files map[string][]byte) {
 }
 
 // checkFixture decodes f's wire bytes strictly back into its type: a
-// request equals the value that wrote it, a show-once response carries its
-// plaintext, a variant lacks its absent key, and every main fixture sets
-// every field, so no omitempty key is missing from the file.
+// request equals the value that wrote it, a variant lacks its absent key,
+// and every main fixture sets every field, so no omitempty key is missing
+// from the file.
 func checkFixture(t *testing.T, f *fixture) {
 	t.Helper()
 	b := fixtureBytes(t, f)
@@ -577,16 +706,6 @@ func checkFixture(t *testing.T, f *fixture) {
 	if f.request && !reflect.DeepEqual(got.Elem().Interface(), f.value) {
 		t.Errorf("decodes to %+v, want %+v", got.Elem().Interface(), f.value)
 	}
-	switch v := got.Elem().Interface().(type) {
-	case KeyCreatedResponse:
-		if v.Key != f.shown.Reveal() {
-			t.Errorf("key %q, want the plaintext", v.Key)
-		}
-	case TokenResponse:
-		if v.Token != f.shown.Reveal() {
-			t.Errorf("token %q, want the plaintext", v.Token)
-		}
-	}
 	if f.absent != "" {
 		var keys map[string]json.RawMessage
 		if err := json.Unmarshal(b, &keys); err != nil {
@@ -597,8 +716,55 @@ func checkFixture(t *testing.T, f *fixture) {
 		}
 		return
 	}
+	if isUnion(t, typ) {
+		checkArm(t, got.Elem())
+		return
+	}
 	for _, path := range zeroFields(got.Elem(), typ.Name()) {
 		t.Errorf("%s is zero in the fixture", path)
+	}
+}
+
+// fieldsType is the fixture type named name.
+func fieldsType(t *testing.T, name string) reflect.Type {
+	t.Helper()
+	for _, f := range fixtures() {
+		if typ := reflect.TypeOf(f.value); typ.Name() == name {
+			return typ
+		}
+	}
+	t.Fatalf("no fixture of %s", name)
+	return nil
+}
+
+// checkArm requires union value v to set exactly one arm, and that arm
+// every field.
+func checkArm(t *testing.T, v reflect.Value) {
+	t.Helper()
+	typ := v.Type()
+	fields := map[string][]int{} // an arm: its fields
+	var set []string
+	for i := range v.NumField() {
+		sf := typ.Field(i)
+		name, _, _ := strings.Cut(sf.Tag.Get("json"), ",")
+		arm := armOf(t, typ, &sf, name, true)
+		fields[arm] = append(fields[arm], i)
+		if !v.Field(i).IsZero() && !slices.Contains(set, arm) {
+			set = append(set, arm)
+		}
+	}
+	if len(set) != 1 {
+		t.Errorf("%s sets arms %v, want exactly one", typ.Name(), set)
+		return
+	}
+	for _, i := range fields[set[0]] {
+		f := v.Field(i)
+		if f.Kind() == reflect.Pointer {
+			f = f.Elem()
+		}
+		for _, path := range zeroFields(f, typ.Name()+"."+typ.Field(i).Name) {
+			t.Errorf("%s is zero in the fixture", path)
+		}
 	}
 }
 

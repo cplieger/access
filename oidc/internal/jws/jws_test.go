@@ -88,8 +88,8 @@ func TestParse_Alphabet(t *testing.T) {
 
 // RFC 7515 §7.1, go-jose CVE-2025-27144, golang-jwt CVE-2025-30204: exactly
 // two separators, counted in one pass without splitting, so a token of
-// periods costs no allocation per period; a JWE's five parts (RFC 7516
-// §7.1) are refused here. Serial: allocBytes.
+// periods costs no allocation per period; a JWE's five parts (RFC 7516 §7.1)
+// are refused here. Serial: allocBytes.
 func TestParse_Separators(t *testing.T) {
 	k := ecTestKey(t, "ec", "P-256")
 	keys := set(t, k)
@@ -160,11 +160,11 @@ func TestParse_Base64(t *testing.T) {
 	})
 }
 
-// RFC 7515 §4 and §4.1.1, §4.1.4, §4.1.9, §4.1.11; RFC 7519 §5.1; RFC 7797
-// §6; RFC 8259 §4, §8.1; RFC 8725 §3.10: the header is one JSON object with
-// unique, case-sensitive names and valid UTF-8; alg a string, kid absent or
-// a string, typ absent or JWT; crit refused in any form; jku, jwk, x5u and
-// x5c ignored. PyJWT CVE-2026-32597, Authlib CVE-2025-59420 (crit);
+// RFC 7515 §4 and §4.1.1, §4.1.4, §4.1.9, §4.1.11; RFC 7519 §5.1;
+// RFC 7797 §6; RFC 8259 §4, §8.1; RFC 8725 §3.10: the header is one JSON
+// object with unique, case-sensitive names and valid UTF-8; alg a string, kid
+// absent or a string, typ absent or JWT; crit refused in any form; jku, jwk,
+// x5u and x5c ignored. PyJWT CVE-2026-32597, Authlib CVE-2025-59420 (crit);
 // PyJWT CVE-2026-102265, Nimbus CVE-2025-53864 (deep nesting).
 func TestParse_Header(t *testing.T) {
 	t.Parallel()

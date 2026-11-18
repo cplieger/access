@@ -48,8 +48,8 @@ func newAdminWorld(t *testing.T, o options, policy account.Policy) *adminWorld {
 	fs := newFaultStore()
 	o.store = fs
 	f := newFixture(t, keyOptions(o, policy))
-	w := &adminWorld{f: f, fs: fs, root: mustUser(t, f.mem, "root", access.RoleAdmin), alice: mustUser(t, f.mem, "alice", access.RoleUser)}
-	w.pr = f.sessionPrincipal(t, w.root, access.SessionFull, time.Now())
+	w := &adminWorld{f: f, fs: fs, root: mustOwner(t, f.mem, "root"), alice: mustUser(t, f.mem, "alice", access.RoleUser)}
+	w.pr = f.sessionPrincipal(t, w.root, time.Now())
 	return w
 }
 
@@ -79,7 +79,7 @@ func fastHasher(t testing.TB) *access.Hasher {
 // accept redeems an invite for name with goodPassword.
 func (f *fixture) accept(t testing.TB, token access.Secret, name string) (account.SignedIn, error) {
 	t.Helper()
-	return f.svc.AcceptInvitePassword(t.Context(), localClient, account.AcceptInvite{Token: token, Username: name, Password: access.NewSecret(goodPassword)})
+	return completed(f.svc.AcceptInvitePassword(t.Context(), localClient, account.AcceptInvite{Token: token, Username: name, Password: access.NewSecret(goodPassword)}))
 }
 
 func TestUpdateUser(t *testing.T) {
@@ -88,7 +88,7 @@ func TestUpdateUser(t *testing.T) {
 		t.Parallel()
 		for n := 1; n <= 4; n++ {
 			w := newAdminWorld(t, options{}, nil)
-			w.f.sessionPrincipal(t, w.alice, access.SessionFull, time.Now())
+			w.f.sessionPrincipal(t, w.alice, time.Now())
 			w.f.mint(t, account.OutOfBand("socket"), w.alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 			before := w.f.events.all()
 			w.fs.failWrite(n)
@@ -125,19 +125,6 @@ func TestUpdateUser(t *testing.T) {
 				t.Errorf("OpSetEnabled saw ann as %s, want the demotion applied", u.Role)
 			}
 		}
-		g := newAdminWorld(t, options{}, account.RolePolicy{KeepLocalAdmin: true})
-		local := passwordUser(t, g.f.mem, fastHasher(t), "local", goodPassword)
-		local.Role = access.RoleAdmin
-		if err := g.f.mem.UpdateUser(t.Context(), local); err != nil {
-			t.Fatalf("UpdateUser: %v", err)
-		}
-		_, err := g.f.svc.UpdateUser(t.Context(), g.pr, local.ID, account.UserChange{Role: new(access.RoleUser), Enabled: new(false)})
-		if reason(err) != "last_local_admin" {
-			t.Errorf("demoting and disabling the last local admin = %v, want last_local_admin", err)
-		}
-		if u := stored(t, g.f, local.ID); u.Role != access.RoleAdmin || !u.Enabled {
-			t.Errorf("after the refusal local is %s, enabled %t", u.Role, u.Enabled)
-		}
 	})
 	t.Run("no_change", func(t *testing.T) {
 		t.Parallel()
@@ -166,7 +153,7 @@ func TestUpdateUser(t *testing.T) {
 		t.Parallel()
 		pol := &recordingPolicy{inner: account.RolePolicy{}}
 		w := newAdminWorld(t, options{}, pol)
-		up := w.f.sessionPrincipal(t, w.alice, access.SessionFull, time.Now())
+		up := w.f.sessionPrincipal(t, w.alice, time.Now())
 		same := account.UserChange{Role: new(access.RoleAdmin), Enabled: new(true)}
 		for name, id := range map[string]int64{"existing": w.root.ID, "missing": 9999} {
 			got, err := w.f.svc.UpdateUser(t.Context(), up, id, same)
@@ -199,7 +186,7 @@ func TestUpdateUser(t *testing.T) {
 	t.Run("role_change_revokes_sessions", func(t *testing.T) {
 		t.Parallel()
 		w := newAdminWorld(t, options{}, nil)
-		sp := w.f.sessionPrincipal(t, w.alice, access.SessionFull, time.Now())
+		sp := w.f.sessionPrincipal(t, w.alice, time.Now())
 		key := w.f.mint(t, account.OutOfBand("socket"), w.alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 		if _, err := w.f.svc.UpdateUser(t.Context(), w.pr, w.alice.ID, account.UserChange{Role: new(access.RoleAdmin)}); err != nil {
 			t.Fatalf("promote alice = %v", err)
@@ -217,24 +204,26 @@ func TestUpdateUser(t *testing.T) {
 	})
 }
 
-func TestLastAdminConcurrent(t *testing.T) {
+// TestLastOwnerConcurrent: at least one enabled owner always
+// exists; two owners removing each other concurrently leave one.
+func TestLastOwnerConcurrent(t *testing.T) {
 	t.Parallel()
 	for round := range 20 {
 		f := newFixture(t, options{})
-		a := mustUser(t, f.mem, "ann", access.RoleAdmin)
-		b := mustUser(t, f.mem, "ben", access.RoleAdmin)
-		pa := f.sessionPrincipal(t, a, access.SessionFull, time.Now())
-		pb := f.sessionPrincipal(t, b, access.SessionFull, time.Now())
+		a := mustOwner(t, f.mem, "ann")
+		b := mustOwner(t, f.mem, "ben")
+		pa := f.sessionPrincipal(t, a, time.Now())
+		pb := f.sessionPrincipal(t, b, time.Now())
 		var wg sync.WaitGroup
 		errs := make([]error, 2)
 		start := make(chan struct{})
 		wg.Go(func() {
 			<-start
-			_, errs[0] = f.svc.UpdateUser(t.Context(), pa, b.ID, account.UserChange{Role: new(access.RoleUser)})
+			_, errs[0] = f.svc.SetOwner(t.Context(), account.As(pa), b.ID, false)
 		})
 		wg.Go(func() {
 			<-start
-			_, errs[1] = f.svc.UpdateUser(t.Context(), pb, a.ID, account.UserChange{Role: new(access.RoleUser)})
+			_, errs[1] = f.svc.SetOwner(t.Context(), account.As(pb), a.ID, false)
 		})
 		close(start)
 		wg.Wait()
@@ -243,18 +232,18 @@ func TestLastAdminConcurrent(t *testing.T) {
 			switch {
 			case err == nil:
 				ok++
-			case reason(err) != "last_admin" && reason(err) != "not_admin":
-				t.Errorf("round %d: the losing demotion = %v, want last_admin or not_admin", round, err)
+			case reason(err) != "last_owner" && reason(err) != "not_owner":
+				t.Errorf("round %d: the losing removal = %v, want last_owner or not_owner", round, err)
 			}
 		}
-		admins := 0
+		owners := 0
 		for _, id := range []int64{a.ID, b.ID} {
-			if stored(t, f, id).Role == access.RoleAdmin {
-				admins++
+			if stored(t, f, id).Owner {
+				owners++
 			}
 		}
-		if ok != 1 || admins != 1 {
-			t.Errorf("round %d: %d demotions succeeded and %d admins remain, want exactly one of each", round, ok, admins)
+		if ok != 1 || owners != 1 {
+			t.Errorf("round %d: %d removals succeeded and %d owners remain, want exactly one of each", round, ok, owners)
 		}
 	}
 }
@@ -262,17 +251,13 @@ func TestLastAdminConcurrent(t *testing.T) {
 func TestPolicyBeforeExistence(t *testing.T) {
 	t.Parallel()
 	w := newAdminWorld(t, options{}, nil)
-	up := w.f.sessionPrincipal(t, w.alice, access.SessionFull, time.Now())
+	up := w.f.sessionPrincipal(t, w.alice, time.Now())
 	ops := map[string]func(id int64) (any, error){
 		"UpdateUser": func(id int64) (any, error) {
 			u, err := w.f.svc.UpdateUser(t.Context(), up, id, account.UserChange{Enabled: new(true)})
 			return u, err
 		},
 		"DeleteUser": func(id int64) (any, error) { return nil, w.f.svc.DeleteUser(t.Context(), up, id) },
-		"IssueRecovery": func(id int64) (any, error) {
-			tok, err := w.f.svc.IssueRecovery(t.Context(), account.As(up), id, 0)
-			return tok.Plaintext.IsZero(), err
-		},
 	}
 	for name, op := range ops {
 		w.fs.resetRecord()
@@ -293,8 +278,8 @@ func TestPolicyBeforeExistence(t *testing.T) {
 func TestDisableDeletesKeysAndSessions(t *testing.T) {
 	t.Parallel()
 	w := newAdminWorld(t, options{}, account.RolePolicy{})
-	s1 := w.f.sessionPrincipal(t, w.alice, access.SessionFull, time.Now())
-	s2 := w.f.sessionPrincipal(t, w.alice, access.SessionFull, time.Now())
+	s1 := w.f.sessionPrincipal(t, w.alice, time.Now())
+	s2 := w.f.sessionPrincipal(t, w.alice, time.Now())
 	k1 := w.f.mint(t, account.As(s1), w.alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 	k2 := w.f.mint(t, account.OutOfBand("socket"), w.alice.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{"read"}})
 	if _, err := w.f.svc.UpdateUser(t.Context(), w.pr, w.alice.ID, account.UserChange{Enabled: new(false)}); err != nil {
@@ -326,38 +311,38 @@ func TestDisableDeletesKeysAndSessions(t *testing.T) {
 	}
 }
 
-func TestDisableOwnerRevokesMintedKeys(t *testing.T) {
+func TestDisableUserRevokesMintedKeys(t *testing.T) {
 	t.Parallel()
 	for _, op := range []string{"disable", "delete"} {
 		t.Run(op, func(t *testing.T) {
 			t.Parallel()
 			w := newAdminWorld(t, options{}, nil)
-			owner := mustUser(t, w.f.mem, "owner", access.RoleAdmin)
-			op1 := w.f.sessionPrincipal(t, owner, access.SessionFull, time.Now())
-			root := w.f.mint(t, account.As(op1), owner.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
-			child := w.f.mint(t, account.As(root.p), owner.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
+			holder := mustUser(t, w.f.mem, "holder", access.RoleAdmin)
+			op1 := w.f.sessionPrincipal(t, holder, time.Now())
+			root := w.f.mint(t, account.As(op1), holder.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers, scopeKeys}})
+			child := w.f.mint(t, account.As(root.p), holder.ID, account.NewKey{Label: uniqueLabel(), Scopes: []string{scopeUsers}})
 			invite, err := w.f.svc.CreateInvite(t.Context(), child.p, access.RoleUser, 0)
 			if err != nil {
 				t.Fatalf("CreateInvite from the child = %v", err)
 			}
-			if _, err := w.f.svc.IssueRecovery(t.Context(), account.As(root.p), w.alice.ID, 0); err != nil {
-				t.Fatalf("IssueRecovery from the root = %v", err)
+			if _, err := w.f.svc.CreateInvite(t.Context(), root.p, access.RoleUser, 0); err != nil {
+				t.Fatalf("CreateInvite from the root = %v", err)
 			}
-			session := seedToken(t, w.f.mem, access.PurposeInvite, 0, 0, time.Hour)
+			session := seedToken(t, w.f.mem, access.PurposeInvite, 0, time.Hour)
 			w.fs.resetRecord()
 			switch op {
 			case "disable":
-				_, err = w.f.svc.UpdateUser(t.Context(), w.pr, owner.ID, account.UserChange{Enabled: new(false)})
+				_, err = w.f.svc.UpdateUser(t.Context(), w.pr, holder.ID, account.UserChange{Enabled: new(false)})
 			default:
-				err = w.f.svc.DeleteUser(t.Context(), w.pr, owner.ID)
+				err = w.f.svc.DeleteUser(t.Context(), w.pr, holder.ID)
 			}
 			if err != nil {
-				t.Fatalf("%s the owner = %v", op, err)
+				t.Fatalf("%s the holder = %v", op, err)
 			}
-			if k := keysOf(t, w.f.mem, owner.ID); len(k) != 0 {
-				t.Errorf("after the %s the owner keeps keys %v", op, keyIDs(k))
+			if k := keysOf(t, w.f.mem, holder.ID); len(k) != 0 {
+				t.Errorf("after the %s the holder keeps keys %v", op, keyIDs(k))
 			}
-			live, err := w.f.mem.LiveOneTimeTokens(t.Context(), []access.TokenPurpose{access.PurposeInvite, access.PurposeRecovery}, time.Now())
+			live, err := w.f.mem.LiveOneTimeTokens(t.Context(), []access.TokenPurpose{access.PurposeInvite}, time.Now())
 			if err != nil {
 				t.Fatalf("LiveOneTimeTokens: %v", err)
 			}
@@ -397,10 +382,6 @@ func TestSingleOwnerRefusesAdminOps(t *testing.T) {
 			_, err := w.f.svc.CreateInvite(t.Context(), w.pr, access.RoleUser, 0)
 			return err
 		},
-		"IssueRecovery": func() error {
-			_, err := w.f.svc.IssueRecovery(t.Context(), account.As(w.pr), w.alice.ID, 0)
-			return err
-		},
 	}
 	for name, op := range ops {
 		w.fs.resetRecord()
@@ -413,9 +394,6 @@ func TestSingleOwnerRefusesAdminOps(t *testing.T) {
 	}
 	if u := stored(t, w.f, w.alice.ID); u == nil || !u.Enabled {
 		t.Error("alice changed under SingleOwnerPolicy")
-	}
-	if _, err := w.f.svc.IssueRecovery(t.Context(), account.OutOfBand("socket"), w.root.ID, 0); err != nil {
-		t.Errorf("IssueRecovery out of band for the owner = %v, want nil", err)
 	}
 	if _, err := w.f.svc.Users(t.Context(), w.pr, account.UserFilter{}); err != nil {
 		t.Errorf("Users from the owner = %v, want nil", err)

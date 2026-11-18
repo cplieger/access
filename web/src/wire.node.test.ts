@@ -17,14 +17,20 @@ import {
   HTTPS_FEATURES,
   LOG_CLASSES,
   METHODS,
+  NEXT_STEPS,
+  PENDING_METHODS,
   REASONS,
+  SSO_MODES,
+  REGISTRATION_MODES,
   ROLES,
   TOKEN_PURPOSES,
   authCode,
   authReason,
   errorReason,
   parseCeremonyResponse,
+  parseEnrolmentOutcome,
   parseKeyView,
+  parseRegistrationOutcome,
   parseSecurityLogView,
   parseStateResponse,
   parseUserView,
@@ -129,6 +135,9 @@ function err(status: number, code?: string, body?: unknown): ApiErr {
   };
 }
 
+// The union types: types.json marks their fields as arms.
+const unions = index.filter((t) => fieldsOf(t).some((x) => x.arm !== undefined));
+
 describe("wire fixtures", () => {
   it("has one validator per Go wire type, and a type for every fixture", () => {
     expect(Object.keys(validators).sort()).toEqual([...index].sort());
@@ -151,11 +160,11 @@ describe("wire fixtures", () => {
   it.each([...index])("%s: the fixture sets exactly the fields Go declares", (type) => {
     const f = fixture(type);
     expect(isObject(f)).toBe(true);
-    expect(Object.keys(f as object).sort()).toEqual(
-      fieldsOf(type)
-        .map((x) => x.name)
-        .sort(),
-    );
+    const rows = fieldsOf(type);
+    const first = rows.find((x) => x.arm !== undefined)?.arm;
+    // A union's fixture sets its first arm's fields alone; each other arm has a variant.
+    const want = rows.filter((x) => first === undefined || x.arm === first).map((x) => x.name);
+    expect(Object.keys(f as object).sort()).toEqual(want.sort());
   });
 
   it.each([...index])("%s: an unknown field is refused at every level", (type) => {
@@ -173,9 +182,19 @@ describe("wire fixtures", () => {
       const f = fixture(type);
       const sites = fieldSites(fieldsOf(type), f);
       expect(sites.length).toBeGreaterThanOrEqual(fieldsOf(type).length);
+      const arms = new Set(
+        fieldsOf(type)
+          .filter((x) => x.arm !== undefined)
+          .map((x) => x.name),
+      );
       for (const { path, optional } of sites) {
         const out = validatorFor(type)(withoutAt(f, path));
-        if (optional) {
+        // A union without the one arm it carries is no answer.
+        const lastArm =
+          path.length === 1 &&
+          arms.has(path[0] as string) &&
+          Object.hasOwn(f as object, path[0] as string);
+        if (optional && !lastArm) {
           expect(out, path.join(".")).toEqual(withoutAt(f, path));
         } else {
           expect(out, path.join(".")).toBeUndefined();
@@ -186,13 +205,47 @@ describe("wire fixtures", () => {
 
   const variants = [...fixtures.keys()].filter((n) => !META.has(n) && n.includes("."));
 
-  it("has the four absent-optional variants", () => {
+  it("has the absent-optional variants and one variant per further union arm", () => {
     expect(variants.sort()).toEqual([
+      "EnrolmentOutcome.waiting",
       "NewUserRequest.noPassword",
+      "PasskeyRegisteredResponse.none",
       "PasswordChangeRequest.noCurrent",
+      "PendingLinkResponse.noCreate",
+      "RecoveryCodeIssuedResponse.none",
+      "RegistrationOutcome.pending",
+      "RegistrationOutcome.waiting",
+      "SecondFactorProof.passkey",
       "SetupPasskeyBeginRequest.noToken",
       "SetupPasswordRequest.noToken",
+      "SignInOutcome.pending",
+      "SignedInResponse.noCode",
+      "TOTPFinishRequest.noCurrent",
+      "TemporaryPasswordResponse.noOrigin",
     ]);
+  });
+
+  it("these are the unions", () => {
+    expect([...unions].sort()).toEqual([
+      "EnrolmentOutcome",
+      "RegistrationOutcome",
+      "SecondFactorProof",
+      "SignInOutcome",
+    ]);
+  });
+
+  it.each(unions)("%s: every arm has a fixture, and two arms or none are refused", (type) => {
+    const arms = fieldsOf(type).map((x) => x.name);
+    const named = [...fixtures.keys()].filter((n) => typeOf(n) === type);
+    const bodies = named.map((n) => fixture(n) as Record<string, unknown>);
+    expect(
+      bodies
+        .map((b) => Object.keys(b))
+        .flat()
+        .sort(),
+    ).toEqual([...arms].sort());
+    expect(validatorFor(type)(Object.assign({}, ...bodies))).toBeUndefined();
+    expect(validatorFor(type)({})).toBeUndefined();
   });
 
   it.each(variants)(
@@ -287,13 +340,28 @@ function withValue(v: unknown, path: readonly (string | number)[], value: unknow
 }
 
 describe("value sets", () => {
-  const sites = new Map(index.map((t) => [t, enumSites(fieldsOf(t), fixture(t))]));
+  // A union's arms each live in their own fixture, so a union's sites are its fixtures' together.
+  const fixturesOf = (t: string): string[] =>
+    unions.includes(t) ? [...fixtures.keys()].filter((n) => typeOf(n) === t) : [t];
+  const sites = new Map(
+    index.map((t) => [
+      t,
+      fixturesOf(t).flatMap((n) =>
+        enumSites(fieldsOf(t), fixture(n)).map((site) => ({ ...site, from: n })),
+      ),
+    ]),
+  );
   const known: readonly (readonly string[])[] = [
     ROLES,
     METHODS,
     TOKEN_PURPOSES,
     LOG_CLASSES,
     HTTPS_FEATURES,
+    SSO_MODES,
+    REGISTRATION_MODES,
+    NEXT_STEPS,
+    PENDING_METHODS,
+    CODES,
   ];
 
   it.each(index)("%s: a fixture reaches every value set types.json lists", (type) => {
@@ -317,8 +385,8 @@ describe("value sets", () => {
   it.each(typed)(
     "%s: each enum field takes Go's values, and an unknown one exactly when open",
     (type) => {
-      const f = fixture(type);
-      for (const { path, values, open } of sites.get(type) ?? []) {
+      for (const { path, values, open, from } of sites.get(type) ?? []) {
+        const f = fixture(from);
         const at = path.join(".");
         for (const value of values) {
           const v = withValue(f, path, value);
@@ -363,6 +431,15 @@ describe("field narrowing", () => {
     expect(parseUserView({ ...user, key_lineage: {} })).toBeUndefined();
     const key = fixture("KeyView") as Record<string, unknown>;
     expect(parseKeyView({ ...key, scopes: ["read", 1] })).toBeUndefined();
+  });
+
+  // owner on the wire is only the owner flag (UserView, MeResponse).
+  it("names a key's user username and refuses owner", () => {
+    const key = fixture("KeyView") as Record<string, unknown>;
+    expect(parseKeyView(key)?.username).toBe("alice");
+    const { username, ...own } = key;
+    expect(parseKeyView(own)?.username).toBeUndefined();
+    expect(parseKeyView({ ...own, owner: username })).toBeUndefined();
   });
 
   it("reads a key's previous_until and refuses one that is not a time", () => {
@@ -412,6 +489,24 @@ describe("StateResponse", () => {
     ).toBeUndefined();
   });
 
+  // The password bounds are data, so a form words its own limit.
+  it("reads password_length's bounds", () => {
+    expect(parseStateResponse(state)?.password_length).toEqual({ min: 15, max: 128 });
+  });
+
+  it.each([
+    undefined,
+    null,
+    { min: 15 },
+    { min: -1, max: 128 },
+    { min: 15, max: 1.5 },
+    { min: 15, max: 128, unit: "runes" },
+  ])("refuses the password_length %j", (bounds) => {
+    expect(
+      parseStateResponse({ ...without(state, "password_length"), password_length: bounds }),
+    ).toBeUndefined();
+  });
+
   it.each([null, "passkeys", [null]])("refuses the https_required %j", (list) => {
     expect(
       parseStateResponse({ ...without(state, "https_required"), https_required: list }),
@@ -421,6 +516,12 @@ describe("StateResponse", () => {
   it("HTTPS_FEATURES is the value set types.json lists, in order", () => {
     const row = fieldsOf("StateResponse").find((f) => f.name === "https_required");
     expect(row?.values).toEqual([...HTTPS_FEATURES]);
+  });
+
+  it("SSO_MODES is the sso value set types.json lists, in order", () => {
+    const row = fieldsOf("StateResponse").find((f) => f.name === "sso");
+    expect(row?.values).toEqual([...SSO_MODES]);
+    expect(parseStateResponse({ ...(state as object), sso: "everyone" })).toBeUndefined();
   });
 });
 
@@ -595,5 +696,31 @@ describe("AuthReason", () => {
     expect(errorReason(err(400, "auth_bad_request", { reason: "constructor" }))).toBe(
       "constructor",
     );
+  });
+});
+
+// A completion that creates an account waiting for approval answers
+// { waiting_approval: true, recovery_code? }; a password registration binds no second factor,
+// so its waiting answer carries no code.
+describe("WaitingApproval", () => {
+  it("decodes the waiting arm with and without its recovery code", () => {
+    expect(parseEnrolmentOutcome({ waiting_approval: true })).toEqual({ waiting_approval: true });
+    expect(parseEnrolmentOutcome({ waiting_approval: true, recovery_code: "C" })).toEqual({
+      waiting_approval: true,
+      recovery_code: "C",
+    });
+    expect(parseRegistrationOutcome({ waiting_approval: true })).toEqual({
+      waiting_approval: true,
+    });
+  });
+
+  it("refuses waiting_approval other than true, and a code on a password registration", () => {
+    for (const v of [false, "true", 1, null]) {
+      expect(parseEnrolmentOutcome({ waiting_approval: v }), String(v)).toBeUndefined();
+      expect(parseRegistrationOutcome({ waiting_approval: v }), String(v)).toBeUndefined();
+    }
+    expect(
+      parseRegistrationOutcome({ waiting_approval: true, recovery_code: "C" }),
+    ).toBeUndefined();
   });
 });

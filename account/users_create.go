@@ -77,7 +77,7 @@ func (s *Service) createUserIn(ctx context.Context, tx Tx, j *journal, a Actor, 
 	if err != nil {
 		return err
 	}
-	if polErr := s.policy.Authorize(ctx, Decision{Op: OpCreateUser, Via: ViaActor, Actor: ua.actor, Role: user.Role, Users: users}); polErr != nil {
+	if polErr := s.authorize(ctx, Decision{Op: OpCreateUser, Via: ViaActor, Actor: ua.actor, Role: user.Role, Users: users}); polErr != nil {
 		return refuse(polErr)
 	}
 	if ruleErr := ua.target(OpCreateUser, user.Role); ruleErr != nil {

@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"net/netip"
 
 	"github.com/cplieger/access"
@@ -36,9 +37,9 @@ func (ip IP) bucket(bits int) netip.Addr {
 // Account is the account dimension's key. Build it with AccountKey; the
 // zero value means no account, an IP-only Attempt.
 type Account struct {
-	// digest is the SHA-256 of a raw flag byte and the key bytes, so every
-	// key, and the device cookie naming it, has one size whatever the
-	// name's length, and a refused name never equals a canonical one.
+	// digest is the SHA-256 of a flag byte naming the key's kind and the
+	// key bytes, so every key, and the device cookie naming it, has one
+	// size whatever the name's length, and keys of two kinds never meet.
 	digest [sha256.Size]byte
 }
 
@@ -54,10 +55,27 @@ func AccountKey(username string) Account {
 	return accountOf(true, username[:min(len(username), maxRawAccountKey)])
 }
 
+// IdentityKey returns id's key, for an attempt counted on an OIDC identity
+// rather than on a username: the pair's, length-prefixed, apart from every
+// AccountKey.
+func IdentityKey(id access.OIDCIdentity) Account {
+	key := binary.AppendUvarint(nil, uint64(len(id.Issuer)))
+	key = append(append(key, id.Issuer...), id.Subject...)
+	return Account{digest: sha256.Sum256(append([]byte{flagIdentity}, key...))}
+}
+
+// The flag byte that opens an Account's digest input, so no two kinds of
+// key collide.
+const (
+	flagCanonical byte = iota
+	flagRaw
+	flagIdentity
+)
+
 func accountOf(raw bool, key string) Account {
-	flag := byte(0)
+	flag := flagCanonical
 	if raw {
-		flag = 1
+		flag = flagRaw
 	}
 	return Account{digest: sha256.Sum256(append([]byte{flag}, key...))}
 }

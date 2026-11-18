@@ -25,7 +25,7 @@ func (a *Authenticator) Challenge(h http.Header, code Code, scope string) {
 		if scope != "" {
 			v += `, scope="` + scope + `"`
 		}
-	case code != CodeKeyRequired && codeStatus(code) != http.StatusUnauthorized:
+	case code != CodeKeyRequired && StatusOf(code) != http.StatusUnauthorized:
 		return
 	default:
 	}

@@ -35,16 +35,16 @@ func (c *contract) idsAndLineage(t *testing.T) {
 	})
 	t.Run("reopen_keys", func(t *testing.T) {
 		c.needReopen(t, "rule 17")
-		var owner int64
+		var holder int64
 		c.neverReusedAcrossReopen(t, func(s account.Store) int64 {
-			if owner == 0 {
-				owner = mustUser(t, s, "holder").ID
+			if holder == 0 {
+				holder = mustUser(t, s, "holder").ID
 			}
-			k := newKey(owner)
+			k := newKey(holder)
 			mustKey(t, s, k)
 			return k.ID
 		}, func(s account.Store, id int64) error {
-			return s.DeleteAPIKey(t.Context(), access.KeyRef{ID: id, UserID: owner})
+			return s.DeleteAPIKey(t.Context(), access.KeyRef{ID: id, UserID: holder})
 		})
 	})
 	t.Run("lineage", c.lineage)
@@ -54,13 +54,13 @@ func (c *contract) idsAndLineage(t *testing.T) {
 func (c *contract) idsDistinct(t *testing.T) {
 	const n = 1000
 	s, ctx := c.store(t), t.Context()
-	owner := mustUser(t, s, "owner")
+	holder := mustUser(t, s, "holder")
 	ids := map[string][]int64{}
 	err := s.Update(ctx, func(tx account.Tx) error {
 		clear(ids)
 		for i := range n {
-			u, k, p := newUser(fmt.Sprintf("bulk-%d", i)), newKey(owner.ID), newPasskey(owner.ID)
-			a := &access.KeyAttribution{At: epoch, Action: access.AttributionCreated, KeyLineage: []int64{1}, UserID: owner.ID}
+			u, k, p := newUser(fmt.Sprintf("bulk-%d", i)), newKey(holder.ID), newPasskey(holder.ID)
+			a := &access.KeyAttribution{At: epoch, Action: access.AttributionCreated, KeyLineage: []int64{1}, UserID: holder.ID}
 			if err := errors.Join(tx.CreateUser(ctx, u), tx.CreateAPIKey(ctx, k), tx.CreatePasskey(ctx, p), tx.CreateKeyAttribution(ctx, a)); err != nil {
 				return err
 			}
@@ -177,7 +177,7 @@ func (c *contract) attributions(t *testing.T) {
 	written := []access.KeyAttribution{
 		appendOne(u1, k1, access.AttributionCreated, 1),
 		appendOne(u1, k2, access.AttributionDisabled, 2),
-		appendOne(u2, k3, access.AttributionRecovered, 3),
+		appendOne(u2, k3, access.AttributionInviteAccepted, 3),
 	}
 	expectList(t, s, "after three appends", written)
 	if err := s.DeleteAPIKey(ctx, access.KeyRef{ID: k1.ID, UserID: u1.ID}); err != nil {
@@ -381,7 +381,7 @@ func seedRows(t *testing.T, s account.Store) *seeded {
 	t.Helper()
 	sd := &seeded{user: mustUser(t, s, fresh("context"))}
 	sd.session, sd.passkey, sd.key = newSession(sd.user.ID, epoch), newPasskey(sd.user.ID), newKey(sd.user.ID)
-	sd.token = newToken(access.PurposeRecovery, sd.user.ID, epoch.Add(time.Hour))
+	sd.token = newToken(access.PurposeInvite, epoch.Add(time.Hour))
 	mustSession(t, s, sd.session)
 	mustPasskey(t, s, sd.passkey)
 	mustKey(t, s, sd.key)
@@ -426,7 +426,7 @@ func sweeperCalls(s account.Store) []namedCall {
 
 // txCalls is every Tx method, aimed at sd's rows, deletes last.
 func txCalls(tx account.Tx, sd *seeded) []namedCall {
-	return slices.Concat(userCalls(tx, sd), sessionCalls(tx, sd), credentialCalls(tx, sd), recordCalls(tx, sd), logCalls(tx), deleteCalls(tx, sd))
+	return slices.Concat(userCalls(tx, sd), sessionCalls(tx, sd), credentialCalls(tx, sd), recordCalls(tx, sd), perUserCalls(tx, sd), logCalls(tx), deleteCalls(tx, sd))
 }
 
 func userCalls(tx account.Tx, sd *seeded) []namedCall {
@@ -446,6 +446,22 @@ func userCalls(tx account.Tx, sd *seeded) []namedCall {
 		{func(ctx context.Context) error { _, err := tx.ListUsers(ctx); return err }, "ListUsers"},
 		{func(ctx context.Context) error { return tx.UpdateUser(ctx, sd.user.Clone()) }, "UpdateUser"},
 		{func(ctx context.Context) error { _, err := tx.UserCount(ctx); return err }, "UserCount"},
+		{func(ctx context.Context) error { _, err := tx.UsersWaiting(ctx, 10); return err }, "UsersWaiting"},
+	}
+}
+
+func perUserCalls(tx account.Tx, sd *seeded) []namedCall {
+	id := sd.user.ID
+	return []namedCall{
+		{func(ctx context.Context) error { return tx.SetTOTP(ctx, newTOTP(id, 1)) }, "SetTOTP"},
+		{func(ctx context.Context) error { _, _, err := tx.TOTPByUserID(ctx, id); return err }, "TOTPByUserID"},
+		{func(ctx context.Context) error { _, err := tx.ListTOTP(ctx, 0, 10); return err }, "ListTOTP"},
+		{func(ctx context.Context) error { return tx.SetRecoveryCode(ctx, newRecoveryCode(id, 1)) }, "SetRecoveryCode"},
+		{func(ctx context.Context) error { _, _, err := tx.RecoveryCodeByUserID(ctx, id); return err }, "RecoveryCodeByUserID"},
+		{func(ctx context.Context) error { return tx.SetTemporaryPassword(ctx, newTemporaryPassword(id, 1)) }, "SetTemporaryPassword"},
+		{func(ctx context.Context) error { _, _, err := tx.TemporaryPasswordByUserID(ctx, id); return err }, "TemporaryPasswordByUserID"},
+		{func(ctx context.Context) error { return tx.SetSSOMode(ctx, account.SSOForLinked) }, "SetSSOMode"},
+		{func(ctx context.Context) error { _, _, err := tx.SSOMode(ctx); return err }, "SSOMode"},
 	}
 }
 
@@ -493,10 +509,10 @@ func credentialCalls(tx account.Tx, sd *seeded) []namedCall {
 
 func recordCalls(tx account.Tx, sd *seeded) []namedCall {
 	ref := account.FailureRef{Name: "ctx", Method: access.MethodPassword}
-	purposes := []access.TokenPurpose{access.PurposeRecovery}
+	purposes := []access.TokenPurpose{access.PurposeInvite}
 	return []namedCall{
 		{func(ctx context.Context) error {
-			return tx.CreateOneTimeToken(ctx, newToken(access.PurposeInvite, 0, epoch.Add(time.Hour)))
+			return tx.CreateOneTimeToken(ctx, newToken(access.PurposeInvite, epoch.Add(time.Hour)))
 		}, "CreateOneTimeToken"},
 		{func(ctx context.Context) error { _, _, err := tx.OneTimeTokenByHash(ctx, sd.token.Hash); return err }, "OneTimeTokenByHash"},
 		{func(ctx context.Context) error { _, err := tx.LiveOneTimeTokens(ctx, purposes, epoch); return err }, "LiveOneTimeTokens"},
@@ -519,10 +535,13 @@ func deleteCalls(tx account.Tx, sd *seeded) []namedCall {
 			return err
 		}, "ConsumeOneTimeToken"},
 		{func(ctx context.Context) error {
-			_, err := tx.DeleteOneTimeTokens(ctx, access.PurposeRecovery, sd.user.ID)
+			_, err := tx.DeleteOneTimeTokens(ctx, sd.token.Purpose)
 			return err
 		}, "DeleteOneTimeTokens"},
 		{func(ctx context.Context) error { _, err := tx.DeleteOneTimeTokensIssuedBy(ctx, []int64{7}); return err }, "DeleteOneTimeTokensIssuedBy"},
+		{func(ctx context.Context) error {
+			return tx.DeleteAuthFailure(ctx, account.FailureRef{Name: "ctx", Method: access.MethodPassword})
+		}, "DeleteAuthFailure"},
 		{func(ctx context.Context) error {
 			return tx.DeleteAuthFailures(ctx, "ctx", []access.Method{access.MethodPassword})
 		}, "DeleteAuthFailures"},
@@ -538,6 +557,9 @@ func deleteCalls(tx account.Tx, sd *seeded) []namedCall {
 			return tx.DeleteAPIKey(ctx, access.KeyRef{ID: sd.key.ID, UserID: sd.user.ID})
 		}, opDeleteKey},
 		{func(ctx context.Context) error { _, err := tx.DeleteUserAPIKeys(ctx, sd.user.ID); return err }, "DeleteUserAPIKeys"},
+		{func(ctx context.Context) error { return tx.DeleteTOTP(ctx, sd.user.ID) }, "DeleteTOTP"},
+		{func(ctx context.Context) error { return tx.DeleteRecoveryCode(ctx, sd.user.ID) }, "DeleteRecoveryCode"},
+		{func(ctx context.Context) error { return tx.DeleteTemporaryPassword(ctx, sd.user.ID) }, "DeleteTemporaryPassword"},
 		{func(ctx context.Context) error { return tx.DeleteUser(ctx, sd.user.ID) }, "DeleteUser"},
 	}
 }

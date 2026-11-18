@@ -9,14 +9,14 @@ import (
 
 // TestFinishRegistration_WebAuthn16_asPublished runs every §16 registration
 // half through the whole finish as published, each answering its own
-// ceremony: §16.3's self attestation registers, and every other half stops
-// at its first refusal in §7.1's step order.
+// ceremony: WebAuthn §16.3's self attestation registers, and every other half
+// stops at its first refusal in WebAuthn §7.1's step order.
 func TestFinishRegistration_WebAuthn16_asPublished(t *testing.T) {
 	t.Parallel()
-	// From each half's published client data, flags octet, credential key
-	// and fmt: §16.4 and §16.5 are framed; §16.2, §16.6, §16.8, §16.11,
-	// §16.12, §16.15 and §16.16 have UV clear; §16.9's key is ES512 (-36);
-	// §16.7 and §16.10 are packed with x5c, §16.13 tpm, §16.14 android-key.
+	// From each half's published client data, flags octet, credential key and
+	// fmt (WebAuthn §16): vectors 16.4 and 16.5 are framed; 16.2, 16.6, 16.8,
+	// 16.11, 16.12, 16.15 and 16.16 have UV clear; 16.9's key is ES512 (-36);
+	// 16.7 and 16.10 are packed with x5c, 16.13 tpm, 16.14 android-key.
 	refusals := map[string]error{
 		"16.2": errUserVerification, "16.4": errFramed, "16.5": errFramed, "16.6": errUserVerification,
 		"16.7": errAttestationFormat, "16.8": errUserVerification, "16.9": cose.ErrUnsupported,
@@ -46,10 +46,10 @@ func TestFinishRegistration_WebAuthn16_asPublished(t *testing.T) {
 	}
 }
 
-// TestFinishRegistration_WebAuthn16_rebuilt registers §16.2's ES256,
-// §16.10's RS256 and §16.11's Ed25519 credentials, each half's authData
-// with UV set under a none attestation, and checks the record against the
-// vector's bytes.
+// TestFinishRegistration_WebAuthn16_rebuilt registers the ES256 credential
+// of WebAuthn §16.2, the RS256 of WebAuthn §16.10 and the Ed25519 of
+// WebAuthn §16.11, each half's authData with UV set under a none
+// attestation, and checks the record against the vector's bytes.
 func TestFinishRegistration_WebAuthn16_rebuilt(t *testing.T) {
 	t.Parallel()
 	for section, flags := range map[string]uint8{"16.2": 0x5d, "16.10": 0x5d, "16.11": 0x45} {
@@ -70,7 +70,7 @@ func TestFinishRegistration_WebAuthn16_rebuilt(t *testing.T) {
 
 // wantVectorRecord compares a record's credential ID, key and AAGUID with
 // the vector's published credential_id and aaguid and the key bytes after
-// the ID in authData (§6.5.1).
+// the ID in authData (WebAuthn §6.5.1).
 func wantVectorRecord(t *testing.T, v s16Vector, authData, id, key, aaguid []byte) {
 	t.Helper()
 	wantID := v.Registration.bytes(t, "credential_id")

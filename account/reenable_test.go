@@ -67,7 +67,7 @@ func TestReenableMethod(t *testing.T) {
 		seedLock(t, p.mem, p.svc, "alice", false, false)
 		now := time.Now()
 		pr, _ := p.principalOf(t, &access.Session{
-			ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPasskey,
+			ID: newSessionID(t), UserID: u.ID, AuthMethod: access.MethodPasskey,
 			CreatedAt: now.Add(-2 * time.Hour), LastActivity: now, AuthTime: now, Secure: true,
 		})
 		if err := p.svc.ReenableMethod(t.Context(), pr, access.MethodPassword); err != nil {
@@ -105,7 +105,7 @@ func TestReenableMethod(t *testing.T) {
 		lock := seedLock(t, p.mem, p.svc, "alice", false, false)
 		now := time.Now()
 		pr := p.plainPrincipalOf(t, &access.Session{
-			ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPassword,
+			ID: newSessionID(t), UserID: u.ID, AuthMethod: access.MethodPassword,
 			CreatedAt: now, LastActivity: now, AuthTime: now,
 		})
 		err := p.svc.ReenableMethod(t.Context(), pr, access.MethodPassword)
@@ -124,7 +124,7 @@ func TestReenableMethod(t *testing.T) {
 		seedLock(t, p.mem, p.svc, "alice", false, false)
 		now := time.Now()
 		pr := p.plainPrincipalOf(t, &access.Session{
-			ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPasskey,
+			ID: newSessionID(t), UserID: u.ID, AuthMethod: access.MethodPasskey,
 			CreatedAt: now.Add(-2 * time.Hour), LastActivity: now, AuthTime: now.Add(-time.Hour),
 		})
 		err := p.svc.ReenableMethod(t.Context(), pr, access.MethodPassword)
@@ -140,7 +140,7 @@ func TestReenableMethod(t *testing.T) {
 		seedLock(t, p.mem, p.svc, "alice", false, false)
 		now := time.Now()
 		pr, _ := p.principalOf(t, &access.Session{
-			ID: newSessionID(t), UserID: u.ID, Kind: access.SessionFull, AuthMethod: access.MethodPasskey,
+			ID: newSessionID(t), UserID: u.ID, AuthMethod: access.MethodPasskey,
 			CreatedAt: now.Add(-2 * time.Hour), LastActivity: now, AuthTime: now.Add(-time.Hour), Secure: true,
 		})
 		err := p.svc.ReenableMethod(t.Context(), pr, access.MethodPassword)
@@ -189,13 +189,14 @@ func TestReenableMethod(t *testing.T) {
 		}
 		// A new Service over the same store, the old one never shut down:
 		// the clear is in the store, not in memory.
+		mustOwner(t, p.mem, "root")
 		next, err := account.New(t.Context(), ownAuthenticator(t, p.cfg))
 		if err != nil {
 			t.Fatalf("New: %v", err)
 		}
 		t.Cleanup(func() { _ = next.Shutdown(context.Background()) })
 		in := account.Credentials{Username: "alice", Password: access.NewSecret(goodPassword)}
-		if _, err := next.PasswordLogin(t.Context(), clientAt(1), in); err != nil {
+		if _, err := completed(next.PasswordLogin(t.Context(), clientAt(1), in)); err != nil {
 			t.Errorf("untrusted sign-in through a new Service = %v, want a sign-in", err)
 		}
 		if _, err := p.login(t.Context(), trusted, "alice", goodPassword); err != nil {
@@ -230,10 +231,9 @@ func TestReenableMethod(t *testing.T) {
 			p    access.Principal
 			want error
 		}{
-			"stale":    {f.sessionPrincipal(t, u, access.SessionFull, time.Now().Add(-time.Hour)), access.ErrRecentAuthRequired},
-			"key":      {f.keyPrincipal(t, u, "read"), account.ErrSessionRequired},
-			"recovery": {f.sessionPrincipal(t, u, access.SessionRecovery, time.Now()), account.ErrSessionRequired},
-			"bypass":   {f.bypassPrincipal(t), account.ErrSessionRequired},
+			"stale":  {f.sessionPrincipal(t, u, time.Now().Add(-time.Hour)), access.ErrRecentAuthRequired},
+			"key":    {f.keyPrincipal(t, u, "read"), account.ErrSessionRequired},
+			"bypass": {f.bypassPrincipal(t), account.ErrSessionRequired},
 		} {
 			if err := p.svc.ReenableMethod(t.Context(), tc.p, access.MethodPassword); !errors.Is(err, tc.want) {
 				t.Errorf("ReenableMethod(%s) = %v, want %v", name, err, tc.want)

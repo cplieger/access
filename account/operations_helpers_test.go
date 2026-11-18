@@ -12,7 +12,6 @@ import (
 	"github.com/cplieger/access"
 	"github.com/cplieger/access/accesstest"
 	"github.com/cplieger/access/account"
-	"github.com/cplieger/access/oidc"
 	"github.com/cplieger/access/ratelimit"
 )
 
@@ -24,8 +23,8 @@ const (
 	classPublic opClass = iota // takes no principal
 	classSession
 	classRecentAuth
-	classRecovery
 	classAdminScope  // key_scope with AdminScope
+	classOwnKeys     // key_scope with CreateKeysScope
 	classManageUsers // key_permission with ManageUsersScope
 	classCreateKeys  // key_permission with CreateKeysScope
 	classOutOfBand   // takes an Actor, and admits only an out-of-band one
@@ -54,6 +53,7 @@ type opWorld struct {
 	// client is the Client every call is made from; a prep arranges its
 	// records from localClient.
 	client account.Client
+	sealer *access.Sealer // Config.TOTP.Sealer
 	// census makes an out-of-band operation's Actor As(p) for every p,
 	// the zero principal included.
 	census bool
@@ -71,20 +71,23 @@ type worldOptions struct {
 
 func newOpWorld(t *testing.T, o worldOptions) *opWorld {
 	t.Helper()
-	w := &opWorld{fs: newFaultStore(), devs: map[int64]*accesstest.PasskeyDevice{}, client: localClient}
+	w := &opWorld{fs: newFaultStore(), devs: map[int64]*accesstest.PasskeyDevice{}, client: localClient, sealer: access.NewEphemeralSealer()}
 	rules := func() account.Rules {
 		r := keyRules()
 		r.SetupTokenRequired = tokenless
-		r.Provisioning = oidc.Provisioning{Enabled: true}
+		r.Provisioning = account.Provisioning{Enabled: true}
+		r.Registration = account.RegistrationOpen
 		if o.rules != nil {
 			o.rules(&r)
 		}
 		return r
 	}
-	opts := options{store: w.fs, rules: rules, posture: o.posture}
-	if o.policy != nil {
-		opts.edit = func(c *account.Config) { c.Policy = o.policy }
-	}
+	opts := options{store: w.fs, rules: rules, posture: o.posture, edit: func(c *account.Config) {
+		c.TOTP = account.TOTPConfig{Sealer: w.sealer, Issuer: testIssuer}
+		if o.policy != nil {
+			c.Policy = o.policy
+		}
+	}}
 	if o.scoped {
 		opts = keyOptions(opts, nil)
 	}
@@ -93,7 +96,7 @@ func newOpWorld(t *testing.T, o worldOptions) *opWorld {
 		return w
 	}
 	w.root = passwordUser(t, w.mem, w.hasher, "root", goodPassword)
-	w.root.Role = access.RoleAdmin
+	w.root.Role, w.root.Owner = access.RoleAdmin, true
 	if err := w.mem.UpdateUser(t.Context(), w.root); err != nil {
 		t.Fatalf("UpdateUser(root): %v", err)
 	}
@@ -121,19 +124,17 @@ func (w *opWorld) name(prefix string) string { return fmt.Sprintf("%s%d", prefix
 // recent is a full session of u signed in now.
 func (w *opWorld) recent(t *testing.T, u *access.User) access.Principal {
 	t.Helper()
-	return w.sessionPrincipal(t, u, access.SessionFull, time.Now())
+	return w.sessionPrincipal(t, u, time.Now())
 }
 
 // actorFor is the principal an operation of class is called with when the
-// test does not vary it: a recent session of root, or a recovery session of
-// alice; the zero principal for a public or out-of-band operation.
+// test does not vary it: a recent session of root; the zero principal for a
+// public or out-of-band operation.
 func (w *opWorld) actorFor(t *testing.T, class opClass) access.Principal {
 	t.Helper()
 	switch class {
 	case classPublic, classOutOfBand:
 		return access.Principal{}
-	case classRecovery:
-		return w.sessionPrincipal(t, w.alice, access.SessionRecovery, time.Now())
 	default:
 		return w.recent(t, w.root)
 	}
@@ -197,12 +198,97 @@ func (w *opWorld) otherSessions(t *testing.T, u *access.User, except string) []s
 	return slices.DeleteFunc(sessionIDsOf(t, w.fixture, u.ID), func(id string) bool { return id == except })
 }
 
-// keysOfUser are u's stored key IDs, ascending.
-func (w *opWorld) keysOfUser(t *testing.T, u *access.User) []int64 {
+// pendingTicket gives alice a TOTP record and answers her pending sign-in
+// from w.client, or from localClient where w.client's step 1 is refused,
+// with the record's secret.
+func (w *opWorld) pendingTicket(t *testing.T) (access.Secret, []byte) {
 	t.Helper()
-	ids := keyIDs(keysOf(t, w.mem, u.ID))
-	slices.Sort(ids)
-	return ids
+	secret := sealTOTP(t, w.mem, w.sealer, w.alice)
+	for _, c := range []account.Client{w.client, localClient} {
+		out, err := w.step1(t.Context(), c, "alice", goodPassword)
+		if err == nil && out.Pending != nil {
+			return out.Pending.Ticket, secret
+		}
+	}
+	t.Fatal("alice's step 1 answered no pending sign-in")
+	return access.Secret{}, nil
+}
+
+// secondPasskey begins alice's passkey second step from localClient and
+// answers its ceremony and her device's assertion.
+func (w *opWorld) secondPasskey(t *testing.T) (account.PendingCeremony, []byte) {
+	t.Helper()
+	sealTOTP(t, w.mem, w.sealer, w.alice)
+	out, err := w.step1(t.Context(), localClient, "alice", goodPassword)
+	if err != nil || out.Pending == nil {
+		t.Fatalf("alice's step 1 = %v, want a pending sign-in", err)
+	}
+	pc, err := w.svc.SecondFactorPasskeyBegin(t.Context(), localClient, out.Pending.Ticket, w.origin)
+	if err != nil {
+		t.Fatalf("SecondFactorPasskeyBegin: %v", err)
+	}
+	return pc, w.devs[w.alice.ID].Assert(browserJSON(t, pc.Assertion))
+}
+
+// recoveryTicket gives alice a TOTP record and a recovery code, and
+// answers her pending sign-in from localClient with that code.
+func (w *opWorld) recoveryTicket(t *testing.T) (access.Secret, string) {
+	t.Helper()
+	sealTOTP(t, w.mem, w.sealer, w.alice)
+	const code = "7K3M9QW2XZ8R4T6V"
+	h, err := w.hasher.Hash(t.Context(), code)
+	if err != nil {
+		t.Fatalf("Hash: %v", err)
+	}
+	if err := w.mem.SetRecoveryCode(t.Context(), access.RecoveryCode{UserID: w.alice.ID, Hash: h}); err != nil {
+		t.Fatalf("SetRecoveryCode: %v", err)
+	}
+	out, err := w.step1(t.Context(), localClient, "alice", goodPassword)
+	if err != nil || out.Pending == nil {
+		t.Fatalf("alice's step 1 = %v, want a pending sign-in", err)
+	}
+	return out.Pending.Ticket, code
+}
+
+// recoveredTicket is alice's NextEnrol ticket after her recovery code
+// matched, from localClient.
+func (w *opWorld) recoveredTicket(t *testing.T) access.Secret {
+	t.Helper()
+	ticket, code := w.recoveryTicket(t)
+	out, err := w.svc.SignInWithRecoveryCode(t.Context(), localClient, ticket, code)
+	if err != nil || out.Pending == nil {
+		t.Fatalf("SignInWithRecoveryCode = %v, want a recovered enrolment", err)
+	}
+	return out.Pending.Ticket
+}
+
+// setCredentialTicket issues alice a temporary password out of band and
+// answers her NextSetCredential ticket, from c when its step 1 answers one,
+// else from localClient.
+func (w *opWorld) setCredentialTicket(t *testing.T, c account.Client) access.Secret {
+	t.Helper()
+	issued, err := w.svc.SetTemporaryPassword(t.Context(), account.OutOfBand("socket"), w.alice.ID, account.TemporaryPasswordOptions{})
+	if err != nil {
+		t.Fatalf("SetTemporaryPassword = %v", err)
+	}
+	for _, c := range []account.Client{c, localClient} {
+		out, err := w.step1(t.Context(), c, "alice", issued.Password.Reveal())
+		if err == nil && out.Pending != nil {
+			return out.Pending.Ticket
+		}
+	}
+	t.Fatal("alice's temporary password answered no pending sign-in")
+	return access.Secret{}
+}
+
+// recoveryEvents are a recovered enrolment's finish's entries before the
+// factor it binds, by alice in the session in made.
+func recoveryEvents(alice int64, in account.SignedIn) []account.Event {
+	actor := account.EventActor{UserID: alice, SessionID: in.Session.ID}
+	return []account.Event{
+		{Kind: account.EventTOTPRemoved, UserID: alice, Actor: actor},
+		{Kind: account.EventRecoveryCodeUsed, UserID: alice, Actor: actor},
+	}
 }
 
 // opCall is one arranged call: run makes it, and want, read after it
@@ -227,12 +313,13 @@ type operation struct {
 	// ErrPolicyRefused when nil.
 	refused   error
 	name      string
-	asks      []account.Operation // the Policy operations the call asks, in order (design 6.4)
+	asks      []account.Operation // the Policy operations the call asks, in order
 	class     opClass
 	transport opTransport
 	empty     bool // the call needs a store with no user
 	readOnly  bool // the call writes nothing
 	direct    bool // the call writes through one store call outside Update
+	ownerOnly bool // only an owner principal passes the Policy
 }
 
 // actorOf is the EventActor of an event p's call emits.
@@ -271,7 +358,7 @@ func finishWith(t *testing.T, w *opWorld, class opClass, p access.Principal, beg
 // operations is every exported Service operation that reaches the store,
 // with its class.
 func operations() []operation {
-	return slices.Concat(publicOperations(), sessionOperations(), recentOperations(), recoveryOperations(), adminOperations())
+	return slices.Concat(publicOperations(), sessionOperations(), recentOperations(), adminOperations())
 }
 
 func publicOperations() []operation {
@@ -290,7 +377,7 @@ func publicOperations() []operation {
 			var in account.SignedIn
 			return opCall{
 				run: func(ctx context.Context) (err error) {
-					in, err = w.svc.SetupWithPassword(ctx, w.client, account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)})
+					in, err = completed(w.svc.SetupWithPassword(ctx, w.client, account.SetupPassword{Username: "owner", Password: access.NewSecret(goodPassword)}))
 					return err
 				},
 				want: func() []account.Event { return setupEvents(in, access.MethodPassword) },
@@ -313,6 +400,39 @@ func publicOperations() []operation {
 				want: func() []account.Event { return setupEvents(in, access.MethodPasskey) },
 			}
 		}},
+		{name: "RegisterPassword", class: classPublic, transport: plainRefused, asks: []account.Operation{account.OpCreateUser}, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
+			var in account.SignedIn
+			return opCall{
+				run: func(ctx context.Context) error {
+					out, err := w.svc.RegisterPassword(ctx, w.client, account.Registration{Username: w.name("newcomer"), Password: access.NewSecret(goodPassword)})
+					in = out.SignedIn
+					return err
+				},
+				want: func() []account.Event { return registeredEvents(in, access.MethodPassword) },
+			}
+		}},
+		{name: "RegisterPasskeyBegin", class: classPublic, transport: plainRefused, readOnly: true, asks: []account.Operation{account.OpCreateUser}, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.RegisterPasskeyBegin(ctx, w.client, account.RegistrationPasskey{Username: w.name("newcomer"), Origin: w.origin})
+				return err
+			}, want: none}
+		}},
+		{name: "RegisterPasskeyFinish", class: classPublic, transport: plainRefused, asks: []account.Operation{account.OpCreateUser}, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			pc, err := w.svc.RegisterPasskeyBegin(t.Context(), localClient, account.RegistrationPasskey{Username: w.name("newcomer"), Origin: w.origin})
+			if err != nil {
+				t.Fatalf("RegisterPasskeyBegin = %v", err)
+			}
+			body := accesstest.NewPasskeyDevice(t).Register(browserJSON(t, pc.Creation))
+			var in account.SignedIn
+			return opCall{
+				run: func(ctx context.Context) error {
+					out, err := w.svc.RegisterPasskeyFinish(ctx, w.client, pc.ID, bytes.NewReader(body))
+					in = out.SignedIn
+					return err
+				},
+				want: func() []account.Event { return registeredEvents(in, access.MethodPasskey) },
+			}
+		}},
 		{name: "PasswordLogin", class: classPublic, transport: plainPerRequest, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
 			var in account.SignedIn
 			return opCall{
@@ -321,6 +441,161 @@ func publicOperations() []operation {
 					return err
 				},
 				want: func() []account.Event { return []account.Event{signedIn(in, access.MethodPassword)} },
+			}
+		}},
+		{name: "SignInWithCode", class: classPublic, transport: plainPerRequest, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket, secret := w.pendingTicket(t)
+			var out account.LoginResult
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					out, err = w.svc.SignInWithCode(ctx, w.client, ticket, codeNow(secret))
+					return err
+				},
+				want: func() []account.Event { return []account.Event{signedIn(out.SignedIn, access.MethodPassword)} },
+			}
+		}},
+		{name: "SecondFactorPasskeyBegin", class: classPublic, transport: plainRefused, readOnly: true, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			sealTOTP(t, w.mem, w.sealer, w.alice)
+			out, err := w.step1(t.Context(), localClient, "alice", goodPassword)
+			if err != nil || out.Pending == nil {
+				t.Fatalf("alice's step 1 = %v, want a pending sign-in", err)
+			}
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.SecondFactorPasskeyBegin(ctx, w.client, out.Pending.Ticket, w.origin)
+				return err
+			}, want: none}
+		}},
+		{name: "SecondFactorPasskeyFinish", class: classPublic, transport: plainRefused, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			pc, assertion := w.secondPasskey(t)
+			var out account.LoginResult
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					out, err = w.svc.SecondFactorPasskeyFinish(ctx, w.client, pc.ID, bytes.NewReader(assertion))
+					return err
+				},
+				want: func() []account.Event { return []account.Event{signedIn(out.SignedIn, access.MethodPassword)} },
+			}
+		}},
+		{name: "SignInWithRecoveryCode", class: classPublic, transport: plainRefused, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket, code := w.recoveryTicket(t)
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.SignInWithRecoveryCode(ctx, w.client, ticket, code)
+				return err
+			}, want: none}
+		}},
+		{name: "PendingTOTPBegin", class: classPublic, transport: plainRefused, readOnly: true, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket := w.recoveredTicket(t)
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.PendingTOTPBegin(ctx, w.client, ticket)
+				return err
+			}, want: none}
+		}},
+		{name: "PendingTOTPFinish", class: classPublic, transport: plainRefused, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket := w.recoveredTicket(t)
+			e, err := w.svc.PendingTOTPBegin(t.Context(), localClient, ticket)
+			if err != nil {
+				t.Fatalf("PendingTOTPBegin = %v", err)
+			}
+			code := codeNow(secretOf(t, account.TOTPEnrolment{Text: e.Text}))
+			var in account.SignedIn
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					var out account.EnrolmentResult
+					out, err = w.svc.PendingTOTPFinish(ctx, w.client, ticket, code)
+					in = out.SignedIn
+					return err
+				},
+				want: func() []account.Event {
+					actor := account.EventActor{UserID: w.alice.ID, SessionID: in.Session.ID}
+					return append(recoveryEvents(w.alice.ID, in),
+						account.Event{Kind: account.EventTOTPAdded, UserID: w.alice.ID, Actor: actor},
+						account.Event{Kind: account.EventRecoveryCodeIssued, UserID: w.alice.ID, Actor: actor},
+						signedIn(in, access.MethodPassword))
+				},
+			}
+		}},
+		{name: "PendingPasskeyBegin", class: classPublic, transport: plainRefused, readOnly: true, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket := w.recoveredTicket(t)
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.PendingPasskeyBegin(ctx, w.client, ticket, w.origin)
+				return err
+			}, want: none}
+		}},
+		{name: "PendingPasskeyFinish", class: classPublic, transport: plainRefused, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			pc, err := w.svc.PendingPasskeyBegin(t.Context(), localClient, w.recoveredTicket(t), w.origin)
+			if err != nil {
+				t.Fatalf("PendingPasskeyBegin = %v", err)
+			}
+			body := accesstest.NewPasskeyDevice(t).Register(browserJSON(t, pc.Creation))
+			var in account.SignedIn
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					var out account.EnrolmentResult
+					out, err = w.svc.PendingPasskeyFinish(ctx, w.client, pc.ID, bytes.NewReader(body))
+					in = out.SignedIn
+					return err
+				},
+				want: func() []account.Event {
+					pks, _ := w.mem.PasskeysByUserID(t.Context(), w.alice.ID)
+					var added int64
+					for _, pk := range pks {
+						added = max(added, pk.ID)
+					}
+					actor := account.EventActor{UserID: w.alice.ID, SessionID: in.Session.ID}
+					return append(recoveryEvents(w.alice.ID, in),
+						account.Event{Kind: account.EventPasskeyAdded, UserID: w.alice.ID, PasskeyID: added, Actor: actor},
+						signedIn(in, access.MethodPassword))
+				},
+			}
+		}},
+		{name: "SetCredentialPassword", class: classPublic, transport: plainPerRequest, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket := w.setCredentialTicket(t, w.client)
+			var out account.LoginResult
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					out, err = w.svc.SetCredentialPassword(ctx, w.client, ticket, access.NewSecret("a-password-of-alices-own-9"))
+					return err
+				},
+				want: func() []account.Event {
+					actor := account.EventActor{UserID: w.alice.ID, SessionID: out.SignedIn.Session.ID}
+					return []account.Event{
+						{Kind: account.EventPasswordSet, UserID: w.alice.ID, Method: access.MethodPassword, Actor: actor},
+						signedIn(out.SignedIn, access.MethodPassword),
+					}
+				},
+			}
+		}},
+		{name: "SetCredentialPasskeyBegin", class: classPublic, transport: plainRefused, readOnly: true, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			ticket := w.setCredentialTicket(t, w.client)
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.SetCredentialPasskeyBegin(ctx, w.client, ticket, w.origin)
+				return err
+			}, want: none}
+		}},
+		{name: "SetCredentialPasskeyFinish", class: classPublic, transport: plainRefused, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			pc, err := w.svc.SetCredentialPasskeyBegin(t.Context(), localClient, w.setCredentialTicket(t, localClient), w.origin)
+			if err != nil {
+				t.Fatalf("SetCredentialPasskeyBegin = %v", err)
+			}
+			body := accesstest.NewPasskeyDevice(t).Register(browserJSON(t, pc.Creation))
+			var in account.SignedIn
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					in, err = w.svc.SetCredentialPasskeyFinish(ctx, w.client, pc.ID, bytes.NewReader(body))
+					return err
+				},
+				want: func() []account.Event {
+					pks, _ := w.mem.PasskeysByUserID(t.Context(), w.alice.ID)
+					var added int64
+					for _, pk := range pks {
+						added = max(added, pk.ID)
+					}
+					actor := account.EventActor{UserID: w.alice.ID, SessionID: in.Session.ID}
+					return []account.Event{
+						{Kind: account.EventPasskeyAdded, UserID: w.alice.ID, PasskeyID: added, Actor: actor},
+						signedIn(in, access.MethodPassword),
+					}
+				},
 			}
 		}},
 		{name: "PasskeyLoginBegin", class: classPublic, transport: plainRefused, readOnly: true, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
@@ -364,7 +639,7 @@ func publicOperations() []operation {
 			var in account.SignedIn
 			return opCall{
 				run: func(ctx context.Context) (err error) {
-					in, err = w.svc.AcceptInvitePassword(ctx, w.client, account.AcceptInvite{Token: inv.Plaintext, Username: "invitee", Password: access.NewSecret(goodPassword)})
+					in, err = completed(w.svc.AcceptInvitePassword(ctx, w.client, account.AcceptInvite{Token: inv.Plaintext, Username: "invitee", Password: access.NewSecret(goodPassword)}))
 					return err
 				},
 				want: func() []account.Event {
@@ -372,17 +647,55 @@ func publicOperations() []operation {
 				},
 			}
 		}},
-		{name: "StartRecovery", class: classPublic, transport: plainRefused, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
-			tok, err := w.svc.IssueRecovery(t.Context(), account.OutOfBand("socket"), w.alice.ID, 0)
+		{name: "AcceptInviteOIDCBegin", class: classPublic, transport: plainRefused, readOnly: true, asks: []account.Operation{account.OpCreateUser}, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			inv, err := w.svc.CreateInvite(t.Context(), w.recent(t, w.root), access.RoleUser, 0)
 			if err != nil {
-				t.Fatalf("IssueRecovery = %v", err)
+				t.Fatalf("CreateInvite = %v", err)
 			}
 			return opCall{
 				run: func(ctx context.Context) error {
-					_, err := w.svc.StartRecovery(ctx, w.client, tok.Plaintext)
+					_, err := w.svc.AcceptInviteOIDCBegin(ctx, w.client, inv.Plaintext)
 					return err
 				},
-				want: events(account.Event{Kind: account.EventRecoveryConsumed, UserID: w.alice.ID}),
+				want: none,
+			}
+		}},
+		{name: "CreatePendingOIDC", class: classPublic, transport: plainRefused, asks: []account.Operation{account.OpCreateUser}, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
+			pending := account.PendingLink{
+				Identity:  access.OIDCIdentity{Issuer: oidcIssuer, Subject: w.name("pending-")},
+				Provision: &account.Provision{Role: access.RoleUser},
+			}
+			name := w.name("provisioned")
+			var in account.SignedIn
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					in, err = w.svc.CreatePendingOIDC(ctx, w.client, pending, name)
+					return err
+				},
+				want: func() []account.Event {
+					return []account.Event{{Kind: account.EventUserCreated, UserID: in.User.ID, Role: access.RoleUser}, signedIn(in, access.MethodOIDC)}
+				},
+			}
+		}},
+		{name: "LinkPendingOIDCByAdmin", class: classPublic, transport: plainRefused, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
+			target := w.user(t)
+			if err := w.mem.SetSSOMode(t.Context(), account.SSOOnly); err != nil {
+				t.Fatalf("SetSSOMode: %v", err)
+			}
+			issued, err := w.svc.SetTemporaryPassword(t.Context(), account.OutOfBand("socket"), target.ID, account.TemporaryPasswordOptions{})
+			if err != nil {
+				t.Fatalf("SetTemporaryPassword = %v", err)
+			}
+			pending := account.PendingLink{Identity: access.OIDCIdentity{Issuer: oidcIssuer, Subject: w.name("admin-link-")}}
+			var in account.SignedIn
+			return opCall{
+				run: func(ctx context.Context) (err error) {
+					in, err = w.svc.LinkPendingOIDCByAdmin(ctx, w.client, pending, target.Username, issued.Password)
+					return err
+				},
+				want: func() []account.Event {
+					return []account.Event{{Kind: account.EventOIDCLinked, UserID: target.ID}, signedIn(in, access.MethodOIDC)}
+				},
 			}
 		}},
 		{name: "Logout", class: classPublic, transport: plainAllowed, prep: func(t *testing.T, w *opWorld, _ access.Principal) opCall {
@@ -402,6 +715,16 @@ func publicOperations() []operation {
 // its EventSignedIn.
 func setupEvents(in account.SignedIn, m access.Method) []account.Event {
 	created := account.Event{Kind: account.EventUserCreated, Role: access.RoleAdmin}
+	if in.User != nil {
+		created.UserID = in.User.ID
+	}
+	return []account.Event{created, signedIn(in, m)}
+}
+
+// registeredEvents are a registration's EventUserCreated of the regular
+// user it created, then its EventSignedIn.
+func registeredEvents(in account.SignedIn, m access.Method) []account.Event {
+	created := account.Event{Kind: account.EventUserCreated, Role: access.RoleUser}
 	if in.User != nil {
 		created.UserID = in.User.ID
 	}
@@ -432,6 +755,29 @@ func sessionOperations() []operation {
 					Kind: account.EventSteppedUp, UserID: actorOf(p).UserID, Method: access.MethodPassword,
 					SessionIDs: []string{p.SessionID}, Actor: actorOf(p),
 				}),
+			}
+		}},
+		{name: "StepUpCode", class: classSession, transport: plainRefused, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			secret := sealTOTP(t, w.mem, w.sealer, w.owner(t, p))
+			return opCall{
+				run: func(ctx context.Context) error {
+					_, err := w.svc.StepUpCode(ctx, w.client, p, codeNow(secret))
+					return err
+				},
+				want: events(account.Event{
+					Kind: account.EventSteppedUp, UserID: actorOf(p).UserID, Method: access.MethodTOTP,
+					SessionIDs: []string{p.SessionID}, Actor: actorOf(p),
+				}),
+			}
+		}},
+		{name: "RemoveTOTP", class: classSession, transport: plainAllowed, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			u := w.owner(t, p)
+			secret := sealTOTP(t, w.mem, w.sealer, u)
+			return opCall{
+				run: func(ctx context.Context) error {
+					return w.svc.RemoveTOTP(ctx, w.client, p, account.ProofCode(codeNow(secret)))
+				},
+				want: events(account.Event{Kind: account.EventTOTPRemoved, UserID: u.ID, Actor: actorOf(p)}),
 			}
 		}},
 		{name: "StepUpPasskeyBegin", class: classSession, transport: plainRefused, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
@@ -479,14 +825,14 @@ func sessionOperations() []operation {
 				want: events(account.Event{Kind: account.EventSessionRevoked, UserID: u.ID, SessionIDs: []string{target.ID}, Actor: actorOf(p)}),
 			}
 		}},
-		{name: "APIKeys", class: classSession, transport: plainAllowed, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
+		{name: "APIKeys", class: classOwnKeys, transport: plainAllowed, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
 			return opCall{run: func(ctx context.Context) error { _, err := w.svc.APIKeys(ctx, p); return err }, want: none}
 		}},
-		{name: "RenameAPIKey", class: classSession, transport: plainAllowed, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+		{name: "RenameAPIKey", class: classOwnKeys, transport: plainAllowed, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			k, label := w.storedKey(t, w.owner(t, p), "read"), w.name("renamed ")
 			return opCall{run: func(ctx context.Context) error { return w.svc.RenameAPIKey(ctx, p, k.ID, label) }, want: none}
 		}},
-		{name: "RevokeAPIKey", class: classSession, transport: plainAllowed, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+		{name: "RevokeAPIKey", class: classOwnKeys, transport: plainAllowed, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			u := w.owner(t, p)
 			k := w.storedKey(t, u, "read")
 			return opCall{
@@ -534,12 +880,46 @@ func recentOperations() []operation {
 				want: events(account.Event{Kind: account.EventPasswordRemoved, UserID: u.ID, Method: access.MethodPassword, Actor: actorOf(p)}),
 			}
 		}},
+		{name: "BeginTOTP", class: classRecentAuth, transport: plainRefused, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
+			return opCall{run: func(ctx context.Context) error { _, err := w.svc.BeginTOTP(ctx, p); return err }, want: none}
+		}},
+		{name: "FinishTOTP", class: classRecentAuth, transport: plainRefused, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			e, err := w.svc.BeginTOTP(t.Context(), p)
+			if err != nil {
+				if e, err = w.svc.BeginTOTP(t.Context(), w.actorFor(t, classRecentAuth)); err != nil {
+					t.Fatalf("BeginTOTP with the default principal = %v", err)
+				}
+			}
+			in := account.TOTPFinish{Ticket: e.Ticket, Code: codeNow(secretOf(t, e))}
+			return opCall{
+				run: func(ctx context.Context) error { _, err := w.svc.FinishTOTP(ctx, w.client, p, in); return err },
+				want: events(
+					account.Event{Kind: account.EventTOTPAdded, UserID: actorOf(p).UserID, Actor: actorOf(p)},
+					account.Event{Kind: account.EventRecoveryCodeIssued, UserID: actorOf(p).UserID, Actor: actorOf(p)},
+				),
+			}
+		}},
+		{name: "RegenerateRecoveryCode", class: classRecentAuth, transport: plainRefused, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			u := w.owner(t, p)
+			secret := sealTOTP(t, w.mem, w.sealer, u)
+			storeRecoveryCode(t, w.mem, u)
+			return opCall{
+				run: func(ctx context.Context) error {
+					_, err := w.svc.RegenerateRecoveryCode(ctx, w.client, p, account.ProofCode(codeNow(secret)))
+					return err
+				},
+				want: events(account.Event{Kind: account.EventRecoveryCodeReplaced, UserID: u.ID, Actor: actorOf(p)}),
+			}
+		}},
 		{name: "PasskeyRegisterBegin", class: classRecentAuth, transport: plainRefused, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
-			return opCall{run: func(ctx context.Context) error { _, err := w.svc.PasskeyRegisterBegin(ctx, p, w.origin); return err }, want: none}
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.PasskeyRegisterBegin(ctx, w.client, p, w.origin, account.SecondFactorProof{})
+				return err
+			}, want: none}
 		}},
 		{name: "PasskeyRegisterFinish", class: classRecentAuth, transport: plainRefused, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			_, pc := finishWith(t, w, classRecentAuth, p, func(q access.Principal) (account.PendingCeremony, error) {
-				return w.svc.PasskeyRegisterBegin(t.Context(), q, w.origin)
+				return w.svc.PasskeyRegisterBegin(t.Context(), w.client, q, w.origin, account.SecondFactorProof{})
 			})
 			body := accesstest.NewPasskeyDevice(t).Register(browserJSON(t, pc.Creation))
 			var reg account.Registered
@@ -549,7 +929,7 @@ func recentOperations() []operation {
 					return err
 				},
 				want: func() []account.Event {
-					return []account.Event{{Kind: account.EventPasskeyAdded, UserID: actorOf(p).UserID, PasskeyID: reg.Passkey.ID, Actor: actorOf(p)}}
+					return []account.Event{{Kind: account.EventPasskeyAdded, UserID: actorOf(p).UserID, PasskeyID: reg.Passkey.Credential.ID, Actor: actorOf(p)}}
 				},
 			}
 		}},
@@ -557,7 +937,9 @@ func recentOperations() []operation {
 			u := w.owner(t, p)
 			id := w.storedPasskey(t, u)
 			return opCall{
-				run:  func(ctx context.Context) error { return w.svc.RemovePasskey(ctx, p, id) },
+				run: func(ctx context.Context) error {
+					return w.svc.RemovePasskey(ctx, w.client, p, id, account.SecondFactorProof{})
+				},
 				want: events(account.Event{Kind: account.EventPasskeyRemoved, UserID: u.ID, PasskeyID: id, Actor: actorOf(p)}),
 			}
 		}},
@@ -596,66 +978,6 @@ func recentOperations() []operation {
 			return opCall{
 				run:  func(ctx context.Context) error { return w.svc.UnlinkOIDC(ctx, p) },
 				want: events(account.Event{Kind: account.EventOIDCUnlinked, UserID: u.ID, Actor: actorOf(p)}),
-			}
-		}},
-	}
-}
-
-// completed is a recovery completion's events for u, ended by p, that
-// installed a credential of method: the sessions it ended, then one
-// EventKeyRevoked per key.
-func completed(u *access.User, p access.Principal, method access.Method, sessions []string, keys []int64) []account.Event {
-	evs := []account.Event{{Kind: account.EventRecoveryCompleted, UserID: u.ID, Method: method, SessionIDs: sessions, Actor: actorOf(p)}}
-	for _, id := range keys {
-		evs = append(evs, account.Event{Kind: account.EventKeyRevoked, UserID: u.ID, KeyID: id, Actor: actorOf(p)})
-	}
-	return evs
-}
-
-func recoveryOperations() []operation {
-	return []operation{
-		{name: "RecoverWithPassword", class: classRecovery, transport: plainRefused, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
-			u := w.owner(t, p)
-			sessions, keys := sessionIDsOf(t, w.fixture, u.ID), w.keysOfUser(t, u)
-			return opCall{
-				run: func(ctx context.Context) error {
-					return w.svc.RecoverWithPassword(ctx, p, access.NewSecret(recoveredPassword), account.RecoverOptions{})
-				},
-				want: func() []account.Event { return completed(u, p, access.MethodPassword, sessions, keys) },
-			}
-		}},
-		{name: "RecoverPasskeyBegin", class: classRecovery, transport: plainRefused, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
-			return opCall{run: func(ctx context.Context) error { _, err := w.svc.RecoverPasskeyBegin(ctx, p, w.origin); return err }, want: none}
-		}},
-		{name: "RecoverPasskeyFinish", class: classRecovery, transport: plainRefused, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
-			_, pc := finishWith(t, w, classRecovery, p, func(q access.Principal) (account.PendingCeremony, error) {
-				return w.svc.RecoverPasskeyBegin(t.Context(), q, w.origin)
-			})
-			body := accesstest.NewPasskeyDevice(t).Register(browserJSON(t, pc.Creation))
-			u := w.owner(t, p)
-			sessions, keys := sessionIDsOf(t, w.fixture, u.ID), w.keysOfUser(t, u)
-			return opCall{
-				run: func(ctx context.Context) error {
-					return w.svc.RecoverPasskeyFinish(ctx, p, pc.ID, bytes.NewReader(body), account.RecoverOptions{})
-				},
-				want: func() []account.Event { return completed(u, p, access.MethodPasskey, sessions, keys) },
-			}
-		}},
-		{name: "RecoverOutOfBand", class: classOutOfBand, transport: plainAllowed, asks: []account.Operation{account.OpIssueRecovery}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
-			a := w.actor(p)
-			sessions, keys := sessionIDsOf(t, w.fixture, w.alice.ID), w.keysOfUser(t, w.alice)
-			return opCall{
-				actor: account.EventActorOf(a), target: w.alice.ID,
-				run: func(ctx context.Context) error {
-					return w.svc.RecoverOutOfBand(ctx, a, w.alice.ID, access.NewSecret(recoveredPassword), account.RecoverOptions{})
-				},
-				want: func() []account.Event {
-					evs := completed(w.alice, access.Principal{}, access.MethodPassword, sessions, keys)
-					for i := range evs {
-						evs[i].Actor = account.EventActor{OutOfBand: "socket"}
-					}
-					return evs
-				},
 			}
 		}},
 	}
@@ -708,6 +1030,55 @@ func adminOperations() []operation {
 				want: events(account.Event{Kind: account.EventUserDisabled, UserID: target.ID, Actor: actorOf(p)}),
 			}
 		}},
+		{name: "SSO", class: classPublic, transport: plainAllowed, readOnly: true, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
+			return opCall{run: func(ctx context.Context) error { _, _, err := w.svc.SSO(ctx); return err }, want: none}
+		}},
+		{name: "SSOReadiness", class: classAdminScope, transport: plainRefused, readOnly: true, asks: []account.Operation{account.OpListUsers}, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
+			return opCall{run: func(ctx context.Context) error {
+				_, err := w.svc.SSOReadiness(ctx, account.As(p), account.SSOForLinked)
+				return err
+			}, want: none, actor: actorOf(p)}
+		}},
+		{name: "CheckSSOReady", class: classRecentAuth, transport: plainRefused, ownerOnly: true, readOnly: true, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {
+			return opCall{run: func(ctx context.Context) error { return w.svc.CheckSSOReady(ctx, account.As(p), account.SSOForLinked) }, want: none}
+		}},
+		{name: "ApplySSO", class: classRecentAuth, transport: plainRefused, ownerOnly: true, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			storeMode(t, w.mem, account.SSOOnly)
+			u := w.user(t)
+			rec := access.TemporaryPassword{UserID: u.ID, Hash: access.NewHash("x"), CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour), Dormant: true}
+			if err := w.mem.SetTemporaryPassword(t.Context(), rec); err != nil {
+				t.Fatalf("SetTemporaryPassword: %v", err)
+			}
+			return opCall{
+				actor: actorOf(p), target: u.ID,
+				run: func(ctx context.Context) error { return w.svc.ApplySSO(ctx, account.As(p), account.SSOAlongside) },
+				want: events(
+					account.Event{Kind: account.EventTemporaryPasswordWithdrawn, UserID: u.ID, Actor: actorOf(p)},
+					account.Event{Kind: account.EventSSOModeChanged, SSOMode: account.SSOAlongside, PreviousSSOMode: account.SSOOnly, Actor: actorOf(p)},
+				),
+			}
+		}},
+		{name: "MigrateSSO", class: classPublic, transport: plainAllowed, prep: func(_ *testing.T, w *opWorld, _ access.Principal) opCall {
+			return opCall{
+				run:  func(ctx context.Context) error { return w.svc.MigrateSSO(ctx, account.SSOForLinked) },
+				want: events(account.Event{Kind: account.EventSSOModeChanged, SSOMode: account.SSOForLinked, Actor: account.EventActor{OutOfBand: "migration"}}),
+			}
+		}},
+		{name: "SetOwner", class: classRecentAuth, transport: plainAllowed, ownerOnly: true, asks: []account.Operation{account.OpSetOwner}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			target := w.user(t)
+			target.Role = access.RoleAdmin
+			if err := w.mem.UpdateUser(t.Context(), target); err != nil {
+				t.Fatalf("UpdateUser: %v", err)
+			}
+			return opCall{
+				actor: actorOf(p), target: target.ID,
+				run: func(ctx context.Context) error {
+					_, err := w.svc.SetOwner(ctx, account.As(p), target.ID, true)
+					return err
+				},
+				want: events(account.Event{Kind: account.EventOwnerSet, UserID: target.ID, Actor: actorOf(p)}),
+			}
+		}},
 		{name: "DeleteUser", class: classManageUsers, transport: plainAllowed, asks: []account.Operation{account.OpDeleteUser}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			target := w.user(t)
 			return opCall{
@@ -716,15 +1087,48 @@ func adminOperations() []operation {
 				want: events(account.Event{Kind: account.EventUserDeleted, UserID: target.ID, Actor: actorOf(p)}),
 			}
 		}},
-		{name: "IssueRecovery", class: classManageUsers, transport: plainRefused, asks: []account.Operation{account.OpIssueRecovery}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+		{name: "AdminUnlinkOIDC", class: classManageUsers, transport: plainAllowed, asks: []account.Operation{account.OpUnlinkOIDC}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			target := w.user(t)
+			linkIdentity(t, w.mem, target, access.OIDCIdentity{Issuer: oidcIssuer, Subject: w.name("linked-")})
+			return opCall{
+				actor: actorOf(p), target: target.ID,
+				run:  func(ctx context.Context) error { return w.svc.AdminUnlinkOIDC(ctx, account.As(p), target.ID) },
+				want: events(account.Event{Kind: account.EventOIDCUnlinked, UserID: target.ID, Actor: actorOf(p)}),
+			}
+		}},
+		{name: "AdminRelinkOIDC", class: classManageUsers, transport: plainRefused, asks: []account.Operation{account.OpUnlinkOIDC, account.OpSetTemporaryPassword}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			target := w.user(t)
+			linkIdentity(t, w.mem, target, access.OIDCIdentity{Issuer: oidcIssuer, Subject: w.name("relinked-")})
+			return opCall{
+				actor: actorOf(p), target: target.ID,
+				run: func(ctx context.Context) error {
+					_, err := w.svc.AdminRelinkOIDC(ctx, account.As(p), target.ID, account.TemporaryPasswordOptions{})
+					return err
+				},
+				want: events(
+					account.Event{Kind: account.EventOIDCUnlinked, UserID: target.ID, Actor: actorOf(p)},
+					account.Event{Kind: account.EventTemporaryPasswordSet, UserID: target.ID, Actor: actorOf(p)},
+				),
+			}
+		}},
+		{name: "SetTemporaryPassword", class: classManageUsers, transport: plainRefused, asks: []account.Operation{account.OpSetTemporaryPassword}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
 			target := w.user(t)
 			return opCall{
 				actor: actorOf(p), target: target.ID,
 				run: func(ctx context.Context) error {
-					_, err := w.svc.IssueRecovery(ctx, account.As(p), target.ID, 0)
+					_, err := w.svc.SetTemporaryPassword(ctx, account.As(p), target.ID, account.TemporaryPasswordOptions{})
 					return err
 				},
-				want: events(account.Event{Kind: account.EventRecoveryIssued, UserID: target.ID, Actor: actorOf(p)}),
+				want: events(account.Event{Kind: account.EventTemporaryPasswordSet, UserID: target.ID, Actor: actorOf(p)}),
+			}
+		}},
+		{name: "ResetSecondFactor", class: classManageUsers, transport: plainAllowed, asks: []account.Operation{account.OpResetSecondFactor}, prep: func(t *testing.T, w *opWorld, p access.Principal) opCall {
+			target := w.user(t)
+			storeTOTP(t, w.mem, target)
+			return opCall{
+				actor: actorOf(p), target: target.ID,
+				run:  func(ctx context.Context) error { return w.svc.ResetSecondFactor(ctx, account.As(p), target.ID) },
+				want: events(account.Event{Kind: account.EventSecondFactorReset, UserID: target.ID, Actor: actorOf(p)}),
 			}
 		}},
 		{name: "CreateInvite", class: classManageUsers, transport: plainRefused, asks: []account.Operation{account.OpInvite}, prep: func(_ *testing.T, w *opWorld, p access.Principal) opCall {

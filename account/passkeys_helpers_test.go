@@ -37,6 +37,17 @@ func newPK(t testing.TB, o pwOptions) *pkFixture {
 	return &pkFixture{pwFixture: newPW(t, o), rp: rp, origin: origin}
 }
 
+// rejectedOrigin is an origin on another site, which rpID's relying party
+// refuses (WebAuthn L3 §7.1: the origin must be one the relying party expects).
+func rejectedOrigin(t testing.TB) webauthn.Origin {
+	t.Helper()
+	origin, err := webauthn.ParseOrigin("https://other.test")
+	if err != nil {
+		t.Fatalf("ParseOrigin: %v", err)
+	}
+	return origin
+}
+
 // browserJSON is v as the browser hands it to the authenticator.
 func browserJSON(t testing.TB, v any) []byte {
 	t.Helper()
@@ -50,7 +61,7 @@ func browserJSON(t testing.TB, v any) []byte {
 // register enrols dev for pr's user and returns the result.
 func (p *pkFixture) register(t testing.TB, pr access.Principal, dev *accesstest.PasskeyDevice) (account.Registered, error) {
 	t.Helper()
-	pc, err := p.svc.PasskeyRegisterBegin(t.Context(), pr, p.origin)
+	pc, err := p.svc.PasskeyRegisterBegin(t.Context(), localClient, pr, p.origin, account.SecondFactorProof{})
 	if err != nil {
 		t.Fatalf("PasskeyRegisterBegin: %v", err)
 	}
@@ -66,7 +77,7 @@ func (p *pkFixture) enrol(t testing.TB, u *access.User, dev *accesstest.PasskeyD
 	if err != nil {
 		t.Fatalf("PasskeyRegisterFinish: %v", err)
 	}
-	return reg.Passkey
+	return reg.Passkey.Credential
 }
 
 // signIn runs a passkey sign-in in mode from c on dev.

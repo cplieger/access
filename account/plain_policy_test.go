@@ -112,7 +112,7 @@ func TestPlainEitherHalf(t *testing.T) {
 	for _, op := range operations() {
 		byName[op.name] = op
 	}
-	for _, name := range []string{"StepUpPassword", "StepUpPasskeyFinish", "RemovePassword", "SetPassword"} {
+	for _, name := range []string{"StepUpPassword", "StepUpPasskeyFinish", "StepUpCode", "FinishTOTP", "RemovePassword", "SetPassword"} {
 		op := byName[name]
 		for _, half := range []struct {
 			name                    string
@@ -150,9 +150,6 @@ func TestPlainPolicyOutOfBand(t *testing.T) {
 			k := w.storedKey(t, w.alice, "read")
 			if _, err := w.svc.RotateAPIKey(t.Context(), a, k.ID); err != nil {
 				t.Errorf("RotateAPIKey(OutOfBand) = %v, want it to go through", err)
-			}
-			if _, err := w.svc.IssueRecovery(t.Context(), a, w.alice.ID, 0); err != nil {
-				t.Errorf("IssueRecovery(OutOfBand) = %v, want it to go through", err)
 			}
 		})
 	}

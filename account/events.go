@@ -25,9 +25,6 @@ const (
 	EventOIDCLinked          EventKind = "oidc_linked"
 	EventOIDCUnlinked        EventKind = "oidc_unlinked"
 	EventSetupTokenIssued    EventKind = "setup_token_issued" //nolint:gosec // G101: an event name, not a credential
-	EventRecoveryIssued      EventKind = "recovery_issued"
-	EventRecoveryConsumed    EventKind = "recovery_consumed"
-	EventRecoveryCompleted   EventKind = "recovery_completed"
 	EventKeyMinted           EventKind = "key_minted"
 	EventKeyRevoked          EventKind = "key_revoked"
 	EventKeyRotated          EventKind = "key_rotated"
@@ -39,7 +36,52 @@ const (
 	EventUserCreated         EventKind = "user_created"
 	EventInviteIssued        EventKind = "invite_issued"
 	EventMethodLocked        EventKind = "method_locked"    // a failure counter reached the cap; reported by the sweep, or by the Update that clears an unreported lock
-	EventMethodReenabled     EventKind = "method_reenabled" // recovery, ReenableMethod or a sign-in cleared a lock, after its commit
+	EventMethodReenabled     EventKind = "method_reenabled" // ReenableMethod, or a correct secret, cleared a reported lock, after its commit
+	EventOwnerSet            EventKind = "owner_set"
+	EventOwnerRemoved        EventKind = "owner_removed"
+	EventSSOModeChanged      EventKind = "sso_mode_changed"
+	// EventTemporaryPasswordWithdrawn is a dormant temporary password a
+	// change that brings the user's methods back deleted.
+	EventTemporaryPasswordWithdrawn EventKind = "temporary_password_withdrawn"
+	// EventTemporaryPasswordSet is SetTemporaryPassword's issue.
+	EventTemporaryPasswordSet EventKind = "temporary_password_set"
+	// EventTemporaryPasswordUsed is a temporary password a password sign-in
+	// matched and deleted, spent or, over plain HTTP where it cannot finish,
+	// cancelled; Event.Plain names the transport it crossed.
+	EventTemporaryPasswordUsed EventKind = "temporary_password_used"
+	// EventOIDCNotAdmitted is a token Rules.OIDCAdmission refused; its
+	// UserID is zero at an invite acceptance and for an identity no account
+	// is linked to.
+	EventOIDCNotAdmitted EventKind = "oidc_not_admitted"
+	// EventRoleSynced is a role an OIDC sign-in's SyncRole changed, naming
+	// the user's sessions the change ended, and EventRoleSyncSkipped one it
+	// left because the claim was unreadable.
+	EventRoleSynced      EventKind = "role_synced"
+	EventRoleSyncSkipped EventKind = "role_sync_skipped"
+	EventTOTPAdded       EventKind = "totp_added"
+	EventTOTPReplaced    EventKind = "totp_replaced"
+	EventTOTPRemoved     EventKind = "totp_removed"
+	// EventRecoveryCodeIssued is a recovery code a binding issued,
+	// EventRecoveryCodeUsed one a pending enrolment's finish spent, and
+	// EventRecoveryCodeReplaced one RegenerateRecoveryCode drew in place of
+	// the user's last.
+	EventRecoveryCodeIssued   EventKind = "recovery_code_issued"
+	EventRecoveryCodeUsed     EventKind = "recovery_code_used"
+	EventRecoveryCodeReplaced EventKind = "recovery_code_replaced"
+	// EventSecondFactorFailed is a pending sign-in's first refused second
+	// step; later refusals on the same ticket add nothing, since the
+	// failure record counts them. A refused code's entry carries the
+	// CodeError Reason as its Detail.
+	EventSecondFactorFailed EventKind = "second_factor_failed"
+	// EventSecondFactorReset is ResetSecondFactor's deletion of a user's
+	// TOTP record and recovery code.
+	EventSecondFactorReset EventKind = "second_factor_reset"
+	// EventUserApproved is the enable of an account waiting for approval,
+	// in place of EventUserEnabled.
+	EventUserApproved EventKind = "user_approved"
+	// EventRegistrationExpired is the sweep's deletion of an account that
+	// waited for approval longer than WaitingRegistrationLifetime.
+	EventRegistrationExpired EventKind = "registration_expired"
 )
 
 // eventKinds is every EventKind in declaration order, with the class its
@@ -61,9 +103,6 @@ var eventKinds = [...]struct {
 	{EventOIDCLinked, LogClassChange},
 	{EventOIDCUnlinked, LogClassChange},
 	{EventSetupTokenIssued, LogClassChange},
-	{EventRecoveryIssued, LogClassChange},
-	{EventRecoveryConsumed, LogClassChange},
-	{EventRecoveryCompleted, LogClassChange},
 	{EventKeyMinted, LogClassChange},
 	{EventKeyRevoked, LogClassChange},
 	{EventKeyRotated, LogClassChange},
@@ -76,6 +115,25 @@ var eventKinds = [...]struct {
 	{EventInviteIssued, LogClassChange},
 	{EventMethodLocked, LogClassChange},
 	{EventMethodReenabled, LogClassChange},
+	{EventOwnerSet, LogClassChange},
+	{EventOwnerRemoved, LogClassChange},
+	{EventSSOModeChanged, LogClassChange},
+	{EventTemporaryPasswordWithdrawn, LogClassChange},
+	{EventTemporaryPasswordSet, LogClassChange},
+	{EventTemporaryPasswordUsed, LogClassSession},
+	{EventOIDCNotAdmitted, LogClassSession},
+	{EventRoleSynced, LogClassChange},
+	{EventRoleSyncSkipped, LogClassChange},
+	{EventTOTPAdded, LogClassChange},
+	{EventTOTPReplaced, LogClassChange},
+	{EventTOTPRemoved, LogClassChange},
+	{EventRecoveryCodeIssued, LogClassChange},
+	{EventRecoveryCodeUsed, LogClassChange},
+	{EventRecoveryCodeReplaced, LogClassChange},
+	{EventSecondFactorFailed, LogClassSession},
+	{EventSecondFactorReset, LogClassChange},
+	{EventUserApproved, LogClassChange},
+	{EventRegistrationExpired, LogClassChange},
 }
 
 // EventKinds returns every EventKind, in declaration order.
@@ -103,22 +161,34 @@ func classOf(k EventKind) LogClass {
 type Event struct {
 	At     time.Time
 	Kind   EventKind
-	Method access.Method // sign-in, step-up, lock, re-enable, and the credential a recovery installed
-	// Role is the new role of an EventRoleChanged, the created user's of an
+	Method access.Method // sign-in, step-up, lock, re-enable and a refused second step
+	// Role is the new role of an EventRoleChanged or EventRoleSynced, the
+	// kept one of an EventRoleSyncSkipped, the created user's of an
 	// EventUserCreated and the invite's of an EventInviteIssued.
 	Role       access.Role
 	SessionIDs []string // sessions ended or rotated
 	Actor      EventActor
 	UserID     int64 // the account the event is about (target)
-	// KeyID is the key of a key event, and the issuing key of an
-	// EventRecoveryConsumed, EventRecoveryCompleted or invite-accepting
-	// EventUserCreated whose token a key issued.
+	// KeyID is the key of a key event, the issuing key of an
+	// invite-accepting EventUserCreated whose token a key issued, and of a
+	// temporary password an EventTemporaryPasswordWithdrawn withdrew or an
+	// admin link's EventOIDCLinked spent.
 	KeyID     int64
 	PasskeyID int64 // passkey events
+	// IssuerUserID is the user whose session issued the temporary password
+	// of an EventTemporaryPasswordWithdrawn or an admin link's
+	// EventOIDCLinked; it and KeyID are zero for one issued out of band.
+	IssuerUserID int64
+	// SSOMode and PreviousSSOMode are an EventSSOModeChanged's new and old
+	// stored mode.
+	SSOMode, PreviousSSOMode SSOMode
 	// Seq is the Seq of the log entry this event's commit appended; 0 for
 	// EventSessionsExpired, which the log does not hold.
 	Seq     uint64
 	Trusted bool // EventMethodLocked: which context locked
+	// Plain is an EventTemporaryPasswordUsed whose secret crossed plain
+	// HTTP, so a reader of that network may hold it.
+	Plain bool
 }
 
 // EventActor is who caused an Event; the zero value is no actor (the

@@ -141,12 +141,14 @@ func TestEqualWorkArms(t *testing.T) {
 			for _, c := range calls {
 				shape = append(shape, fmt.Sprintf("%s@%d", c.name, c.update))
 			}
-			want := []string{"Update" + count, "UserByUsername" + count, "AuthFailure" + count, "PutAuthFailure" + count}
+			// Every arm reads the name's temporary password, user
+			// ID 0 for an unknown name, so a record's absence costs the same.
+			want := []string{"Update" + count, "UserByUsername" + count, "TemporaryPasswordByUserID" + count, "SSOMode" + count, "AuthFailure" + count, "PutAuthFailure" + count}
 			if !slices.Equal(shape, want) {
 				t.Fatalf("store calls = %v, want %v and nothing after", shape, want)
 			}
-			if name := calls[2].arg; !isHexName(name) || calls[3].arg != name {
-				t.Errorf("record names = %q read, %q written; want one 64-hex name", name, calls[3].arg)
+			if name := calls[4].arg; !isHexName(name) || calls[5].arg != name {
+				t.Errorf("record names = %q read, %q written; want one 64-hex name", name, calls[4].arg)
 			}
 			if got := p.events.all(); len(got) != 0 {
 				t.Errorf("events = %v, want none", got)
@@ -232,7 +234,9 @@ func TestCapPerTrustContext(t *testing.T) {
 			if err := p.svc.ReenableMethod(ctx, pr, access.MethodPassword); err != nil {
 				t.Errorf("ReenableMethod between the count and the success = %v", err)
 			}
-			p.failN(t, clientAt(2), "alice", account.FailureCap)
+			// The sign-in holds alice's name lock here, so the failures
+			// that relock come from step-up, which counts the same record.
+			p.failStepUps(t, clientAt(2), pr, account.FailureCap)
 			relock, _ = record(t, p.mem, p.svc, "alice", false)
 		})
 		if _, err := p.login(t.Context(), clientAt(3), "alice", goodPassword); err != nil {
@@ -261,8 +265,8 @@ func TestCapPerTrustContext(t *testing.T) {
 			if err := p.svc.ReenableMethod(ctx, pr, access.MethodPassword); err != nil {
 				t.Errorf("ReenableMethod between the count and the success = %v", err)
 			}
-			p.failN(t, clientAt(2), "alice", account.FailureCap)
-			p.failN(t, trusted, "alice", account.FailureCap)
+			p.failStepUps(t, clientAt(2), pr, account.FailureCap)
+			p.failStepUps(t, trusted, pr, account.FailureCap)
 			relocked[0], _ = record(t, p.mem, p.svc, "alice", false)
 			relocked[1], _ = record(t, p.mem, p.svc, "alice", true)
 		})
@@ -273,10 +277,13 @@ func TestCapPerTrustContext(t *testing.T) {
 			if !relocked[i].Locked {
 				t.Fatalf("trusted=%t record after the re-enable and %d more failures = %+v, want a new lock", isTrusted, account.FailureCap, relocked[i])
 			}
-			rec, found := record(t, p.mem, p.svc, "alice", isTrusted)
-			if !found || !rec.Locked || rec.Count != 0 || !rec.LockedAt.Equal(relocked[i].LockedAt) {
-				t.Errorf("trusted=%t record after the success = %+v (found %t), want the new lock at %v kept at count 0", isTrusted, rec, found, relocked[i].LockedAt)
-			}
+		}
+		if rec, found := record(t, p.mem, p.svc, "alice", false); !found || !rec.Locked || rec.Count != 0 || !rec.LockedAt.Equal(relocked[0].LockedAt) {
+			t.Errorf("untrusted record after the success = %+v (found %t), want the new lock at %v kept at count 0", rec, found, relocked[0].LockedAt)
+		}
+		// The untrusted success leaves the trusted context's record as it was.
+		if rec, found := record(t, p.mem, p.svc, "alice", true); !found || !rec.Locked || rec.Count != relocked[1].Count || !rec.LockedAt.Equal(relocked[1].LockedAt) {
+			t.Errorf("trusted record after the untrusted success = %+v (found %t), want it untouched at %+v", rec, found, relocked[1])
 		}
 	})
 	t.Run("trusted_success_resets_its_record", func(t *testing.T) {
@@ -313,8 +320,8 @@ func TestCapPerTrustContext(t *testing.T) {
 				t.Errorf("untrusted record = %+v after the success, want the lock it set cleared", rec)
 			}
 			rec, found := record(t, p.mem, p.svc, "alice", true)
-			if !found || !rec.Locked || rec.Count != 0 || !rec.LockedAt.Equal(start.Truncate(time.Millisecond)) {
-				t.Errorf("trusted record after the untrusted success = %+v (found %t), want its lock at %v kept at count 0", rec, found, start.Truncate(time.Millisecond))
+			if !found || !rec.Locked || rec.Count != account.FailureCap || !rec.LockedAt.Equal(start.Truncate(time.Millisecond)) {
+				t.Errorf("trusted record after the untrusted success = %+v (found %t), want its lock at %v untouched at count %d", rec, found, start.Truncate(time.Millisecond), account.FailureCap)
 			}
 		})
 	})
@@ -491,6 +498,7 @@ func TestKillBetweenCountAndVerify(t *testing.T) {
 	var hk armed
 	p := newPW(t, pwOptions{hooks: account.Hooks{BeforeVerify: hk.hook}})
 	passwordUser(t, p.mem, p.hasher, "alice", goodPassword)
+	mustOwner(t, p.mem, "root")
 	fresh := func() *account.Service {
 		svc, err := account.New(t.Context(), ownAuthenticator(t, p.cfg))
 		if err != nil {
@@ -524,7 +532,7 @@ func TestKillBetweenCountAndVerify(t *testing.T) {
 	if rec, _ := record(t, p.mem, next, "alice", false); rec.Count != account.FailureCap || !rec.Locked {
 		t.Errorf("a new Service reads %+v, want the held attempt counted: count %d and locked", rec, account.FailureCap)
 	}
-	if _, err := next.PasswordLogin(t.Context(), clientAt(3), account.Credentials{Username: "alice", Password: access.NewSecret(goodPassword)}); !errors.Is(err, account.ErrInvalidCredentials) {
+	if _, err := completed(next.PasswordLogin(t.Context(), clientAt(3), account.Credentials{Username: "alice", Password: access.NewSecret(goodPassword)})); !errors.Is(err, account.ErrInvalidCredentials) {
 		t.Errorf("right password on the new Service = %v, want ErrInvalidCredentials under the lock", err)
 	}
 }
