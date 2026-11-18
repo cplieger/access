@@ -98,4 +98,4 @@ The `totp` package computes and checks authenticator-app codes on Go's standard 
 
 ## OIDC sign-in
 
-The `oidc` package signs a user in with an OpenID Connect provider and verifies its ID tokens with its own code on Go's standard library. `Provider.Begin` seals the flow into a cookie and `Provider.Finish` completes it on the callback, so nothing is stored on the server. The [OIDC sign-in](oidc.md) page explains the flow, the link and step-up checks, the accepted tokens and keys, and the outbound-call bounds.
+The `oidc` package signs a user in with an OpenID Connect provider and verifies its ID tokens with its own code on Go's standard library. `Provider.Begin` seals the flow into a cookie and `Provider.Finish` completes it on the callback, so nothing is stored on the server. The [OIDC sign-in](oidc.md) page explains the flow, the link, step-up and invite checks, the accepted tokens and keys, and the outbound-call bounds.

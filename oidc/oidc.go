@@ -37,7 +37,8 @@ var (
 	// malformed BeginRequest or a cross-site begin that Begin refuses.
 	ErrFlowInvalid = errors.New("oidc: sign-in flow invalid")
 	// ErrStaleAuthentication reports a flow of any intent but sign-in whose
-	// ID token does not prove a sign-in at the provider after the flow began.
+	// ID token's auth_time is absent or more than 60 seconds before the flow
+	// began.
 	ErrStaleAuthentication = errors.New("oidc: the provider did not authenticate the user again")
 	ErrRedirectTooLong     = errors.New("oidc: redirect longer than MaxRedirectBytes")
 )

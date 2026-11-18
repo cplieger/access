@@ -1,6 +1,6 @@
 # OIDC sign-in
 
-The `oidc` package signs a user in with an OpenID Connect provider. It verifies the provider's ID tokens with its own code on Go's standard library, and uses `golang.org/x/oauth2` for the code exchange and PKCE. This page explains how a flow travels from start to callback, what the provider must prove for a link or a step-up, which tokens and keys it accepts, and how outbound calls are bounded. Read it before you wire the start and callback routes yourself. The `accesshttp` package wires them for you.
+The `oidc` package signs a user in with an OpenID Connect provider. It verifies the provider's ID tokens with its own code on Go's standard library, and uses `golang.org/x/oauth2` for the code exchange and PKCE. This page explains how a flow travels from start to callback, what the provider must prove for a link, a step-up or an invite, which tokens and keys it accepts, and how outbound calls are bounded. Read it before you wire the start and callback routes yourself. The `accesshttp` package wires them for you.
 
 ## The provider
 

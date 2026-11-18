@@ -51,7 +51,8 @@ type idClaims struct {
 // Claims. Every claim is read and type-checked before any is compared. A
 // malformed or failing claim is ErrTokenInvalid, a nonce that is a string
 // other than the sealed one ErrNonceMismatch, and any intent but sign-in whose
-// auth_time is absent or before the flow began ErrStaleAuthentication.
+// auth_time is absent or more than 60 seconds before the flow began
+// ErrStaleAuthentication.
 func checkIDToken(payload []byte, r *claimRules) (Claims, error) {
 	m, err := jsonmember.Object(payload)
 	if err != nil {

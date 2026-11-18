@@ -34,7 +34,7 @@ Consider [Authboss](https://github.com/aarondl/authboss) if you want ready-made 
 | `ratelimit` | Per-IP, per-account and per-device limits on failed attempts, with trusted-device cookies |
 | `totp` | Authenticator-app codes, RFC 6238 |
 | `webauthn` | Passkey ceremonies |
-| `oidc` | OpenID Connect sign-in, link and step-up |
+| `oidc` | OpenID Connect sign-in, link, step-up and invite acceptance |
 | `accesstest` | An in-memory store, the store contract suite, a test identity provider and a software passkey |
 | [`@cplieger/access`](web/README.md) | The browser client for `accesshttp`'s routes |
 
@@ -218,7 +218,7 @@ These are left out on purpose. [Non-goals](docs/non-goals.md) gives the reason f
 - [Implementing the store](docs/storage.md) explains the transaction boundary, the store contract and what each write costs.
 - [The security log](docs/security-log.md) lists what is logged, how long it is kept, and who can read it.
 - [Passkeys](docs/webauthn.md) explains how ceremonies check origins and what registration requires.
-- [OIDC sign-in](docs/oidc.md) explains the sealed flow cookie, the link and step-up checks and the limits on outbound calls.
+- [OIDC sign-in](docs/oidc.md) explains the sealed flow cookie, the link, step-up and invite checks and the limits on outbound calls.
 - [Second factors and temporary passwords](docs/totp.md) covers authenticator apps, the recovery code and an admin's ways to let a person back in.
 - [Identity and single sign-on](docs/identity.md) explains owners, the SSO mode, linking and offboarding.
 - [Migrating from auth v6](docs/migration-v7.md) lists every change and its replacement.

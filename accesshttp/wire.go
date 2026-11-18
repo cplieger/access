@@ -399,7 +399,7 @@ type PasskeyRegisteredResponse struct {
 	Passkey      PasskeyView `json:"passkey"`
 }
 
-// OIDCStartResponse is the link and step-up starts' answer.
+// OIDCStartResponse is the link, step-up and invite starts' answer.
 type OIDCStartResponse struct {
 	URL string `json:"url"`
 }
