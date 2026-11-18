@@ -156,8 +156,8 @@ type sessionOp struct {
 	// sign-in completes now: nil and nil do; a pending entry to mint, or a
 	// refusal to answer, commits the Update with no session and pend's
 	// entries, so a correct first factor's failure reset stands. full is
-	// reserve's refusal: pend answers it before spending anything, and
-	// complete never mints an entry pend returns while it is set.
+	// reserve's refusal: pend answers it as its refusal before it spends
+	// anything, and complete answers that refusal before any mint.
 	pend func(tx Tx, j *journal, u *access.User, full error) (entry *pending, refused, err error)
 	// reserve, when set, runs after prepare and holds the place of the
 	// pending sign-in a pend that spends a single-use credential mints:
@@ -241,7 +241,7 @@ func (s *Service) complete(ctx context.Context, r Rules, c Client, op *sessionOp
 		if res != nil {
 			res.Cancel()
 		}
-		return s.heldBack(op, slot, full, user, entry)
+		return s.heldBack(op, slot, user, entry)
 	}
 	if res != nil {
 		res.Succeed()
@@ -251,9 +251,8 @@ func (s *Service) complete(ctx context.Context, r Rules, c Client, op *sessionOp
 
 // heldBack is complete's answer for a sign-in op.pend held back with entry,
 // its ticket stored in slot, in op.replaces' place, or minted; or, with
-// entry nil, for user waiting for approval. full, the reservation's
-// refusal, is answered instead of any ticket.
-func (s *Service) heldBack(op *sessionOp, slot *pendingSlot, full error, user *access.User, entry *pending) (completion, error) {
+// entry nil, for user waiting for approval.
+func (s *Service) heldBack(op *sessionOp, slot *pendingSlot, user *access.User, entry *pending) (completion, error) {
 	var (
 		minted *Pending
 		err    error
@@ -261,8 +260,6 @@ func (s *Service) heldBack(op *sessionOp, slot *pendingSlot, full error, user *a
 	switch {
 	case entry == nil:
 		return completion{waiting: user.Clone()}, nil
-	case full != nil:
-		return completion{}, full
 	case slot != nil:
 		minted = entry.answer(slot.fill(*entry, s.now()))
 	case !op.replaces.IsZero():

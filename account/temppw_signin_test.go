@@ -57,7 +57,7 @@ func TestTemporaryPasswordSignIn(t *testing.T) {
 		alice := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
 		return f, alice, issueTemp(t, f, account.OutOfBand("cli"), alice)
 	}
-	// Its first correct entry is its only one.
+	// A correct entry that opens the next step is its only one.
 	t.Run("spent_once", func(t *testing.T) {
 		t.Parallel()
 		f, alice, secret := setup(t, account.Rules{}, nil)

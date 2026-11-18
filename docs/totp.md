@@ -57,7 +57,7 @@ A user whose password sign-in asks for a second factor holds one recovery code, 
 - Each wrong code counts against the account in the recovery code's own failure record, before the code is compared, and 100 consecutive failures lock it in that trust context. A correct code clears that context's count, even when the enrolment after it is abandoned.
 - On input, dashes, spaces and letter case do not matter, `O` reads as `0`, and `I` and `L` read as `1`. A value holding any other character is refused as malformed and is not counted.
 
-A passkey-only user gets no recovery code, since no step accepts one without a password. That user's recovery is an admin's temporary password, described below. NIST section 4.2.1 allows such a method when the service documents its risk analysis. Here an admin hands the secret over by hand, and it lives 24 hours by default. Its first correct entry spends it, and its issue is logged and can be notified. Ask passkey-only users to register a second passkey, as the FIDO Alliance advises.
+A passkey-only user gets no recovery code, since no step accepts one without a password. That user's recovery is an admin's temporary password, described below. NIST section 4.2.1 allows such a method when the service documents its risk analysis. Here an admin hands the secret over by hand, and it lives 24 hours by default. It is spent when a correct entry opens the next step, and its issue is logged and can be notified. Ask passkey-only users to register a second passkey, as the FIDO Alliance advises.
 
 ## Requiring a second factor
 

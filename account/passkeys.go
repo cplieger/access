@@ -115,9 +115,10 @@ func (s *Service) PasskeyLoginFinish(ctx context.Context, c Client, ceremonyID s
 // full session within RecentAuth. A plain p is access.ErrHTTPSRequired, a
 // nil RP() ErrPasskeysUnavailable, and a dormant user ErrSSOOnly. While the
 // user holds a second factor it takes proof, which verifyProof answers and
-// spends here, last: no refusal spends a code or a step-up ceremony,
-// neither a full list's *ratelimit.RefusedError nor the origin's
-// *webauthn.OriginError. The ceremony replaces the user's earlier one.
+// spends last: a full list's *ratelimit.RefusedError and the origin's
+// *webauthn.OriginError answer before it, spending no code or step-up
+// ceremony, and a passkey proof's ceremony is used once, verified or not.
+// The ceremony replaces the user's earlier one.
 func (s *Service) PasskeyRegisterBegin(ctx context.Context, c Client, p access.Principal, origin webauthn.Origin, proof SecondFactorProof) (PendingCeremony, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
 	r, err := s.beginRecentSession(plainRefused, p.Secure, p)
 	if err != nil {
