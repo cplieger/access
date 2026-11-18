@@ -15,14 +15,12 @@ type Credentials struct {
 
 // PasswordLogin is a password sign-in's step 1. It refuses before any store
 // call a plain c under PostureSecure, a bad name, a *ratelimit.RefusedError
-// and access.ErrHashBusy (a wait for the name's lock that ctx ended
-// included). It compares one hash, counted, locking at FailureCap: the
-// user's live temporary password, else PasswordHash unless
-// Rules.DisablePasswordLogin; every other arm is one ErrInvalidCredentials
-// after the same work. A temporary password answers pendTemporary's ticket
-// or refusal; a password signs in or answers pendAt's. A ticket replaces
-// the user's earlier one; while the list is full a newcomer's is a
-// *ratelimit.RefusedError.
+// and access.ErrHashBusy (ctx ending a wait for the name's lock included).
+// It compares one hash, counted, locking at FailureCap: the user's live
+// temporary password, else PasswordHash unless Rules.DisablePasswordLogin;
+// every other arm is one ErrInvalidCredentials after the same work. A
+// temporary password answers pendTemporary's ticket or refusal, a password
+// a session or pendAt's ticket; each ticket replaces the user's earlier one.
 func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client and input, read once
 	r, err := s.beginOver(plainPerRequest, c.Secure)
 	if err != nil {
@@ -34,6 +32,7 @@ func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (
 		reenabled bool
 		temporary access.TemporaryPassword
 		unlock    func()
+		slotErr   error
 	)
 	defer func() {
 		if unlock != nil {
@@ -61,6 +60,14 @@ func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (
 			a.signIn, a.passwordOff = true, r.DisablePasswordLogin
 			return s.verifyCounted(ctx, a, canonical, in.Password, !res.Trusted())
 		},
+		reserve: func() *pendingSlot {
+			if !a.viaTemporary {
+				return nil
+			}
+			var slot *pendingSlot
+			slot, slotErr = s.pending.reserve(purposeSignIn, a.user.ID, s.now())
+			return slot
+		},
 		in: func(tx Tx) (*access.User, error) {
 			reenabled = false
 			if a.viaTemporary {
@@ -79,7 +86,7 @@ func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (
 			if !a.viaTemporary {
 				return s.pendAt(ctx, tx, r, c, u, a.res.KnownDevice())
 			}
-			entry, refused, cleared, err := s.pendTemporary(ctx, tx, j, r, c, a, u, &temporary)
+			entry, refused, cleared, err := s.pendTemporary(ctx, tx, j, r, c, a, u, &temporary, slotErr)
 			reenabled = cleared
 			return entry, refused, err
 		},

@@ -2,6 +2,7 @@ package account_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"sync/atomic"
@@ -528,3 +529,25 @@ type atomicRP struct {
 
 func (a *atomicRP) get() *webauthn.RelyingParty   { return a.p.Load() }
 func (a *atomicRP) set(rp *webauthn.RelyingParty) { a.p.Store(rp) }
+
+// TestSetCredentialPasswordTicketEnded checks that the staged replacement
+// under the rule takes its ticket's place only while that ticket is live: a
+// credential change that ended it meanwhile is not undone.
+func TestSetCredentialPasswordTicketEnded(t *testing.T) {
+	t.Parallel()
+	fs := newFaultStore()
+	f := newSF(t, account.Rules{RequireSecondFactor: true}, pwOptions{store: fs})
+	alice, _, ticket := setCredentialTicket(t, f, localClient, access.MethodPassword, access.MethodPasskey)
+	var ended atomic.Bool
+	fs.onUpdate(func(context.Context, int) {
+		if ended.CompareAndSwap(false, true) {
+			account.PendingOf(f.svc).DropUser(alice.ID)
+		}
+	})
+	if _, err := f.svc.SetCredentialPassword(t.Context(), localClient, ticket, access.NewSecret(chosenPassword)); !errors.Is(err, access.ErrTokenInvalid) {
+		t.Errorf("set-password whose ticket ended meanwhile = %v, want access.ErrTokenInvalid", err)
+	}
+	if n := account.PendingOf(f.svc).Len(); n != 0 {
+		t.Errorf("entries = %d, want none: an ended ticket was brought back", n)
+	}
+}

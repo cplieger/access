@@ -27,12 +27,12 @@ func (s *Service) setCredentialTicket(ticket access.Secret, c Client, rule plain
 
 // SetCredentialPassword completes ticket's NextSetCredential sign-in with a
 // password the user chose: with Rules.RequireSecondFactor off it writes it
-// and signs in; on, it writes nothing and answers a NextEnrol ticket holding
-// it for the enrolment finish. Refusals, in order: stepTicket's; no live
+// and signs in; on, it writes nothing and puts a NextEnrol sign-in holding
+// it in the ticket's place. Refusals, in order: stepTicket's; no live
 // NextSetCredential ticket, access.ErrTokenInvalid; password not listed or
 // sign-in off, ErrPasswordLoginDisabled; the limiter's; *access.PasswordError
 // (PasswordIsTemporary, then checkPassword's), keeping the ticket; the
-// hasher's; a user the ticket no longer signs in, ending it.
+// hasher's; a user it no longer signs in, or replaceTicket's, ending it.
 func (s *Service) SetCredentialPassword(ctx context.Context, c Client, ticket, password access.Secret) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	r, entry, err := s.setCredentialTicket(ticket, c, plainPerRequest)
 	if err != nil {
@@ -43,8 +43,9 @@ func (s *Service) SetCredentialPassword(ctx context.Context, c Client, ticket, p
 	}
 	var hash access.Hash
 	out, err := s.signIn(ctx, r, c, &sessionOp{
-		method: access.MethodPassword,
-		gate:   admission{limit: s.stepAttempt(c, &entry)},
+		method:   access.MethodPassword,
+		gate:     admission{limit: s.stepAttempt(c, &entry)},
+		replaces: ticket,
 		prepare: func(*ratelimit.Reservation) error {
 			var prepErr error
 			hash, prepErr = s.chosenPassword(ctx, r, &entry, password)

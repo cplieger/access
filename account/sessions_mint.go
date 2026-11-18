@@ -157,6 +157,14 @@ type sessionOp struct {
 	// refusal to answer, commits the Update with no session and pend's
 	// entries, so a correct first factor's failure reset stands.
 	pend func(tx Tx, j *journal, u *access.User) (entry *pending, refused, err error)
+	// reserve, when set, runs after prepare and holds the place of the
+	// pending sign-in a pend that spends a single-use credential mints:
+	// complete fills it with pend's entry and releases it on every other
+	// answer. nil holds none.
+	reserve func() *pendingSlot
+	// replaces is the live pending sign-in pend's entry replaces, taking
+	// its place (replaceTicket); zero mints a new one.
+	replaces access.Secret
 	// bind, when set, runs after pend lets the sign-in complete and writes
 	// what the sign-in binds to its user, sess being the session the Update
 	// then writes, nil for a user who waits for approval.
@@ -202,6 +210,11 @@ func (s *Service) complete(ctx context.Context, r Rules, c Client, op *sessionOp
 	if err != nil {
 		return completion{}, err
 	}
+	var slot *pendingSlot
+	if op.reserve != nil {
+		slot = op.reserve()
+	}
+	defer slot.release()
 	d := s.newDraft(ctx, r, c, op)
 	user, entry, refused, err := s.writeSession(ctx, r, c, op, &d)
 	switch {
@@ -223,7 +236,7 @@ func (s *Service) complete(ctx context.Context, r Rules, c Client, op *sessionOp
 		if res != nil {
 			res.Cancel()
 		}
-		return s.heldBack(user, entry)
+		return s.heldBack(op, slot, user, entry)
 	}
 	if res != nil {
 		res.Succeed()
@@ -232,12 +245,23 @@ func (s *Service) complete(ctx context.Context, r Rules, c Client, op *sessionOp
 }
 
 // heldBack is complete's answer for a sign-in op.pend held back with entry,
-// minted as its ticket, or, with entry nil, for user waiting for approval.
-func (s *Service) heldBack(user *access.User, entry *pending) (completion, error) {
-	if entry == nil {
+// its ticket stored in slot, in op.replaces' place, or minted; or, with
+// entry nil, for user waiting for approval.
+func (s *Service) heldBack(op *sessionOp, slot *pendingSlot, user *access.User, entry *pending) (completion, error) {
+	var (
+		minted *Pending
+		err    error
+	)
+	switch {
+	case entry == nil:
 		return completion{waiting: user.Clone()}, nil
+	case slot != nil:
+		minted = entry.answer(slot.fill(*entry, s.now()))
+	case !op.replaces.IsZero():
+		minted, err = s.replaceTicket(op.replaces, entry)
+	default:
+		minted, err = s.mintTicket(entry)
 	}
-	minted, err := s.mintTicket(entry)
 	if err != nil {
 		return completion{}, err
 	}

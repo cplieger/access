@@ -421,6 +421,11 @@ var refuted = []struct {
 	{route: "authSetupPasskeyFinish", code: access.CodeRateLimited, invariant: noPendRefuted},
 	{route: "authLoginPasskeyFinish", code: access.CodeRateLimited, invariant: noPendRefuted},
 	{route: "authRegisterPasskeyFinish", code: access.CodeRateLimited, invariant: noPendRefuted},
+	{route: "authLoginPassword", code: access.CodeTokenInvalid, invariant: noReplaceRefuted},
+	{route: "authLoginPasskeyFinish", code: access.CodeTokenInvalid, invariant: noReplaceRefuted},
+	{route: "authOIDCLinkByAdmin", code: access.CodeTokenInvalid, invariant: noReplaceRefuted},
+	{route: "authRegisterPassword", code: access.CodeTokenInvalid, invariant: noReplaceRefuted},
+	{route: "authRegisterPasskeyFinish", code: access.CodeTokenInvalid, invariant: noReplaceRefuted},
 	{route: "authLoginSetPassword", leaf: modulePath + ".ErrHashInvalid", invariant: "chosenPassword verifies against the ticket's temporary-password hash, which step 1 verified on the same Hasher, whose Capacity never changes, so Verify's over-budget ErrHashInvalid arm cannot fire there"},
 	{route: "authKeyCreate", leaf: modulePath + ".ErrInvalidKeyPrefix", invariant: "CreateAPIKey's begin validates the Rules value it mints under, and Rules.Validate's KeyPrefix check refuses a KeyPrefix access.ValidateKeyPrefix refuses, so GenerateAPIKey in CreateAPIKey cannot"},
 	{route: "authKeyRotate", leaf: modulePath + ".ErrInvalidKeyPrefix", invariant: "admitRotation's begin validates the Rules value RotateAPIKey generates under, and Rules.Validate's KeyPrefix check refuses a KeyPrefix access.ValidateKeyPrefix refuses, so GenerateAPIKey in RotateAPIKey cannot"},
@@ -435,6 +440,10 @@ const modulePath = "github.com/cplieger/access"
 
 // noPendRefuted is why no passkey ceremony's finish mints a pending sign-in.
 const noPendRefuted = "the finish's sessionOp sets no pend, and only op.pend gives complete a pending sign-in to mint, so mintTicket's full-list refusal cannot fire there"
+
+// noReplaceRefuted is why only a set-password step replaces a live ticket
+// through complete.
+const noReplaceRefuted = "the operation's sessionOp sets no replaces, and only op.replaces sends heldBack to replaceTicket, so its ended-ticket refusal cannot fire there"
 
 var producerErrors = map[string]error{
 	modulePath + "/accesshttp.errMethodNotAllowed":       errMethodNotAllowed,

@@ -33,13 +33,13 @@ type recoveryMatch struct {
 }
 
 // SignInWithRecoveryCode spends nothing: a matching code clears its own
-// failure count and replaces ticket's pending sign-in with a Recovered
-// NextEnrol one, whose enrolment finish spends the code. Refusals, in order:
-// stepTicket's; no live ticket listing recovery_code, access.ErrTokenInvalid;
-// a code not 16 Crockford symbols once normalised, a *MalformedError; the
-// limiter's, the hasher's, the count's and the clear's, a code or user gone
-// ending the ticket. A wrong code keeps it, the first journalling
-// EventSecondFactorFailed; an empty enrolment set is ErrNoUsableMethod.
+// failure count and puts a Recovered NextEnrol sign-in in ticket's place,
+// whose enrolment finish spends the code. Refusals, in order: stepTicket's;
+// no live ticket listing recovery_code, access.ErrTokenInvalid; a code not
+// 16 Crockford symbols once normalised, a *MalformedError; the limiter's,
+// the hasher's, the count's, the clear's and replaceTicket's, a code, user
+// or ticket gone ending it. A wrong code keeps it, journalling
+// EventSecondFactorFailed once; an empty enrolment set is ErrNoUsableMethod.
 func (s *Service) SignInWithRecoveryCode(ctx context.Context, c Client, ticket access.Secret, code string) (LoginResult, error) { //nolint:gocritic // hugeParam: the request's Client, read once
 	r, entry, found, err := s.stepTicket(ticket, c, plainRefused)
 	switch {
@@ -63,7 +63,7 @@ func (s *Service) SignInWithRecoveryCode(ctx context.Context, c Client, ticket a
 	next := entry
 	next.ticket.next, next.ticket.methods, next.ticket.failed = NextEnrol, m.methods, false
 	next.ticket.recovered = m.hash.Key()
-	minted, err := s.mintTicket(&next)
+	minted, err := s.replaceTicket(ticket, &next)
 	if err != nil {
 		return LoginResult{}, err
 	}

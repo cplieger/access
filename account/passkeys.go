@@ -116,7 +116,8 @@ func (s *Service) PasskeyLoginFinish(ctx context.Context, c Client, ceremonyID s
 // nil RP() ErrPasskeysUnavailable, and a dormant user ErrSSOOnly. While the
 // user holds a second factor it takes proof, which verifyProof answers and
 // spends here. The ceremony replaces the user's earlier one; while its list
-// is full a newcomer is a *ratelimit.RefusedError.
+// is full a newcomer is a *ratelimit.RefusedError, answered before the
+// proof is read, so it spends no code or step-up ceremony.
 func (s *Service) PasskeyRegisterBegin(ctx context.Context, c Client, p access.Principal, origin webauthn.Origin, proof SecondFactorProof) (PendingCeremony, error) { //nolint:gocritic // hugeParam: the request's Client and Principal, read once
 	r, err := s.beginRecentSession(plainRefused, p.Secure, p)
 	if err != nil {
@@ -133,6 +134,11 @@ func (s *Service) PasskeyRegisterBegin(ctx context.Context, c Client, p access.P
 	if modeErr := s.localAllowed(ctx, u); modeErr != nil {
 		return PendingCeremony{}, modeErr
 	}
+	slot, err := s.pending.reserve(purposeAddPasskey, u.ID, s.now())
+	if err != nil {
+		return PendingCeremony{}, err
+	}
+	defer slot.release()
 	if proofErr := s.proveIfHeld(ctx, r, c, p, u, proof); proofErr != nil {
 		return PendingCeremony{}, proofErr
 	}
@@ -144,11 +150,7 @@ func (s *Service) PasskeyRegisterBegin(ctx context.Context, c Client, p access.P
 	if err != nil {
 		return PendingCeremony{}, err
 	}
-	id, err := s.pending.put(purposeAddPasskey, pending{user: *u, ceremony: ceremony}, s.now())
-	if err != nil {
-		return PendingCeremony{}, err
-	}
-	return PendingCeremony{ID: id, Creation: cc}, nil
+	return PendingCeremony{ID: slot.fill(pending{user: *u, ceremony: ceremony}, s.now()), Creation: cc}, nil
 }
 
 // proveIfHeld verifies and commits proof, in its own change, while u holds

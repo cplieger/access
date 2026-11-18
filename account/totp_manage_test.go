@@ -611,6 +611,48 @@ func TestPasskeyChangesNeedAFactor(t *testing.T) {
 			t.Errorf("the proof's code again = %v, want code_reused", err)
 		}
 	})
+	// The ceremony's place is held before the proof is spent, so a full
+	// list refuses the begin and the same code still proves once a place
+	// frees (RFC 6238 §5.2: a code is accepted once).
+	t.Run("register_begin_full_list_spends_no_code", func(t *testing.T) {
+		t.Parallel()
+		f, u, _, _, secret := setup(t, account.Rules{})
+		pr := f.sessionPrincipal(t, u, time.Now())
+		cache := account.PendingOf(f.svc)
+		cache.SetMax(account.PurposeAddPasskey, 1)
+		other := mustPut(t, cache, account.PurposeAddPasskey, access.User{ID: 999}, time.Now())
+		code := codeNow(secret)
+		if _, err := f.svc.PasskeyRegisterBegin(t.Context(), clientAt(1), pr, f.origin, account.ProofCode(code)); !isRefused(err) {
+			t.Fatalf("PasskeyRegisterBegin with the list full = %v, want refused", err)
+		}
+		if rec, _ := totpRecord(t, f.mem, u.ID); rec.LastStep != 0 {
+			t.Errorf("LastStep after the refused begin = %d, want 0: the proof's code was spent", rec.LastStep)
+		}
+		cache.Drop(other)
+		if _, err := f.svc.PasskeyRegisterBegin(t.Context(), clientAt(1), pr, f.origin, account.ProofCode(code)); err != nil {
+			t.Errorf("the same code once a place freed = %v, want the ceremony", err)
+		}
+	})
+	t.Run("register_begin_full_list_keeps_the_step_up", func(t *testing.T) {
+		t.Parallel()
+		f, u, dev, _, _ := setup(t, account.Rules{})
+		pr := f.sessionPrincipal(t, u, time.Now())
+		cache := account.PendingOf(f.svc)
+		cache.SetMax(account.PurposeAddPasskey, 2)
+		pc, err := f.svc.StepUpPasskeyBegin(t.Context(), pr, f.origin)
+		if err != nil {
+			t.Fatalf("StepUpPasskeyBegin = %v", err)
+		}
+		other := mustPut(t, cache, account.PurposeAddPasskey, access.User{ID: 999}, time.Now())
+		proof := account.ProofPasskey(pc.ID, dev.Assert(browserJSON(t, pc.Assertion)))
+		if _, err := f.svc.PasskeyRegisterBegin(t.Context(), clientAt(1), pr, f.origin, proof); !isRefused(err) {
+			t.Fatalf("PasskeyRegisterBegin with the list full = %v, want refused", err)
+		}
+		cache.Drop(other)
+		if _, err := f.svc.PasskeyRegisterBegin(t.Context(), clientAt(1), pr, f.origin, proof); err != nil {
+			t.Errorf("the same assertion once a place freed = %v, want the ceremony: the refused begin spent its step-up", err)
+		}
+	})
 	t.Run("remove", func(t *testing.T) {
 		t.Parallel()
 		f, u, _, pk, secret := setup(t, account.Rules{})

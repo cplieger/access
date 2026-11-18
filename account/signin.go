@@ -244,17 +244,36 @@ func (s *Service) pendAt(ctx context.Context, tx Tx, r Rules, c Client, u *acces
 // mintTicket puts entry, a pending sign-in, in the cache and answers it, or
 // the cache's refusal (pendingCache.put).
 func (s *Service) mintTicket(entry *pending) (*Pending, error) {
-	purpose := purposeSignIn
-	switch d := entry.ticket.draft; {
-	case d == nil:
-	case d.via == ViaRegistration:
-		purpose = purposeRegistrationDraft
-	default:
-		purpose = purposeDraft
-	}
-	id, err := s.pending.put(purpose, *entry, s.now())
+	id, err := s.pending.put(entry.ticketPurpose(), *entry, s.now())
 	if err != nil {
 		return nil, err
 	}
-	return &Pending{Ticket: access.NewSecret(id), Next: entry.ticket.next, Methods: slices.Clone(entry.ticket.methods), Recovered: entry.ticket.recovered != access.HashKey{}}, nil
+	return entry.answer(id), nil
+}
+
+// replaceTicket answers entry in place of ticket's live pending sign-in,
+// or access.ErrTokenInvalid when that one has ended (pendingCache.replace).
+func (s *Service) replaceTicket(ticket access.Secret, entry *pending) (*Pending, error) {
+	id, live := s.pending.replace(ticket.Reveal(), *entry, s.now())
+	if !live {
+		return nil, access.ErrTokenInvalid
+	}
+	return entry.answer(id), nil
+}
+
+// ticketPurpose is the list entry, a pending sign-in, belongs in.
+func (v *pending) ticketPurpose() pendingPurpose {
+	switch d := v.ticket.draft; {
+	case d == nil:
+		return purposeSignIn
+	case d.via == ViaRegistration:
+		return purposeRegistrationDraft
+	default:
+		return purposeDraft
+	}
+}
+
+// answer is v, a pending sign-in stored under id, as the caller sees it.
+func (v *pending) answer(id string) *Pending {
+	return &Pending{Ticket: access.NewSecret(id), Next: v.ticket.next, Methods: slices.Clone(v.ticket.methods), Recovered: v.ticket.recovered != access.HashKey{}}
 }

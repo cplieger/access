@@ -666,3 +666,101 @@ func TestSetPasswordDeletesTemporaryPassword(t *testing.T) {
 		t.Error("SetPassword left the live temporary password")
 	}
 }
+
+// TestTemporaryPasswordFullList checks that step 1 holds its ticket's place
+// before it spends a temporary password: while the pending sign-ins are
+// full it answers the table's refusal and spends nothing, a failed spend
+// gives the place back, and an arm that needs no ticket answers as before.
+func TestTemporaryPasswordFullList(t *testing.T) {
+	t.Parallel()
+	t0 := time.Now().Truncate(time.Second)
+	const other = 999 // a user whose live ticket fills the list
+	setup := func(t *testing.T, o pwOptions) (*sfFixture, *access.User, string) {
+		t.Helper()
+		o.posture = access.PosturePerRequest
+		f := newSF(t, account.Rules{}, o)
+		f.at.Store(&t0)
+		root := mustOwner(t, f.mem, "root")
+		alice := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
+		secret := issueTemp(t, f, account.OutOfBand("cli"), alice)
+		cache := account.PendingOf(f.svc)
+		cache.SetMax(account.PurposeSignIn, 1)
+		mustPut(t, cache, account.PurposeSignIn, access.User{ID: other, Username: root.Username}, t0)
+		return f, alice, secret
+	}
+	requireKept := func(t *testing.T, f *sfFixture, alice *access.User) {
+		t.Helper()
+		if _, found := tempRecord(t, f.mem, alice.ID); !found {
+			t.Error("the refused step spent the temporary password")
+		}
+		if n := len(usedEvents(f)); n != 0 {
+			t.Errorf("temporary_password_used events = %d, want none", n)
+		}
+	}
+	t.Run("spends_nothing", func(t *testing.T) {
+		t.Parallel()
+		f, alice, secret := setup(t, pwOptions{})
+		_, err := f.step1(t.Context(), localClient, "alice", secret)
+		requireFull(t, err, t0, t0, 10*time.Minute)
+		requireKept(t, f, alice)
+		account.PendingOf(f.svc).DropUser(other)
+		out, err := f.step1(t.Context(), localClient, "alice", secret)
+		pending(t, out, err, account.NextSetCredential, access.MethodPassword, access.MethodPasskey)
+		requireUsed(t, f, alice.ID, false)
+	})
+	// The plain burn needs no ticket, so it burns while the list is full.
+	t.Run("plain_burn_needs_no_place", func(t *testing.T) {
+		t.Parallel()
+		f, alice, secret := setup(t, pwOptions{})
+		f.rules.Store(&account.Rules{RequireSecondFactor: true})
+		if _, err := f.step1(t.Context(), plain(localClient), "alice", secret); !errors.Is(err, account.ErrTemporaryPasswordExposed) {
+			t.Fatalf("a plain step 1 under the rule with the list full = %v, want ErrTemporaryPasswordExposed", err)
+		}
+		requireUsed(t, f, alice.ID, true)
+	})
+	// A secure step 1 the SSO mode refuses answers as a wrong secret, full
+	// list or not, so no answer tells a correct temporary password apart.
+	t.Run("mode_refusal_stays_a_wrong_secret", func(t *testing.T) {
+		t.Parallel()
+		f, alice, secret := setup(t, pwOptions{})
+		setMode(t, f.mem, account.SSOOnly)
+		if _, err := f.step1(t.Context(), localClient, "alice", secret); !errors.Is(err, account.ErrInvalidCredentials) {
+			t.Errorf("a mode-refused step 1 with the list full = %v, want ErrInvalidCredentials", err)
+		}
+		requireKept(t, f, alice)
+	})
+	t.Run("failed_spend_gives_the_place_back", func(t *testing.T) {
+		t.Parallel()
+		fs := newFaultStore()
+		f, alice, secret := setup(t, pwOptions{store: fs})
+		account.PendingOf(f.svc).DropUser(other)
+		fs.failCall("DeleteTemporaryPassword")
+		if _, err := f.step1(t.Context(), localClient, "alice", secret); !errors.Is(err, errFault) {
+			t.Fatalf("step 1 whose spend fails = %v, want the store's error", err)
+		}
+		requireKept(t, f, alice)
+		bob := passwordUser(t, f.mem, f.hasher, "bob", goodPassword)
+		storeTOTP(t, f.mem, bob)
+		out, err := f.step1(t.Context(), localClient, "bob", goodPassword)
+		pending(t, out, err, account.NextSecondFactor, access.MethodTOTP)
+	})
+	// A store that re-runs the Update holds one place, filled once.
+	t.Run("update_run_twice", func(t *testing.T) {
+		t.Parallel()
+		fs := newFaultStore()
+		f, alice, secret := setup(t, pwOptions{store: fs})
+		cache := account.PendingOf(f.svc)
+		cache.DropUser(other)
+		fs.reRun(true)
+		out, err := f.step1(t.Context(), localClient, "alice", secret)
+		fs.reRun(false)
+		p := pending(t, out, err, account.NextSetCredential, access.MethodPassword, access.MethodPasskey)
+		if _, live := account.TicketOf(f.svc, p.Ticket); !live {
+			t.Error("the ticket is gone")
+		}
+		cache.DropUser(alice.ID)
+		if _, err := cache.Put(account.PurposeSignIn, access.User{ID: other}, t0); err != nil {
+			t.Errorf("a newcomer once the ticket ended = %v, want admitted: the re-run held one place", err)
+		}
+	})
+}

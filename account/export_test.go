@@ -158,6 +158,26 @@ func (p PendingCache) PutOnTicket(ticketID string, purpose PendingPurpose, user 
 	return p.c.putOnTicket(ticketID, purpose, pending{user: user, ticketID: access.NewSecret(ticketID)}, now)
 }
 
+// Slot is a place held in an owned list.
+type Slot struct{ s *pendingSlot }
+
+// Reserve holds a place for userID's entry of purpose.
+func (p PendingCache) Reserve(purpose PendingPurpose, userID int64, now time.Time) (Slot, error) {
+	s, err := p.c.reserve(purpose, userID, now)
+	return Slot{s}, err
+}
+
+// Fill stores user's entry in s's place and returns its ID.
+func (s Slot) Fill(user access.User, now time.Time) string { return s.s.fill(pending{user: user}, now) }
+
+// Release gives s's place back unused.
+func (s Slot) Release() { s.s.release() }
+
+// Replace stores user's pending sign-in in id's place.
+func (p PendingCache) Replace(id string, user access.User, now time.Time) (string, bool) {
+	return p.c.replace(id, pending{user: user}, now)
+}
+
 // SetMax sets the cap of purpose's list to n.
 func (p PendingCache) SetMax(purpose PendingPurpose, n int) {
 	p.c.mu.Lock()

@@ -152,10 +152,23 @@ type pendingEntry struct {
 }
 
 // entryList is one list, oldest first, threaded through its entries.
+// reserved counts the places pendingSlots hold, which count toward max.
 type entryList struct {
-	head, tail *pendingEntry
-	lifetime   time.Duration
-	n, max     int
+	head, tail       *pendingEntry
+	lifetime         time.Duration
+	n, max, reserved int
+}
+
+func (l *entryList) full() bool { return l.n+l.reserved >= l.max }
+
+// refusal is a full owned list's answer at now: retry when its earliest
+// entry expires, or soon when only held places fill it.
+func (l *entryList) refusal(now time.Time) error {
+	retry := reservedRetry
+	if l.head != nil {
+		retry = l.head.expires.Sub(now)
+	}
+	return &ratelimit.RefusedError{Dimension: "pending", RetryAfter: retry}
 }
 
 // pendingCache holds the begun ceremonies and the pending sign-ins, one
@@ -195,8 +208,7 @@ func newPendingID() string {
 // anonymous list evicts its oldest entry and never refuses.
 func (c *pendingCache) put(purpose pendingPurpose, v pending, now time.Time) (string, error) { //nolint:gocritic // hugeParam: the entry keeps its own copy
 	l := purpose.list()
-	e := &pendingEntry{id: newPendingID(), purpose: purpose, value: v, expires: now.Add(c.lists[l].lifetime)}
-	e.owner, e.owned = purpose.ownerOf(&e.value)
+	e := newEntry(purpose, v, now, c.lists[l].lifetime)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.pruneListLocked(l, now)
@@ -208,9 +220,24 @@ func (c *pendingCache) put(purpose pendingPurpose, v pending, now time.Time) (st
 		}
 	case mine:
 		c.unlinkLocked(earlier)
-	case list.n >= list.max:
-		return "", &ratelimit.RefusedError{Dimension: "pending", RetryAfter: list.head.expires.Sub(now)}
+	case list.full():
+		return "", list.refusal(now)
 	}
+	c.linkLocked(e)
+	return e.id, nil
+}
+
+// newEntry is v's entry of purpose under a new ID, expiring lifetime after
+// now.
+func newEntry(purpose pendingPurpose, v pending, now time.Time, lifetime time.Duration) *pendingEntry { //nolint:gocritic // hugeParam: the entry keeps its own copy
+	e := &pendingEntry{id: newPendingID(), purpose: purpose, value: v, expires: now.Add(lifetime)}
+	e.owner, e.owned = purpose.ownerOf(&e.value)
+	return e
+}
+
+// linkLocked adds e at the tail of its list, the newest end.
+func (c *pendingCache) linkLocked(e *pendingEntry) {
+	list := &c.lists[e.purpose.list()]
 	if e.owned {
 		c.byOwner[e.owner] = e
 	}
@@ -223,7 +250,86 @@ func (c *pendingCache) put(purpose pendingPurpose, v pending, now time.Time) (st
 	}
 	list.tail = e
 	list.n++
-	return e.id, nil
+}
+
+// pendingSlot is a place held in an owned list for one user's entry of
+// purpose, so a step spends a single-use credential only once its entry is
+// sure to fit. fill or release ends it; a nil slot's release does nothing.
+type pendingSlot struct {
+	c       *pendingCache
+	purpose pendingPurpose
+	held    bool
+}
+
+// reservedRetry is the refusal's RetryAfter while every place in a list is
+// held and none filled: a place is held only for its step's one Update.
+const reservedRetry = time.Second
+
+// reserve holds a place in purpose's owned list for userID's entry, refused
+// while the list is full with a *ratelimit.RefusedError retrying when its
+// earliest entry expires; userID's own entry admits it, since the fill
+// replaces that entry.
+func (c *pendingCache) reserve(purpose pendingPurpose, userID int64, now time.Time) (*pendingSlot, error) {
+	l := purpose.list()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pruneListLocked(l, now)
+	list := &c.lists[l]
+	if _, mine := c.byOwner[owner{purpose: purpose, user: userID}]; !mine && list.full() {
+		return nil, list.refusal(now)
+	}
+	list.reserved++
+	return &pendingSlot{c: c, purpose: purpose, held: true}, nil
+}
+
+// fill stores v, the entry sl was held for, under a new ID and ends sl. It
+// replaces v's owner's earlier entry and never refuses: the held place
+// counted toward the cap since reserve.
+func (sl *pendingSlot) fill(v pending, now time.Time) string { //nolint:gocritic // hugeParam: the entry keeps its own copy
+	e := newEntry(sl.purpose, v, now, sl.c.lists[sl.purpose.list()].lifetime)
+	c := sl.c
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	sl.endLocked()
+	if earlier, mine := c.byOwner[e.owner]; mine {
+		c.unlinkLocked(earlier)
+	}
+	c.linkLocked(e)
+	return e.id
+}
+
+// release gives sl's place back unless fill used it.
+func (sl *pendingSlot) release() {
+	if sl == nil {
+		return
+	}
+	sl.c.mu.Lock()
+	defer sl.c.mu.Unlock()
+	sl.endLocked()
+}
+
+func (sl *pendingSlot) endLocked() {
+	if sl.held {
+		sl.held = false
+		sl.c.lists[sl.purpose.list()].reserved--
+	}
+}
+
+// replace stores v in place of oldID's live pending sign-in, whose purpose
+// and owner v keeps; the old entry goes with its ceremony. false, storing
+// nothing, when oldID's has ended, so a ticket a credential change or a new
+// step 1 ended is never brought back. A full list never refuses it.
+func (c *pendingCache) replace(oldID string, v pending, now time.Time) (string, bool) { //nolint:gocritic // hugeParam: the entry keeps its own copy
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	old, ok := c.byID[oldID]
+	if !ok || !old.purpose.isTicket() || !now.Before(old.expires) {
+		return "", false
+	}
+	e := newEntry(old.purpose, v, now, c.lists[old.purpose.list()].lifetime)
+	c.unlinkLocked(old)
+	c.linkLocked(e)
+	return e.id, true
 }
 
 // putOnTicket stores v, a passkey ceremony of purpose begun for ticketID's

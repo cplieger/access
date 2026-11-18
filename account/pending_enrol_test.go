@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -719,6 +720,68 @@ func TestPendingEnrolment(t *testing.T) {
 		}
 		if _, err := f.svc.PendingPasskeyFinish(t.Context(), clientAt(1), pc.ID, bytes.NewReader(body)); !errors.Is(err, account.ErrCeremonyInvalid) {
 			t.Errorf("the finish replayed = %v, want ErrCeremonyInvalid", err)
+		}
+	})
+}
+
+// TestRecoveryCodeFullList checks the recovery code against a full list of
+// pending sign-ins: it is spent only by the enrolment finish, so step 1's
+// refusal leaves it to sign in once the list drains; its step replaces its
+// own ticket in place, so a full list never refuses that; and a ticket
+// ended before the replacement is not brought back.
+func TestRecoveryCodeFullList(t *testing.T) {
+	t.Parallel()
+	const other = 999 // a user whose live ticket fills the list
+	t.Run("step_1_refused_keeps_the_code", func(t *testing.T) {
+		t.Parallel()
+		f := newSF(t, account.Rules{}, pwOptions{})
+		u := passwordUser(t, f.mem, f.hasher, "alice", goodPassword)
+		sealTOTP(t, f.mem, f.sealer, u)
+		storeKnownRecoveryCode(t, f, u)
+		cache := account.PendingOf(f.svc)
+		cache.SetMax(account.PurposeSignIn, 1)
+		mustPut(t, cache, account.PurposeSignIn, access.User{ID: other}, time.Now())
+		if _, err := f.step1(t.Context(), clientAt(1), "alice", goodPassword); !isRefused(err) {
+			t.Fatalf("step 1 with the list full = %v, want refused", err)
+		}
+		cache.DropUser(other)
+		out, err := f.step1(t.Context(), clientAt(1), "alice", goodPassword)
+		ticket := pending(t, out, err, account.NextSecondFactor, access.MethodTOTP, access.MethodRecoveryCode).Ticket
+		out, err = f.svc.SignInWithRecoveryCode(t.Context(), clientAt(1), ticket, knownRecoveryShown)
+		p := recovered(t, out, err, access.MethodTOTP, access.MethodPasskey)
+		if _, _, err := pendingEnrolTOTP(t, f, clientAt(1), p.Ticket); err != nil {
+			t.Errorf("the enrolment finish once the list drained = %v, want signed in", err)
+		}
+	})
+	t.Run("replacement_in_a_full_list", func(t *testing.T) {
+		t.Parallel()
+		f := newSF(t, account.Rules{}, pwOptions{})
+		_, ticket, _ := recoveryTicket(t, f, clientAt(1))
+		account.PendingOf(f.svc).SetMax(account.PurposeSignIn, 1)
+		out, err := f.svc.SignInWithRecoveryCode(t.Context(), clientAt(1), ticket, knownRecoveryShown)
+		recovered(t, out, err, access.MethodTOTP, access.MethodPasskey)
+	})
+	t.Run("ticket_ended_before_its_replacement", func(t *testing.T) {
+		t.Parallel()
+		var end atomic.Pointer[func()]
+		o := pwOptions{}
+		o.hooks.CodeCounted = func(context.Context) {
+			if f := end.Load(); f != nil {
+				(*f)()
+			}
+		}
+		f := newSF(t, account.Rules{}, o)
+		u, ticket, _ := recoveryTicket(t, f, clientAt(1))
+		drop := func() { account.PendingOf(f.svc).DropUser(u.ID) }
+		end.Store(&drop)
+		if _, err := f.svc.SignInWithRecoveryCode(t.Context(), clientAt(1), ticket, knownRecoveryShown); !errors.Is(err, access.ErrTokenInvalid) {
+			t.Errorf("the step whose ticket ended meanwhile = %v, want access.ErrTokenInvalid", err)
+		}
+		if n := account.PendingOf(f.svc).Len(); n != 0 {
+			t.Errorf("entries = %d, want none: an ended ticket was brought back", n)
+		}
+		if _, found, _ := f.mem.RecoveryCodeByUserID(t.Context(), u.ID); !found {
+			t.Error("the step spent the recovery code")
 		}
 	})
 }
