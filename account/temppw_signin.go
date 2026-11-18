@@ -41,12 +41,12 @@ func (s *Service) liveTemporaryIn(ctx context.Context, tx Tx, userID int64, veri
 // pendTemporary is step 1's decision, in its success Update, for u whose
 // temporary password rec verified: the issuer re-check, the SSO mode, the
 // burn over plain where the path cannot finish, then the spend into a
-// NextSetCredential ticket, which only a held place allows: slotErr is the
+// NextSetCredential ticket, which only a held place allows: full is the
 // refusal of that place's reservation, answered before the spend. A
 // refusal that answers as a wrong secret commits only the deletion it
 // makes, and none on a secure request the mode refuses; reenabled is
 // resetFailures' answer on the paths that settle the attempt as correct.
-func (s *Service) pendTemporary(ctx context.Context, tx Tx, j *journal, r Rules, c Client, a *passwordAttempt, u *access.User, rec *access.TemporaryPassword, slotErr error) (entry *pending, refused error, reenabled bool, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
+func (s *Service) pendTemporary(ctx context.Context, tx Tx, j *journal, r Rules, c Client, a *passwordAttempt, u *access.User, rec *access.TemporaryPassword, full error) (entry *pending, refused error, reenabled bool, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
 	mode, err := storedMode(ctx, tx)
 	if err != nil {
 		return nil, nil, false, err
@@ -74,8 +74,8 @@ func (s *Service) pendTemporary(ctx context.Context, tx Tx, j *journal, r Rules,
 		return nil, ErrTemporaryPasswordExposed, reenabled, s.useTemporaryIn(ctx, tx, j, u, c)
 	case refused != nil:
 		return nil, refused, reenabled, nil
-	case slotErr != nil:
-		return nil, slotErr, reenabled, nil
+	case full != nil:
+		return nil, full, reenabled, nil
 	}
 	if err := s.useTemporaryIn(ctx, tx, j, u, c); err != nil {
 		return nil, nil, false, err

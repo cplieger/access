@@ -16,6 +16,7 @@ import (
 	"github.com/cplieger/access/account"
 	"github.com/cplieger/access/ratelimit"
 	"github.com/cplieger/access/totp"
+	"github.com/cplieger/access/webauthn"
 )
 
 // enrolTOTP runs BeginTOTP and FinishTOTP for pr's user with the new
@@ -651,6 +652,43 @@ func TestPasskeyChangesNeedAFactor(t *testing.T) {
 		cache.Drop(other)
 		if _, err := f.svc.PasskeyRegisterBegin(t.Context(), clientAt(1), pr, f.origin, proof); err != nil {
 			t.Errorf("the same assertion once a place freed = %v, want the ceremony: the refused begin spent its step-up", err)
+		}
+	})
+	// The relying party checks the origin before the proof is read, so a
+	// begin it refuses spends no code (RFC 6238 §5.2: a code is accepted
+	// once) and no step-up ceremony (WebAuthn L3 §7.1: the origin is the
+	// relying party's to refuse).
+	t.Run("register_begin_rejected_origin_spends_no_code", func(t *testing.T) {
+		t.Parallel()
+		f, u, _, _, secret := setup(t, account.Rules{})
+		pr := f.sessionPrincipal(t, u, time.Now())
+		code := codeNow(secret)
+		var oe *webauthn.OriginError
+		if _, err := f.svc.PasskeyRegisterBegin(t.Context(), clientAt(1), pr, rejectedOrigin(t), account.ProofCode(code)); !errors.As(err, &oe) {
+			t.Fatalf("PasskeyRegisterBegin at a rejected origin = %v, want *webauthn.OriginError", err)
+		}
+		if rec, _ := totpRecord(t, f.mem, u.ID); rec.LastStep != 0 {
+			t.Errorf("LastStep after the rejected origin = %d, want 0: the proof's code was spent", rec.LastStep)
+		}
+		if _, err := f.svc.PasskeyRegisterBegin(t.Context(), clientAt(1), pr, f.origin, account.ProofCode(code)); err != nil {
+			t.Errorf("the same code at the relying party's origin = %v, want the ceremony", err)
+		}
+	})
+	t.Run("register_begin_rejected_origin_keeps_the_step_up", func(t *testing.T) {
+		t.Parallel()
+		f, u, dev, _, _ := setup(t, account.Rules{})
+		pr := f.sessionPrincipal(t, u, time.Now())
+		pc, err := f.svc.StepUpPasskeyBegin(t.Context(), pr, f.origin)
+		if err != nil {
+			t.Fatalf("StepUpPasskeyBegin = %v", err)
+		}
+		proof := account.ProofPasskey(pc.ID, dev.Assert(browserJSON(t, pc.Assertion)))
+		var oe *webauthn.OriginError
+		if _, err := f.svc.PasskeyRegisterBegin(t.Context(), clientAt(1), pr, rejectedOrigin(t), proof); !errors.As(err, &oe) {
+			t.Fatalf("PasskeyRegisterBegin at a rejected origin = %v, want *webauthn.OriginError", err)
+		}
+		if _, err := f.svc.PasskeyRegisterBegin(t.Context(), clientAt(1), pr, f.origin, proof); err != nil {
+			t.Errorf("the same assertion at the relying party's origin = %v, want the ceremony: the rejected begin spent its step-up", err)
 		}
 	})
 	t.Run("remove", func(t *testing.T) {

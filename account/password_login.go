@@ -32,7 +32,6 @@ func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (
 		reenabled bool
 		temporary access.TemporaryPassword
 		unlock    func()
-		slotErr   error
 	)
 	defer func() {
 		if unlock != nil {
@@ -60,13 +59,11 @@ func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (
 			a.signIn, a.passwordOff = true, r.DisablePasswordLogin
 			return s.verifyCounted(ctx, a, canonical, in.Password, !res.Trusted())
 		},
-		reserve: func() *pendingSlot {
+		reserve: func() (*pendingSlot, error) {
 			if !a.viaTemporary {
-				return nil
+				return nil, nil
 			}
-			var slot *pendingSlot
-			slot, slotErr = s.pending.reserve(purposeSignIn, a.user.ID, s.now())
-			return slot
+			return s.pending.reserve(purposeSignIn, a.user.ID, s.now())
 		},
 		in: func(tx Tx) (*access.User, error) {
 			reenabled = false
@@ -82,11 +79,11 @@ func (s *Service) PasswordLogin(ctx context.Context, c Client, in Credentials) (
 			reenabled = cleared
 			return u, requireLocal(ctx, tx, u, ErrInvalidCredentials)
 		},
-		pend: func(tx Tx, j *journal, u *access.User) (*pending, error, error) {
+		pend: func(tx Tx, j *journal, u *access.User, full error) (*pending, error, error) {
 			if !a.viaTemporary {
 				return s.pendAt(ctx, tx, r, c, u, a.res.KnownDevice())
 			}
-			entry, refused, cleared, err := s.pendTemporary(ctx, tx, j, r, c, a, u, &temporary, slotErr)
+			entry, refused, cleared, err := s.pendTemporary(ctx, tx, j, r, c, a, u, &temporary, full)
 			reenabled = cleared
 			return entry, refused, err
 		},

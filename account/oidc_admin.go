@@ -53,7 +53,7 @@ func (s *Service) LinkPendingOIDCByAdmin(ctx context.Context, c Client, pl Pendi
 			return s.verifyAdminLink(ctx, res, &v, canonical, secret)
 		},
 		in: func(tx Tx) (*access.User, error) { return s.adminLinkUserIn(ctx, tx, &v) },
-		pend: func(tx Tx, _ *journal, u *access.User) (*pending, error, error) {
+		pend: func(tx Tx, _ *journal, u *access.User, _ error) (*pending, error, error) {
 			return s.adminLinkPend(ctx, tx, u, &v.rec, pl.Identity)
 		},
 		bind: func(tx Tx, j *journal, u *access.User, _ *access.Session) error {

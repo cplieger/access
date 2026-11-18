@@ -37,6 +37,17 @@ func newPK(t testing.TB, o pwOptions) *pkFixture {
 	return &pkFixture{pwFixture: newPW(t, o), rp: rp, origin: origin}
 }
 
+// rejectedOrigin is an origin on another site, which rpID's relying party
+// refuses (WebAuthn L3 §7.1: the origin must be one the relying party expects).
+func rejectedOrigin(t testing.TB) webauthn.Origin {
+	t.Helper()
+	origin, err := webauthn.ParseOrigin("https://other.test")
+	if err != nil {
+		t.Fatalf("ParseOrigin: %v", err)
+	}
+	return origin
+}
+
 // browserJSON is v as the browser hands it to the authenticator.
 func browserJSON(t testing.TB, v any) []byte {
 	t.Helper()

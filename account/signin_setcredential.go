@@ -52,7 +52,7 @@ func (s *Service) SetCredentialPassword(ctx context.Context, c Client, ticket, p
 			return prepErr
 		},
 		in: func(tx Tx) (*access.User, error) { return s.ticketUserIn(ctx, tx, &entry) },
-		pend: func(tx Tx, _ *journal, u *access.User) (*pending, error, error) {
+		pend: func(tx Tx, _ *journal, u *access.User, _ error) (*pending, error, error) {
 			if !r.RequireSecondFactor {
 				return nil, nil, nil
 			}
@@ -136,13 +136,13 @@ func (s *Service) writeStagedIn(ctx context.Context, tx Tx, j *journal, entry *p
 }
 
 // setAnswered settles a NextSetCredential step's answer in the cache: a
-// sign-in drops the user's tickets; a replacement drops the old ticket; a
-// refusal no retry of the ticket can pass (access.ErrTokenInvalid, an
-// empty enrolment set, a transport the replacement refuses) drops it.
+// sign-in drops the user's tickets; a replacement has already taken the old
+// ticket's place (replaceTicket); a refusal no retry of the ticket can pass
+// (access.ErrTokenInvalid, an empty enrolment set, a transport the
+// replacement refuses) drops it.
 func (s *Service) setAnswered(ticket access.Secret, entry *pending, out LoginResult, err error) (LoginResult, error) { //nolint:gocritic // hugeParam: the step's own result
 	switch {
 	case err == nil && out.Pending != nil:
-		s.pending.drop(ticket.Reveal())
 		return out, nil
 	case err == nil:
 		s.pending.dropUser(entry.user.ID)

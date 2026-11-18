@@ -155,13 +155,15 @@ type sessionOp struct {
 	// pend, when set, runs after in for its user and decides whether the
 	// sign-in completes now: nil and nil do; a pending entry to mint, or a
 	// refusal to answer, commits the Update with no session and pend's
-	// entries, so a correct first factor's failure reset stands.
-	pend func(tx Tx, j *journal, u *access.User) (entry *pending, refused, err error)
+	// entries, so a correct first factor's failure reset stands. full is
+	// reserve's refusal: pend answers it before spending anything, and
+	// complete never mints an entry pend returns while it is set.
+	pend func(tx Tx, j *journal, u *access.User, full error) (entry *pending, refused, err error)
 	// reserve, when set, runs after prepare and holds the place of the
 	// pending sign-in a pend that spends a single-use credential mints:
 	// complete fills it with pend's entry and releases it on every other
-	// answer. nil holds none.
-	reserve func() *pendingSlot
+	// answer. nil, nil holds none; a refusal reaches pend as full.
+	reserve func() (*pendingSlot, error)
 	// replaces is the live pending sign-in pend's entry replaces, taking
 	// its place (replaceTicket); zero mints a new one.
 	replaces access.Secret
@@ -210,13 +212,16 @@ func (s *Service) complete(ctx context.Context, r Rules, c Client, op *sessionOp
 	if err != nil {
 		return completion{}, err
 	}
-	var slot *pendingSlot
+	var (
+		slot *pendingSlot
+		full error
+	)
 	if op.reserve != nil {
-		slot = op.reserve()
+		slot, full = op.reserve()
 	}
 	defer slot.release()
 	d := s.newDraft(ctx, r, c, op)
-	user, entry, refused, err := s.writeSession(ctx, r, c, op, &d)
+	user, entry, refused, err := s.writeSession(ctx, r, c, op, &d, full)
 	switch {
 	case err != nil || user == nil && entry == nil && refused == nil:
 		if res != nil {
@@ -236,7 +241,7 @@ func (s *Service) complete(ctx context.Context, r Rules, c Client, op *sessionOp
 		if res != nil {
 			res.Cancel()
 		}
-		return s.heldBack(op, slot, user, entry)
+		return s.heldBack(op, slot, full, user, entry)
 	}
 	if res != nil {
 		res.Succeed()
@@ -246,8 +251,9 @@ func (s *Service) complete(ctx context.Context, r Rules, c Client, op *sessionOp
 
 // heldBack is complete's answer for a sign-in op.pend held back with entry,
 // its ticket stored in slot, in op.replaces' place, or minted; or, with
-// entry nil, for user waiting for approval.
-func (s *Service) heldBack(op *sessionOp, slot *pendingSlot, user *access.User, entry *pending) (completion, error) {
+// entry nil, for user waiting for approval. full, the reservation's
+// refusal, is answered instead of any ticket.
+func (s *Service) heldBack(op *sessionOp, slot *pendingSlot, full error, user *access.User, entry *pending) (completion, error) {
 	var (
 		minted *Pending
 		err    error
@@ -255,6 +261,8 @@ func (s *Service) heldBack(op *sessionOp, slot *pendingSlot, user *access.User, 
 	switch {
 	case entry == nil:
 		return completion{waiting: user.Clone()}, nil
+	case full != nil:
+		return completion{}, full
 	case slot != nil:
 		minted = entry.answer(slot.fill(*entry, s.now()))
 	case !op.replaces.IsZero():
@@ -295,7 +303,7 @@ func (op *sessionOp) admitAndPrepare() (*ratelimit.Reservation, error) {
 // replacement, the evictions and the entries; or, when op.pend holds the
 // sign-in back or the user waits for approval, op.announce's entries with no
 // session.
-func (s *Service) writeSession(ctx context.Context, r Rules, c Client, op *sessionOp, d *draft) (user *access.User, entry *pending, refused, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
+func (s *Service) writeSession(ctx context.Context, r Rules, c Client, op *sessionOp, d *draft, full error) (user *access.User, entry *pending, refused, err error) { //nolint:gocritic // hugeParam: the operation's one Rules value and Client
 	err = s.change(ctx, byClient(Actor{}, c), func(tx Tx, j *journal) error {
 		user, entry, refused = nil, nil, nil
 		u, inErr := op.in(tx)
@@ -303,7 +311,7 @@ func (s *Service) writeSession(ctx context.Context, r Rules, c Client, op *sessi
 			return inErr
 		}
 		var holdErr error
-		if entry, refused, holdErr = op.hold(tx, j, u); holdErr != nil || entry != nil || refused != nil {
+		if entry, refused, holdErr = op.hold(tx, j, u, full); holdErr != nil || entry != nil || refused != nil {
 			return holdErr
 		}
 		if completeErr := s.completeIn(ctx, tx, j, r, op, d, u); completeErr != nil {
@@ -337,13 +345,13 @@ func (s *Service) completeIn(ctx context.Context, tx Tx, j *journal, r Rules, op
 	return nil
 }
 
-// hold runs op.pend for u, when set, and journals op.announce's entries for
-// a sign-in it holds back.
-func (op *sessionOp) hold(tx Tx, j *journal, u *access.User) (entry *pending, refused, err error) {
+// hold runs op.pend for u with full, when set, and journals op.announce's
+// entries for a sign-in it holds back.
+func (op *sessionOp) hold(tx Tx, j *journal, u *access.User, full error) (entry *pending, refused, err error) {
 	if op.pend == nil {
 		return nil, nil, nil
 	}
-	if entry, refused, err = op.pend(tx, j, u); err != nil || entry == nil && refused == nil {
+	if entry, refused, err = op.pend(tx, j, u, full); err != nil || entry == nil && refused == nil {
 		return nil, nil, err
 	}
 	if op.announce != nil {

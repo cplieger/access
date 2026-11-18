@@ -103,7 +103,7 @@ The answer's `https_only` is true when the app also serves plain HTTP and the se
 
 ### Using it
 
-- The sign-in form checks a live temporary password first, normalised as a recovery code is. A correct one is spent at once, so its first correct entry is its only one.
+- The sign-in form checks a live temporary password first, normalised as a recovery code is. A correct one is spent when it opens the pending step that follows, so it opens that step only once.
 - The pending step that follows offers `password` and `passkey`. `SetCredentialPassword` (`authLoginSetPassword`) checks the chosen password as every password write does, and refuses the temporary password itself with reason `is_temporary_password`. `SetCredentialPasskeyBegin` and `SetCredentialPasskeyFinish` register a passkey instead.
 - Under `RequireSecondFactor`, the chosen password is written only with the second factor the next step enrols. An abandoned enrolment leaves the account with no password, and the person needs a new temporary password.
 - Under `Rules.DisablePasswordLogin`, the form still accepts a live temporary password, and the next step offers only `passkey`. An app whose recovery verb issues a temporary password while password sign-in is off turns it back on with the issue, so the secret leads to a password.
