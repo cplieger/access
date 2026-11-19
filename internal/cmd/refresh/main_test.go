@@ -22,6 +22,10 @@ import (
 // commits a refresh starts from.
 var moduleRoot = filepath.Join("..", "..", "..")
 
+// subjectMax is the fleet's cap on a squash-merge subject, which the pull
+// request title becomes.
+const subjectMax = 69
+
 // ciPaths is the access row of REPOS in cplieger/ci's
 // scripts/community_data_refresh.py: a proposal naming any other path is
 // refused there.
@@ -259,8 +263,11 @@ func TestRunProposesEveryChangedSource(t *testing.T) {
 		}
 	}
 	title, err := os.ReadFile(filepath.Join(out, "title"))
-	if want := "chore(deps): update the common-password list and the passkey AAGUID list\n"; err != nil || string(title) != want {
+	if want := "feat: update the common-password list and the passkey list\n"; err != nil || string(title) != want {
 		t.Errorf("title = %q, %v; want %q", title, err, want)
+	}
+	if n := len(title) - 1; n > subjectMax {
+		t.Errorf("title is %d characters, over the %d-character squash subject cap", n, subjectMax)
 	}
 	body, err := os.ReadFile(filepath.Join(out, "body.md"))
 	if err != nil {
@@ -328,7 +335,7 @@ func TestRunSkipsACommitThatLeavesTheDataAlone(t *testing.T) {
 		t.Errorf("proposal.json lists %q, want %q", changes, want)
 	}
 	title, err := os.ReadFile(filepath.Join(out, "title"))
-	if want := "chore(deps): update the passkey AAGUID list\n"; err != nil || string(title) != want {
+	if want := "feat: update the passkey list\n"; err != nil || string(title) != want {
 		t.Errorf("title = %q, %v; want %q", title, err, want)
 	}
 	body, err := os.ReadFile(filepath.Join(out, "body.md"))
@@ -359,7 +366,7 @@ func TestRunRefuses(t *testing.T) {
 		"another ref":              {gh: &fakeGitHub{heads: both, ref: "refs/heads/other"}, wantErr: `answered ref "refs/heads/other"`},
 		"a tag object":             {gh: &fakeGitHub{heads: both, typ: "tag"}, wantErr: `a tag, want a commit`},
 		"the blocklist generator":  {gh: &fakeGitHub{heads: both}, fail: "./internal/cmd/genblocklist", wantErr: "regenerate the common-password list: go run ./internal/cmd/genblocklist", wantCalls: 1},
-		"the AAGUID generator":     {gh: &fakeGitHub{heads: both}, fail: "./internal/cmd/genaaguids", wantErr: "regenerate the passkey AAGUID list: go run ./internal/cmd/genaaguids", wantCalls: 2},
+		"the AAGUID generator":     {gh: &fakeGitHub{heads: both}, fail: "./internal/cmd/genaaguids", wantErr: "regenerate the passkey list: go run ./internal/cmd/genaaguids", wantCalls: 2},
 		"a generator writing none": {gh: &fakeGitHub{heads: both}, fail: "none", wantErr: "no such file", wantCalls: 1},
 	} {
 		t.Run(name, func(t *testing.T) {

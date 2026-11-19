@@ -3,6 +3,8 @@ package blocklist
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -33,6 +35,39 @@ func TestBlocklistHeaderCommit(t *testing.T) {
 	want := "https://raw.githubusercontent.com/danielmiessler/SecLists/" + h.Commit + "/Passwords/Common-Credentials/"
 	if !strings.HasPrefix(h.URL, want) {
 		t.Errorf("common.txt header url = %s, want a SecLists password list at the header commit, %s...", h.URL, want)
+	}
+}
+
+func TestReadCommit(t *testing.T) {
+	t.Parallel()
+	h, _, err := Decode(common)
+	if err != nil {
+		t.Fatalf("Decode(common.txt): %v", err)
+	}
+	for name, tc := range map[string]struct {
+		commit  string
+		wantErr bool
+	}{
+		"40 lowercase hex": {commit: h.Commit},
+		"a branch name":    {commit: "master", wantErr: true},
+		"39 hex":           {commit: h.Commit[:39], wantErr: true},
+		"upper case":       {commit: strings.ToUpper(h.Commit), wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "common.txt")
+			data := strings.Replace(common, "# commit: "+h.Commit+"\n", "# commit: "+tc.commit+"\n", 1)
+			if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := ReadCommit(path)
+			switch {
+			case tc.wantErr && err == nil:
+				t.Errorf("ReadCommit with commit %q = %q, want an error", tc.commit, got)
+			case !tc.wantErr && (err != nil || got != tc.commit):
+				t.Errorf("ReadCommit = %q, %v; want %q", got, err, tc.commit)
+			}
+		})
 	}
 }
 

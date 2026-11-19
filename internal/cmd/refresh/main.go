@@ -10,10 +10,9 @@
 // and runs the source's generator at that head into a staging folder, so the
 // working tree is never written. A source whose regenerated files differ from
 // the committed ones only by the commit they name proposes nothing. <dir>
-// receives proposal.json listing the changed paths, their content under
-// files/, and the pull request's title and body.md when a path changed. Any
-// generator refusal fails the run with nothing written to <dir>. Run from the
-// module root.
+// receives proposal.json listing the changed paths and their content under
+// files/. Any generator refusal fails the run with nothing written to <dir>.
+// Run from the module root.
 package main
 
 import (
@@ -70,7 +69,7 @@ var sources = []*source{
 		recorded:  blocklist.ReadCommit,
 	},
 	{
-		name: "the passkey AAGUID list", repo: "passkeydeveloper/passkey-authenticator-aaguids", branch: "main",
+		name: "the passkey list", repo: "passkeydeveloper/passkey-authenticator-aaguids", branch: "main",
 		generator: "./internal/cmd/genaaguids",
 		outputs:   []output{{"-out", "webauthn/aaguids_gen.go"}, {"-snapshot", "webauthn/testdata/aaguid.json"}},
 		recorded:  aaguidgen.ReadCommit,
@@ -79,7 +78,8 @@ var sources = []*source{
 
 type goFunc func(ctx context.Context, dir string, report io.Writer, args ...string) error
 
-// change is a source whose data moves from one commit to another.
+// change is one source resolved from the commit its output records to the
+// head of its upstream branch.
 type change struct {
 	*source
 	content          map[string][]byte // by slash path, only the paths that changed
@@ -111,7 +111,6 @@ func run(ctx context.Context, w io.Writer, root, out string, api github, goRun g
 	return publish(w, out, changes, log.String())
 }
 
-// publish writes the proposal to out, then prints log to w.
 func publish(w io.Writer, out string, changes []*change, log string) error {
 	if err := write(out, changes); err != nil {
 		return err
@@ -165,9 +164,6 @@ func resolve(ctx context.Context, root string, api github) ([]*change, error) {
 		from, err := s.recorded(filepath.Join(root, filepath.FromSlash(s.outputs[0].path)))
 		if err != nil {
 			return nil, err
-		}
-		if !commitShape.MatchString(from) {
-			return nil, fmt.Errorf("%s records commit %q, not a 40-character lowercase commit", s.outputs[0].path, from)
 		}
 		to, err := api.head(ctx, s.repo, s.branch)
 		if err != nil {
@@ -259,14 +255,14 @@ func writeFiles(dir string, c *change) error {
 	return nil
 }
 
-// title is a chore(deps) subject so a merged refresh releases as the
-// dependency update it is (cliff.toml's Dependencies group).
+// title is a feat subject: a refresh changes which passwords access refuses
+// and which authenticator names it shows, so its merge cuts a release.
 func title(changes []*change) string {
 	names := make([]string, len(changes))
 	for i, c := range changes {
 		names[i] = c.name
 	}
-	return "chore(deps): update " + strings.Join(names, " and ")
+	return "feat: update " + strings.Join(names, " and ")
 }
 
 // reportMax keeps each generator report's tail, so two of them stay well
@@ -275,7 +271,7 @@ const reportMax = 8 << 10
 
 func body(changes []*change) string {
 	var b strings.Builder
-	b.WriteString("Regenerates access's community data at the newest upstream commits. Each file records the commit it came from, and `go generate ./...` regenerates it from that commit.\n")
+	b.WriteString("Regenerates access's community data at the newest upstream commits. `common.txt` and `aaguids_gen.go` record the commit they came from, and `go generate ./...` regenerates every file from those commits.\n")
 	for _, c := range changes {
 		fmt.Fprintf(&b, "\n## %s\n\n", strings.ToUpper(c.name[:1])+c.name[1:])
 		fmt.Fprintf(&b, "[%s](https://github.com/%s) `%s` moved from `%s` to `%s`: https://github.com/%s/compare/%s...%s\n\n", c.repo, c.repo, c.branch, c.from, c.to, c.repo, c.from, c.to)
