@@ -250,30 +250,40 @@ func TestGenerate_refuses_bad_commit(t *testing.T) {
 
 func TestReadCommit(t *testing.T) {
 	t.Parallel()
+	out, err := Generate([]byte(`{"`+validKey+`":{"name":"Vault"}}`), testCommit)
+	if err != nil {
+		t.Fatalf("Setup: Generate: %v", err)
+	}
+	generated := string(out.Source)
+	sourceLine := "// Source: " + SourceURL(testCommit) + "\n"
 	tests := []struct {
 		name    string
 		src     string
 		want    string
 		wantErr bool
 	}{
-		{name: "const", src: "package p\n\n// renovate: marker\nconst aaguidListCommit = \"" + testCommit + "\"\n", want: testCommit},
-		{name: "grouped", src: "package p\n\nconst (\n\tother = 1\n\taaguidListCommit = `" + testCommit + "`\n)\n", want: testCommit},
-		{name: "missing", src: "package p\n\nconst other = \"" + testCommit + "\"\n", wantErr: true},
-		{name: "var", src: "package p\n\nvar aaguidListCommit = \"" + testCommit + "\"\n", wantErr: true},
-		{name: "not_a_string", src: "package p\n\nconst aaguidListCommit = 7\n", wantErr: true},
-		{name: "branch_name", src: "package p\n\nconst aaguidListCommit = \"main\"\n", wantErr: true},
-		{name: "not_go", src: "aaguidListCommit = " + testCommit, wantErr: true},
+		{name: "generated", src: generated, want: testCommit},
+		{name: "no_source_line", src: strings.Replace(generated, sourceLine, "", 1), wantErr: true},
+		{name: "source_line_not_second", src: strings.Replace(generated, sourceLine, "", 1) + sourceLine, wantErr: true},
+		{name: "branch_name", src: strings.Replace(generated, testCommit, "main", 1), wantErr: true},
+		{name: "upper_case_commit", src: strings.Replace(generated, testCommit, strings.ToUpper(testCommit), 1), wantErr: true},
+		{name: "other_host", src: strings.Replace(generated, "raw.githubusercontent.com", "example.com", 1), wantErr: true},
+		{name: "other_file", src: strings.Replace(generated, "/aaguid.json", "/other.json", 1), wantErr: true},
+		{name: "empty", src: "", wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			path := filepath.Join(t.TempDir(), "source.go")
+			path := filepath.Join(t.TempDir(), "aaguids_gen.go")
 			writeFile(t, path, tc.src)
 			got, err := ReadCommit(path)
 			if got != tc.want || (err != nil) != tc.wantErr {
 				t.Errorf("ReadCommit(%q) = %q, %v, want %q, error %v", tc.src, got, err, tc.want, tc.wantErr)
 			}
 		})
+	}
+	if _, err := ReadCommit(filepath.Join(t.TempDir(), "missing.go")); err == nil {
+		t.Error("ReadCommit(a missing file) = nil error, want one")
 	}
 }
 

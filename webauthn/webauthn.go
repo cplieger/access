@@ -85,6 +85,8 @@ func (u *User) WebAuthnDisplayName() string {
 	return u.AuthUser.Username
 }
 
+//go:generate go run ../internal/cmd/genaaguids
+
 // aaguidEntry maps an authenticator AAGUID to a friendly name.
 type aaguidEntry struct {
 	UUID string

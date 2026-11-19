@@ -1,7 +1,8 @@
-// Command genaaguids regenerates webauthn/aaguids_gen.go from the community
-// list at the commit webauthn/aaguids_source.go pins; see internal/aaguidgen.
-// go generate runs it from the webauthn directory, which the default paths
-// are relative to.
+// Command genaaguids regenerates webauthn/aaguids_gen.go and its name-only
+// snapshot from the community list at -commit, or at the commit the current
+// aaguids_gen.go names on its Source line; see internal/aaguidgen. go
+// generate runs it from the webauthn directory, which the default paths are
+// relative to.
 package main
 
 import (
@@ -16,18 +17,27 @@ import (
 )
 
 func main() {
-	source := flag.String("source", "aaguids_source.go", "Go file declaring aaguidListCommit")
+	commit := flag.String("commit", "", "list commit to generate from (default: the one -out names)")
 	out := flag.String("out", "aaguids_gen.go", "generated Go file to replace")
 	snapshot := flag.String("snapshot", "testdata/aaguid.json", "name-only snapshot to replace")
 	flag.Parse()
-	if err := run(*source, aaguidgen.Paths{Out: *out, Snapshot: *snapshot}); err != nil {
+	if err := run(*commit, aaguidgen.Paths{Out: *out, Snapshot: *snapshot}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(source string, p aaguidgen.Paths) error {
-	commit, err := aaguidgen.ReadCommit(source)
+// commitFor returns commit, or when it is empty the commit the generated
+// file at out names.
+func commitFor(commit, out string) (string, error) {
+	if commit != "" {
+		return commit, nil
+	}
+	return aaguidgen.ReadCommit(out)
+}
+
+func run(commit string, p aaguidgen.Paths) error {
+	commit, err := commitFor(commit, p.Out)
 	if err != nil {
 		return err
 	}

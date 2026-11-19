@@ -9,6 +9,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,6 +19,8 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 )
+
+//go:generate go run ../cmd/genblocklist
 
 //go:embed common.txt
 var common string
@@ -131,6 +135,26 @@ func Decode(data string) (Header, []string, error) {
 		return Header{}, nil, fmt.Errorf("blocklist: the body holds %d entries, the header says %d", len(entries), h.Kept)
 	}
 	return h, entries, nil
+}
+
+var commitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+// ReadCommit returns the SecLists commit the header of the list file at path
+// records, refusing a file Decode refuses and a commit that is not 40
+// lowercase hex characters.
+func ReadCommit(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("blocklist: %w", err)
+	}
+	h, _, err := Decode(string(data))
+	if err != nil {
+		return "", fmt.Errorf("blocklist: %s: %w", path, err)
+	}
+	if !commitPattern.MatchString(h.Commit) {
+		return "", fmt.Errorf("blocklist: %s records commit %q, not a 40-character lowercase hash", path, h.Commit)
+	}
+	return h.Commit, nil
 }
 
 func decodeHeader(head string) (Header, error) {

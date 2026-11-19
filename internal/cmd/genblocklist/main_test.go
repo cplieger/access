@@ -240,3 +240,52 @@ func TestGenCaps(t *testing.T) {
 		t.Errorf("header source-sha256 = %s, want the whole body's", h.SourceSHA256)
 	}
 }
+
+func TestGenRefusesMalformedCommit(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("fetched %s, want no fetch for a malformed commit", r.URL)
+	}))
+	t.Cleanup(srv.Close)
+	for _, commit := range []string{"", "master", testCommit[:39], testCommit + "0", strings.ToUpper(testCommit), "../" + testCommit[3:]} {
+		dir := t.TempDir()
+		out := filepath.Join(dir, "common.txt")
+		err := run(t.Context(), testFetcher(srv.URL+"/"), commit, out, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), "is not a 40-character lowercase hash") {
+			t.Errorf("run(commit %q) = %v, want the commit refusal", commit, err)
+		}
+		if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+			t.Errorf("run(commit %q) left %d files, want none", commit, len(entries))
+		}
+	}
+}
+
+func TestCommitFor(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	recorded := filepath.Join(dir, "common.txt")
+	h := blocklist.Header{URL: "https://example.test/list.txt", Commit: testCommit, MinRunes: 15, SourceEntries: 1, Survivors: 1, SourceSHA256: strings.Repeat("0", 64)}
+	if err := os.WriteFile(recorded, blocklist.Encode(&h, []string{"survivor-000000"}), 0o600); err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+	malformed := filepath.Join(dir, "malformed.txt")
+	if err := os.WriteFile(malformed, []byte("# commit: "+testCommit+"\n"), 0o600); err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+	other := strings.Repeat("cd", 20)
+	cases := []struct {
+		name, commit, out, want string
+		wantErr                 bool
+	}{
+		{name: "the given commit", commit: other, out: recorded, want: other},
+		{name: "the recorded commit", out: recorded, want: testCommit},
+		{name: "no output to read", out: filepath.Join(dir, "missing.txt"), wantErr: true},
+		{name: "a malformed output", out: malformed, wantErr: true},
+	}
+	for _, tc := range cases {
+		got, err := commitFor(tc.commit, tc.out)
+		if got != tc.want || (err != nil) != tc.wantErr {
+			t.Errorf("%s: commitFor(%q, %s) = %q, %v, want %q, error %v", tc.name, tc.commit, filepath.Base(tc.out), got, err, tc.want, tc.wantErr)
+		}
+	}
+}

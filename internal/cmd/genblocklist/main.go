@@ -1,7 +1,7 @@
 // Command genblocklist regenerates internal/blocklist/common.txt from the
-// SecLists password lists at blocklist.SeclistsCommit. go generate runs it
-// from the internal/blocklist directory, which the default -out path is
-// relative to.
+// SecLists password lists at -commit, or at the commit the current
+// common.txt's header records. go generate runs it from the
+// internal/blocklist directory, which the default -out path is relative to.
 package main
 
 import (
@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 	"unicode/utf8"
 
@@ -29,6 +30,8 @@ const (
 	maxKept        = 20_000
 	maxSourceBytes = 128 << 20 // the larger list is about 48 MB
 )
+
+var commitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 // sourceFiles is tried in order; a file with fewer than minSurvivors
 // survivors falls back to the next.
@@ -46,26 +49,43 @@ type fetcher struct {
 }
 
 func main() {
+	commit := flag.String("commit", "", "SecLists commit to generate from (default: the one -out's header records)")
 	out := flag.String("out", "common.txt", "list file to replace")
 	flag.Parse()
-	if err := generate(*out); err != nil {
+	if err := generate(*commit, *out); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func generate(out string) error {
+func generate(commit, out string) error {
+	commit, err := commitFor(commit, out)
+	if err != nil {
+		return err
+	}
 	f := fetcher{
 		client:  &http.Client{Timeout: 5 * time.Minute},
 		baseURL: rawBaseURL,
 		maxBody: maxSourceBytes,
 	}
-	return run(context.Background(), f, blocklist.SeclistsCommit, out, os.Stderr)
+	return run(context.Background(), f, commit, out, os.Stderr)
+}
+
+// commitFor returns commit, or when it is empty the commit out's header
+// records.
+func commitFor(commit, out string) (string, error) {
+	if commit != "" {
+		return commit, nil
+	}
+	return blocklist.ReadCommit(out)
 }
 
 // run generates from the first source file at commit with enough survivors
 // and replaces out by rename. Every refusal writes nothing.
 func run(ctx context.Context, f fetcher, commit, out string, report io.Writer) error {
+	if !commitPattern.MatchString(commit) {
+		return fmt.Errorf("genblocklist: commit %q is not a 40-character lowercase hash", commit)
+	}
 	for _, file := range sourceFiles {
 		url := f.baseURL + commit + "/" + sourceDir + file
 		h, entries, err := f.filter(ctx, url)
