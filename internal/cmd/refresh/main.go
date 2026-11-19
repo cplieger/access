@@ -5,11 +5,11 @@
 //
 //	go run ./internal/cmd/refresh -out <dir>
 //
-// It reads the commit each committed output records, resolves the upstream
-// head through the GitHub API (GITHUB_TOKEN, when set, authenticates it),
-// and runs the source's generator at that head into a staging folder, so the
-// working tree is never written. A source whose regenerated files differ from
-// the committed ones only by the commit they name proposes nothing. <dir>
+// It reads the commit common.txt and aaguids_gen.go record, resolves the
+// upstream head through the GitHub API (GITHUB_TOKEN, when set, authenticates
+// it), and runs the source's generator at that head into a staging folder, so
+// the working tree is never written. A source whose regenerated files differ
+// from the committed ones only by the commit they name proposes nothing. <dir>
 // receives proposal.json listing the changed paths and their content under
 // files/. Any generator refusal fails the run with nothing written to <dir>.
 // Run from the module root.

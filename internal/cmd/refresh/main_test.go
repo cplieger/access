@@ -22,7 +22,7 @@ import (
 // commits a refresh starts from.
 var moduleRoot = filepath.Join("..", "..", "..")
 
-// subjectMax is the fleet's cap on a squash-merge subject, which the pull
+// subjectMax is the shared cap on a squash-merge subject, which the pull
 // request title becomes.
 const subjectMax = 69
 
