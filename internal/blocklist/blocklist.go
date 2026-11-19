@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,6 +18,8 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 )
+
+//go:generate go run ../cmd/genblocklist
 
 //go:embed common.txt
 var common string
@@ -131,6 +134,20 @@ func Decode(data string) (Header, []string, error) {
 		return Header{}, nil, fmt.Errorf("blocklist: the body holds %d entries, the header says %d", len(entries), h.Kept)
 	}
 	return h, entries, nil
+}
+
+// ReadCommit returns the SecLists commit the header of the list file at path
+// records, refusing a file Decode refuses.
+func ReadCommit(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("blocklist: %w", err)
+	}
+	h, _, err := Decode(string(data))
+	if err != nil {
+		return "", fmt.Errorf("blocklist: %s: %w", path, err)
+	}
+	return h.Commit, nil
 }
 
 func decodeHeader(head string) (Header, error) {

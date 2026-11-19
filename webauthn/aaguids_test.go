@@ -31,27 +31,23 @@ func readSnapshot(t *testing.T) ([]byte, map[string]string) {
 func TestKnownAAGUIDTable_in_sync(t *testing.T) {
 	t.Parallel()
 	snapshot, _ := readSnapshot(t)
-	out, err := aaguidgen.Generate(snapshot, aaguidListCommit)
+	commit, err := aaguidgen.ReadCommit("aaguids_gen.go")
 	if err != nil {
-		t.Fatalf("aaguidgen.Generate(testdata/aaguid.json, %s): %v", aaguidListCommit, err)
+		t.Fatalf("aaguidgen.ReadCommit(aaguids_gen.go): %v", err)
+	}
+	out, err := aaguidgen.Generate(snapshot, commit)
+	if err != nil {
+		t.Fatalf("aaguidgen.Generate(testdata/aaguid.json, %s): %v", commit, err)
 	}
 	src, err := os.ReadFile("aaguids_gen.go")
 	if err != nil {
 		t.Fatalf("Setup: read aaguids_gen.go: %v", err)
 	}
 	if !bytes.Equal(src, out.Source) {
-		t.Errorf(`aaguids_gen.go differs from aaguidgen.Generate(testdata/aaguid.json, %s); run "go generate ./webauthn"`, aaguidListCommit)
+		t.Errorf(`aaguids_gen.go differs from aaguidgen.Generate(testdata/aaguid.json, %s); run "go generate ./webauthn"`, commit)
 	}
 	if !bytes.Equal(snapshot, out.Snapshot) {
 		t.Errorf(`testdata/aaguid.json is not in generator form; run "go generate ./webauthn"`)
-	}
-}
-
-func TestAAGUIDListCommit_is_readable_by_the_generator(t *testing.T) {
-	t.Parallel()
-	got, err := aaguidgen.ReadCommit("aaguids_source.go")
-	if got != aaguidListCommit || err != nil {
-		t.Errorf("aaguidgen.ReadCommit(aaguids_source.go) = %q, %v, want %q, nil", got, err, aaguidListCommit)
 	}
 }
 

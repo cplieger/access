@@ -21,10 +21,18 @@ func TestBlocklistSize(t *testing.T) {
 	}
 }
 
-func TestSeclistsCommitShape(t *testing.T) {
+func TestBlocklistHeaderCommit(t *testing.T) {
 	t.Parallel()
-	if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(SeclistsCommit) {
-		t.Errorf("SeclistsCommit = %q, want a 40-character lowercase hex commit", SeclistsCommit)
+	h, _, err := Decode(common)
+	if err != nil {
+		t.Fatalf("Decode(common.txt): %v", err)
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(h.Commit) {
+		t.Errorf("common.txt header commit = %q, want a 40-character lowercase hex commit", h.Commit)
+	}
+	want := "https://raw.githubusercontent.com/danielmiessler/SecLists/" + h.Commit + "/Passwords/Common-Credentials/"
+	if !strings.HasPrefix(h.URL, want) {
+		t.Errorf("common.txt header url = %s, want a SecLists password list at the header commit, %s...", h.URL, want)
 	}
 }
 
@@ -33,12 +41,6 @@ func TestBlocklistInSync(t *testing.T) {
 	h, entries, err := Decode(common)
 	if err != nil {
 		t.Fatalf("Decode(common.txt): %v", err)
-	}
-	if h.Commit != SeclistsCommit {
-		t.Errorf(`common.txt header commit = %s, SeclistsCommit = %s; run "go generate ./internal/blocklist"`, h.Commit, SeclistsCommit)
-	}
-	if !strings.Contains(h.URL, "/"+SeclistsCommit+"/") {
-		t.Errorf("common.txt header url %s is not at SeclistsCommit %s", h.URL, SeclistsCommit)
 	}
 	_, body, _ := strings.Cut(common, "\n\n")
 	sum := sha256.Sum256([]byte(body))

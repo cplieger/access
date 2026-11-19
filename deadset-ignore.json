@@ -3,12 +3,6 @@
   "ignore": [
     {
       "code": "DS1102",
-      "symbol": "go://github.com/cplieger/access/webauthn#aaguidListCommit",
-      "path": "webauthn/aaguids_source.go",
-      "reason": "go generate reads this pin by parsing the file, and Renovate bumps it."
-    },
-    {
-      "code": "DS1102",
       "symbol": "go://github.com/cplieger/access/accesshttp#pathID.typ",
       "path": "accesshttp/descriptor.go",
       "reason": "A route fact kept on the route spec for the endpoint export; until it ships, the descriptor tests are its only reader."
