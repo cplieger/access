@@ -40,7 +40,7 @@
   "devDependencies": {
     "@cplieger/reactive": "2.4.0",
     "@eslint/js": "10.0.1",
-    "@types/node": "26.6.6",
+    "@types/node": "26.6.7",
     "@typescript/native": "npm:typescript@7.0.2",
     "@vitest/browser-playwright": "5.1.1",
     "eslint": "10.15.0",
